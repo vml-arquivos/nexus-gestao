@@ -5,6 +5,84 @@ import { query, queryOne } from '../db/pool'
 const router = Router()
 router.use(authMiddleware)
 
+const RECORRENCIAS = ['nenhum', 'semanal', 'quinzenal', 'mensal', 'anual'] as const
+
+type Recorrencia = typeof RECORRENCIAS[number]
+
+function isRecorrencia(v: unknown): v is Recorrencia {
+  return typeof v === 'string' && (RECORRENCIAS as readonly string[]).includes(v)
+}
+
+function normalizeDateList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const date = item.trim().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    if (seen.has(date)) continue
+    seen.add(date)
+    out.push(date)
+  }
+
+  return out.sort()
+}
+
+function addRecurrenceDate(base: Date, recorrencia: Recorrencia) {
+  switch (recorrencia) {
+    case 'semanal':
+      base.setDate(base.getDate() + 7)
+      break
+    case 'quinzenal':
+      base.setDate(base.getDate() + 14)
+      break
+    case 'mensal':
+      base.setMonth(base.getMonth() + 1)
+      break
+    case 'anual':
+      base.setFullYear(base.getFullYear() + 1)
+      break
+  }
+}
+
+function buildRecurringDates(vencimento: string | undefined, recorrencia: Recorrencia, recorrenciaFim?: string): string[] {
+  if (!vencimento || recorrencia === 'nenhum') return []
+
+  const current = new Date(`${vencimento}T00:00:00`)
+  const limitDate = recorrenciaFim
+    ? new Date(`${recorrenciaFim}T00:00:00`)
+    : (() => {
+        const d = new Date(current)
+        switch (recorrencia) {
+          case 'semanal':
+            d.setDate(d.getDate() + 7 * 11)
+            break
+          case 'quinzenal':
+            d.setDate(d.getDate() + 14 * 11)
+            break
+          case 'mensal':
+            d.setMonth(d.getMonth() + 11)
+            break
+          case 'anual':
+            d.setFullYear(d.getFullYear() + 11)
+            break
+        }
+        return d
+      })()
+
+  const dates: string[] = []
+  while (true) {
+    addRecurrenceDate(current, recorrencia)
+    if (current > limitDate) break
+    dates.push(current.toISOString().slice(0, 10))
+    if (dates.length >= 120) break
+  }
+
+  return dates
+}
+
 // GET /api/pagamentos
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -96,13 +174,8 @@ router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => 
          pg.pessoa_id,
          COALESCE(p.nome, pg.pessoa_nome, 'Sem pessoa') AS pessoa_nome,
 
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'pagamento'
-         ), 0) AS devo,
-
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'recebimento'
-         ), 0) AS me_devem,
+         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'pagamento'), 0) AS devo,
+         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'recebimento'), 0) AS me_devem,
 
          COALESCE(SUM(pg.valor) FILTER (
            WHERE pg.tipo = 'pagamento' AND pg.status = 'pendente'
@@ -139,7 +212,7 @@ router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => 
          pg.pessoa_nome
 
        ORDER BY
-         (COALESCE(SUM(pg.valor) FILTER (WHERE pg.status = 'pendente'), 0)) DESC,
+         COALESCE(SUM(pg.valor) FILTER (WHERE pg.status = 'pendente'), 0) DESC,
          pessoa_nome ASC`,
       [orgId]
     )
@@ -182,6 +255,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       obs,
       recorrencia = 'nenhum',
       recorrencia_fim,
+      datas_personalizadas,
     } = req.body
 
     if (!titulo?.trim()) {
@@ -199,14 +273,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
-    const allowedRec = ['nenhum', 'semanal', 'quinzenal', 'mensal', 'anual']
-    if (!allowedRec.includes(recorrencia)) {
+    if (!isRecorrencia(recorrencia)) {
       res.status(400).json({ error: 'Recorrência inválida.' })
       return
     }
 
-    const baseVenc = vencimento ? new Date(`${vencimento}T00:00:00`) : null
-    const fimRec = recorrencia_fim ? new Date(`${recorrencia_fim}T00:00:00`) : null
+    const customDates = normalizeDateList(datas_personalizadas)
+    const mainVencimento = vencimento || customDates[0] || null
 
     const pag = await queryOne(
       `INSERT INTO pagamentos (
@@ -237,7 +310,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         parseFloat(String(valor)),
         tipo,
         status,
-        vencimento || null,
+        mainVencimento,
         pago_em || null,
         pessoa_id || null,
         pessoa_nome || null,
@@ -249,54 +322,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       ]
     )
 
-    const recs: string[] = []
+    const generatedDates = new Set<string>()
 
-    if (recorrencia !== 'nenhum' && baseVenc) {
-      const current = new Date(baseVenc)
-
-      const limitDate =
-        fimRec ||
-        (() => {
-          const d = new Date(baseVenc)
-          switch (recorrencia) {
-            case 'semanal':
-              d.setDate(d.getDate() + 7 * 11)
-              break
-            case 'quinzenal':
-              d.setDate(d.getDate() + 14 * 11)
-              break
-            case 'mensal':
-              d.setMonth(d.getMonth() + 11)
-              break
-            case 'anual':
-              d.setFullYear(d.getFullYear() + 11)
-              break
-          }
-          return d
-        })()
-
-      while (true) {
-        switch (recorrencia) {
-          case 'semanal':
-            current.setDate(current.getDate() + 7)
-            break
-          case 'quinzenal':
-            current.setDate(current.getDate() + 14)
-            break
-          case 'mensal':
-            current.setMonth(current.getMonth() + 1)
-            break
-          case 'anual':
-            current.setFullYear(current.getFullYear() + 1)
-            break
-        }
-
-        if (current > limitDate) break
-        recs.push(current.toISOString().split('T')[0])
-      }
+    for (const date of customDates) {
+      if (date !== mainVencimento) generatedDates.add(date)
     }
 
-    for (const venc of recs) {
+    for (const date of buildRecurringDates(mainVencimento || undefined, recorrencia, recorrencia_fim || undefined)) {
+      if (date !== mainVencimento) generatedDates.add(date)
+    }
+
+    for (const venc of Array.from(generatedDates).sort()) {
       await queryOne(
         `INSERT INTO pagamentos (
            org_id,
