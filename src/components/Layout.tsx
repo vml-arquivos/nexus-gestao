@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -20,6 +20,7 @@ import {
   CalendarPlus,
   WalletCards,
   UploadCloud,
+  Settings,
 } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
 
@@ -33,48 +34,17 @@ const NAV = [
   { path: "/relatorios", icon: BarChart3, label: "Relatórios" },
 ];
 
-// Ações rápidas do botão "+"
 const QUICK_ACTIONS = [
-  {
-    path: "/tarefas",
-    label: "Nova Tarefa",
-    icon: CheckCircle2,
-    color: "#7C3AED",
-  },
-  {
-    path: "/agenda",
-    label: "Novo Evento",
-    icon: CalendarPlus,
-    color: "#0891B2",
-  },
-  {
-    path: "/financeiro",
-    label: "Novo Pagamento",
-    icon: WalletCards,
-    color: "#059669",
-  },
-  { path: "/pessoas", label: "Novo Contato", icon: Users, color: "#D97706" },
-  {
-    path: "/documentos",
-    label: "Novo Arquivo",
-    icon: UploadCloud,
-    color: "#DC2626",
-  },
-  {
-    path: "/compartilhar",
-    label: "Compartilhar",
-    icon: UploadCloud,
-    color: "#4F46E5",
-  },
+  { path: "/tarefas",    label: "Nova Tarefa",     icon: CheckCircle2, color: "#7C3AED" },
+  { path: "/agenda",     label: "Novo Evento",     icon: CalendarPlus, color: "#0891B2" },
+  { path: "/financeiro", label: "Novo Pagamento",  icon: WalletCards,  color: "#059669" },
+  { path: "/pessoas",    label: "Novo Contato",    icon: Users,        color: "#D97706" },
+  { path: "/documentos", label: "Novo Arquivo",    icon: UploadCloud,  color: "#DC2626" },
+  { path: "/compartilhar", label: "Compartilhar",  icon: UploadCloud,  color: "#4F46E5" },
 ];
 
-// Bottom nav: 4 itens fixos + botão "+" central + botão "Mais"
-const BOTTOM_MAIN = [
-  NAV[0], // Início
-  NAV[2], // Tarefas
-  NAV[4], // Financeiro
-  NAV[3], // Agenda
-];
+// Bottom nav: 4 itens fixos + FAB central + Mais
+const BOTTOM_MAIN = [NAV[0], NAV[2], NAV[4], NAV[3]];
 
 export default function Layout() {
   const { pathname } = useLocation();
@@ -84,33 +54,42 @@ export default function Layout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
+  // Controla a barra de status iOS via meta tag dinâmica
+  const [, setScrolled] = useState(false);
 
   const notifCount = 0;
   const pendingTasks = 0;
   const overduePayments = 0;
 
   const initials = user?.nome
-    ? user.nome
-        .split(" ")
-        .map((n: string) => n[0])
-        .slice(0, 2)
-        .join("")
-        .toUpperCase()
+    ? user.nome.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()
     : "NX";
+
+  // Fecha menus ao mudar de rota
+  useEffect(() => {
+    closeAll();
+  }, [pathname]);
+
+  // Detecta scroll para glassmorphism na topbar
+  useEffect(() => {
+    const el = document.querySelector('.page-content');
+    if (!el) return;
+    const handler = () => setScrolled(el.scrollTop > 10);
+    el.addEventListener('scroll', handler, { passive: true });
+    return () => el.removeEventListener('scroll', handler);
+  }, []);
 
   function closeAll() {
     setMoreOpen(false);
     setFabOpen(false);
     setNotifOpen(false);
+    setSidebarOpen(false);
   }
 
   function handleQuickAction(path: string) {
     navigate(path);
     closeAll();
-    setTimeout(
-      () => window.dispatchEvent(new CustomEvent("nexus:open-new")),
-      120,
-    );
+    setTimeout(() => window.dispatchEvent(new CustomEvent("nexus:open-new")), 120);
   }
 
   async function handleSignOut() {
@@ -120,71 +99,49 @@ export default function Layout() {
 
   return (
     <div className="app-shell">
-      {/* Overlay: fecha menus mobile */}
+      {/* ── Overlay: fecha menus mobile ── */}
       {(sidebarOpen || moreOpen || fabOpen) && (
         <div
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.55)",
-            zIndex: 49,
-            backdropFilter: "blur(3px)",
+            background: "rgba(0,0,0,0.60)",
+            zIndex: 54,
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
           }}
           onClick={closeAll}
         />
       )}
 
-      {/* ══════════════════════════════════════════
-          SIDEBAR (desktop + hamburguer mobile)
-      ══════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════
+          SIDEBAR (desktop + drawer mobile)
+      ═══════════════════════════════════════════ */}
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         {/* Logo */}
-        <div
-          style={{
-            padding: "20px 16px 12px",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
+        <div style={{ padding: "20px 16px 14px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                background: "var(--grad-primary)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
+            <div style={{
+              width: 38, height: 38, borderRadius: 12,
+              background: "var(--grad-primary)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(108,59,255,0.4)",
+            }}>
               <Zap size={18} color="#fff" />
             </div>
             <div>
-              <div
-                style={{
-                  fontFamily: "var(--font-heading)",
-                  fontWeight: 800,
-                  fontSize: 18,
-                  letterSpacing: "-0.03em",
-                }}
-              >
+              <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18, letterSpacing: "-0.03em" }}>
                 <span className="text-gradient">Nexus</span>
               </div>
-              <div
-                style={{ fontSize: 10, color: "var(--text3)", fontWeight: 500 }}
-              >
-                Gestão Inteligente
-              </div>
+              <div style={{ fontSize: 10, color: "var(--text3)", fontWeight: 500 }}>Gestão Inteligente</div>
             </div>
           </div>
         </div>
 
         {/* Nav items */}
-        <nav style={{ flex: 1, padding: "8px 0", overflowY: "auto" }}>
-          <div style={{ padding: "8px 8px 4px" }}>
-            <div className="section-title" style={{ padding: "0 8px" }}>
-              Menu
-            </div>
+        <nav style={{ flex: 1, padding: "10px 0", overflowY: "auto" }}>
+          <div style={{ padding: "6px 8px 2px" }}>
+            <div className="section-title" style={{ padding: "0 8px" }}>Menu</div>
           </div>
           {NAV.map(({ path, icon: Icon, label }) => (
             <Link
@@ -193,79 +150,44 @@ export default function Layout() {
               className={`sidebar-item ${pathname === path ? "active" : ""}`}
               onClick={() => setSidebarOpen(false)}
             >
-              <Icon size={18} />
+              <Icon size={17} />
               <span>{label}</span>
             </Link>
           ))}
+          <div style={{ margin: "8px 16px 0", borderTop: "1px solid var(--border)" }} />
+          <Link
+            to="/configuracoes"
+            className={`sidebar-item ${pathname === "/configuracoes" ? "active" : ""}`}
+            onClick={() => setSidebarOpen(false)}
+          >
+            <Settings size={17} />
+            <span>Configurações</span>
+          </Link>
         </nav>
 
         {/* User */}
-        <div
-          style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}
-        >
+        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                background: "linear-gradient(135deg,#6C3BFF,#06B6D4)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontFamily: "var(--font-heading)",
-                fontWeight: 700,
-                fontSize: 13,
-                color: "#fff",
-                flexShrink: 0,
-              }}
-            >
+            <div style={{
+              width: 36, height: 36, borderRadius: 10,
+              background: "linear-gradient(135deg,#6C3BFF,#06B6D4)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 13, color: "#fff",
+              flexShrink: 0,
+            }}>
               {initials}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--text)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {user?.nome || "Usuário"}
               </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text3)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                }}
-              >
-                {user?.role === "gestor" ? (
-                  <>
-                    {" "}
-                    <Crown size={11} /> Gestor
-                  </>
-                ) : (
-                  <>
-                    {" "}
-                    <UserRound size={11} /> Membro
-                  </>
-                )}
+              <div style={{ fontSize: 11, color: "var(--text3)", display: "flex", alignItems: "center", gap: 4 }}>
+                {user?.role === "gestor" ? <><Crown size={11} /> Gestor</> : <><UserRound size={11} /> Membro</>}
               </div>
             </div>
             <button
               onClick={handleSignOut}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--text3)",
-                cursor: "pointer",
-                padding: 4,
-              }}
+              style={{ background: "none", border: "none", color: "var(--text3)", cursor: "pointer", padding: 4, borderRadius: 6 }}
               title="Sair"
             >
               <LogOut size={16} />
@@ -274,138 +196,74 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════════
+      {/* ═══════════════════════════════════════════
           MAIN CONTENT
-      ══════════════════════════════════════════ */}
+      ═══════════════════════════════════════════ */}
       <div className="main-content">
         {/* TOPBAR */}
         <header className="topbar">
+          {/* Hamburguer — só mobile */}
           <button
             className="btn btn-ghost btn-icon"
             style={{ display: "none" }}
             id="menu-toggle"
-            onClick={() => {
-              closeAll();
-              setSidebarOpen(true);
-            }}
+            onClick={() => { closeAll(); setSidebarOpen(true); }}
           >
             <Menu size={20} />
           </button>
-          <style>{`@media(max-width:768px){#menu-toggle{display:flex}}`}</style>
+          <style>{`@media(max-width:768px){#menu-toggle{display:flex!important}}`}</style>
 
-          {/* Mobile logo */}
-          <div
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
-            id="mobile-logo"
-          >
-            <style>{`@media(min-width:769px){#mobile-logo{display:none}}`}</style>
-            <Zap size={18} color="var(--primary-light)" />
-            <span
-              style={{
-                fontFamily: "var(--font-heading)",
-                fontWeight: 800,
-                fontSize: 16,
-              }}
-              className="text-gradient"
-            >
+          {/* Logo mobile */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }} id="mobile-logo">
+            <style>{`@media(min-width:769px){#mobile-logo{display:none!important}}`}</style>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: "var(--grad-primary)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Zap size={14} color="#fff" />
+            </div>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 16 }} className="text-gradient">
               Nexus
             </span>
           </div>
 
-          {/* Page title desktop */}
+          {/* Título da página — desktop */}
           <div style={{ flex: 1 }} id="desktop-breadcrumb">
-            <style>{`@media(max-width:768px){#desktop-breadcrumb{display:none}}`}</style>
-            <span
-              style={{ fontSize: 13, color: "var(--text3)", fontWeight: 500 }}
-            >
+            <style>{`@media(max-width:768px){#desktop-breadcrumb{display:none!important}}`}</style>
+            <span style={{ fontSize: 13, color: "var(--text3)", fontWeight: 500 }}>
               {NAV.find((n) => n.path === pathname)?.label ?? "Nexus"}
             </span>
           </div>
 
           <div style={{ flex: 1 }} />
 
-          {/* Notifications */}
+          {/* Notificações */}
           <div style={{ position: "relative" }}>
             <button
               className="btn btn-ghost btn-icon"
-              onClick={() => {
-                closeAll();
-                setNotifOpen(!notifOpen);
-              }}
+              onClick={() => { closeAll(); setNotifOpen(!notifOpen); }}
               style={{ position: "relative" }}
             >
               <Bell size={18} />
               {notifCount > 0 && (
-                <span className="notif-badge">
-                  {notifCount > 9 ? "9+" : notifCount}
-                </span>
+                <span className="notif-badge">{notifCount > 9 ? "9+" : notifCount}</span>
               )}
             </button>
             {notifOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "110%",
-                  right: 0,
-                  background: "var(--bg2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius)",
-                  padding: 12,
-                  minWidth: 280,
-                  boxShadow: "var(--shadow-lg)",
-                  zIndex: 60,
-                }}
-              >
-                <div
-                  style={{
-                    fontFamily: "var(--font-heading)",
-                    fontWeight: 700,
-                    fontSize: 14,
-                    marginBottom: 10,
-                  }}
-                >
+              <div style={{
+                position: "absolute", top: "110%", right: 0,
+                background: "var(--bg2)", border: "1px solid var(--border)",
+                borderRadius: "var(--radius)", padding: 12, minWidth: 280,
+                boxShadow: "var(--shadow-lg)", zIndex: 60,
+                animation: "slideDown 0.18s ease both",
+              }}>
+                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
                   Notificações
                 </div>
-                {pendingTasks > 0 && (
-                  <div
-                    style={{
-                      padding: "8px 10px",
-                      background: "var(--bg3)",
-                      borderRadius: 8,
-                      marginBottom: 6,
-                      fontSize: 13,
-                    }}
-                  >
-                    <CheckCircle2 size={14} /> <strong>{pendingTasks}</strong>{" "}
-                    tarefa{pendingTasks > 1 ? "s" : ""} pendente
-                    {pendingTasks > 1 ? "s" : ""}
-                  </div>
-                )}
-                {overduePayments > 0 && (
-                  <div
-                    style={{
-                      padding: "8px 10px",
-                      background: "rgba(239,68,68,0.1)",
-                      borderRadius: 8,
-                      marginBottom: 6,
-                      fontSize: 13,
-                    }}
-                  >
-                    <DollarSign size={14} /> <strong>{overduePayments}</strong>{" "}
-                    pagamento{overduePayments > 1 ? "s" : ""} vencido
-                    {overduePayments > 1 ? "s" : ""}
-                  </div>
-                )}
                 {notifCount === 0 && (
-                  <div
-                    style={{
-                      color: "var(--text3)",
-                      fontSize: 13,
-                      textAlign: "center",
-                      padding: "8px 0",
-                    }}
-                  >
-                    Tudo em dia.
+                  <div style={{ color: "var(--text3)", fontSize: 13, textAlign: "center", padding: "8px 0" }}>
+                    Tudo em dia ✓
                   </div>
                 )}
               </div>
@@ -413,38 +271,28 @@ export default function Layout() {
           </div>
 
           {/* Avatar */}
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 10,
-              background: "linear-gradient(135deg,#6C3BFF,#06B6D4)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "var(--font-heading)",
-              fontWeight: 700,
-              fontSize: 12,
-              color: "#fff",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
+          <div style={{
+            width: 32, height: 32, borderRadius: 9,
+            background: "linear-gradient(135deg,#6C3BFF,#06B6D4)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: 12,
+            color: "#fff", cursor: "pointer", flexShrink: 0,
+          }}>
             {initials}
           </div>
         </header>
 
-        {/* PAGE CONTENT — Outlet renderiza a rota filha */}
+        {/* CONTEÚDO DA PÁGINA */}
         <main className="page-content">
           <Outlet />
         </main>
       </div>
 
-      {/* ══════════════════════════════════════════
-          BOTTOM NAV MOBILE — 4 itens + FAB + Mais
-      ══════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════
+          BOTTOM NAV — ESTILO APP NATIVO iOS/Android
+      ═══════════════════════════════════════════ */}
       <nav className="bottom-nav">
-        {/* Itens da esquerda: Início e Tarefas */}
+        {/* Itens esquerda */}
         {BOTTOM_MAIN.slice(0, 2).map(({ path, icon: Icon, label }) => (
           <Link
             key={path}
@@ -453,38 +301,24 @@ export default function Layout() {
             style={{ textDecoration: "none" }}
             onClick={closeAll}
           >
-            <span className="nav-btn-icon">
-              <Icon size={20} />
-            </span>
+            <span className="nav-btn-icon"><Icon size={21} /></span>
             <span className="nav-btn-label">{label}</span>
             <div className="nav-dot" />
           </Link>
         ))}
 
-        {/* FAB central "+" com ações rápidas */}
-        <div
-          style={{
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flex: 1,
-          }}
-        >
+        {/* FAB central */}
+        <div style={{
+          position: "relative", display: "flex",
+          alignItems: "center", justifyContent: "center", flex: 1,
+        }}>
           {fabOpen && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 68,
-                left: "50%",
-                transform: "translateX(-50%)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                alignItems: "center",
-                zIndex: 55,
-              }}
-            >
+            <div style={{
+              position: "absolute", bottom: 68, left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex", flexDirection: "column",
+              gap: 9, alignItems: "center", zIndex: 55,
+            }}>
               {QUICK_ACTIONS.map((action, i) => {
                 const ActionIcon = action.icon;
                 return (
@@ -492,35 +326,21 @@ export default function Layout() {
                     key={action.path}
                     onClick={() => handleQuickAction(action.path)}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      background: "var(--bg2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 40,
-                      padding: "8px 16px 8px 10px",
-                      cursor: "pointer",
-                      color: "var(--text)",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+                      display: "flex", alignItems: "center", gap: 10,
+                      background: "var(--bg2)", border: "1px solid var(--border)",
+                      borderRadius: 40, padding: "9px 18px 9px 10px",
+                      cursor: "pointer", color: "var(--text)",
+                      fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+                      boxShadow: "0 6px 24px rgba(0,0,0,0.4)",
                       animation: `fabItemIn 0.18s ease ${i * 0.04}s both`,
                     }}
                   >
-                    <span
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 10,
-                        background: action.color + "22",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 16,
-                      }}
-                    >
-                      <ActionIcon size={16} />
+                    <span style={{
+                      width: 32, height: 32, borderRadius: 10,
+                      background: action.color + "22",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <ActionIcon size={16} color={action.color} />
                     </span>
                     {action.label}
                   </button>
@@ -530,34 +350,25 @@ export default function Layout() {
           )}
 
           <button
-            onClick={() => {
-              setMoreOpen(false);
-              setNotifOpen(false);
-              setFabOpen(!fabOpen);
-            }}
+            onClick={() => { setMoreOpen(false); setNotifOpen(false); setFabOpen(!fabOpen); }}
             style={{
-              width: 52,
-              height: 52,
-              borderRadius: 16,
-              background: "var(--grad-primary)",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 4px 20px rgba(108,59,255,0.5)",
-              transition: "transform 0.2s, box-shadow 0.2s",
-              transform: fabOpen ? "rotate(45deg) scale(1.05)" : "scale(1)",
-              position: "relative",
-              zIndex: 51,
-              marginBottom: 4,
+              width: 54, height: 54, borderRadius: 17,
+              background: "var(--grad-primary)", border: "none",
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: fabOpen
+                ? "0 6px 28px rgba(108,59,255,0.7)"
+                : "0 4px 20px rgba(108,59,255,0.5)",
+              transition: "transform 0.22s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s",
+              transform: fabOpen ? "rotate(45deg) scale(1.06)" : "scale(1)",
+              position: "relative", zIndex: 51, marginBottom: 4,
+              touchAction: "manipulation",
             }}
           >
             <Plus size={24} color="#fff" />
           </button>
         </div>
 
-        {/* Itens da direita: Financeiro e Agenda */}
+        {/* Itens direita */}
         {BOTTOM_MAIN.slice(2, 4).map(({ path, icon: Icon, label }) => (
           <Link
             key={path}
@@ -566,193 +377,81 @@ export default function Layout() {
             style={{ textDecoration: "none" }}
             onClick={closeAll}
           >
-            <span className="nav-btn-icon">
-              <Icon size={20} />
-            </span>
+            <span className="nav-btn-icon"><Icon size={21} /></span>
             <span className="nav-btn-label">{label}</span>
             <div className="nav-dot" />
           </Link>
         ))}
 
-        {/* Botão "Mais" */}
+        {/* Botão Mais */}
         <button
           className={`nav-btn ${moreOpen ? "active" : ""}`}
-          onClick={() => {
-            setFabOpen(false);
-            setNotifOpen(false);
-            setMoreOpen(!moreOpen);
-          }}
-          style={{ background: "none", border: "none", cursor: "pointer" }}
+          onClick={() => { setFabOpen(false); setNotifOpen(false); setMoreOpen(!moreOpen); }}
+          style={{ background: "none", border: "none", cursor: "pointer", touchAction: "manipulation" }}
         >
           <span className="nav-btn-icon">
-            {moreOpen ? (
-              <X size={20} color="var(--primary-light)" />
-            ) : (
-              <Grid3X3
-                size={20}
-                color={moreOpen ? "var(--primary-light)" : "var(--text3)"}
-              />
-            )}
+            {moreOpen
+              ? <X size={21} color="var(--primary-light)" />
+              : <Grid3X3 size={21} color="var(--text3)" />}
           </span>
-          <span
-            className="nav-btn-label"
-            style={{ color: moreOpen ? "var(--primary-light)" : undefined }}
-          >
-            Mais
-          </span>
+          <span className="nav-btn-label" style={{ color: moreOpen ? "var(--primary-light)" : undefined }}>Mais</span>
           <div className="nav-dot" />
         </button>
       </nav>
 
-      {/* ══════════════════════════════════════════
-          DRAWER "MAIS" — páginas extras no mobile
-      ══════════════════════════════════════════ */}
+      {/* ═══════════════════════════════════════════
+          DRAWER "MAIS" — páginas extras mobile
+      ═══════════════════════════════════════════ */}
       {moreOpen && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "calc(60px + var(--safe-bot, 0px))",
-            left: 0,
-            right: 0,
-            background: "var(--bg2)",
-            borderTop: "1px solid var(--border)",
-            borderRadius: "20px 20px 0 0",
-            padding: "16px 20px 20px",
-            zIndex: 50,
-            boxShadow: "0 -8px 40px rgba(0,0,0,0.4)",
-            animation: "drawerSlideUp 0.22s ease both",
-          }}
-        >
-          <div
-            style={{
-              width: 36,
-              height: 4,
-              borderRadius: 99,
-              background: "var(--border)",
-              margin: "0 auto 16px",
-            }}
-          />
+        <div style={{
+          position: "fixed",
+          bottom: "calc(60px + env(safe-area-inset-bottom, 0px))",
+          left: 0, right: 0,
+          background: "rgba(22,16,43,0.97)",
+          borderTop: "1px solid var(--border)",
+          borderRadius: "22px 22px 0 0",
+          padding: "16px 20px 22px",
+          zIndex: 52,
+          boxShadow: "0 -8px 48px rgba(0,0,0,0.5)",
+          animation: "drawerSlideUp 0.22s cubic-bezier(0.4,0,0.2,1) both",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+        }}>
+          {/* Handle */}
+          <div style={{ width: 36, height: 4, borderRadius: 99, background: "var(--border2)", margin: "0 auto 16px" }} />
 
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--text3)",
-              letterSpacing: "0.08em",
-              marginBottom: 12,
-            }}
-          >
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text3)", letterSpacing: "0.1em", marginBottom: 14 }}>
             MAIS OPÇÕES
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: 10,
-            }}
-          >
-            {NAV.map(({ path, icon: Icon, label }) => (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            {[...NAV, { path: "/configuracoes", icon: Settings, label: "Config." }].map(({ path, icon: Icon, label }) => (
               <Link
                 key={path}
                 to={path}
                 onClick={() => setMoreOpen(false)}
                 style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "14px 8px",
-                  background:
-                    pathname === path ? "rgba(108,59,255,0.15)" : "var(--bg3)",
-                  border:
-                    pathname === path
-                      ? "1px solid rgba(108,59,255,0.3)"
-                      : "1px solid var(--border)",
-                  borderRadius: 14,
-                  textDecoration: "none",
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", gap: 7,
+                  padding: "16px 8px",
+                  background: pathname === path ? "rgba(108,59,255,0.15)" : "var(--bg3)",
+                  border: pathname === path ? "1px solid rgba(108,59,255,0.3)" : "1px solid var(--border)",
+                  borderRadius: 16, textDecoration: "none",
                   transition: "background 0.15s",
                 }}
               >
-                <Icon
-                  size={22}
-                  color={
-                    pathname === path ? "var(--primary-light)" : "var(--text2)"
-                  }
-                />
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color:
-                      pathname === path
-                        ? "var(--primary-light)"
-                        : "var(--text2)",
-                    textAlign: "center",
-                  }}
-                >
+                <Icon size={22} color={pathname === path ? "var(--primary-light)" : "var(--text2)"} />
+                <span style={{
+                  fontSize: 11, fontWeight: 600, textAlign: "center",
+                  color: pathname === path ? "var(--primary-light)" : "var(--text2)",
+                }}>
                   {label}
                 </span>
               </Link>
             ))}
-
-            <Link
-              to="/configuracoes"
-              onClick={() => setMoreOpen(false)}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 6,
-                padding: "14px 8px",
-                background:
-                  pathname === "/configuracoes"
-                    ? "rgba(108,59,255,0.15)"
-                    : "var(--bg3)",
-                border:
-                  pathname === "/configuracoes"
-                    ? "1px solid rgba(108,59,255,0.3)"
-                    : "1px solid var(--border)",
-                borderRadius: 14,
-                textDecoration: "none",
-              }}
-            >
-              <Grid3X3
-                size={22}
-                color={
-                  pathname === "/configuracoes"
-                    ? "var(--primary-light)"
-                    : "var(--text2)"
-                }
-              />
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color:
-                    pathname === "/configuracoes"
-                      ? "var(--primary-light)"
-                      : "var(--text2)",
-                }}
-              >
-                Config.
-              </span>
-            </Link>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes drawerSlideUp {
-          from { transform: translateY(100%); opacity: 0; }
-          to   { transform: translateY(0);    opacity: 1; }
-        }
-        @keyframes fabItemIn {
-          from { transform: translateY(12px) scale(0.9); opacity: 0; }
-          to   { transform: translateY(0)    scale(1);   opacity: 1; }
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   );
 }
