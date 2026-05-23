@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, X, Loader, Search, TrendingUp, TrendingDown, AlertTriangle, User, Check, ChevronDown } from 'lucide-react'
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
+import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -34,6 +35,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const [obs, setObs]             = useState(initial?.obs || '')
   const [saving, setSaving]       = useState(false)
 
+  // Recorrência: nenhum (pontual), semanal, quinzenal, mensal, anual
+  const [recorrencia, setRecorrencia] = useState(initial?.recorrencia || 'nenhum')
+  const [recorrenciaFim, setRecorrenciaFim] = useState(initial?.recorrencia_fim || '')
+
   async function handleSave() {
     if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
     if (!valor || isNaN(parseFloat(valor)) || parseFloat(valor) <= 0) { toast('Valor inválido', 'error'); return }
@@ -45,6 +50,8 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         vencimento: vencimento || undefined, pago_em: pagoEm || undefined,
         pessoa_id: pessoaId || undefined, pessoa_nome: pessoa?.nome || pessoaNome || undefined,
         categoria: categoria || undefined, obs: obs || undefined,
+        recorrencia: recorrencia !== 'nenhum' ? recorrencia : undefined,
+        recorrencia_fim: recorrencia !== 'nenhum' && recorrenciaFim ? recorrenciaFim : undefined,
       }
       const p = initial?.id
         ? await pagamentosApi.update(initial.id, payload)
@@ -74,7 +81,14 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group"><label className="form-label">Título *</label><input className="form-input" placeholder="Ex: Pagamento João, Aluguel, Serviço…" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>
+          <div className="form-group">
+            <label className="form-label">Título *</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input className="form-input" style={{ flex: 1 }} placeholder="Ex: Pagamento João, Aluguel, Serviço…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+              {/* Permite preencher o título por voz */}
+              <MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} />
+            </div>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group"><label className="form-label">Valor (R$) *</label><input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} /></div>
             <div className="form-group"><label className="form-label">Status</label>
@@ -102,7 +116,31 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <div className="form-group"><label className="form-label">Observações</label><textarea className="form-input" rows={2} placeholder="Notas adicionais…" value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} /></div>
+          <div className="form-group">
+            <label className="form-label">Observações</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <textarea className="form-input" rows={2} placeholder="Notas adicionais…" value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} />
+              {/* Botão de microfone para observações */}
+              <MicBtn onResult={t => setObs(prev => (prev + ' ' + t).trim())} />
+            </div>
+          </div>
+          {/* Recorrência */}
+          <div className="form-group">
+            <label className="form-label">Recorrência</label>
+            <select className="form-input" value={recorrencia} onChange={e => setRecorrencia(e.target.value)}>
+              <option value="nenhum">⚪ Pontual</option>
+              <option value="semanal">📅 Semanal</option>
+              <option value="quinzenal">🗓️ Quinzenal</option>
+              <option value="mensal">🗓️ Mensal</option>
+              <option value="anual">📆 Anual</option>
+            </select>
+          </div>
+          {recorrencia !== 'nenhum' && (
+            <div className="form-group">
+              <label className="form-label">Recorrência até</label>
+              <input className="form-input" type="date" value={recorrenciaFim} onChange={e => setRecorrenciaFim(e.target.value)} />
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
