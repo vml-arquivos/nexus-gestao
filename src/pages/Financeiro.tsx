@@ -1,375 +1,369 @@
-import React, { useState, useCallback, useRef } from 'react'
-import { Plus, Search, DollarSign, TrendingUp, TrendingDown, Upload, Eye, Trash2, Edit2, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
-import { nanoid, fmtCurrency, fmtDateShort, today, isOverdue } from '../lib/utils'
-import { store, saveStore } from '../lib/store'
-import type { Pagamento } from '../lib/supabase'
-import { Avatar, Badge, Modal, ConfirmDialog, EmptyState, MicBtn, toast } from '../components/ui'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, X, Loader, Search, TrendingUp, TrendingDown, AlertTriangle, User, Check, ChevronDown } from 'lucide-react'
+import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
 
-type Status = Pagamento['status']
-type Tipo = Pagamento['tipo']
+function toast(msg: string, type: 'success' | 'error' = 'success') {
+  const el = document.createElement('div')
+  el.textContent = msg
+  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? '#EF4444' : '#10B981'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);`
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), 3000)
+}
 
+function fmt(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
+function fmtDate(d?: string) { return d ? new Date(d).toLocaleDateString('pt-BR') : '—' }
+
+const CATEGORIAS = ['Salário', 'Fornecedor', 'Aluguel', 'Serviço', 'Empréstimo', 'Dívida', 'Produto', 'Imposto', 'Outro']
+
+// ── Modal de novo pagamento ───────────────────────────────────────────────────
+function PagamentoModal({ pessoas, onSave, onClose, initial }: {
+  pessoas: Pessoa[]; onSave: (p: Pagamento) => void; onClose: () => void;
+  initial?: Partial<Pagamento>
+}) {
+  const [titulo, setTitulo]       = useState(initial?.titulo || '')
+  const [descricao, setDescricao] = useState(initial?.descricao || '')
+  const [valor, setValor]         = useState(initial?.valor ? String(initial.valor) : '')
+  const [tipo, setTipo]           = useState<'pagamento' | 'recebimento'>(initial?.tipo || 'pagamento')
+  const [status, setStatus]       = useState<'pendente' | 'pago' | 'cancelado'>(initial?.status || 'pendente')
+  const [vencimento, setVencimento] = useState(initial?.vencimento || '')
+  const [pagoEm, setPagoEm]       = useState(initial?.pago_em || '')
+  const [pessoaId, setPessoaId]   = useState(initial?.pessoa_id || '')
+  const [pessoaNome, setPessoaNome] = useState(initial?.pessoa_nome || '')
+  const [categoria, setCategoria] = useState(initial?.categoria || '')
+  const [obs, setObs]             = useState(initial?.obs || '')
+  const [saving, setSaving]       = useState(false)
+
+  async function handleSave() {
+    if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
+    if (!valor || isNaN(parseFloat(valor)) || parseFloat(valor) <= 0) { toast('Valor inválido', 'error'); return }
+    setSaving(true)
+    try {
+      const pessoa = pessoas.find(p => p.id === pessoaId)
+      const payload: Partial<Pagamento> = {
+        titulo: titulo.trim(), descricao: descricao || undefined, valor: parseFloat(valor), tipo, status,
+        vencimento: vencimento || undefined, pago_em: pagoEm || undefined,
+        pessoa_id: pessoaId || undefined, pessoa_nome: pessoa?.nome || pessoaNome || undefined,
+        categoria: categoria || undefined, obs: obs || undefined,
+      }
+      const p = initial?.id
+        ? await pagamentosApi.update(initial.id, payload)
+        : await pagamentosApi.create(payload)
+      onSave(p)
+      toast(initial?.id ? 'Atualizado!' : 'Pagamento criado!')
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{initial?.id ? '✏️ Editar' : '💳 Novo Lançamento'}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+
+        {/* Tipo — toggle visual */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          <button onClick={() => setTipo('pagamento')} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${tipo === 'pagamento' ? '#EF4444' : 'var(--border)'}`, background: tipo === 'pagamento' ? 'rgba(239,68,68,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: tipo === 'pagamento' ? '#EF4444' : 'var(--text3)' }}>
+            💸 Eu Pago
+          </button>
+          <button onClick={() => setTipo('recebimento')} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${tipo === 'recebimento' ? '#10B981' : 'var(--border)'}`, background: tipo === 'recebimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: tipo === 'recebimento' ? '#10B981' : 'var(--text3)' }}>
+            💰 Me Pagam
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="form-group"><label className="form-label">Título *</label><input className="form-input" placeholder="Ex: Pagamento João, Aluguel, Serviço…" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="form-group"><label className="form-label">Valor (R$) *</label><input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} /></div>
+            <div className="form-group"><label className="form-label">Status</label>
+              <select className="form-input" value={status} onChange={e => setStatus(e.target.value as 'pendente' | 'pago' | 'cancelado')}>
+                <option value="pendente">⏳ Pendente</option>
+                <option value="pago">✅ Pago</option>
+                <option value="cancelado">❌ Cancelado</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="form-group"><label className="form-label">Vencimento</label><input className="form-input" type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} /></div>
+            {status === 'pago' && <div className="form-group"><label className="form-label">Data do Pagamento</label><input className="form-input" type="date" value={pagoEm} onChange={e => setPagoEm(e.target.value)} /></div>}
+          </div>
+          <div className="form-group"><label className="form-label">Pessoa Vinculada</label>
+            <select className="form-input" value={pessoaId} onChange={e => { setPessoaId(e.target.value); if (e.target.value) setPessoaNome('') }}>
+              <option value="">Sem vínculo</option>
+              {pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+            </select>
+          </div>
+          {!pessoaId && <div className="form-group"><label className="form-label">Nome da Pessoa (livre)</label><input className="form-input" placeholder="Nome sem cadastro…" value={pessoaNome} onChange={e => setPessoaNome(e.target.value)} /></div>}
+          <div className="form-group"><label className="form-label">Categoria</label>
+            <select className="form-input" value={categoria} onChange={e => setCategoria(e.target.value)}>
+              <option value="">Sem categoria</option>
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-group"><label className="form-label">Observações</label><textarea className="form-input" rows={2} placeholder="Notas adicionais…" value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} /></div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 2 }}>
+            {saving ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</> : <><Check size={14} /> Salvar</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Card de resumo por pessoa ─────────────────────────────────────────────────
+function PessoaCard({ r, onClick }: { r: ResumoPorPessoa; onClick: () => void }) {
+  const saldo = r.me_devem_pendente - r.devo_pendente
+  return (
+    <div onClick={onClick} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 14, color: '#fff', flexShrink: 0 }}>
+          {r.pessoa_nome.charAt(0).toUpperCase()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.pessoa_nome}</div>
+          <div style={{ fontSize: 11, color: saldo > 0 ? '#10B981' : saldo < 0 ? '#EF4444' : 'var(--text3)', fontWeight: 600 }}>
+            {saldo > 0 ? `Saldo: +${fmt(saldo)}` : saldo < 0 ? `Saldo: ${fmt(saldo)}` : 'Quitado'}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>💸 Eu devo</div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: r.devo_pendente > 0 ? '#EF4444' : 'var(--text3)', fontFamily: 'var(--font-heading)' }}>{fmt(r.devo_pendente)}</div>
+          {r.devo_pago > 0 && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(r.devo_pago)}</div>}
+        </div>
+        <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>💰 Me devem</div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: r.me_devem_pendente > 0 ? '#10B981' : 'var(--text3)', fontFamily: 'var(--font-heading)' }}>{fmt(r.me_devem_pendente)}</div>
+          {r.me_devem_pago > 0 && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(r.me_devem_pago)}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
 export default function Financeiro() {
-  const [pagamentos, setPagamentos] = useState<Pagamento[]>(store.pagamentos)
-  const [search, setSearch] = useState('')
-  const [filtroTipo, setFiltroTipo] = useState<string>('todos')
-  const [filtroStatus, setFiltroStatus] = useState<string>('todos')
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editando, setEditando] = useState<Pagamento | null>(null)
-  const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const { user } = useAuth()
 
-  const [form, setForm] = useState({
-    descricao: '', valor: '', tipo: 'pagamento' as Tipo,
-    vencimento: '', pago_dia: '', status: 'pendente' as Status,
-    categoria: '', pessoa_id: '', obs: '',
-    comprovante_url: '', comprovante_key: ''
-  })
+  const [pagamentos, setPagamentos]     = useState<Pagamento[]>([])
+  const [pessoas, setPessoas]           = useState<Pessoa[]>([])
+  const [resumo, setResumo]             = useState<ResumoFinanceiro | null>(null)
+  const [porPessoa, setPorPessoa]       = useState<ResumoPorPessoa[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [modalOpen, setModalOpen]       = useState(false)
+  const [editPag, setEditPag]           = useState<Pagamento | null>(null)
+  const [tab, setTab]                   = useState<'lista' | 'pessoas'>('lista')
+  const [filtroTipo, setFiltroTipo]     = useState('todos')
+  const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [search, setSearch]             = useState('')
+  const [pessoaFiltro, setPessoaFiltro] = useState<ResumoPorPessoa | null>(null)
 
-  const totais = {
-    recebimentos: pagamentos.filter(p => p.tipo === 'recebimento' && p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0),
-    pagamentos: pagamentos.filter(p => p.tipo === 'pagamento' && p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0),
-    pendentes: pagamentos.filter(p => p.status === 'pendente').reduce((a, b) => a + Number(b.valor), 0),
-    vencidos: pagamentos.filter(p => p.status === 'pendente' && p.vencimento && isOverdue(p.vencimento)).length,
-  }
-  const saldo = totais.recebimentos - totais.pagamentos
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [pags, ps, res, pp] = await Promise.all([
+        pagamentosApi.list(),
+        equipeApi.pessoas(),
+        pagamentosApi.resumo(),
+        pagamentosApi.porPessoa(),
+      ])
+      setPagamentos(pags); setPessoas(ps); setResumo(res); setPorPessoa(pp)
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro ao carregar', 'error') }
+    finally { setLoading(false) }
+  }, [])
 
-  function openNew() {
-    setEditando(null)
-    setForm({ descricao: '', valor: '', tipo: 'pagamento', vencimento: '', pago_dia: '', status: 'pendente', categoria: '', pessoa_id: '', obs: '', comprovante_url: '', comprovante_key: '' })
-    setModalOpen(true)
-  }
+  useEffect(() => { load() }, [load])
+  useEffect(() => { const h = () => setModalOpen(true); window.addEventListener('nexus:open-new', h); return () => window.removeEventListener('nexus:open-new', h) }, [])
 
-  function openEdit(p: Pagamento) {
-    setEditando(p)
-    setForm({
-      descricao: p.descricao, valor: String(p.valor), tipo: p.tipo,
-      vencimento: p.vencimento ?? '', pago_dia: p.pago_dia ?? '',
-      status: p.status, categoria: p.categoria ?? '', pessoa_id: p.pessoa_id ?? '',
-      obs: p.obs ?? '', comprovante_url: p.comprovante_url ?? '', comprovante_key: p.comprovante_key ?? ''
-    })
-    setModalOpen(true)
-  }
-
-  function salvar() {
-    if (!form.descricao.trim()) { toast('Descrição é obrigatória', 'error'); return }
-    if (!form.valor || isNaN(Number(form.valor))) { toast('Valor inválido', 'error'); return }
-    const pessoa = store.pessoas.find(p => p.id === form.pessoa_id)
-
-    if (editando) {
-      const updated = store.pagamentos.map(p => p.id === editando.id ? {
-        ...p, ...form, valor: Number(form.valor), pessoa_nome: pessoa?.nome
-      } : p)
-      store.pagamentos = updated
-      saveStore('pagamentos', updated)
-      setPagamentos([...updated])
-      toast('Lançamento atualizado!')
-    } else {
-      const novo: Pagamento = {
-        id: nanoid(), user_id: store.config.userId || 'local',
-        descricao: form.descricao.trim(), valor: Number(form.valor),
-        tipo: form.tipo, vencimento: form.vencimento || undefined,
-        pago_dia: form.pago_dia || undefined, status: form.status,
-        categoria: form.categoria || undefined, pessoa_id: form.pessoa_id || undefined,
-        pessoa_nome: pessoa?.nome, obs: form.obs || undefined,
-        comprovante_url: form.comprovante_url || undefined,
-        comprovante_key: form.comprovante_key || undefined,
-        created_at: new Date().toISOString()
-      }
-      store.pagamentos = [...store.pagamentos, novo]
-      saveStore('pagamentos', store.pagamentos)
-      setPagamentos([...store.pagamentos])
-      toast('Lançamento criado!')
-    }
-    setModalOpen(false)
+  async function handleMarcarPago(p: Pagamento) {
+    try {
+      const updated = await pagamentosApi.update(p.id, { status: 'pago', pago_em: new Date().toISOString().split('T')[0] })
+      setPagamentos(prev => prev.map(x => x.id === updated.id ? updated : x))
+      toast('Marcado como pago!')
+      load()
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }
 
-  function excluir(id: string) {
-    store.pagamentos = store.pagamentos.filter(p => p.id !== id)
-    saveStore('pagamentos', store.pagamentos)
-    setPagamentos([...store.pagamentos])
-    toast('Removido')
-  }
-
-  function marcarPago(id: string) {
-    const updated = store.pagamentos.map(p => p.id === id ? { ...p, status: 'pago' as Status, pago_dia: today() } : p)
-    store.pagamentos = updated
-    saveStore('pagamentos', updated)
-    setPagamentos([...updated])
-    toast('Marcado como pago! ✅')
-  }
-
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (file.size > 10 * 1024 * 1024) { toast('Arquivo muito grande (máx 10MB)', 'error'); return }
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const dataUrl = ev.target?.result as string
-      const key = `comprovante_${nanoid()}_${file.name}`
-      // Store in localStorage as base64 (for offline use)
-      try {
-        localStorage.setItem(`nx_file_${key}`, dataUrl)
-        setForm(f => ({ ...f, comprovante_url: dataUrl, comprovante_key: key }))
-        toast('Comprovante anexado!')
-      } catch {
-        toast('Erro ao salvar arquivo. Tente um arquivo menor.', 'error')
-      }
-    }
-    reader.readAsDataURL(file)
+  async function handleDelete(id: string) {
+    if (!confirm('Excluir este lançamento?')) return
+    try { await pagamentosApi.remove(id); setPagamentos(p => p.filter(x => x.id !== id)); load(); toast('Excluído') }
+    catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }
 
   const filtrados = pagamentos.filter(p => {
-    const okTipo = filtroTipo === 'todos' || p.tipo === filtroTipo
-    const okStatus = filtroStatus === 'todos' || p.status === filtroStatus
-    const q = search.toLowerCase()
-    return okTipo && okStatus && (
-      p.descricao.toLowerCase().includes(q) ||
-      (p.pessoa_nome ?? '').toLowerCase().includes(q) ||
-      (p.categoria ?? '').toLowerCase().includes(q)
-    )
-  }).sort((a, b) => {
-    if (a.vencimento && b.vencimento) return a.vencimento.localeCompare(b.vencimento)
-    return b.created_at.localeCompare(a.created_at)
+    if (filtroTipo !== 'todos' && p.tipo !== filtroTipo) return false
+    if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false
+    if (pessoaFiltro && p.pessoa_id !== pessoaFiltro.pessoa_id) return false
+    if (search) { const q = search.toLowerCase(); return (p.titulo || '').toLowerCase().includes(q) || (p.pessoa_nome || '').toLowerCase().includes(q) || (p.categoria || '').toLowerCase().includes(q) }
+    return true
   })
 
-  const handleMicDesc = useCallback((t: string) => setForm(f => ({ ...f, descricao: f.descricao ? f.descricao + ' ' + t : t })), [])
-  const handleMicObs = useCallback((t: string) => setForm(f => ({ ...f, obs: f.obs ? f.obs + ' ' + t : t })), [])
-
-  const statusIcon = { pago: <CheckCircle size={14} color="var(--success)" />, pendente: <Clock size={14} color="var(--text3)" />, vencido: <AlertTriangle size={14} color="var(--danger)" />, cancelado: <Trash2 size={14} color="var(--text3)" /> }
+  const vencidos = pagamentos.filter(p => p.status === 'pendente' && p.vencimento && new Date(p.vencimento) < new Date())
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <div className="page-title"><DollarSign size={22} /> Financeiro</div>
-          <div className="page-subtitle">{pagamentos.length} lançamento{pagamentos.length !== 1 ? 's' : ''}</div>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>💳 Financeiro</h1>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Pagamentos e recebimentos</p>
         </div>
-        <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Lançamento</button>
+        <button className="btn btn-primary" onClick={() => setModalOpen(true)} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
       </div>
 
-      {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, marginBottom: 16 }}>
-        <div className="metric-card success">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <TrendingUp size={16} color="var(--success)" />
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>Recebimentos</span>
+      {/* Cards de resumo */}
+      {resumo && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
+          <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A Receber</span></div>
+            <div style={{ fontWeight: 900, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
           </div>
-          <div className="metric-value" style={{ fontSize: 18, color: 'var(--success)' }}>{fmtCurrency(totais.recebimentos)}</div>
-        </div>
-        <div className="metric-card danger">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <TrendingDown size={16} color="var(--danger)" />
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos</span>
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A Pagar</span></div>
+            <div style={{ fontWeight: 900, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
           </div>
-          <div className="metric-value" style={{ fontSize: 18, color: 'var(--danger)' }}>{fmtCurrency(totais.pagamentos)}</div>
+          <div style={{ gridColumn: '1 / -1', background: resumo.saldo >= 0 ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${resumo.saldo >= 0 ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: 'var(--radius)', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>💰 Saldo Líquido</span>
+            <span style={{ fontWeight: 900, fontSize: 22, color: resumo.saldo >= 0 ? '#10B981' : '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.saldo)}</span>
+          </div>
         </div>
-        <div className="metric-card" style={{ gridColumn: 'span 2' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Saldo</div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontSize: 24, fontWeight: 800, color: saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                {fmtCurrency(saldo)}
-              </div>
+      )}
+
+      {/* Alerta de vencidos */}
+      {vencidos.length > 0 && (
+        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <AlertTriangle size={16} color="#F59E0B" style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: '#F59E0B' }}>{vencidos.length} lançamento{vencidos.length > 1 ? 's' : ''} vencido{vencidos.length > 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor), 0))}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        <button className={`tab ${tab === 'lista' ? 'active' : ''}`} onClick={() => { setTab('lista'); setPessoaFiltro(null) }}>📋 Lançamentos</button>
+        <button className={`tab ${tab === 'pessoas' ? 'active' : ''}`} onClick={() => setTab('pessoas')}>👥 Por Pessoa ({porPessoa.length})</button>
+      </div>
+
+      {tab === 'pessoas' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {porPessoa.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text3)' }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>👥</div>
+              <div style={{ fontWeight: 700 }}>Nenhum lançamento por pessoa</div>
+              <div style={{ fontSize: 13, marginTop: 4 }}>Vincule lançamentos a pessoas para ver o resumo</div>
             </div>
-            {totais.vencidos > 0 && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: 10, padding: '8px 12px', textAlign: 'center' }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--danger)', fontFamily: 'var(--font-heading)' }}>{totais.vencidos}</div>
-                <div style={{ fontSize: 10, color: 'var(--danger)' }}>vencido{totais.vencidos > 1 ? 's' : ''}</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 180 }}>
-          <Search size={15} color="var(--text3)" />
-          <input placeholder="Buscar lançamentos..." value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <div className="tabs">
-          {[{ k: 'todos', l: 'Todos' }, { k: 'pagamento', l: 'Pagamentos' }, { k: 'recebimento', l: 'Recebimentos' }].map(t => (
-            <button key={t.k} className={`tab ${filtroTipo === t.k ? 'active' : ''}`} onClick={() => setFiltroTipo(t.k)}>{t.l}</button>
+          ) : porPessoa.map(r => (
+            <PessoaCard key={r.pessoa_id} r={r} onClick={() => { setPessoaFiltro(r); setTab('lista') }} />
           ))}
         </div>
-        <div className="tabs">
-          {[{ k: 'todos', l: 'Todos' }, { k: 'pendente', l: 'Pendentes' }, { k: 'pago', l: 'Pagos' }, { k: 'vencido', l: 'Vencidos' }].map(s => (
-            <button key={s.k} className={`tab ${filtroStatus === s.k ? 'active' : ''}`} onClick={() => setFiltroStatus(s.k)}>{s.l}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* List */}
-      {filtrados.length === 0 ? (
-        <EmptyState icon="💳" title="Nenhum lançamento" text="Registre pagamentos e recebimentos para controlar seu financeiro." action={<button className="btn btn-primary btn-sm" onClick={openNew}><Plus size={14} /> Novo Lançamento</button>} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {filtrados.map(p => {
-            const overdue = p.status === 'pendente' && p.vencimento && isOverdue(p.vencimento)
-            return (
-              <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.tipo === 'recebimento' ? 'var(--success)' : overdue ? 'var(--danger)' : 'var(--primary)'}` }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>{p.tipo === 'recebimento' ? '💰' : '💸'}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14 }}>{p.descricao}</span>
-                      <Badge type={p.status} />
-                      {p.categoria && <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg4)', padding: '2px 7px', borderRadius: 10 }}>{p.categoria}</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {p.pessoa_nome && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>
-                          <Avatar name={p.pessoa_nome} size={18} /> {p.pessoa_nome}
-                        </span>
-                      )}
-                      {p.vencimento && (
-                        <span style={{ fontSize: 11, color: overdue ? 'var(--danger)' : 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <Clock size={10} /> {fmtDateShort(p.vencimento)} {overdue && '⚠️'}
-                        </span>
-                      )}
-                      {p.comprovante_url && (
-                        <button
-                          onClick={() => setPreviewUrl(p.comprovante_url!)}
-                          style={{ background: 'none', border: 'none', color: 'var(--secondary)', cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}
-                        >
-                          <Eye size={10} /> Comprovante
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16, color: p.tipo === 'recebimento' ? 'var(--success)' : 'var(--text)' }}>
-                      {fmtCurrency(Number(p.valor))}
-                    </div>
-                    <div style={{ display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end' }}>
-                      {p.status === 'pendente' && (
-                        <button className="btn btn-success btn-sm" style={{ padding: '4px 8px', fontSize: 11 }} onClick={() => marcarPago(p.id)}>
-                          ✓ Pago
-                        </button>
-                      )}
-                      <button className="btn btn-ghost btn-icon" style={{ width: 26, height: 26 }} onClick={() => openEdit(p)}><Edit2 size={12} /></button>
-                      <button className="btn btn-ghost btn-icon" style={{ width: 26, height: 26, color: 'var(--danger)' }} onClick={() => setConfirmId(p.id)}><Trash2 size={12} /></button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <button className="fab" onClick={openNew}><Plus size={22} /></button>
-
-      {/* Preview comprovante */}
-      {previewUrl && (
-        <div className="overlay" onClick={() => setPreviewUrl(null)}>
-          <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius-lg)', padding: 16, maxWidth: 480, width: '90%', maxHeight: '85vh', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700 }}>Comprovante</span>
-              <button onClick={() => setPreviewUrl(null)} className="btn btn-ghost btn-icon" style={{ width: 28, height: 28 }}>×</button>
+        <>
+          {/* Filtros */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative', flex: 2, minWidth: 160 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
+              <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar…" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            {previewUrl.startsWith('data:image') ? (
-              <img src={previewUrl} alt="Comprovante" style={{ width: '100%', borderRadius: 8 }} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: 24 }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>📄</div>
-                <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">Abrir Documento</a>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editando ? 'Editar Lançamento' : 'Novo Lançamento'}>
-        <div className="form-group">
-          <label className="form-label">Descrição *</label>
-          <div className="input-mic-group">
-            <input className="form-input" placeholder="Ex: Pagamento fornecedor" value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} />
-            <MicBtn onResult={handleMicDesc} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group">
-            <label className="form-label">Tipo</label>
-            <select className="form-select" value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value as Tipo }))}>
-              <option value="pagamento">💸 Pagamento</option>
-              <option value="recebimento">💰 Recebimento</option>
+            <select className="form-input" style={{ flex: 1, minWidth: 100 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="pagamento">💸 A Pagar</option>
+              <option value="recebimento">💰 A Receber</option>
             </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Valor (R$) *</label>
-            <input className="form-input" type="number" step="0.01" min="0" placeholder="0,00" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group">
-            <label className="form-label">Vencimento</label>
-            <input className="form-input" type="date" value={form.vencimento} onChange={e => setForm(f => ({ ...f, vencimento: e.target.value }))} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Status</label>
-            <select className="form-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as Status }))}>
+            <select className="form-input" style={{ flex: 1, minWidth: 100 }} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+              <option value="todos">Todos status</option>
               <option value="pendente">Pendente</option>
               <option value="pago">Pago</option>
-              <option value="vencido">Vencido</option>
               <option value="cancelado">Cancelado</option>
             </select>
           </div>
-        </div>
-        {form.status === 'pago' && (
-          <div className="form-group">
-            <label className="form-label">Data do Pagamento</label>
-            <input className="form-input" type="date" value={form.pago_dia} onChange={e => setForm(f => ({ ...f, pago_dia: e.target.value }))} />
-          </div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group">
-            <label className="form-label">Categoria</label>
-            <input className="form-input" placeholder="Ex: Aluguel, Serviços..." value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Pessoa Vinculada</label>
-            <select className="form-select" value={form.pessoa_id} onChange={e => setForm(f => ({ ...f, pessoa_id: e.target.value }))}>
-              <option value="">— Nenhuma —</option>
-              {store.pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Observações</label>
-          <div className="input-mic-group">
-            <textarea className="form-textarea" placeholder="Notas sobre este lançamento..." value={form.obs} onChange={e => setForm(f => ({ ...f, obs: e.target.value }))} rows={2} />
-            <MicBtn onResult={handleMicObs} />
-          </div>
-        </div>
 
-        {/* Comprovante */}
-        <div className="form-group">
-          <label className="form-label">Comprovante</label>
-          <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleFileUpload} />
-          {form.comprovante_url ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--bg3)', borderRadius: 8 }}>
-              <span style={{ fontSize: 20 }}>📎</span>
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--text2)' }}>Comprovante anexado</span>
-              <button type="button" onClick={() => setPreviewUrl(form.comprovante_url)} className="btn btn-ghost btn-sm"><Eye size={13} /></button>
-              <button type="button" onClick={() => setForm(f => ({ ...f, comprovante_url: '', comprovante_key: '' }))} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>×</button>
+          {pessoaFiltro && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              <User size={14} color="#6C3BFF" />
+              <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Filtrado: {pessoaFiltro.pessoa_nome}</span>
+              <button onClick={() => setPessoaFiltro(null)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={14} /></button>
+            </div>
+          )}
+
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando…</div>
+          ) : filtrados.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>💳</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhum lançamento</div>
+              <div style={{ fontSize: 13 }}>Registre pagamentos e recebimentos</div>
             </div>
           ) : (
-            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => fileRef.current?.click()}>
-              <Upload size={15} /> Anexar Comprovante (imagem ou PDF)
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {filtrados.map(p => {
+                const isVencido = p.status === 'pendente' && p.vencimento && new Date(p.vencimento) < new Date()
+                return (
+                  <div key={p.id} style={{ background: 'var(--bg2)', border: `1px solid ${isVencido ? 'rgba(245,158,11,0.4)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: p.tipo === 'pagamento' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                        {p.tipo === 'pagamento' ? '💸' : '💰'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{p.titulo}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                          {p.pessoa_nome && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><User size={10} /> {p.pessoa_nome}</span>}
+                          {p.categoria && <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}>{p.categoria}</span>}
+                          {p.vencimento && <span style={{ fontSize: 11, color: isVencido ? '#F59E0B' : 'var(--text3)' }}>{isVencido ? '⚠️ ' : ''}Vence: {fmtDate(p.vencimento)}</span>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, color: p.tipo === 'pagamento' ? '#EF4444' : '#10B981', fontFamily: 'var(--font-heading)' }}>
+                          {p.tipo === 'pagamento' ? '-' : '+'}{fmt(Number(p.valor))}
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: p.status === 'pago' ? '#10B981' : p.status === 'cancelado' ? '#6B7280' : isVencido ? '#F59E0B' : '#F59E0B', background: p.status === 'pago' ? 'rgba(16,185,129,0.12)' : p.status === 'cancelado' ? 'rgba(107,114,128,0.12)' : 'rgba(245,158,11,0.12)', padding: '2px 6px', borderRadius: 99 }}>
+                          {p.status === 'pago' ? '✓ Pago' : p.status === 'cancelado' ? 'Cancelado' : isVencido ? 'Vencido' : 'Pendente'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                      {p.status === 'pendente' && (
+                        <button onClick={() => handleMarcarPago(p)} style={{ flex: 1, padding: '7px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#10B981', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                          <Check size={12} /> Marcar como Pago
+                        </button>
+                      )}
+                      <button onClick={() => setEditPag(p)} style={{ padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer', fontSize: 12 }}>Editar</button>
+                      <button onClick={() => handleDelete(p.id)} style={{ padding: '7px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', cursor: 'pointer', fontSize: 12 }}>Excluir</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
-        </div>
+        </>
+      )}
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setModalOpen(false)}>Cancelar</button>
-          <button className="btn btn-primary" style={{ flex: 1 }} onClick={salvar}>{editando ? 'Salvar' : 'Criar'}</button>
-        </div>
-      </Modal>
+      {(modalOpen || editPag) && (
+        <PagamentoModal
+          pessoas={pessoas}
+          initial={editPag || undefined}
+          onSave={p => {
+            if (editPag) setPagamentos(prev => prev.map(x => x.id === p.id ? p : x))
+            else setPagamentos(prev => [p, ...prev])
+            setModalOpen(false); setEditPag(null); load()
+          }}
+          onClose={() => { setModalOpen(false); setEditPag(null) }}
+        />
+      )}
 
-      <ConfirmDialog open={!!confirmId} onClose={() => setConfirmId(null)} onConfirm={() => confirmId && excluir(confirmId)} title="Excluir Lançamento" message="Deseja excluir este lançamento?" />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

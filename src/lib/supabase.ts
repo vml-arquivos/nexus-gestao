@@ -1,93 +1,60 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient, User } from '@supabase/supabase-js'
 
-// ── SINGLETON DINÂMICO ────────────────────────────────────────────────────────
-// O cliente NÃO é criado na inicialização do módulo.
-// Ele é criado sob demanda via getSupabase(), usando as credenciais salvas no
-// localStorage pelo usuário. Assim, configurar a URL/chave na tela de Setup ou
-// Configurações funciona sem precisar recarregar a página.
+// ── CONFIGURAÇÃO ──────────────────────────────────────────────────────────────
+// As credenciais são lidas das variáveis de ambiente (VITE_SUPABASE_URL e
+// VITE_SUPABASE_ANON_KEY) definidas no .env e embutidas no build pelo Vite.
+// O usuário final não precisa fornecer essas credenciais — ele apenas faz login.
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+// ── SINGLETON ─────────────────────────────────────────────────────────────────
 let _client: SupabaseClient | null = null
-let _currentUrl = ''
-let _currentKey = ''
 
-export function getSupabase(): SupabaseClient | null {
-  try {
-    const raw = localStorage.getItem('nx_cfg')
-    if (!raw) return null
-    const cfg = JSON.parse(raw)
-    const url: string = cfg.sbUrl ?? ''
-    const key: string = cfg.sbKey ?? ''
-    if (!url || !key) return null
-
-    // Recria o cliente se as credenciais mudaram
-    if (!_client || url !== _currentUrl || key !== _currentKey) {
-      _client = createClient(url, key)
-      _currentUrl = url
-      _currentKey = key
+export function getSupabase(): SupabaseClient {
+  if (!_client) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error(
+        'Variáveis VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY não configuradas. ' +
+        'Crie o arquivo .env com as credenciais do seu projeto Supabase.'
+      )
     }
+    _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+  }
+  return _client
+}
 
-    return _client
+/** Retorna true se as variáveis de ambiente estão configuradas */
+export function isSupabaseConfigured(): boolean {
+  return !!(SUPABASE_URL && SUPABASE_ANON_KEY)
+}
+
+/** Retorna o usuário atual da sessão ativa (ou null) */
+export async function getCurrentUser(): Promise<User | null> {
+  try {
+    const { data } = await getSupabase().auth.getUser()
+    return data.user
   } catch {
     return null
   }
 }
 
-/** Chame após salvar novas credenciais para forçar reconexão */
-export function resetSupabaseClient(): void {
-  _client = null
-  _currentUrl = ''
-  _currentKey = ''
-}
-
-/** Retorna true se há credenciais salvas */
-export function isSupabaseReady(): boolean {
-  return getSupabase() !== null
-}
-
 // ── TIPOS ─────────────────────────────────────────────────────────────────────
 
-export type Database = {
-  public: {
-    Tables: {
-      pessoas: {
-        Row: Pessoa
-        Insert: Omit<Pessoa, 'id' | 'created_at'>
-        Update: Partial<Omit<Pessoa, 'id' | 'created_at'>>
-      }
-      tarefas: {
-        Row: Tarefa
-        Insert: Omit<Tarefa, 'id' | 'created_at'>
-        Update: Partial<Omit<Tarefa, 'id' | 'created_at'>>
-      }
-      agenda: {
-        Row: Evento
-        Insert: Omit<Evento, 'id' | 'created_at'>
-        Update: Partial<Omit<Evento, 'id' | 'created_at'>>
-      }
-      pagamentos: {
-        Row: Pagamento
-        Insert: Omit<Pagamento, 'id' | 'created_at'>
-        Update: Partial<Omit<Pagamento, 'id' | 'created_at'>>
-      }
-      documentos: {
-        Row: Documento
-        Insert: Omit<Documento, 'id' | 'created_at'>
-        Update: Partial<Omit<Documento, 'id' | 'created_at'>>
-      }
-    }
-  }
-}
+export type UserRole = 'gestor' | 'membro'
 
-export interface Pessoa {
-  id: string
-  user_id: string
+export interface UserProfile {
+  id: string           // auth.users.id
   nome: string
-  tipo: 'funcionario' | 'prestador' | 'credor' | 'devedor' | 'cliente'
-  cargo?: string
-  contato?: string
-  email?: string
-  valor?: number
-  obs?: string
+  email: string
+  role: UserRole
+  org_id: string       // ID da organização (empresa/equipe)
   avatar_url?: string
   created_at: string
 }
@@ -100,23 +67,41 @@ export interface ChecklistItem {
 
 export interface Tarefa {
   id: string
-  user_id: string
+  org_id: string
+  criado_por: string        // user_id do gestor que criou
+  responsavel_id?: string   // user_id do membro responsável
+  responsavel_nome?: string
   titulo: string
   descricao?: string
   data?: string
   prazo?: string
   prioridade: 'baixa' | 'media' | 'alta'
   status: 'pendente' | 'em_progresso' | 'concluida' | 'cancelada'
-  responsavel_id?: string
-  responsavel_nome?: string
   checklist?: ChecklistItem[]
   obs?: string
+  created_at: string
+  updated_at?: string
+}
+
+export interface Pessoa {
+  id: string
+  org_id: string
+  user_id?: string          // Se a pessoa tiver conta no sistema
+  nome: string
+  tipo: 'funcionario' | 'prestador' | 'credor' | 'devedor' | 'cliente'
+  cargo?: string
+  contato?: string
+  email?: string
+  valor?: number
+  obs?: string
+  avatar_url?: string
   created_at: string
 }
 
 export interface Evento {
   id: string
-  user_id: string
+  org_id: string
+  criado_por: string
   titulo: string
   descricao?: string
   data_inicio: string
@@ -132,7 +117,8 @@ export interface Evento {
 
 export interface Pagamento {
   id: string
-  user_id: string
+  org_id: string
+  criado_por: string
   descricao: string
   valor: number
   tipo: 'pagamento' | 'recebimento'
@@ -150,7 +136,8 @@ export interface Pagamento {
 
 export interface Documento {
   id: string
-  user_id: string
+  org_id: string
+  criado_por: string
   titulo: string
   descricao?: string
   tipo: 'comprovante' | 'contrato' | 'nota_fiscal' | 'outro'
@@ -171,4 +158,32 @@ export interface Notificacao {
   mensagem: string
   lida: boolean
   created_at: string
+}
+
+// ── HELPERS DE AUTENTICAÇÃO ───────────────────────────────────────────────────
+
+export async function signIn(email: string, password: string) {
+  return getSupabase().auth.signInWithPassword({ email, password })
+}
+
+export async function signUp(email: string, password: string, nome: string, orgId?: string) {
+  const sb = getSupabase()
+  const { data, error } = await sb.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { nome, org_id: orgId || null },
+    },
+  })
+  return { data, error }
+}
+
+export async function signOut() {
+  return getSupabase().auth.signOut()
+}
+
+export function onAuthStateChange(callback: (user: User | null) => void) {
+  return getSupabase().auth.onAuthStateChange((_event, session) => {
+    callback(session?.user ?? null)
+  })
 }

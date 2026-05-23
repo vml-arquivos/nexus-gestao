@@ -7,12 +7,28 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependências
 node_modules
+backend/node_modules
+
+# Build
 dist
 dist-ssr
+backend/dist
 *.local
 
-# Editor directories and files
+# Variáveis de ambiente — NUNCA commitar!
+.env
+.env.local
+.env.production
+.env.*.local
+backend/.env
+backend/.env.local
+
+# Uploads locais (armazenados no volume Docker em produção)
+uploads/
+
+# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -22,3 +38,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# TypeScript
+*.tsbuildinfo

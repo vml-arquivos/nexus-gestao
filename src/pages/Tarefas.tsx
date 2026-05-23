@@ -1,369 +1,410 @@
-import React, { useState, useCallback } from 'react'
-import { Plus, Search, CheckCircle2, Circle, Trash2, Edit2, ChevronDown, ChevronUp, Clock, User } from 'lucide-react'
-import { nanoid, fmtDateShort, today, isOverdue } from '../lib/utils'
-import { store, saveStore } from '../lib/store'
-import type { Tarefa, ChecklistItem } from '../lib/supabase'
-import { Avatar, Badge, Modal, ConfirmDialog, EmptyState, MicBtn, ProgressBar, toast } from '../components/ui'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search } from 'lucide-react'
+import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
+import { nanoid } from '../lib/utils'
 
-type Status = Tarefa['status']
-type Prioridade = Tarefa['prioridade']
+const STATUS_CONFIG = {
+  pendente:     { label: 'Pendente',      color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)' },
+  em_progresso: { label: 'Em Progresso',  color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'  },
+  concluida:    { label: 'Concluída',     color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)' },
+  cancelada:    { label: 'Cancelada',     color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)'},
+} as const
 
-const STATUS_TABS: { key: string; label: string }[] = [
-  { key: 'todos', label: 'Todas' },
-  { key: 'pendente', label: 'Pendentes' },
-  { key: 'em_progresso', label: 'Em Progresso' },
-  { key: 'concluida', label: 'Concluídas' },
-]
+const PRIORIDADE_CONFIG = {
+  baixa: { label: 'Baixa', color: '#10B981' },
+  media: { label: 'Média', color: '#F59E0B' },
+  alta:  { label: 'Alta',  color: '#EF4444' },
+} as const
 
-export default function Tarefas() {
-  const [tarefas, setTarefas] = useState<Tarefa[]>(store.tarefas)
-  const [search, setSearch] = useState('')
-  const [statusFiltro, setStatusFiltro] = useState('todos')
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editando, setEditando] = useState<Tarefa | null>(null)
-  const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [newCheckItem, setNewCheckItem] = useState('')
+function fmtDate(d?: string) {
+  if (!d) return ''
+  return new Date(d + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+function isOverdue(prazo?: string) {
+  if (!prazo) return false
+  return new Date(prazo + 'T23:59') < new Date()
+}
+function toast(msg: string, type: 'success' | 'error' = 'success') {
+  const el = document.createElement('div')
+  el.textContent = msg
+  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? '#EF4444' : '#10B981'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:toastIn 0.2s ease;`
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), 3000)
+}
 
-  const [form, setForm] = useState({
-    titulo: '', descricao: '', data: today(), prazo: '',
-    prioridade: 'media' as Prioridade, status: 'pendente' as Status,
-    responsavel_id: '', obs: '', checklist: [] as ChecklistItem[]
-  })
+// ── Modal de criação/edição ───────────────────────────────────────────────────
+function TarefaModal({ tarefa, membros, onSave, onClose }: {
+  tarefa?: Tarefa | null; membros: MembroEquipe[];
+  onSave: (t: Tarefa) => void; onClose: () => void
+}) {
+  const [titulo, setTitulo]         = useState(tarefa?.titulo || '')
+  const [descricao, setDescricao]   = useState(tarefa?.descricao || '')
+  const [prazo, setPrazo]           = useState(tarefa?.prazo || '')
+  const [prioridade, setPrioridade] = useState<Tarefa['prioridade']>(tarefa?.prioridade || 'media')
+  const [responsavel, setResponsavel] = useState(tarefa?.responsavel_id || '')
+  const [checklist, setChecklist]   = useState<ChecklistItem[]>(tarefa?.checklist || [])
+  const [novoItem, setNovoItem]     = useState('')
+  const [loading, setLoading]       = useState(false)
 
-  function openNew() {
-    setEditando(null)
-    setForm({ titulo: '', descricao: '', data: today(), prazo: '', prioridade: 'media', status: 'pendente', responsavel_id: '', obs: '', checklist: [] })
-    setModalOpen(true)
+  function addItem() {
+    if (!novoItem.trim()) return
+    setChecklist(p => [...p, { id: nanoid(), texto: novoItem.trim(), feito: false }])
+    setNovoItem('')
   }
 
-  function openEdit(t: Tarefa) {
-    setEditando(t)
-    setForm({
-      titulo: t.titulo, descricao: t.descricao ?? '', data: t.data ?? today(),
-      prazo: t.prazo ?? '', prioridade: t.prioridade, status: t.status,
-      responsavel_id: t.responsavel_id ?? '', obs: t.obs ?? '',
-      checklist: t.checklist ?? []
-    })
-    setModalOpen(true)
+  async function handleSave() {
+    if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
+    setLoading(true)
+    try {
+      const payload: Partial<Tarefa> = { titulo: titulo.trim(), descricao: descricao || undefined, prazo: prazo || undefined, prioridade, responsavel_id: responsavel || undefined, checklist }
+      const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
+      onSave(saved)
+      toast(tarefa?.id ? 'Tarefa atualizada!' : 'Tarefa criada!')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao salvar', 'error')
+    } finally { setLoading(false) }
   }
-
-  function salvar() {
-    if (!form.titulo.trim()) { toast('Título é obrigatório', 'error'); return }
-    const pessoa = store.pessoas.find(p => p.id === form.responsavel_id)
-    if (editando) {
-      const updated = store.tarefas.map(t => t.id === editando.id ? {
-        ...t, ...form,
-        responsavel_nome: pessoa?.nome,
-        checklist: form.checklist
-      } : t)
-      store.tarefas = updated
-      saveStore('tarefas', updated)
-      setTarefas([...updated])
-      toast('Tarefa atualizada!')
-    } else {
-      const nova: Tarefa = {
-        id: nanoid(),
-        user_id: store.config.userId || 'local',
-        titulo: form.titulo.trim(),
-        descricao: form.descricao || undefined,
-        data: form.data || undefined,
-        prazo: form.prazo || undefined,
-        prioridade: form.prioridade,
-        status: form.status,
-        responsavel_id: form.responsavel_id || undefined,
-        responsavel_nome: pessoa?.nome,
-        checklist: form.checklist,
-        obs: form.obs || undefined,
-        created_at: new Date().toISOString(),
-      }
-      store.tarefas = [...store.tarefas, nova]
-      saveStore('tarefas', store.tarefas)
-      setTarefas([...store.tarefas])
-      toast('Tarefa criada!')
-    }
-    setModalOpen(false)
-  }
-
-  function excluir(id: string) {
-    store.tarefas = store.tarefas.filter(t => t.id !== id)
-    saveStore('tarefas', store.tarefas)
-    setTarefas([...store.tarefas])
-    toast('Tarefa removida')
-  }
-
-  function toggleStatus(id: string) {
-    const updated = store.tarefas.map(t => {
-      if (t.id !== id) return t
-      const next: Status = t.status === 'concluida' ? 'pendente' : t.status === 'pendente' ? 'em_progresso' : 'concluida'
-      return { ...t, status: next }
-    })
-    store.tarefas = updated
-    saveStore('tarefas', updated)
-    setTarefas([...updated])
-  }
-
-  function toggleCheckItem(tarefaId: string, itemId: string) {
-    const updated = store.tarefas.map(t => {
-      if (t.id !== tarefaId) return t
-      return {
-        ...t,
-        checklist: (t.checklist ?? []).map(c => c.id === itemId ? { ...c, feito: !c.feito } : c)
-      }
-    })
-    store.tarefas = updated
-    saveStore('tarefas', updated)
-    setTarefas([...updated])
-  }
-
-  function addCheckItemForm() {
-    if (!newCheckItem.trim()) return
-    setForm(f => ({ ...f, checklist: [...f.checklist, { id: nanoid(), texto: newCheckItem.trim(), feito: false }] }))
-    setNewCheckItem('')
-  }
-
-  function removeCheckItemForm(id: string) {
-    setForm(f => ({ ...f, checklist: f.checklist.filter(c => c.id !== id) }))
-  }
-
-  const filtradas = tarefas.filter(t => {
-    const okStatus = statusFiltro === 'todos' || t.status === statusFiltro
-    const q = search.toLowerCase()
-    return okStatus && (t.titulo.toLowerCase().includes(q) || (t.descricao ?? '').toLowerCase().includes(q) || (t.responsavel_nome ?? '').toLowerCase().includes(q))
-  }).sort((a, b) => {
-    const pri = { alta: 0, media: 1, baixa: 2 }
-    return (pri[a.prioridade] ?? 1) - (pri[b.prioridade] ?? 1)
-  })
-
-  const handleMicTitulo = useCallback((t: string) => setForm(f => ({ ...f, titulo: f.titulo ? f.titulo + ' ' + t : t })), [])
-  const handleMicDesc = useCallback((t: string) => setForm(f => ({ ...f, descricao: f.descricao ? f.descricao + ' ' + t : t })), [])
-  const handleMicObs = useCallback((t: string) => setForm(f => ({ ...f, obs: f.obs ? f.obs + ' ' + t : t })), [])
-  const handleMicCheck = useCallback((t: string) => setNewCheckItem(t), [])
-
-  const equipe = store.pessoas.filter(p => p.tipo === 'funcionario' || p.tipo === 'prestador')
-
-  const priorityColor = { alta: 'var(--danger)', media: 'var(--warning)', baixa: 'var(--success)' }
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <div className="page-title"><CheckCircle2 size={22} /> Tarefas</div>
-          <div className="page-subtitle">{tarefas.filter(t => t.status !== 'concluida').length} pendentes · {tarefas.filter(t => t.status === 'concluida').length} concluídas</div>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '90dvh', overflowY: 'auto', animation: 'slideUp 0.22s ease' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{tarefa?.id ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
-        <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Nova Tarefa</button>
-      </div>
-
-      {/* Search */}
-      <div className="search-bar" style={{ marginBottom: 12 }}>
-        <Search size={15} color="var(--text3)" />
-        <input placeholder="Buscar tarefas..." value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
-
-      {/* Status tabs */}
-      <div className="tabs" style={{ marginBottom: 16 }}>
-        {STATUS_TABS.map(s => (
-          <button key={s.key} className={`tab ${statusFiltro === s.key ? 'active' : ''}`} onClick={() => setStatusFiltro(s.key)}>
-            {s.label}
-            <span style={{ marginLeft: 4, opacity: 0.7, fontSize: 11 }}>
-              ({s.key === 'todos' ? tarefas.length : tarefas.filter(t => t.status === s.key).length})
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {/* List */}
-      {filtradas.length === 0 ? (
-        <EmptyState icon="✅" title="Nenhuma tarefa" text="Crie tarefas e atribua à sua equipe." action={<button className="btn btn-primary btn-sm" onClick={openNew}><Plus size={14} /> Nova Tarefa</button>} />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtradas.map(t => {
-            const checkDone = (t.checklist ?? []).filter(c => c.feito).length
-            const checkTotal = (t.checklist ?? []).length
-            const expanded = expandedId === t.id
-            const overdue = t.prazo && t.status !== 'concluida' && isOverdue(t.prazo)
-
-            return (
-              <div key={t.id} className="card" style={{ borderLeft: `3px solid ${priorityColor[t.prioridade]}` }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  {/* Toggle status */}
-                  <button
-                    onClick={() => toggleStatus(t.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.status === 'concluida' ? 'var(--success)' : t.status === 'em_progresso' ? 'var(--secondary)' : 'var(--text3)', marginTop: 1, flexShrink: 0 }}
-                  >
-                    {t.status === 'concluida' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                  </button>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, fontSize: 14, textDecoration: t.status === 'concluida' ? 'line-through' : 'none', opacity: t.status === 'concluida' ? 0.6 : 1 }}>
-                        {t.titulo}
-                      </span>
-                      <Badge type={t.prioridade} />
-                      <Badge type={t.status} />
-                    </div>
-
-                    {t.descricao && (
-                      <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3, lineHeight: 1.5 }}>{t.descricao}</div>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-                      {t.prazo && (
-                        <span style={{ fontSize: 11, color: overdue ? 'var(--danger)' : 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <Clock size={10} /> {fmtDateShort(t.prazo)} {overdue && '⚠️'}
-                        </span>
-                      )}
-                      {t.responsavel_nome && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text3)' }}>
-                          <Avatar name={t.responsavel_nome} size={18} />
-                          {t.responsavel_nome}
-                        </span>
-                      )}
-                      {checkTotal > 0 && (
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                          ✅ {checkDone}/{checkTotal}
-                        </span>
-                      )}
-                    </div>
-
-                    {checkTotal > 0 && (
-                      <div style={{ marginTop: 8 }}>
-                        <ProgressBar value={checkDone} max={checkTotal} />
-                      </div>
-                    )}
-
-                    {/* Checklist expanded */}
-                    {expanded && checkTotal > 0 && (
-                      <div style={{ marginTop: 10 }}>
-                        {(t.checklist ?? []).map(c => (
-                          <div key={c.id} className="checklist-item" onClick={() => toggleCheckItem(t.id, c.id)} style={{ cursor: 'pointer' }}>
-                            <div className={`check-box ${c.feito ? 'done' : ''}`}>
-                              {c.feito && '✓'}
-                            </div>
-                            <span style={{ fontSize: 13, textDecoration: c.feito ? 'line-through' : 'none', opacity: c.feito ? 0.5 : 1 }}>
-                              {c.texto}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                    {checkTotal > 0 && (
-                      <button className="btn btn-ghost btn-icon" style={{ width: 28, height: 28 }} onClick={() => setExpandedId(expanded ? null : t.id)}>
-                        {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                      </button>
-                    )}
-                    <button className="btn btn-ghost btn-icon" style={{ width: 28, height: 28 }} onClick={() => openEdit(t)}><Edit2 size={13} /></button>
-                    <button className="btn btn-ghost btn-icon" style={{ width: 28, height: 28, color: 'var(--danger)' }} onClick={() => setConfirmId(t.id)}><Trash2 size={13} /></button>
-                  </div>
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="form-group">
+            <label className="form-label">Título *</label>
+            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Descrição</label>
+            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Prazo</label>
+              <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Prioridade</label>
+              <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Tarefa['prioridade'])}>
+                <option value="baixa">🟢 Baixa</option>
+                <option value="media">🟡 Média</option>
+                <option value="alta">🔴 Alta</option>
+              </select>
+            </div>
+          </div>
+          {membros.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">Responsável</label>
+              <select className="form-input" value={responsavel} onChange={e => setResponsavel(e.target.value)}>
+                <option value="">Sem responsável</option>
+                {membros.map(m => <option key={m.id} value={m.id}>{m.role === 'gestor' ? '👑 ' : '👤 '}{m.nome}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label">Checklist</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="form-input" style={{ flex: 1 }} placeholder="Adicionar item…" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addItem())} />
+              <button className="btn btn-secondary" onClick={addItem}><Plus size={16} /></button>
+            </div>
+            {checklist.map(item => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg3)', borderRadius: 8, marginBottom: 4 }}>
+                <button onClick={() => setChecklist(p => p.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))} style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer', background: item.feito ? '#10B981' : 'transparent', border: `2px solid ${item.feito ? '#10B981' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {item.feito && <Check size={11} color="#fff" />}
+                </button>
+                <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none', color: item.feito ? 'var(--text3)' : 'var(--text)' }}>{item.texto}</span>
+                <button onClick={() => setChecklist(p => p.filter(i => i.id !== item.id))} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={13} /></button>
               </div>
-            )
-          })}
+            ))}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={loading} style={{ flex: 2, gap: 8 }}>
+            {loading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</> : 'Salvar Tarefa'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Card de tarefa ─────────────────────────────────────────────────────────────
+function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChecklistToggle }: {
+  tarefa: Tarefa; isGestor: boolean;
+  onStatusChange: (id: string, status: Tarefa['status']) => void;
+  onEdit: (t: Tarefa) => void; onDelete: (id: string) => void;
+  onChecklistToggle: (tarefa: Tarefa, itemId: string) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const sc = STATUS_CONFIG[tarefa.status]
+  const pc = PRIORIDADE_CONFIG[tarefa.prioridade]
+  const StatusIcon = sc.icon
+  const overdue = isOverdue(tarefa.prazo) && tarefa.status !== 'concluida'
+  const checkDone  = tarefa.checklist?.filter(i => i.feito).length || 0
+  const checkTotal = tarefa.checklist?.length || 0
+
+  const nextStatus: Record<Tarefa['status'], Tarefa['status']> = {
+    pendente: 'em_progresso', em_progresso: 'concluida', concluida: 'pendente', cancelada: 'pendente',
+  }
+
+  return (
+    <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: `1px solid ${overdue ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <button onClick={() => onStatusChange(tarefa.id, nextStatus[tarefa.status])} style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, cursor: 'pointer', background: sc.bg, border: `1.5px solid ${sc.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }} title={`Status: ${sc.label}`}>
+            <StatusIcon size={14} color={sc.color} />
+          </button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 14, textDecoration: tarefa.status === 'concluida' ? 'line-through' : 'none', color: tarefa.status === 'concluida' ? 'var(--text3)' : 'var(--text)' }}>{tarefa.titulo}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: pc.color, background: pc.color + '18', padding: '2px 7px', borderRadius: 99 }}>{pc.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 7px', borderRadius: 99 }}>{sc.label}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+              {(tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>
+                  <User size={12} /> {tarefa.responsavel_nome_perfil || tarefa.responsavel_nome}
+                </span>
+              )}
+              {tarefa.prazo && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: overdue ? '#EF4444' : 'var(--text3)', fontWeight: overdue ? 700 : 400 }}>
+                  <Calendar size={12} /> {fmtDate(tarefa.prazo)} {overdue && '⚠️'}
+                </span>
+              )}
+              {checkTotal > 0 && <span style={{ fontSize: 12, color: 'var(--text3)' }}>✅ {checkDone}/{checkTotal}</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {isGestor && (
+              <>
+                <button onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}><Edit3 size={15} /></button>
+                <button onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 6 }}><Trash2 size={15} /></button>
+              </>
+            )}
+            {(tarefa.descricao || checkTotal > 0) && (
+              <button onClick={() => setExpanded(!expanded)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}>
+                <ChevronDown size={16} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Seletor de status para membro */}
+      {!isGestor && (
+        <div style={{ padding: '0 16px 12px', display: 'flex', gap: 6 }}>
+          {(Object.keys(STATUS_CONFIG) as Tarefa['status'][]).map(s => (
+            <button key={s} onClick={() => onStatusChange(tarefa.id, s)} style={{ flex: 1, padding: '5px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: tarefa.status === s ? STATUS_CONFIG[s].bg : 'var(--bg3)', border: tarefa.status === s ? `1.5px solid ${STATUS_CONFIG[s].color}` : '1px solid var(--border)', color: tarefa.status === s ? STATUS_CONFIG[s].color : 'var(--text3)' }}>
+              {STATUS_CONFIG[s].label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* FAB mobile */}
-      <button className="fab" onClick={openNew}><Plus size={22} /></button>
-
-      {/* Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editando ? 'Editar Tarefa' : 'Nova Tarefa'}>
-        <div className="form-group">
-          <label className="form-label">Título *</label>
-          <div className="input-mic-group">
-            <input className="form-input" placeholder="O que precisa ser feito?" value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} />
-            <MicBtn onResult={handleMicTitulo} />
-          </div>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Descrição</label>
-          <div className="input-mic-group">
-            <textarea className="form-textarea" placeholder="Detalhes da tarefa..." value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} rows={2} />
-            <MicBtn onResult={handleMicDesc} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group">
-            <label className="form-label">Prioridade</label>
-            <select className="form-select" value={form.prioridade} onChange={e => setForm(f => ({ ...f, prioridade: e.target.value as Prioridade }))}>
-              <option value="alta">🔴 Alta</option>
-              <option value="media">🟡 Média</option>
-              <option value="baixa">🟢 Baixa</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Status</label>
-            <select className="form-select" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as Status }))}>
-              <option value="pendente">Pendente</option>
-              <option value="em_progresso">Em Progresso</option>
-              <option value="concluida">Concluída</option>
-              <option value="cancelada">Cancelada</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div className="form-group">
-            <label className="form-label">Data</label>
-            <input className="form-input" type="date" value={form.data} onChange={e => setForm(f => ({ ...f, data: e.target.value }))} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Prazo</label>
-            <input className="form-input" type="date" value={form.prazo} onChange={e => setForm(f => ({ ...f, prazo: e.target.value }))} />
-          </div>
-        </div>
-        {equipe.length > 0 && (
-          <div className="form-group">
-            <label className="form-label">Responsável</label>
-            <select className="form-select" value={form.responsavel_id} onChange={e => setForm(f => ({ ...f, responsavel_id: e.target.value }))}>
-              <option value="">— Sem responsável —</option>
-              {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-            </select>
-          </div>
-        )}
-
-        {/* Checklist */}
-        <div className="form-group">
-          <label className="form-label">Checklist de Execução</label>
-          {form.checklist.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <div className={`check-box ${c.feito ? 'done' : ''}`} onClick={() => setForm(f => ({ ...f, checklist: f.checklist.map(ci => ci.id === c.id ? { ...ci, feito: !ci.feito } : ci) }))}>
-                {c.feito && '✓'}
+      {/* Expandido */}
+      {expanded && (
+        <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
+          {tarefa.descricao && <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginTop: 12, marginBottom: checkTotal > 0 ? 12 : 0 }}>{tarefa.descricao}</p>}
+          {checkTotal > 0 && (
+            <div>
+              {tarefa.checklist!.map(item => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <button onClick={() => onChecklistToggle(tarefa, item.id)} style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer', background: item.feito ? '#10B981' : 'transparent', border: `2px solid ${item.feito ? '#10B981' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {item.feito && <Check size={11} color="#fff" />}
+                  </button>
+                  <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none', color: item.feito ? 'var(--text3)' : 'var(--text)' }}>{item.texto}</span>
+                </div>
+              ))}
+              <div style={{ marginTop: 10, height: 4, background: 'var(--bg3)', borderRadius: 99 }}>
+                <div style={{ height: '100%', borderRadius: 99, background: '#10B981', width: `${checkTotal > 0 ? (checkDone / checkTotal) * 100 : 0}%`, transition: 'width 0.3s' }} />
               </div>
-              <span style={{ flex: 1, fontSize: 13 }}>{c.texto}</span>
-              <button type="button" onClick={() => removeCheckItemForm(c.id)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 16 }}>×</button>
             </div>
-          ))}
-          <div className="input-mic-group" style={{ marginTop: 6 }}>
-            <input
-              className="form-input"
-              placeholder="Adicionar item ao checklist..."
-              value={newCheckItem}
-              onChange={e => setNewCheckItem(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCheckItemForm())}
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
+export default function Tarefas() {
+  const { user } = useAuth()
+  const isGestor = user?.role === 'gestor'
+
+  const [tarefas, setTarefas]       = useState<Tarefa[]>([])
+  const [membros, setMembros]       = useState<MembroEquipe[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [modalOpen, setModalOpen]   = useState(false)
+  const [editTarefa, setEditTarefa] = useState<Tarefa | null>(null)
+  const [filtroStatus, setFiltroStatus]       = useState('todos')
+  const [filtroPrioridade, setFiltroPrioridade] = useState('todos')
+  const [search, setSearch]         = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [t, m] = await Promise.all([
+        tarefasApi.list(),
+        isGestor ? equipeApi.membros() : Promise.resolve([]),
+      ])
+      setTarefas(t)
+      setMembros(m)
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas', 'error')
+    } finally { setLoading(false) }
+  }, [isGestor])
+
+  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const h = () => { setEditTarefa(null); setModalOpen(true) }
+    window.addEventListener('nexus:open-new', h)
+    return () => window.removeEventListener('nexus:open-new', h)
+  }, [])
+
+  async function handleStatusChange(id: string, status: Tarefa['status']) {
+    try {
+      const updated = await tarefasApi.update(id, { status })
+      setTarefas(p => p.map(t => t.id === id ? updated : t))
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Excluir esta tarefa?')) return
+    try {
+      await tarefasApi.remove(id)
+      setTarefas(p => p.filter(t => t.id !== id))
+      toast('Tarefa excluída')
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+
+  async function handleChecklistToggle(tarefa: Tarefa, itemId: string) {
+    const newChecklist = (tarefa.checklist || []).map(i => i.id === itemId ? { ...i, feito: !i.feito } : i)
+    try {
+      const updated = await tarefasApi.update(tarefa.id, { checklist: newChecklist })
+      setTarefas(p => p.map(t => t.id === tarefa.id ? updated : t))
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+
+  function handleSaved(saved: Tarefa) {
+    setTarefas(p => {
+      const idx = p.findIndex(t => t.id === saved.id)
+      if (idx >= 0) { const n = [...p]; n[idx] = saved; return n }
+      return [saved, ...p]
+    })
+    setModalOpen(false); setEditTarefa(null)
+  }
+
+  const filtradas = tarefas.filter(t => {
+    if (filtroStatus !== 'todos' && t.status !== filtroStatus) return false
+    if (filtroPrioridade !== 'todos' && t.prioridade !== filtroPrioridade) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return t.titulo.toLowerCase().includes(q) || (t.descricao || '').toLowerCase().includes(q)
+    }
+    return true
+  })
+
+  const stats = {
+    total: tarefas.length,
+    pendente: tarefas.filter(t => t.status === 'pendente').length,
+    em_progresso: tarefas.filter(t => t.status === 'em_progresso').length,
+    concluida: tarefas.filter(t => t.status === 'concluida').length,
+  }
+
+  return (
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>
+            {isGestor ? '📋 Painel de Tarefas' : '✅ Minhas Tarefas'}
+          </h1>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>
+            {isGestor ? 'Delegue e acompanhe tarefas da equipe' : 'Tarefas atribuídas a você'}
+          </p>
+        </div>
+        {isGestor && (
+          <button className="btn btn-primary" onClick={() => { setEditTarefa(null); setModalOpen(true) }} style={{ gap: 6 }}>
+            <Plus size={16} /> Nova
+          </button>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 20 }}>
+        {[
+          { label: 'Total',        value: stats.total,        color: '#6C3BFF' },
+          { label: 'Pendentes',    value: stats.pendente,     color: '#F59E0B' },
+          { label: 'Em Progresso', value: stats.em_progresso, color: '#06B6D4' },
+          { label: 'Concluídas',   value: stats.concluida,    color: '#10B981' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--bg2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 900, color: s.color, fontFamily: 'var(--font-heading)' }}>{s.value}</div>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 2, minWidth: 160 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
+          <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar tarefas…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+          <option value="todos">Todos os status</option>
+          <option value="pendente">Pendente</option>
+          <option value="em_progresso">Em Progresso</option>
+          <option value="concluida">Concluída</option>
+          <option value="cancelada">Cancelada</option>
+        </select>
+        <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroPrioridade} onChange={e => setFiltroPrioridade(e.target.value)}>
+          <option value="todos">Todas prioridades</option>
+          <option value="alta">Alta</option>
+          <option value="media">Média</option>
+          <option value="baixa">Baixa</option>
+        </select>
+      </div>
+
+      {/* Lista */}
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}>
+          <Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando…
+        </div>
+      ) : filtradas.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhuma tarefa encontrada</div>
+          <div style={{ fontSize: 13 }}>{isGestor ? 'Crie uma nova tarefa acima' : 'Nenhuma tarefa atribuída a você ainda'}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtradas.map(tarefa => (
+            <TarefaCard key={tarefa.id} tarefa={tarefa} isGestor={isGestor}
+              onStatusChange={handleStatusChange}
+              onEdit={t => { setEditTarefa(t); setModalOpen(true) }}
+              onDelete={handleDelete}
+              onChecklistToggle={handleChecklistToggle}
             />
-            <MicBtn onResult={handleMicCheck} />
-            <button type="button" className="btn btn-secondary btn-sm" onClick={addCheckItemForm}><Plus size={14} /></button>
-          </div>
+          ))}
         </div>
+      )}
 
-        <div className="form-group">
-          <label className="form-label">Observações</label>
-          <div className="input-mic-group">
-            <textarea className="form-textarea" placeholder="Notas adicionais..." value={form.obs} onChange={e => setForm(f => ({ ...f, obs: e.target.value }))} rows={2} />
-            <MicBtn onResult={handleMicObs} />
-          </div>
-        </div>
+      {modalOpen && (
+        <TarefaModal tarefa={editTarefa} membros={membros} onSave={handleSaved} onClose={() => { setModalOpen(false); setEditTarefa(null) }} />
+      )}
 
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setModalOpen(false)}>Cancelar</button>
-          <button className="btn btn-primary" style={{ flex: 1 }} onClick={salvar}>{editando ? 'Salvar' : 'Criar Tarefa'}</button>
-        </div>
-      </Modal>
-
-      <ConfirmDialog open={!!confirmId} onClose={() => setConfirmId(null)} onConfirm={() => confirmId && excluir(confirmId)} title="Excluir Tarefa" message="Tem certeza que deseja excluir esta tarefa?" />
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes toastIn { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+      `}</style>
     </div>
   )
 }

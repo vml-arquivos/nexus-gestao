@@ -1,322 +1,196 @@
-import React, { useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  CheckCircle2, Calendar, DollarSign, Users,
-  TrendingUp, TrendingDown, Clock, AlertTriangle, ArrowRight, Plus
-} from 'lucide-react'
-import { store } from '../lib/store'
-import { Avatar, Badge, ProgressBar } from '../components/ui'
+import { CheckCircle2, Calendar, DollarSign, Users, TrendingUp, TrendingDown, Clock, AlertTriangle, ArrowRight, Loader } from 'lucide-react'
+import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 function fmtDate(d: string) {
-  return new Date(d + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  return new Date(d + (d.length === 10 ? 'T12:00' : '')).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+function fmtTime(d: string) {
+  return new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const hoje = new Date().toISOString().slice(0, 10)
-  const nome = store.config.nome || 'Usuário'
   const hora = new Date().getHours()
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
 
+  const [tarefas, setTarefas]     = useState<Tarefa[]>([])
+  const [agenda, setAgenda]       = useState<Evento[]>([])
+  const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
+  const [membros, setMembros]     = useState<MembroEquipe[]>([])
+  const [loading, setLoading]     = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [t, a, p, m] = await Promise.all([
+          tarefasApi.list(),
+          agendaApi.list(),
+          pagamentosApi.list(),
+          user?.role === 'gestor' ? equipeApi.membros() : Promise.resolve([]),
+        ])
+        setTarefas(t)
+        setAgenda(a)
+        setPagamentos(p)
+        setMembros(m)
+      } catch (e) {
+        console.warn('Dashboard load error:', e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [user])
+
   const metrics = useMemo(() => {
-    const tarefasPendentes  = store.tarefas.filter(t => t.status === 'pendente').length
-    const tarefasConcluidas = store.tarefas.filter(t => t.status === 'concluida').length
-    const totalTarefas      = store.tarefas.length
-
-    const eventosHoje = store.agenda.filter(e => e.data_inicio.startsWith(hoje))
-
-    const recebimentos = store.pagamentos
-      .filter(p => p.tipo === 'recebimento' && p.status === 'pago')
-      .reduce((a, b) => a + Number(b.valor), 0)
-    const pagamentos = store.pagamentos
-      .filter(p => p.tipo === 'pagamento' && p.status === 'pago')
-      .reduce((a, b) => a + Number(b.valor), 0)
-    const saldo = recebimentos - pagamentos
-
-    const vencidos = store.pagamentos.filter(p => {
+    const tarefasPendentes  = tarefas.filter(t => t.status === 'pendente').length
+    const tarefasConcluidas = tarefas.filter(t => t.status === 'concluida').length
+    const totalTarefas      = tarefas.length
+    const eventosHoje       = agenda.filter(e => e.data_inicio.startsWith(hoje))
+    const receita  = pagamentos.filter(p => p.tipo === 'recebimento' && p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0)
+    const despesas = pagamentos.filter(p => p.tipo === 'pagamento'   && p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0)
+    const saldo    = receita - despesas
+    const vencidos = pagamentos.filter(p => {
       if (p.status !== 'pendente' || !p.vencimento) return false
       return new Date(p.vencimento + 'T12:00') < new Date()
     })
+    return { tarefasPendentes, tarefasConcluidas, totalTarefas, eventosHoje, receita, despesas, saldo, vencidos }
+  }, [tarefas, agenda, pagamentos, hoje])
 
-    const equipeAtiva = store.pessoas.filter(
-      p => p.tipo === 'funcionario' || p.tipo === 'prestador'
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300, color: 'var(--text3)' }}>
+        <Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} />
+        Carregando dashboard…
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
     )
-
-    return {
-      tarefasPendentes, tarefasConcluidas, totalTarefas,
-      eventosHoje, recebimentos, pagamentos, saldo, vencidos, equipeAtiva
-    }
-  }, [hoje])
-
-  const proximosPagamentos = store.pagamentos
-    .filter(p => p.status === 'pendente' && p.vencimento)
-    .sort((a, b) => (a.vencimento ?? '').localeCompare(b.vencimento ?? ''))
-    .slice(0, 4)
-
-  const tarefasRecentes = store.tarefas
-    .filter(t => t.status !== 'concluida' && t.status !== 'cancelada')
-    .sort((a, b) => {
-      const pri: Record<string, number> = { alta: 0, media: 1, baixa: 2 }
-      return (pri[a.prioridade] ?? 1) - (pri[b.prioridade] ?? 1)
-    })
-    .slice(0, 5)
-
-  // Verifica se o sistema está vazio (sem nenhum dado)
-  const sistemaVazio =
-    store.tarefas.length === 0 &&
-    store.agenda.length === 0 &&
-    store.pagamentos.length === 0 &&
-    store.pessoas.length === 0
-
-  const dataFormatada = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-  })
+  }
 
   return (
-    <div style={{ paddingBottom: 24 }}>
-
-      {/* ── Hero / saudação ── */}
-      <div style={{
-        background: 'linear-gradient(135deg, #0f2044 0%, #1a1230 50%, #0F0A1E 100%)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '20px 22px',
-        marginBottom: 20,
-        border: '1px solid var(--border)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', right: -20, top: -20,
-          width: 120, height: 120,
-          background: 'radial-gradient(circle, rgba(108,59,255,0.25), transparent 70%)',
-          pointerEvents: 'none',
-        }} />
-        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 2, fontWeight: 500 }}>
-          {saudacao},
-        </div>
-        <div style={{
-          fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 800,
-          marginBottom: 4, letterSpacing: '-0.02em',
-        }}>
-          {nome} 👋
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: sistemaVazio ? 0 : 16 }}>
-          {dataFormatada}
-        </div>
-
-        {/* Resumo rápido — só aparece se houver dados */}
-        {!sistemaVazio && (
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 12 }}>
-            {metrics.tarefasPendentes > 0 && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 800, color: 'var(--text)', lineHeight: 1 }}>
-                  {metrics.tarefasPendentes}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>tarefas pendentes</div>
-              </div>
-            )}
-            {metrics.eventosHoje.length > 0 && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 800, color: 'var(--secondary)', lineHeight: 1 }}>
-                  {metrics.eventosHoje.length}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>eventos hoje</div>
-              </div>
-            )}
-            {(metrics.recebimentos > 0 || metrics.pagamentos > 0) && (
-              <div>
-                <div style={{
-                  fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 800, lineHeight: 1,
-                  color: metrics.saldo >= 0 ? 'var(--success)' : 'var(--danger)',
-                }}>
-                  {fmt(metrics.saldo)}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>saldo</div>
-              </div>
-            )}
-          </div>
-        )}
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+      {/* Saudação */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>
+          {saudacao}, {user?.nome?.split(' ')[0]} 👋
+        </h1>
+        <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
+          {user?.role === 'gestor' ? '👑 Gestor' : '👤 Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+        </p>
       </div>
 
-      {/* ── Estado vazio — sistema recém configurado ── */}
-      {sistemaVazio ? (
-        <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          <div style={{ fontSize: 52, marginBottom: 14 }}>🚀</div>
-          <div style={{
-            fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 800,
-            marginBottom: 8, color: 'var(--text)',
-          }}>
-            Tudo pronto para começar!
-          </div>
-          <p style={{ color: 'var(--text3)', fontSize: 14, lineHeight: 1.8, marginBottom: 28, maxWidth: 340, margin: '0 auto 28px' }}>
-            O Nexus está configurado e pronto. Adicione sua equipe, crie as primeiras tarefas ou registre um pagamento.
-          </p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link to="/equipe"     className="btn btn-primary btn-sm">👥 Adicionar Equipe</Link>
-            <Link to="/tarefas"    className="btn btn-secondary btn-sm">✅ Criar Tarefa</Link>
-            <Link to="/financeiro" className="btn btn-secondary btn-sm">💳 Financeiro</Link>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* ── Cards de métricas ── */}
-          <div className="grid-metrics" style={{ marginBottom: 4 }}>
-
-            <Link to="/tarefas" style={{ textDecoration: 'none' }}>
-              <div className="metric-card">
-                <div className="metric-icon" style={{ background: 'rgba(108,59,255,0.2)' }}>
-                  <CheckCircle2 size={20} color="var(--primary-light)" />
-                </div>
-                <div className="metric-value">{metrics.tarefasPendentes}</div>
-                <div className="metric-label">Tarefas Pendentes</div>
-                {metrics.tarefasConcluidas > 0 && (
-                  <div style={{ marginTop: 4 }}>
-                    <ProgressBar value={metrics.tarefasConcluidas} max={metrics.totalTarefas} />
-                    <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                      {metrics.tarefasConcluidas}/{metrics.totalTarefas} concluídas
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Link>
-
-            <Link to="/agenda" style={{ textDecoration: 'none' }}>
-              <div className="metric-card">
-                <div className="metric-icon" style={{ background: 'rgba(6,182,212,0.2)' }}>
-                  <Calendar size={20} color="var(--secondary)" />
-                </div>
-                <div className="metric-value">{metrics.eventosHoje.length}</div>
-                <div className="metric-label">Eventos Hoje</div>
-                {metrics.eventosHoje[0] && (
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    📍 {metrics.eventosHoje[0].titulo}
-                  </div>
-                )}
-              </div>
-            </Link>
-
-            <Link to="/financeiro" style={{ textDecoration: 'none' }}>
-              <div className="metric-card">
-                <div className="metric-icon" style={{ background: 'rgba(16,185,129,0.2)' }}>
-                  <TrendingUp size={20} color="var(--success)" />
-                </div>
-                <div className="metric-value" style={{ fontSize: 18 }}>{fmt(metrics.recebimentos)}</div>
-                <div className="metric-label">Recebimentos</div>
-              </div>
-            </Link>
-
-            <Link to="/financeiro" style={{ textDecoration: 'none' }}>
-              <div className="metric-card">
-                <div className="metric-icon" style={{ background: 'rgba(239,68,68,0.2)' }}>
-                  <TrendingDown size={20} color="var(--danger)" />
-                </div>
-                <div className="metric-value" style={{ fontSize: 18 }}>{fmt(metrics.pagamentos)}</div>
-                <div className="metric-label">Pagamentos</div>
-                {metrics.vencidos.length > 0 && (
-                  <div style={{ fontSize: 11, color: '#F87171', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <AlertTriangle size={10} /> {metrics.vencidos.length} vencido{metrics.vencidos.length > 1 ? 's' : ''}
-                  </div>
-                )}
-              </div>
-            </Link>
-          </div>
-
-          {/* ── Equipe ativa ── */}
-          {metrics.equipeAtiva.length > 0 && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div className="section-title" style={{ margin: 0 }}>Equipe Ativa</div>
-                <Link to="/equipe" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  Ver todos <ArrowRight size={12} />
-                </Link>
-              </div>
-              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-                {metrics.equipeAtiva.slice(0, 6).map(p => (
-                  <div key={p.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minWidth: 56 }}>
-                    <Avatar name={p.nome} size={44} url={p.avatar_url} />
-                    <span style={{ fontSize: 11, color: 'var(--text2)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 56 }}>
-                      {p.nome.split(' ')[0]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Tarefas prioritárias ── */}
-          {tarefasRecentes.length > 0 && (
-            <div className="card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <CheckCircle2 size={16} color="var(--primary-light)" /> Tarefas Prioritárias
-                </div>
-                <Link to="/tarefas" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none' }}>Ver todas</Link>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {tarefasRecentes.map(t => (
-                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
-                    <div style={{
-                      width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-                      background: t.prioridade === 'alta' ? 'var(--danger)' : t.prioridade === 'media' ? 'var(--warning)' : 'var(--success)',
-                    }} />
-                    <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.titulo}
-                    </span>
-                    {t.prazo && (
-                      <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-                        <Clock size={10} /> {fmtDate(t.prazo)}
-                      </span>
-                    )}
-                    {t.responsavel_nome && <Avatar name={t.responsavel_nome} size={22} />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Próximos vencimentos ── */}
-          {proximosPagamentos.length > 0 && (
-            <div className="card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <DollarSign size={16} color="var(--warning)" /> Próximos Vencimentos
-                </div>
-                <Link to="/financeiro" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none' }}>Ver todos</Link>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {proximosPagamentos.map(p => {
-                  const isVencido = p.vencimento && new Date(p.vencimento + 'T12:00') < new Date()
-                  return (
-                    <div key={p.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
-                      background: isVencido ? 'rgba(239,68,68,0.08)' : 'var(--bg3)',
-                      borderRadius: 8,
-                    }}>
-                      <span style={{ fontSize: 16 }}>{p.tipo === 'recebimento' ? '💰' : '💸'}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.descricao}</div>
-                        {p.pessoa_nome && <div style={{ fontSize: 11, color: 'var(--text3)' }}>{p.pessoa_nome}</div>}
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: p.tipo === 'recebimento' ? 'var(--success)' : 'var(--text)' }}>
-                          {fmt(Number(p.valor))}
-                        </div>
-                        <div style={{ fontSize: 11, color: isVencido ? 'var(--danger)' : 'var(--text3)' }}>
-                          {p.vencimento ? fmtDate(p.vencimento) : '—'}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
+      {/* Alertas */}
+      {metrics.vencidos.length > 0 && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={16} color="#EF4444" />
+          <span><strong style={{ color: '#EF4444' }}>{metrics.vencidos.length} pagamento{metrics.vencidos.length > 1 ? 's' : ''}</strong> vencido{metrics.vencidos.length > 1 ? 's' : ''} — verifique o financeiro</span>
+          <Link to="/financeiro" style={{ marginLeft: 'auto', color: '#EF4444', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Ver →</Link>
         </div>
       )}
+
+      {/* Métricas */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
+        {[
+          { icon: CheckCircle2, label: 'Tarefas Pendentes', value: metrics.tarefasPendentes, sub: `${metrics.tarefasConcluidas} concluídas`, color: '#6C3BFF', to: '/tarefas' },
+          { icon: Calendar,     label: 'Eventos Hoje',      value: metrics.eventosHoje.length, sub: 'compromissos', color: '#06B6D4', to: '/agenda' },
+          { icon: DollarSign,   label: 'Saldo',             value: fmt(metrics.saldo), sub: `Receita: ${fmt(metrics.receita)}`, color: metrics.saldo >= 0 ? '#10B981' : '#EF4444', to: '/financeiro' },
+          { icon: Users,        label: 'Equipe',            value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/equipe' },
+        ].map(({ icon: Icon, label, value, sub, color, to }) => (
+          <Link key={label} to={to} style={{ textDecoration: 'none' }}>
+            <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon size={16} color={color} />
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 600 }}>{label}</span>
+              </div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 24, color }}>{value}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{sub}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Tarefas urgentes */}
+      {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>🔴 Tarefas Urgentes</h2>
+            <Link to="/tarefas" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Ver todas <ArrowRight size={12} />
+            </Link>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').slice(0, 3).map(t => (
+              <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo}</div>
+                  {t.prazo && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Prazo: {fmtDate(t.prazo)}</div>}
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap' }}>
+                  {t.status === 'pendente' ? 'Pendente' : 'Em Progresso'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Eventos de hoje */}
+      {metrics.eventosHoje.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>📅 Hoje na Agenda</h2>
+            <Link to="/agenda" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Ver agenda <ArrowRight size={12} />
+            </Link>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {metrics.eventosHoje.slice(0, 3).map(e => (
+              <div key={e.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Clock size={14} color="var(--secondary)" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{e.titulo}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtTime(e.data_inicio)}{e.local ? ` · ${e.local}` : ''}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Financeiro resumo */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>💳 Resumo Financeiro</h2>
+          <Link to="/financeiro" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            Detalhes <ArrowRight size={12} />
+          </Link>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TrendingUp size={18} color="#10B981" />
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Receitas</div>
+              <div style={{ fontWeight: 700, color: '#10B981' }}>{fmt(metrics.receita)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <TrendingDown size={18} color="#EF4444" />
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Despesas</div>
+              <div style={{ fontWeight: 700, color: '#EF4444' }}>{fmt(metrics.despesas)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar,
-  DollarSign, FileText, BarChart3, Bell, Settings,
-  Menu, Zap, Plus, Grid3X3, X
+  DollarSign, FileText, BarChart3, Bell,
+  Menu, Zap, Plus, Grid3X3, X, LogOut
 } from 'lucide-react'
-import { store } from '../lib/store'
+import { useAuth } from '../lib/AuthContext'
 
 const NAV = [
   { path: '/',            icon: LayoutDashboard, label: 'Início',     emoji: '🏠' },
@@ -34,20 +34,22 @@ const BOTTOM_MAIN = [
   NAV[3], // Agenda
 ]
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default function Layout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen]   = useState(false)
   const [notifOpen, setNotifOpen]       = useState(false)
   const [moreOpen, setMoreOpen]         = useState(false)
   const [fabOpen, setFabOpen]           = useState(false)
 
-  const pendingTasks = store.tarefas.filter(t => t.status === 'pendente').length
-  const overduePayments = store.pagamentos.filter(p => {
-    if (p.status !== 'pendente' || !p.vencimento) return false
-    return new Date(p.vencimento + 'T12:00') < new Date()
-  }).length
-  const notifCount = pendingTasks + overduePayments
+  const notifCount = 0
+  const pendingTasks = 0
+  const overduePayments = 0
+
+  const initials = user?.nome
+    ? user.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+    : 'NX'
 
   function closeAll() {
     setMoreOpen(false)
@@ -58,8 +60,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   function handleQuickAction(path: string) {
     navigate(path)
     closeAll()
-    // Dispara evento custom para que a página abra o modal "novo"
     setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-new')), 120)
+  }
+
+  async function handleSignOut() {
+    await logout()
+    navigate('/login')
   }
 
   return (
@@ -120,19 +126,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               width: 34, height: 34, borderRadius: 10,
               background: 'linear-gradient(135deg,#6C3BFF,#06B6D4)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 13, color: '#fff'
+              fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 13, color: '#fff',
+              flexShrink: 0,
             }}>
-              {(store.config.nome || 'U').slice(0, 1).toUpperCase()}
+              {initials}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {store.config.nome || 'Usuário'}
+                {user?.nome || 'Usuário'}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Administrador</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                {user?.role === 'gestor' ? '👑 Gestor' : '👤 Membro'}
+              </div>
             </div>
-            <Link to="/configuracoes" style={{ color: 'var(--text3)' }} onClick={() => setSidebarOpen(false)}>
-              <Settings size={16} />
-            </Link>
+            <button
+              onClick={handleSignOut}
+              style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4 }}
+              title="Sair"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </aside>
@@ -212,11 +225,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
+
+          {/* Avatar */}
+          <div style={{
+            width: 34, height: 34, borderRadius: 10,
+            background: 'linear-gradient(135deg,#6C3BFF,#06B6D4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 12, color: '#fff',
+            cursor: 'pointer', flexShrink: 0,
+          }}>
+            {initials}
+          </div>
         </header>
 
-        {/* PAGE CONTENT */}
+        {/* PAGE CONTENT — Outlet renderiza a rota filha */}
         <main className="page-content">
-          {children}
+          <Outlet />
         </main>
       </div>
 
@@ -241,7 +265,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* FAB central "+" com ações rápidas */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-          {/* Ações rápidas em leque */}
           {fabOpen && (
             <div style={{
               position: 'absolute',
@@ -287,7 +310,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          {/* Botão FAB */}
           <button
             onClick={() => { setMoreOpen(false); setNotifOpen(false); setFabOpen(!fabOpen) }}
             style={{
@@ -354,7 +376,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           boxShadow: '0 -8px 40px rgba(0,0,0,0.4)',
           animation: 'drawerSlideUp 0.22s ease both',
         }}>
-          {/* Handle */}
           <div style={{
             width: 36, height: 4, borderRadius: 99,
             background: 'var(--border)', margin: '0 auto 16px',
@@ -394,7 +415,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
 
-            {/* Configurações no drawer */}
             <Link
               to="/configuracoes"
               onClick={() => setMoreOpen(false)}
@@ -419,7 +439,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Animações */}
       <style>{`
         @keyframes drawerSlideUp {
           from { transform: translateY(100%); opacity: 0; }
@@ -429,6 +448,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           from { transform: translateY(12px) scale(0.9); opacity: 0; }
           to   { transform: translateY(0)    scale(1);   opacity: 1; }
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   )
