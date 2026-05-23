@@ -503,9 +503,10 @@ export default function Financeiro() {
                         <Icon size={18} color={p.tipo === 'pagamento' ? '#EF4444' : '#10B981'} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>{p.titulo}</div>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>{p.pessoa_nome || 'Sem pessoa'}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>{p.titulo}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                          {p.pessoa_nome && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><User size={10} /> {p.pessoa_nome}</span>}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><User size={10} /> {p.tipo === 'pagamento' ? 'A pagar' : 'A receber'}</span>
                           {p.categoria && <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}>{p.categoria}</span>}
                           {p.vencimento && <span style={{ fontSize: 11, color: isVencido ? '#F59E0B' : 'var(--text3)' }}>{isVencido ? 'Vencido: ' : 'Vence: '}{fmtDate(p.vencimento)}</span>}
                           {p.recorrencia && p.recorrencia !== 'nenhum' && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><Repeat size={10} /> {p.recorrencia}</span>}
