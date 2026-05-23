@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound } from 'lucide-react'
+import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound, Eye } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
@@ -370,14 +370,22 @@ export default function Pessoas() {
                       )}
                     </div>
                     {p.obs && <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>{p.obs}</p>}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => navigate(`/pessoas/${p.id}`)}
+                        style={{ fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                      >
+                        <Eye size={13} /> Ficha
+                      </button>
                       <button
                         type="button"
                         className="btn btn-ghost"
                         onClick={() => novoLancamento(p, 'pagamento')}
                         style={{ fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                       >
-                        <WalletCards size={13} /> Add pagamento
+                        <WalletCards size={13} /> Pagar
                       </button>
                       <button
                         type="button"
@@ -385,7 +393,7 @@ export default function Pessoas() {
                         onClick={() => novoLancamento(p, 'recebimento')}
                         style={{ fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                       >
-                        <CircleDollarSign size={13} /> Add recebimento
+                        <CircleDollarSign size={13} /> Receber
                       </button>
                     </div>
                   </div>
