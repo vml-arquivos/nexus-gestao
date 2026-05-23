@@ -10,38 +10,39 @@
   --font-body:    'Poppins', sans-serif;
   --font-heading: 'Montserrat', sans-serif;
 
-  /* Cor primária (roxo/lilás Nexus) */
-  --primary:       #6C3BFF;
-  --primary-light: #B99FFF;   /* ← AUMENTADO de #8B62FF para #B99FFF — mais visível no fundo escuro */
-  --primary-dim:   rgba(108,59,255,0.18);
+  /* Cor primária — roxo profissional, menos saturado */
+  --primary:       #7C3AED;
+  --primary-light: #A78BFA;
+  --primary-dim:   rgba(124,58,237,0.14);
 
-  /* Cor secundária (ciano) */
-  --secondary:     #06B6D4;
+  /* Cor secundária discreta */
+  --secondary:     #38BDF8;
 
-  /* Semânticas */
-  --success:  #10B981;
-  --danger:   #EF4444;
-  --warning:  #F59E0B;
+  /* Semânticas suavizadas */
+  --success:  #34D399;
+  --danger:   #F87171;
+  --warning:  #FBBF24;
 
-  /* Fundos (escala de escuro para menos escuro) */
-  --bg:   #0F0A1E;
-  --bg2:  #16102B;
-  --bg3:  #1E1638;
-  --bg4:  #2A2048;
+  /* Fundos mais neutros e premium */
+  --bg:   #05070D;
+  --bg2:  #0B1020;
+  --bg3:  #111827;
+  --bg4:  #1F2937;
 
-  /* Textos */
-  --text:       #F0EEFF;       /* branco-lilás — texto principal */
-  --text2:      #C4B5FD;       /* lilás claro — texto secundário */
-  --text3:      #8B7EC8;       /* lilás médio — labels, dicas */
-  --text-muted: #5B4F8A;       /* lilás apagado — placeholders */
+  /* Textos sem lilás claro excessivo */
+  --text:       #F8FAFC;
+  --text1:      #F8FAFC;
+  --text2:      #E5E7EB;
+  --text3:      #CBD5E1;
+  --text-muted: #94A3B8;
 
-  /* Bordas */
-  --border:  rgba(108,59,255,0.18);
-  --border2: rgba(108,59,255,0.30);
+  /* Bordas neutras */
+  --border:  rgba(255,255,255,0.10);
+  --border2: rgba(255,255,255,0.16);
 
-  /* Gradientes */
-  --grad-primary: linear-gradient(135deg, #6C3BFF 0%, #06B6D4 100%);
-  --grad-card:    linear-gradient(145deg, #16102B 0%, #1E1638 100%);
+  /* Gradientes mais discretos */
+  --grad-primary: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
+  --grad-card:    linear-gradient(145deg, #0B1020 0%, #111827 100%);
 
   /* Sombras */
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.4);
