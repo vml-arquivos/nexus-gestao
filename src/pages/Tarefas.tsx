@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
-import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
@@ -18,13 +17,30 @@ const PRIORIDADE_CONFIG = {
   alta:  { label: 'Alta',  color: '#EF4444' },
 } as const
 
+function parseDateSafe(d?: string) {
+  if (!d) return null
+  const raw = String(d).trim()
+  const onlyDate = raw.slice(0, 10)
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(onlyDate)
+    ? new Date(`${onlyDate}T12:00:00`)
+    : new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
 function fmtDate(d?: string) {
-  if (!d) return ''
-  return new Date(d + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  const parsed = parseDateSafe(d)
+  return parsed ? parsed.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : ''
+}
+function isToday(d?: string) {
+  const parsed = parseDateSafe(d)
+  if (!parsed) return false
+  const now = new Date()
+  return parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth() && parsed.getDate() === now.getDate()
 }
 function isOverdue(prazo?: string) {
-  if (!prazo) return false
-  return new Date(prazo + 'T23:59') < new Date()
+  const parsed = parseDateSafe(prazo)
+  if (!parsed) return false
+  parsed.setHours(23, 59, 59, 999)
+  return parsed < new Date()
 }
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -78,19 +94,11 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input className="form-input" style={{ flex: 1 }} placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
-              {/* Botão de voz para título */}
-              <MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} />
-            </div>
+            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
-              {/* Botão de voz para descrição */}
-              <MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} />
-            </div>
+            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
@@ -100,9 +108,9 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
             <div className="form-group">
               <label className="form-label">Prioridade</label>
               <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Tarefa['prioridade'])}>
-                <option value="baixa">🟢 Baixa</option>
-                <option value="media">🟡 Média</option>
-                <option value="alta">🔴 Alta</option>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
               </select>
             </div>
           </div>
@@ -111,7 +119,7 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
               <label className="form-label">Responsável</label>
               <select className="form-input" value={responsavel} onChange={e => setResponsavel(e.target.value)}>
                 <option value="">Sem responsável</option>
-                {membros.map(m => <option key={m.id} value={m.id}>{m.role === 'gestor' ? '👑 ' : '👤 '}{m.nome}</option>)}
+                {membros.map(m => <option key={m.id} value={m.id}>{m.role === 'gestor' ? 'Gestor · ' : ''}{m.nome}</option>)}
               </select>
             </div>
           )}
@@ -183,10 +191,10 @@ function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChec
               )}
               {tarefa.prazo && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: overdue ? '#EF4444' : 'var(--text3)', fontWeight: overdue ? 700 : 400 }}>
-                  <Calendar size={12} /> {fmtDate(tarefa.prazo)} {overdue && '⚠️'}
+                  <Calendar size={12} /> {fmtDate(tarefa.prazo)} {isToday(tarefa.prazo) && ' · hoje'} {overdue && ' · vencida'}
                 </span>
               )}
-              {checkTotal > 0 && <span style={{ fontSize: 12, color: 'var(--text3)' }}>✅ {checkDone}/{checkTotal}</span>}
+              {checkTotal > 0 && <span style={{ fontSize: 12, color: 'var(--text3)' }}>{checkDone}/{checkTotal} itens</span>}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -332,7 +340,7 @@ export default function Tarefas() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>
-            {isGestor ? '📋 Painel de Tarefas' : '✅ Minhas Tarefas'}
+            {isGestor ? 'Painel de Tarefas' : 'Minhas Tarefas'}
           </h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>
             {isGestor ? 'Delegue e acompanhe tarefas da equipe' : 'Tarefas atribuídas a você'}
@@ -358,6 +366,25 @@ export default function Tarefas() {
             <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Relatório rápido */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+        <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Relatório rápido</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Hoje</div>
+            <div style={{ fontWeight: 900, color: '#06B6D4' }}>{tarefas.filter(t => t.status !== 'concluida' && isToday(t.prazo)).length}</div>
+          </div>
+          <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Urgentes</div>
+            <div style={{ fontWeight: 900, color: '#EF4444' }}>{tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length}</div>
+          </div>
+          <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Vencidas</div>
+            <div style={{ fontWeight: 900, color: '#F59E0B' }}>{tarefas.filter(t => t.status !== 'concluida' && isOverdue(t.prazo)).length}</div>
+          </div>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -388,7 +415,7 @@ export default function Tarefas() {
         </div>
       ) : filtradas.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+          <CheckCircle2 size={48} style={{ marginBottom: 12 }} />
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhuma tarefa encontrada</div>
           <div style={{ fontSize: 13 }}>{isGestor ? 'Crie uma nova tarefa acima' : 'Nenhuma tarefa atribuída a você ainda'}</div>
         </div>
