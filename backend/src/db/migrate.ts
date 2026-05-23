@@ -150,6 +150,10 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   pessoa_nome      TEXT,
   obs              TEXT,
   comprovante_url  TEXT,
+  -- Recorrência: 'nenhum' (padrão), 'semanal', 'quinzenal', 'mensal', 'anual'
+  recorrencia      TEXT NOT NULL DEFAULT 'nenhum' CHECK (recorrencia IN ('nenhum','semanal','quinzenal','mensal','anual')),
+  -- Data de término da recorrência. Se nula, considera recorrência indefinida.
+  recorrencia_fim  DATE,
   created_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
