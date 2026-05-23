@@ -28,7 +28,7 @@ FRONTEND_URL=https://nexus.permupay.com.br
 DOMAIN=nexus.permupay.com.br
 PORT=3001
 NODE_ENV=production
-FRONTEND_PORT=3000
+FRONTEND_PORT=3002
 MAX_FILE_SIZE=52428800
 UPLOADS_DIR=/app/uploads
 VITE_API_URL=/api
@@ -37,7 +37,7 @@ VITE_API_URL=/api
 ### 3. Configurar domínio
 - No Coolify, em **Domains**, adicione: `nexus.permupay.com.br`
 - Ative **SSL automático (Let's Encrypt)**
-- Aponte para o serviço `nexus-frontend` na porta `3000`
+- Aponte para o serviço `nexus-frontend` na porta `3002`
 
 ### 4. Deploy
 - Clique em **Deploy**
@@ -66,7 +66,7 @@ Após o deploy, verifique os logs do container `nexus-backend`:
 
 | Container | Porta | Função |
 |---|---|---|
-| `nexus-frontend` | 3000 → 80 | React SPA + Nginx (proxy para API) |
+| `nexus-frontend` | 3002 → 80 | React SPA + Nginx (proxy para API) |
 | `nexus-backend` | 3001 | Node.js + Express + JWT |
 
 O Nginx do frontend faz proxy automático:

@@ -48,7 +48,7 @@ services:
     container_name: nexus-frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "${FRONTEND_PORT:-3002}:80"
     depends_on:
       nexus-backend:
         condition: service_healthy
