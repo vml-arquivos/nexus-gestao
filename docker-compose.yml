@@ -1,0 +1,59 @@
+# ============================================================
+# NEXUS — docker-compose.yml
+# Inclui Traefik para HTTPS automático via Let's Encrypt
+# ============================================================
+
+services:
+
+  # ── Traefik: proxy reverso + SSL automático ───────────────
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: always
+    command:
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Redireciona HTTP → HTTPS automaticamente
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - nexus-net
+
+  # ── Nexus App ────────────────────────────────────────────
+  nexus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    container_name: nexus-app
+    restart: always
+    networks:
+      - nexus-net
+    labels:
+      - "traefik.enable=true"
+      # Roteamento pelo domínio
+      - "traefik.http.routers.nexus.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.nexus.entrypoints=websecure"
+      - "traefik.http.routers.nexus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.nexus.loadbalancer.server.port=80"
+
+volumes:
+  traefik-certs:
+
+networks:
+  nexus-net:
+    driver: bridge
