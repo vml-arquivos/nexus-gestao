@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Pessoas from './pages/Pessoas'
+import PessoaDetalhe from './pages/PessoaDetalhe'
 import Tarefas from './pages/Tarefas'
 import Agenda from './pages/Agenda'
 import Financeiro from './pages/Financeiro'
@@ -77,6 +78,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="pessoas" element={<Pessoas />} />
+        <Route path="pessoas/:id" element={<PessoaDetalhe />} />
         <Route path="equipe" element={<Navigate to="/pessoas" replace />} />
         <Route path="tarefas" element={<Tarefas />} />
         <Route path="agenda" element={<Agenda />} />
