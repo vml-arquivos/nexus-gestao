@@ -4,9 +4,6 @@
 -- Execute no SQL Editor do seu projeto Supabase
 -- ============================================================
 
--- Habilitar extensão UUID
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- ── TABELA: pessoas ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pessoas (
   id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -32,7 +29,7 @@ CREATE TABLE IF NOT EXISTS tarefas (
   prazo            DATE,
   prioridade       TEXT NOT NULL DEFAULT 'media' CHECK (prioridade IN ('baixa','media','alta')),
   status           TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','em_progresso','concluida','cancelada')),
-  responsavel_id   TEXT REFERENCES pessoas(id) ON DELETE SET NULL,
+  responsavel_id   TEXT,
   responsavel_nome TEXT,
   checklist        JSONB DEFAULT '[]',
   obs              TEXT,
@@ -67,7 +64,7 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   pago_dia          DATE,
   status            TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','pago','vencido','cancelado')),
   categoria         TEXT,
-  pessoa_id         TEXT REFERENCES pessoas(id) ON DELETE SET NULL,
+  pessoa_id         TEXT,
   pessoa_nome       TEXT,
   obs               TEXT,
   comprovante_url   TEXT,
@@ -86,42 +83,35 @@ CREATE TABLE IF NOT EXISTS documentos (
   arquivo_key   TEXT NOT NULL,
   mime_type     TEXT,
   tamanho       INTEGER,
-  pessoa_id     TEXT REFERENCES pessoas(id) ON DELETE SET NULL,
+  pessoa_id     TEXT,
   pessoa_nome   TEXT,
-  pagamento_id  TEXT REFERENCES pagamentos(id) ON DELETE SET NULL,
+  pagamento_id  TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
 -- ── ROW LEVEL SECURITY (RLS) ────────────────────────────────
--- Habilitar RLS em todas as tabelas
 ALTER TABLE pessoas    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tarefas    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agenda     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pagamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documentos ENABLE ROW LEVEL SECURITY;
 
--- Políticas: cada usuário acessa apenas seus próprios dados
--- (usando user_id como identificador — pode ser auth.uid() ou texto livre)
-
-CREATE POLICY "pessoas_user" ON pessoas    USING (true) WITH CHECK (true);
-CREATE POLICY "tarefas_user" ON tarefas    USING (true) WITH CHECK (true);
-CREATE POLICY "agenda_user"  ON agenda     USING (true) WITH CHECK (true);
-CREATE POLICY "pagamentos_user" ON pagamentos USING (true) WITH CHECK (true);
-CREATE POLICY "documentos_user" ON documentos USING (true) WITH CHECK (true);
+-- Políticas abertas (o app controla o user_id via código)
+CREATE POLICY "allow_all_pessoas"    ON pessoas    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_tarefas"    ON tarefas    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_agenda"     ON agenda     FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_pagamentos" ON pagamentos FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "allow_all_documentos" ON documentos FOR ALL USING (true) WITH CHECK (true);
 
 -- ── ÍNDICES ──────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_pessoas_user    ON pessoas(user_id);
-CREATE INDEX IF NOT EXISTS idx_tarefas_user    ON tarefas(user_id);
-CREATE INDEX IF NOT EXISTS idx_tarefas_status  ON tarefas(status);
-CREATE INDEX IF NOT EXISTS idx_agenda_user     ON agenda(user_id);
-CREATE INDEX IF NOT EXISTS idx_agenda_inicio   ON agenda(data_inicio);
-CREATE INDEX IF NOT EXISTS idx_pagamentos_user ON pagamentos(user_id);
+CREATE INDEX IF NOT EXISTS idx_pessoas_user      ON pessoas(user_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_user      ON tarefas(user_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_status    ON tarefas(status);
+CREATE INDEX IF NOT EXISTS idx_agenda_user       ON agenda(user_id);
+CREATE INDEX IF NOT EXISTS idx_agenda_inicio     ON agenda(data_inicio);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_user   ON pagamentos(user_id);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_status ON pagamentos(status);
-CREATE INDEX IF NOT EXISTS idx_documentos_user ON documentos(user_id);
-
--- ── STORAGE BUCKET (execute separadamente no Supabase Dashboard) ──
--- Crie um bucket chamado "documentos" com acesso público ou privado
--- INSERT INTO storage.buckets (id, name, public) VALUES ('documentos', 'documentos', false);
+CREATE INDEX IF NOT EXISTS idx_documentos_user   ON documentos(user_id);
 
 -- ============================================================
 -- PRONTO! Agora configure o Nexus com a URL e chave do projeto.
