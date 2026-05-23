@@ -112,6 +112,15 @@ export interface Pagamento {
   pessoa_nome_atual?: string
   obs?: string
   comprovante_url?: string
+  /**
+   * Recorrência deste lançamento. "nenhum" indica lançamento único.
+   * Pode ser 'nenhum', 'semanal', 'quinzenal', 'mensal', 'anual'.
+   */
+  recorrencia?: string
+  /**
+   * Data final da recorrência (ISO YYYY-MM-DD). Opcional.
+   */
+  recorrencia_fim?: string
   created_at: string
   updated_at?: string
 }
