@@ -1,8 +1,3 @@
-/* =====================================================
-   NEXUS — index.css
-   Tailwind CSS v4 usa @import "tailwindcss" (não @tailwind base/components/utilities)
-   ===================================================== */
-
 @import "tailwindcss";
 
 /* ── Fontes ───────────────────────────────────────── */
@@ -38,7 +33,6 @@
   --color-surface-600: #2A2048;
   --color-surface-500: #352858;
 
-  /* ── Border radius ───────────────────────────────── */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -48,13 +42,12 @@
   --radius-full: 9999px;
 }
 
-/* ── Reset & Base ─────────────────────────────────── */
-*,
-*::before,
-*::after {
+/* ── Reset ────────────────────────────────────────── */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
@@ -62,42 +55,41 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  scroll-behavior: smooth;
+  /* Comportamento nativo: sem overscroll/bounce */
+  overscroll-behavior: none;
+  height: 100%;
+  height: 100dvh;
 }
 
 body {
   font-family: var(--font-body);
   background-color: var(--color-nexus-900);
   color: #f0eeff;
-  min-height: 100dvh;
-  overflow-x: hidden;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Impede zoom por duplo toque */
+  touch-action: pan-x pan-y;
 }
 
 #root {
-  min-height: 100dvh;
+  height: 100%;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Scrollbar customizada ────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--color-surface-800);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-nexus-600);
-  border-radius: var(--radius-full);
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-nexus-400);
-}
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(108,59,255,0.4); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(108,59,255,0.7); }
 
 /* ── Seleção de texto ─────────────────────────────── */
 ::selection {
-  background-color: color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+  background-color: rgba(108,59,255,0.3);
   color: #ffffff;
 }
 
@@ -105,25 +97,23 @@ body {
 :focus-visible {
   outline: 2px solid var(--color-nexus-400);
   outline-offset: 2px;
-  border-radius: var(--radius-xs);
+  border-radius: 4px;
+}
+
+/* ── Inputs: permite seleção ──────────────────────── */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
 }
 
 /* ── Transições globais ───────────────────────────── */
-a,
-button,
-input,
-select,
-textarea {
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    opacity 0.15s ease,
-    transform 0.15s ease;
+a, button, input, select, textarea {
+  transition: color .15s ease, background-color .15s ease,
+              border-color .15s ease, box-shadow .15s ease,
+              opacity .15s ease, transform .15s ease;
 }
 
-/* ── Utilitários globais ──────────────────────────── */
+/* ── Utilitários ──────────────────────────────────── */
 .nexus-gradient-text {
   background: linear-gradient(135deg, var(--color-nexus-400), var(--color-accent-400));
   -webkit-background-clip: text;
@@ -142,9 +132,8 @@ textarea {
   background: var(--color-surface-800);
   border: 1px solid color-mix(in srgb, var(--color-nexus-400) 15%, transparent);
   border-radius: var(--radius-lg);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color .2s ease, box-shadow .2s ease;
 }
-
 .nexus-card:hover {
   border-color: color-mix(in srgb, var(--color-nexus-400) 35%, transparent);
   box-shadow: 0 4px 24px color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
@@ -157,7 +146,7 @@ textarea {
   gap: 8px;
   padding: 10px 20px;
   background: var(--color-nexus-400);
-  color: #ffffff;
+  color: #fff;
   border: none;
   border-radius: var(--radius-md);
   font-family: var(--font-body);
@@ -165,17 +154,14 @@ textarea {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+  touch-action: manipulation;
 }
-
 .nexus-btn-primary:hover {
   background: var(--color-nexus-300);
   box-shadow: 0 0 20px color-mix(in srgb, var(--color-nexus-400) 40%, transparent);
   transform: translateY(-1px);
 }
-
-.nexus-btn-primary:active {
-  transform: translateY(0);
-}
+.nexus-btn-primary:active { transform: translateY(0) scale(0.97); }
 
 .nexus-btn-ghost {
   display: inline-flex;
@@ -191,15 +177,14 @@ textarea {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
+  touch-action: manipulation;
 }
-
 .nexus-btn-ghost:hover {
   background: color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
   border-color: var(--color-nexus-400);
-  color: #ffffff;
+  color: #fff;
 }
 
-/* ── Input / Form base ────────────────────────────── */
 .nexus-input {
   width: 100%;
   padding: 10px 14px;
@@ -208,57 +193,32 @@ textarea {
   border-radius: var(--radius-md);
   color: #f0eeff;
   font-family: var(--font-body);
-  font-size: 14px;
+  font-size: 16px; /* >= 16px evita zoom iOS */
 }
-
-.nexus-input::placeholder {
-  color: color-mix(in srgb, var(--color-nexus-200) 50%, transparent);
-}
-
+.nexus-input::placeholder { color: color-mix(in srgb, var(--color-nexus-200) 50%, transparent); }
 .nexus-input:focus {
   outline: none;
   border-color: var(--color-nexus-400);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
 }
 
-/* ── Badge ────────────────────────────────────────── */
 .nexus-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 3px 10px;
-  border-radius: var(--radius-full);
+  border-radius: 9999px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: .05em;
 }
+.nexus-badge-purple { background: color-mix(in srgb, var(--color-nexus-400) 20%, transparent); color: var(--color-nexus-200); border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent); }
+.nexus-badge-green  { background: color-mix(in srgb, var(--color-accent-400) 20%, transparent); color: var(--color-accent-300); border: 1px solid color-mix(in srgb, var(--color-accent-400) 30%, transparent); }
+.nexus-badge-gold   { background: color-mix(in srgb, var(--color-gold-400) 20%, transparent); color: var(--color-gold-300); border: 1px solid color-mix(in srgb, var(--color-gold-400) 30%, transparent); }
+.nexus-badge-red    { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.25); }
 
-.nexus-badge-purple {
-  background: color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
-  color: var(--color-nexus-200);
-  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
-}
-
-.nexus-badge-green {
-  background: color-mix(in srgb, var(--color-accent-400) 20%, transparent);
-  color: var(--color-accent-300);
-  border: 1px solid color-mix(in srgb, var(--color-accent-400) 30%, transparent);
-}
-
-.nexus-badge-gold {
-  background: color-mix(in srgb, var(--color-gold-400) 20%, transparent);
-  color: var(--color-gold-300);
-  border: 1px solid color-mix(in srgb, var(--color-gold-400) 30%, transparent);
-}
-
-.nexus-badge-red {
-  background: rgba(239, 68, 68, 0.15);
-  color: #fca5a5;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-}
-
-/* ── Sidebar nav ──────────────────────────────────── */
+/* Sidebar nav items */
 .nexus-nav-item {
   display: flex;
   align-items: center;
@@ -270,59 +230,15 @@ textarea {
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  transition: all 0.15s ease;
+  transition: all .15s ease;
+  -webkit-user-select: none;
+  user-select: none;
 }
+.nexus-nav-item:hover { background: color-mix(in srgb, var(--color-nexus-400) 10%, transparent); color: var(--color-nexus-200); }
+.nexus-nav-item.active { background: color-mix(in srgb, var(--color-nexus-400) 18%, transparent); color: #fff; border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent); }
+.nexus-nav-item.active svg { color: var(--color-nexus-400); }
 
-.nexus-nav-item:hover {
-  background: color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
-  color: var(--color-nexus-200);
-}
-
-.nexus-nav-item.active {
-  background: color-mix(in srgb, var(--color-nexus-400) 18%, transparent);
-  color: #ffffff;
-  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
-}
-
-.nexus-nav-item.active svg,
-.nexus-nav-item.active .icon {
-  color: var(--color-nexus-400);
-}
-
-/* ── Sidebar layout ───────────────────────────────── */
-.nexus-sidebar {
-  width: 240px;
-  min-height: 100dvh;
-  background: var(--color-surface-800);
-  border-right: 1px solid color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 40;
-  transition: transform 0.25s ease;
-}
-
-.nexus-main {
-  margin-left: 240px;
-  min-height: 100dvh;
-  background: var(--color-nexus-900);
-}
-
-@media (max-width: 768px) {
-  .nexus-sidebar {
-    transform: translateX(-100%);
-  }
-  .nexus-sidebar.open {
-    transform: translateX(0);
-  }
-  .nexus-main {
-    margin-left: 0;
-  }
-}
-
-/* ── Stat card ────────────────────────────────────── */
+/* Stat card */
 .nexus-stat-card {
   background: var(--color-surface-800);
   border: 1px solid color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
@@ -330,90 +246,51 @@ textarea {
   padding: 20px;
   position: relative;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: all .2s ease;
 }
-
 .nexus-stat-card::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 0; left: 0; right: 0;
   height: 2px;
   background: linear-gradient(90deg, var(--color-nexus-400), var(--color-accent-400));
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity .2s ease;
 }
-
-.nexus-stat-card:hover::before {
-  opacity: 1;
-}
-
+.nexus-stat-card:hover::before { opacity: 1; }
 .nexus-stat-card:hover {
   border-color: color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
   transform: translateY(-2px);
   box-shadow: 0 8px 32px color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
 }
 
-/* ── Animações ────────────────────────────────────── */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+/* Animações */
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@keyframes pulse-glow { 0%,100% { box-shadow:0 0 0 0 rgba(108,59,255,.4); } 50% { box-shadow:0 0 0 8px rgba(108,59,255,0); } }
+@keyframes shimmer { 0% { background-position:-200% 0; } 100% { background-position:200% 0; } }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-nexus-400) 40%, transparent); }
-  50%       { box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-nexus-400) 0%, transparent); }
-}
-
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position:  200% 0; }
-}
-
-.nexus-animate-in {
-  animation: fadeIn 0.3s ease both;
-}
-
+.nexus-animate-in { animation: fadeIn .3s ease both; }
 .nexus-skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--color-surface-700) 25%,
-    var(--color-surface-600) 50%,
-    var(--color-surface-700) 75%
-  );
+  background: linear-gradient(90deg, var(--color-surface-700) 25%, var(--color-surface-600) 50%, var(--color-surface-700) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius-sm);
 }
 
-/* ── Avatar ───────────────────────────────────────── */
 .nexus-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-full);
+  width: 36px; height: 36px;
+  border-radius: 9999px;
   background: linear-gradient(135deg, var(--color-nexus-400), var(--color-accent-400));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  color: #ffffff;
+  color: #fff;
   flex-shrink: 0;
 }
 
-/* ── Divider ──────────────────────────────────────── */
-.nexus-divider {
-  height: 1px;
-  background: color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
-  margin: 16px 0;
-}
+.nexus-divider { height: 1px; background: color-mix(in srgb, var(--color-nexus-400) 12%, transparent); margin: 16px 0; }
 
-/* ── Tooltip ──────────────────────────────────────── */
-[data-tooltip] {
-  position: relative;
-}
-
+[data-tooltip] { position: relative; }
 [data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -430,10 +307,7 @@ textarea {
   pointer-events: none;
   opacity: 0;
   border: 1px solid color-mix(in srgb, var(--color-nexus-400) 25%, transparent);
-  transition: opacity 0.15s ease;
+  transition: opacity .15s ease;
   z-index: 100;
 }
-
-[data-tooltip]:hover::after {
-  opacity: 1;
-}
+[data-tooltip]:hover::after { opacity: 1; }
