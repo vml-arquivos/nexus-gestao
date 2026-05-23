@@ -1,40 +1,439 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800;900&display=swap');
+/* =====================================================
+   NEXUS — index.css
+   Tailwind CSS v4 usa @import "tailwindcss" (não @tailwind base/components/utilities)
+   ===================================================== */
+
 @import "tailwindcss";
 
-:root {
-  --font-heading: 'Montserrat', sans-serif;
-  --font-body: 'Poppins', sans-serif;
-  --primary: #6C3BFF;
-  --primary-light: #8B5CF6;
-  --primary-dark: #4F1FE0;
-  --secondary: #06B6D4;
-  --accent: #F59E0B;
-  --success: #10B981;
-  --danger: #EF4444;
-  --warning: #F59E0B;
-  --bg: #0F0A1E;
-  --bg2: #1A1230;
-  --bg3: #241A42;
-  --bg4: #2E2255;
-  --surface: #1E1535;
-  --surface2: #281D45;
-  --text: #F0ECFF;
-  --text2: #B8AEDE;
-  --text3: #7B6FA8;
-  --text-muted: #5A4F7A;
-  --border: rgba(108,59,255,0.2);
-  --border2: rgba(108,59,255,0.35);
-  --grad-primary: linear-gradient(135deg,#6C3BFF 0%,#06B6D4 100%);
-  --grad-card: linear-gradient(145deg,#1E1535 0%,#241A42 100%);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,.3);
-  --shadow-md: 0 4px 20px rgba(0,0,0,.4);
-  --shadow-lg: 0 8px 40px rgba(0,0,0,.5);
-  --nav-h: 64px;
-  --sidebar-w: 240px;
-  --topbar-h: 56px;
-  --radius: 14px;
+/* ── Fontes ───────────────────────────────────────── */
+@theme {
+  --font-display: "Montserrat", sans-serif;
+  --font-body: "Poppins", sans-serif;
+  --font-sans: "Poppins", sans-serif;
+
+  /* ── Paleta Nexus ────────────────────────────────── */
+  --color-nexus-900: #0F0A1E;
+  --color-nexus-800: #1A1230;
+  --color-nexus-700: #251844;
+  --color-nexus-600: #3B2870;
+  --color-nexus-500: #5236A8;
+  --color-nexus-400: #6C3BFF;
+  --color-nexus-300: #8B62FF;
+  --color-nexus-200: #B99FFF;
+  --color-nexus-100: #DDD3FF;
+  --color-nexus-50:  #F0EEFF;
+
+  --color-accent-400: #00D4AA;
+  --color-accent-300: #33DDBB;
+  --color-accent-200: #80EDD6;
+  --color-accent-100: #BFFAEE;
+
+  --color-gold-400: #F5A623;
+  --color-gold-300: #F7BC5A;
+  --color-gold-200: #FADA9A;
+
+  --color-surface-900: #0F0A1E;
+  --color-surface-800: #16102B;
+  --color-surface-700: #1E1638;
+  --color-surface-600: #2A2048;
+  --color-surface-500: #352858;
+
+  /* ── Border radius ───────────────────────────────── */
+  --radius-xs: 4px;
   --radius-sm: 8px;
-  --radius-lg: 20px;
-  --safe-bot: env(safe-area-inset-bottom,0px);
-  --safe-top: env(safe-area-inset-top,0px);
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 32px;
+  --radius-full: 9999px;
+}
+
+/* ── Reset & Base ─────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-nexus-900);
+  color: #f0eeff;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Scrollbar customizada ────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface-800);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-nexus-600);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nexus-400);
+}
+
+/* ── Seleção de texto ─────────────────────────────── */
+::selection {
+  background-color: color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+  color: #ffffff;
+}
+
+/* ── Focus ring acessível ─────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-nexus-400);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* ── Transições globais ───────────────────────────── */
+a,
+button,
+input,
+select,
+textarea {
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+/* ── Utilitários globais ──────────────────────────── */
+.nexus-gradient-text {
+  background: linear-gradient(135deg, var(--color-nexus-400), var(--color-accent-400));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nexus-glass {
+  background: color-mix(in srgb, var(--color-surface-700) 60%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
+}
+
+.nexus-card {
+  background: var(--color-surface-800);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 15%, transparent);
+  border-radius: var(--radius-lg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.nexus-card:hover {
+  border-color: color-mix(in srgb, var(--color-nexus-400) 35%, transparent);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
+}
+
+.nexus-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--color-nexus-400);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.nexus-btn-primary:hover {
+  background: var(--color-nexus-300);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--color-nexus-400) 40%, transparent);
+  transform: translateY(-1px);
+}
+
+.nexus-btn-primary:active {
+  transform: translateY(0);
+}
+
+.nexus-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--color-nexus-200);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nexus-btn-ghost:hover {
+  background: color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
+  border-color: var(--color-nexus-400);
+  color: #ffffff;
+}
+
+/* ── Input / Form base ────────────────────────────── */
+.nexus-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--color-surface-700);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
+  border-radius: var(--radius-md);
+  color: #f0eeff;
+  font-family: var(--font-body);
+  font-size: 14px;
+}
+
+.nexus-input::placeholder {
+  color: color-mix(in srgb, var(--color-nexus-200) 50%, transparent);
+}
+
+.nexus-input:focus {
+  outline: none;
+  border-color: var(--color-nexus-400);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
+}
+
+/* ── Badge ────────────────────────────────────────── */
+.nexus-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nexus-badge-purple {
+  background: color-mix(in srgb, var(--color-nexus-400) 20%, transparent);
+  color: var(--color-nexus-200);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+}
+
+.nexus-badge-green {
+  background: color-mix(in srgb, var(--color-accent-400) 20%, transparent);
+  color: var(--color-accent-300);
+  border: 1px solid color-mix(in srgb, var(--color-accent-400) 30%, transparent);
+}
+
+.nexus-badge-gold {
+  background: color-mix(in srgb, var(--color-gold-400) 20%, transparent);
+  color: var(--color-gold-300);
+  border: 1px solid color-mix(in srgb, var(--color-gold-400) 30%, transparent);
+}
+
+.nexus-badge-red {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* ── Sidebar nav ──────────────────────────────────── */
+.nexus-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  color: color-mix(in srgb, var(--color-nexus-200) 70%, transparent);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.nexus-nav-item:hover {
+  background: color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
+  color: var(--color-nexus-200);
+}
+
+.nexus-nav-item.active {
+  background: color-mix(in srgb, var(--color-nexus-400) 18%, transparent);
+  color: #ffffff;
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+}
+
+.nexus-nav-item.active svg,
+.nexus-nav-item.active .icon {
+  color: var(--color-nexus-400);
+}
+
+/* ── Sidebar layout ───────────────────────────────── */
+.nexus-sidebar {
+  width: 240px;
+  min-height: 100dvh;
+  background: var(--color-surface-800);
+  border-right: 1px solid color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  transition: transform 0.25s ease;
+}
+
+.nexus-main {
+  margin-left: 240px;
+  min-height: 100dvh;
+  background: var(--color-nexus-900);
+}
+
+@media (max-width: 768px) {
+  .nexus-sidebar {
+    transform: translateX(-100%);
+  }
+  .nexus-sidebar.open {
+    transform: translateX(0);
+  }
+  .nexus-main {
+    margin-left: 0;
+  }
+}
+
+/* ── Stat card ────────────────────────────────────── */
+.nexus-stat-card {
+  background: var(--color-surface-800);
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.nexus-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-nexus-400), var(--color-accent-400));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.nexus-stat-card:hover::before {
+  opacity: 1;
+}
+
+.nexus-stat-card:hover {
+  border-color: color-mix(in srgb, var(--color-nexus-400) 30%, transparent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--color-nexus-400) 10%, transparent);
+}
+
+/* ── Animações ────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-nexus-400) 40%, transparent); }
+  50%       { box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-nexus-400) 0%, transparent); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.nexus-animate-in {
+  animation: fadeIn 0.3s ease both;
+}
+
+.nexus-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-700) 25%,
+    var(--color-surface-600) 50%,
+    var(--color-surface-700) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Avatar ───────────────────────────────────────── */
+.nexus-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-nexus-400), var(--color-accent-400));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+/* ── Divider ──────────────────────────────────────── */
+.nexus-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--color-nexus-400) 12%, transparent);
+  margin: 16px 0;
+}
+
+/* ── Tooltip ──────────────────────────────────────── */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface-600);
+  color: #f0eeff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  border: 1px solid color-mix(in srgb, var(--color-nexus-400) 25%, transparent);
+  transition: opacity 0.15s ease;
+  z-index: 100;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
 }
