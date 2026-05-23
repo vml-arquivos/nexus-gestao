@@ -1,9 +1,50 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+// ── SINGLETON DINÂMICO ────────────────────────────────────────────────────────
+// O cliente NÃO é criado na inicialização do módulo.
+// Ele é criado sob demanda via getSupabase(), usando as credenciais salvas no
+// localStorage pelo usuário. Assim, configurar a URL/chave na tela de Setup ou
+// Configurações funciona sem precisar recarregar a página.
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+let _client: SupabaseClient | null = null
+let _currentUrl = ''
+let _currentKey = ''
+
+export function getSupabase(): SupabaseClient | null {
+  try {
+    const raw = localStorage.getItem('nx_cfg')
+    if (!raw) return null
+    const cfg = JSON.parse(raw)
+    const url: string = cfg.sbUrl ?? ''
+    const key: string = cfg.sbKey ?? ''
+    if (!url || !key) return null
+
+    // Recria o cliente se as credenciais mudaram
+    if (!_client || url !== _currentUrl || key !== _currentKey) {
+      _client = createClient(url, key)
+      _currentUrl = url
+      _currentKey = key
+    }
+
+    return _client
+  } catch {
+    return null
+  }
+}
+
+/** Chame após salvar novas credenciais para forçar reconexão */
+export function resetSupabaseClient(): void {
+  _client = null
+  _currentUrl = ''
+  _currentKey = ''
+}
+
+/** Retorna true se há credenciais salvas */
+export function isSupabaseReady(): boolean {
+  return getSupabase() !== null
+}
+
+// ── TIPOS ─────────────────────────────────────────────────────────────────────
 
 export type Database = {
   public: {
