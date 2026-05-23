@@ -1,28 +1,46 @@
 import React, { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar,
   DollarSign, FileText, BarChart3, Bell, Settings,
-  Menu, X, Zap
+  Menu, Zap, Plus, Grid3X3, X
 } from 'lucide-react'
 import { store } from '../lib/store'
 
 const NAV = [
-  { path: '/', icon: LayoutDashboard, label: 'Início', emoji: '🏠' },
-  { path: '/equipe', icon: Users, label: 'Equipe', emoji: '👥' },
-  { path: '/tarefas', icon: CheckCircle2, label: 'Tarefas', emoji: '✅' },
-  { path: '/agenda', icon: Calendar, label: 'Agenda', emoji: '📅' },
-  { path: '/financeiro', icon: DollarSign, label: 'Financeiro', emoji: '💳' },
-  { path: '/documentos', icon: FileText, label: 'Docs', emoji: '🗂️' },
-  { path: '/relatorios', icon: BarChart3, label: 'Relatórios', emoji: '📊' },
+  { path: '/',            icon: LayoutDashboard, label: 'Início',     emoji: '🏠' },
+  { path: '/equipe',      icon: Users,            label: 'Equipe',     emoji: '👥' },
+  { path: '/tarefas',     icon: CheckCircle2,     label: 'Tarefas',    emoji: '✅' },
+  { path: '/agenda',      icon: Calendar,         label: 'Agenda',     emoji: '📅' },
+  { path: '/financeiro',  icon: DollarSign,       label: 'Financeiro', emoji: '💳' },
+  { path: '/documentos',  icon: FileText,         label: 'Docs',       emoji: '🗂️' },
+  { path: '/relatorios',  icon: BarChart3,        label: 'Relatórios', emoji: '📊' },
 ]
 
-const BOTTOM_NAV = NAV.slice(0, 5) // 5 itens no bottom nav mobile
+// Ações rápidas do botão "+"
+const QUICK_ACTIONS = [
+  { path: '/tarefas',    label: 'Nova Tarefa',     emoji: '✅', color: '#6C3BFF' },
+  { path: '/agenda',     label: 'Novo Evento',     emoji: '📅', color: '#06B6D4' },
+  { path: '/financeiro', label: 'Novo Pagamento',  emoji: '💳', color: '#10B981' },
+  { path: '/equipe',     label: 'Nova Pessoa',     emoji: '👥', color: '#F59E0B' },
+  { path: '/documentos', label: 'Novo Documento',  emoji: '🗂️', color: '#EF4444' },
+]
+
+// Bottom nav: 4 itens fixos + botão "+" central + botão "Mais"
+const BOTTOM_MAIN = [
+  NAV[0], // Início
+  NAV[2], // Tarefas
+  NAV[4], // Financeiro
+  NAV[3], // Agenda
+]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [notifOpen, setNotifOpen] = useState(false)
+  const navigate = useNavigate()
+  const [sidebarOpen, setSidebarOpen]   = useState(false)
+  const [notifOpen, setNotifOpen]       = useState(false)
+  const [moreOpen, setMoreOpen]         = useState(false)
+  const [fabOpen, setFabOpen]           = useState(false)
 
   const pendingTasks = store.tarefas.filter(t => t.status === 'pendente').length
   const overduePayments = store.pagamentos.filter(p => {
@@ -31,17 +49,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }).length
   const notifCount = pendingTasks + overduePayments
 
+  function closeAll() {
+    setMoreOpen(false)
+    setFabOpen(false)
+    setNotifOpen(false)
+  }
+
+  function handleQuickAction(path: string) {
+    navigate(path)
+    closeAll()
+    // Dispara evento custom para que a página abra o modal "novo"
+    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-new')), 120)
+  }
+
   return (
     <div className="app-shell">
-      {/* Sidebar overlay mobile */}
-      {sidebarOpen && (
+      {/* Overlay: fecha menus mobile */}
+      {(sidebarOpen || moreOpen || fabOpen) && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 49, backdropFilter: 'blur(4px)' }}
-          onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 49, backdropFilter: 'blur(3px)' }}
+          onClick={closeAll}
         />
       )}
 
-      {/* SIDEBAR */}
+      {/* ══════════════════════════════════════════
+          SIDEBAR (desktop + hamburguer mobile)
+      ══════════════════════════════════════════ */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         {/* Logo */}
         <div style={{ padding: '20px 16px 12px', borderBottom: '1px solid var(--border)' }}>
@@ -104,7 +137,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* MAIN */}
+      {/* ══════════════════════════════════════════
+          MAIN CONTENT
+      ══════════════════════════════════════════ */}
       <div className="main-content">
         {/* TOPBAR */}
         <header className="topbar">
@@ -112,7 +147,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             className="btn btn-ghost btn-icon"
             style={{ display: 'none' }}
             id="menu-toggle"
-            onClick={() => setSidebarOpen(true)}
+            onClick={() => { closeAll(); setSidebarOpen(true) }}
           >
             <Menu size={20} />
           </button>
@@ -141,7 +176,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div style={{ position: 'relative' }}>
             <button
               className="btn btn-ghost btn-icon"
-              onClick={() => setNotifOpen(!notifOpen)}
+              onClick={() => { closeAll(); setNotifOpen(!notifOpen) }}
               style={{ position: 'relative' }}
             >
               <Bell size={18} />
@@ -185,21 +220,216 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {/* BOTTOM NAV (mobile) */}
+      {/* ══════════════════════════════════════════
+          BOTTOM NAV MOBILE — 4 itens + FAB + Mais
+      ══════════════════════════════════════════ */}
       <nav className="bottom-nav">
-        {BOTTOM_NAV.map(({ path, emoji, label }) => (
+        {/* Itens da esquerda: Início e Tarefas */}
+        {BOTTOM_MAIN.slice(0, 2).map(({ path, emoji, label }) => (
           <Link
             key={path}
             to={path}
             className={`nav-btn ${pathname === path ? 'active' : ''}`}
             style={{ textDecoration: 'none' }}
+            onClick={closeAll}
           >
             <span className="nav-btn-icon">{emoji}</span>
             <span className="nav-btn-label">{label}</span>
             <div className="nav-dot" />
           </Link>
         ))}
+
+        {/* FAB central "+" com ações rápidas */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          {/* Ações rápidas em leque */}
+          {fabOpen && (
+            <div style={{
+              position: 'absolute',
+              bottom: 68,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              alignItems: 'center',
+              zIndex: 55,
+            }}>
+              {QUICK_ACTIONS.map((action, i) => (
+                <button
+                  key={action.path}
+                  onClick={() => handleQuickAction(action.path)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    background: 'var(--bg2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 40,
+                    padding: '8px 16px 8px 10px',
+                    cursor: 'pointer',
+                    color: 'var(--text)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                    animation: `fabItemIn 0.18s ease ${i * 0.04}s both`,
+                  }}
+                >
+                  <span style={{
+                    width: 30, height: 30, borderRadius: 10,
+                    background: action.color + '22',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 16,
+                  }}>{action.emoji}</span>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Botão FAB */}
+          <button
+            onClick={() => { setMoreOpen(false); setNotifOpen(false); setFabOpen(!fabOpen) }}
+            style={{
+              width: 52, height: 52,
+              borderRadius: 16,
+              background: 'var(--grad-primary)',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 20px rgba(108,59,255,0.5)',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              transform: fabOpen ? 'rotate(45deg) scale(1.05)' : 'scale(1)',
+              position: 'relative',
+              zIndex: 51,
+              marginBottom: 4,
+            }}
+          >
+            <Plus size={24} color="#fff" />
+          </button>
+        </div>
+
+        {/* Itens da direita: Financeiro e Agenda */}
+        {BOTTOM_MAIN.slice(2, 4).map(({ path, emoji, label }) => (
+          <Link
+            key={path}
+            to={path}
+            className={`nav-btn ${pathname === path ? 'active' : ''}`}
+            style={{ textDecoration: 'none' }}
+            onClick={closeAll}
+          >
+            <span className="nav-btn-icon">{emoji}</span>
+            <span className="nav-btn-label">{label}</span>
+            <div className="nav-dot" />
+          </Link>
+        ))}
+
+        {/* Botão "Mais" */}
+        <button
+          className={`nav-btn ${moreOpen ? 'active' : ''}`}
+          onClick={() => { setFabOpen(false); setNotifOpen(false); setMoreOpen(!moreOpen) }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          <span className="nav-btn-icon">
+            {moreOpen ? <X size={20} color="var(--primary-light)" /> : <Grid3X3 size={20} color={moreOpen ? 'var(--primary-light)' : 'var(--text3)'} />}
+          </span>
+          <span className="nav-btn-label" style={{ color: moreOpen ? 'var(--primary-light)' : undefined }}>Mais</span>
+          <div className="nav-dot" />
+        </button>
       </nav>
+
+      {/* ══════════════════════════════════════════
+          DRAWER "MAIS" — páginas extras no mobile
+      ══════════════════════════════════════════ */}
+      {moreOpen && (
+        <div style={{
+          position: 'fixed',
+          bottom: 'calc(60px + var(--safe-bot, 0px))',
+          left: 0, right: 0,
+          background: 'var(--bg2)',
+          borderTop: '1px solid var(--border)',
+          borderRadius: '20px 20px 0 0',
+          padding: '16px 20px 20px',
+          zIndex: 50,
+          boxShadow: '0 -8px 40px rgba(0,0,0,0.4)',
+          animation: 'drawerSlideUp 0.22s ease both',
+        }}>
+          {/* Handle */}
+          <div style={{
+            width: 36, height: 4, borderRadius: 99,
+            background: 'var(--border)', margin: '0 auto 16px',
+          }} />
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', letterSpacing: '0.08em', marginBottom: 12 }}>
+            MAIS OPÇÕES
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {NAV.map(({ path, emoji, label }) => (
+              <Link
+                key={path}
+                to={path}
+                onClick={() => setMoreOpen(false)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '14px 8px',
+                  background: pathname === path ? 'rgba(108,59,255,0.15)' : 'var(--bg3)',
+                  border: pathname === path ? '1px solid rgba(108,59,255,0.3)' : '1px solid var(--border)',
+                  borderRadius: 14,
+                  textDecoration: 'none',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <span style={{ fontSize: 24 }}>{emoji}</span>
+                <span style={{
+                  fontSize: 11, fontWeight: 600,
+                  color: pathname === path ? 'var(--primary-light)' : 'var(--text2)',
+                  textAlign: 'center',
+                }}>
+                  {label}
+                </span>
+              </Link>
+            ))}
+
+            {/* Configurações no drawer */}
+            <Link
+              to="/configuracoes"
+              onClick={() => setMoreOpen(false)}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 6,
+                padding: '14px 8px',
+                background: pathname === '/configuracoes' ? 'rgba(108,59,255,0.15)' : 'var(--bg3)',
+                border: pathname === '/configuracoes' ? '1px solid rgba(108,59,255,0.3)' : '1px solid var(--border)',
+                borderRadius: 14,
+                textDecoration: 'none',
+              }}
+            >
+              <span style={{ fontSize: 24 }}>⚙️</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: pathname === '/configuracoes' ? 'var(--primary-light)' : 'var(--text2)' }}>
+                Config.
+              </span>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Animações */}
+      <style>{`
+        @keyframes drawerSlideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        @keyframes fabItemIn {
+          from { transform: translateY(12px) scale(0.9); opacity: 0; }
+          to   { transform: translateY(0)    scale(1);   opacity: 1; }
+        }
+      `}</style>
     </div>
   )
 }
