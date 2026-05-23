@@ -1,48 +1,52 @@
 /* ===== VARIÁVEIS GLOBAIS (:root) ===== */
-/* Todas as variáveis que o sistema usa — declaradas aqui de forma centralizada */
 :root {
   /* Layout */
   --sidebar-w:    210px;
   --topbar-h:     52px;
-  --safe-bot:     env(safe-area-inset-bottom, 0px);
+  --bottom-nav-h: 60px;
+
+  /* Safe areas iOS/Android */
+  --safe-top:  env(safe-area-inset-top,    0px);
+  --safe-bot:  env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left,   0px);
+  --safe-right:env(safe-area-inset-right,  0px);
 
   /* Tipografia */
   --font-body:    'Poppins', sans-serif;
   --font-heading: 'Montserrat', sans-serif;
 
-  /* Cor primária — roxo profissional, menos saturado */
-  --primary:       #7C3AED;
-  --primary-light: #A78BFA;
-  --primary-dim:   rgba(124,58,237,0.14);
+  /* Paleta primária */
+  --primary:       #6C3BFF;
+  --primary-light: #B99FFF;
+  --primary-dim:   rgba(108,59,255,0.18);
 
-  /* Cor secundária discreta */
-  --secondary:     #38BDF8;
+  /* Cor secundária */
+  --secondary:     #06B6D4;
 
-  /* Semânticas suavizadas */
-  --success:  #34D399;
-  --danger:   #F87171;
-  --warning:  #FBBF24;
+  /* Semânticas */
+  --success:  #10B981;
+  --danger:   #EF4444;
+  --warning:  #F59E0B;
 
-  /* Fundos mais neutros e premium */
-  --bg:   #05070D;
-  --bg2:  #0B1020;
-  --bg3:  #111827;
-  --bg4:  #1F2937;
+  /* Fundos */
+  --bg:   #0F0A1E;
+  --bg2:  #16102B;
+  --bg3:  #1E1638;
+  --bg4:  #2A2048;
 
-  /* Textos sem lilás claro excessivo */
-  --text:       #F8FAFC;
-  --text1:      #F8FAFC;
-  --text2:      #E5E7EB;
-  --text3:      #CBD5E1;
-  --text-muted: #94A3B8;
+  /* Textos */
+  --text:       #F0EEFF;
+  --text2:      #C4B5FD;
+  --text3:      #8B7EC8;
+  --text-muted: #5B4F8A;
 
-  /* Bordas neutras */
-  --border:  rgba(255,255,255,0.10);
-  --border2: rgba(255,255,255,0.16);
+  /* Bordas */
+  --border:  rgba(108,59,255,0.18);
+  --border2: rgba(108,59,255,0.30);
 
-  /* Gradientes mais discretos */
-  --grad-primary: linear-gradient(135deg, #7C3AED 0%, #2563EB 100%);
-  --grad-card:    linear-gradient(145deg, #0B1020 0%, #111827 100%);
+  /* Gradientes */
+  --grad-primary: linear-gradient(135deg, #6C3BFF 0%, #06B6D4 100%);
+  --grad-card:    linear-gradient(145deg, #16102B 0%, #1E1638 100%);
 
   /* Sombras */
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.4);
@@ -56,27 +60,54 @@
 }
 
 /* ===== RESET & BASE ===== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  /* Remove highlight azul ao tocar — comportamento nativo */
+  -webkit-tap-highlight-color: transparent;
+}
 
-html, body, #root {
+html {
+  /* Trava scroll overscroll = sem bounce estranho no iOS */
+  overscroll-behavior: none;
   height: 100%;
+  height: 100dvh;
+}
+
+body {
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden; /* O scroll fica nos containers internos */
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  /* Impede zoom no double-tap iOS */
+  touch-action: pan-x pan-y;
 }
 
-/* ===== LAYOUT SHELL ===== */
+#root {
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ===== LAYOUT SHELL — CORAÇÃO DO APP ===== */
 .app-shell {
   display: flex;
+  /* Usa dvh para respeitar teclado virtual em mobile */
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
+  /* Padding para notch/safe areas iOS */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
-/* ===== SIDEBAR ===== */
+/* ===== SIDEBAR (desktop) ===== */
 .sidebar {
   width: var(--sidebar-w);
   background: var(--bg2);
@@ -86,7 +117,7 @@ html, body, #root {
   flex-shrink: 0;
   overflow-y: auto;
   z-index: 50;
-  transition: transform 0.25s ease;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-item {
@@ -106,14 +137,21 @@ html, body, #root {
 .sidebar-item:hover  { background: var(--bg3); color: var(--text2); }
 .sidebar-item.active { background: var(--primary-dim); color: var(--primary-light); }
 
+/* Mobile: sidebar vira drawer */
 @media (max-width: 768px) {
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
+    top: 0; /* ignora o safe-area-inset-top do app-shell */
     transform: translateX(-100%);
-    width: min(260px, 80vw);
+    width: min(280px, 82vw);
+    z-index: 55;
+    /* Respeita notch no lado esquerdo (landscape) */
+    padding-left: env(safe-area-inset-left, 0px);
   }
   .sidebar.open { transform: translateX(0); }
+  /* App shell não tem padding-top no mobile — topbar cuida disso */
+  .app-shell { padding-top: 0; }
 }
 
 /* ===== MAIN CONTENT ===== */
@@ -127,31 +165,57 @@ html, body, #root {
 
 /* ===== TOPBAR ===== */
 .topbar {
-  height: var(--topbar-h);
+  /* Altura base + safe-area-top para respeitar notch/Dynamic Island iOS */
+  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
-  padding: 0 16px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 0;
   flex-shrink: 0;
   position: sticky;
   top: 0;
   z-index: 40;
+  /* Glassmorphism leve = visual app premium */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  /* Garante altura mínima com conteúdo alinhado ao fundo */
+  align-items: center;
+}
+
+/* No mobile a topbar inclui o espaço do status bar */
+@media (max-width: 768px) {
+  .topbar {
+    height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-bottom: 8px;
+    align-items: flex-end;
+  }
 }
 
 /* ===== PAGE CONTENT ===== */
 .page-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
+  /* Scroll nativo suave iOS */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
+
 @media (max-width: 768px) {
-  .page-content { padding: 16px 14px 90px; }
+  .page-content {
+    padding: 14px 14px calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 16px);
+  }
 }
 
 /* ===== PAGE HEADER ===== */
-.page-header { margin-bottom: 24px; }
+.page-header { margin-bottom: 20px; }
 .page-title {
   font-family: var(--font-heading);
   font-size: 22px;
@@ -160,7 +224,7 @@ html, body, #root {
   letter-spacing: -0.02em;
 }
 .page-subtitle {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text3);
   margin-top: 3px;
 }
@@ -200,12 +264,9 @@ html, body, #root {
   gap: 8px;
 }
 .metric-icon {
-  width: 36px;
-  height: 36px;
+  width: 36px; height: 36px;
   border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   background: rgba(108,59,255,0.15);
 }
 .metric-value {
@@ -237,64 +298,47 @@ html, body, #root {
   transition: opacity 0.15s, transform 0.1s, background 0.15s;
   text-decoration: none;
   white-space: nowrap;
+  /* Melhor feedback tátil em mobile */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
-.btn:active   { transform: scale(0.97); }
+.btn:active   { transform: scale(0.96); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-primary { background: var(--grad-primary); color: #fff; }
 .btn-primary:hover { opacity: 0.88; }
-
-.btn-secondary {
-  background: var(--bg3);
-  color: var(--text2);
-  border: 1px solid var(--border);
-}
+.btn-secondary { background: var(--bg3); color: var(--text2); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--bg4); }
-
 .btn-ghost { background: transparent; color: var(--text3); }
 .btn-ghost:hover { background: var(--bg3); color: var(--text2); }
-
-.btn-danger {
-  background: rgba(239,68,68,0.15);
-  color: var(--danger);
-  border: 1px solid rgba(239,68,68,0.25);
-}
+.btn-danger { background: rgba(239,68,68,0.15); color: var(--danger); border: 1px solid rgba(239,68,68,0.25); }
 .btn-danger:hover { background: rgba(239,68,68,0.25); }
-
-.btn-success {
-  background: rgba(16,185,129,0.15);
-  color: var(--success);
-  border: 1px solid rgba(16,185,129,0.25);
-}
-
+.btn-success { background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
 .btn-sm   { padding: 6px 12px; font-size: 12px; }
 .btn-icon { padding: 8px; border-radius: var(--radius-sm); width: 36px; height: 36px; }
 
 /* ===== FAB ===== */
 .fab {
   position: fixed;
-  bottom: calc(70px + var(--safe-bot));
+  bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 14px);
   right: 18px;
-  width: 52px;
-  height: 52px;
+  width: 52px; height: 52px;
   border-radius: 16px;
   background: var(--grad-primary);
   color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   border: none;
   cursor: pointer;
   box-shadow: var(--shadow-md), 0 0 0 0 rgba(108,59,255,0.4);
   z-index: 30;
   transition: transform 0.15s, box-shadow 0.15s;
+  touch-action: manipulation;
 }
 .fab:hover { transform: scale(1.07); }
 @media (min-width: 769px) { .fab { bottom: 20px; } }
 
 /* ===== FORMS ===== */
 .form-group { margin-bottom: 16px; }
-
 .form-label {
   display: block;
   font-size: 12px;
@@ -304,7 +348,6 @@ html, body, #root {
   letter-spacing: 0.06em;
   margin-bottom: 6px;
 }
-
 .form-input,
 .form-select,
 .form-textarea {
@@ -318,6 +361,8 @@ html, body, #root {
   font-family: var(--font-body);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
+  /* Previne zoom ao focar input no iOS (fontSize >= 16px evita isso, mas mantemos) */
+  font-size: max(14px, 16px);
 }
 .form-input:focus,
 .form-select:focus,
@@ -329,7 +374,6 @@ html, body, #root {
 .form-textarea::placeholder { color: var(--text-muted); }
 .form-textarea  { resize: vertical; min-height: 90px; }
 .form-select    { cursor: pointer; appearance: auto; }
-
 .input-mic-group { display: flex; gap: 8px; align-items: flex-start; }
 .input-mic-group .form-input,
 .input-mic-group .form-textarea { flex: 1; }
@@ -351,7 +395,7 @@ html, body, #root {
   border: none;
   outline: none;
   color: var(--text);
-  font-size: 14px;
+  font-size: max(14px, 16px); /* Previne zoom iOS */
   font-family: var(--font-body);
 }
 .search-bar input::placeholder { color: var(--text-muted); }
@@ -365,7 +409,10 @@ html, body, #root {
   padding: 4px;
   margin-bottom: 20px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.tabs::-webkit-scrollbar { display: none; }
 .tabs button {
   flex: 1;
   padding: 7px 14px;
@@ -379,6 +426,7 @@ html, body, #root {
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
   font-family: var(--font-body);
+  touch-action: manipulation;
 }
 .tabs button.active {
   background: var(--bg);
@@ -388,13 +436,10 @@ html, body, #root {
 
 /* ===== AVATAR ===== */
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 36px; height: 36px;
   border-radius: 10px;
   background: var(--grad-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   font-family: var(--font-heading);
   font-weight: 700;
   font-size: 13px;
@@ -416,7 +461,7 @@ html, body, #root {
   transition: width 0.3s ease;
 }
 
-/* ===== BADGES / STATUS ===== */
+/* ===== BADGES ===== */
 .primary { color: var(--primary-light); background: rgba(108,59,255,0.15); padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
 .success { color: var(--success);       background: rgba(16,185,129,0.12);  padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
 .danger  { color: var(--danger);        background: rgba(239,68,68,0.12);   padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
@@ -434,38 +479,26 @@ html, body, #root {
 .checklist-item:last-child { border-bottom: none; }
 
 /* ===== CALENDAR ===== */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-}
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .cal-day {
   aspect-ratio: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
   position: relative;
+  touch-action: manipulation;
 }
 .cal-day:hover      { background: var(--bg3); }
 .cal-day.other-month { opacity: 0.3; }
-.cal-day.today {
-  background: rgba(108,59,255,0.2);
-  color: var(--primary-light);
-  font-weight: 700;
-}
+.cal-day.today { background: rgba(108,59,255,0.2); color: var(--primary-light); font-weight: 700; }
 
 /* ===== EMPTY STATE ===== */
 .empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-  text-align: center;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 48px 24px; text-align: center;
 }
 .empty-icon  { font-size: 40px; margin-bottom: 12px; }
 .empty-title { font-family: var(--font-heading); font-size: 16px; font-weight: 700; color: var(--text2); margin-bottom: 6px; }
@@ -477,6 +510,7 @@ html, body, #root {
   inset: 0;
   background: rgba(0,0,0,0.65);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   z-index: 60;
   display: flex;
   align-items: flex-end;
@@ -484,7 +518,7 @@ html, body, #root {
 }
 @media (min-width: 500px) { .overlay { align-items: center; } }
 
-/* ===== SHEET (bottom drawer) ===== */
+/* ===== SHEET (bottom drawer nativo) ===== */
 .sheet {
   background: var(--bg2);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -492,7 +526,10 @@ html, body, #root {
   max-width: 540px;
   max-height: 90dvh;
   overflow-y: auto;
-  padding: 0 20px calc(24px + var(--safe-bot));
+  -webkit-overflow-scrolling: touch;
+  padding: 0 20px;
+  /* Respeita home indicator iOS */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 @media (min-width: 500px) {
   .sheet { border-radius: var(--radius-lg); max-height: 85dvh; }
@@ -514,7 +551,7 @@ html, body, #root {
 /* ===== TOAST ===== */
 .toast-container {
   position: fixed;
-  bottom: calc(76px + var(--safe-bot));
+  bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 12px);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -535,9 +572,7 @@ html, body, #root {
   font-size: 9px;
   font-weight: 800;
   border-radius: 99px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 0 3px;
 }
 
@@ -549,18 +584,32 @@ html, body, #root {
   background-clip: text;
 }
 
-/* ===== BOTTOM NAV (mobile) ===== */
+/* ═══════════════════════════════════════════════════
+   BOTTOM NAV MOBILE — ESTILO NATIVO (iOS/Android)
+═══════════════════════════════════════════════════ */
 .bottom-nav {
   display: none;
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  height: calc(60px + var(--safe-bot));
-  background: var(--bg2);
+  /* Altura base + home indicator iOS */
+  height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+  background: rgba(22, 16, 43, 0.95); /* bg2 com leve transparência */
   border-top: 1px solid var(--border);
   z-index: 40;
-  padding-bottom: var(--safe-bot);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* Glassmorphism para parecer app nativo */
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 @media (max-width: 768px) { .bottom-nav { display: flex; } }
+
+/* Respeita safe area lateral (landscape) */
+@supports (padding: env(safe-area-inset-left)) {
+  .bottom-nav {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
 
 .nav-btn {
   flex: 1;
@@ -568,20 +617,24 @@ html, body, #root {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   padding: 8px 4px 4px;
   position: relative;
   cursor: pointer;
   text-decoration: none;
+  touch-action: manipulation;
+  /* Área de toque mínima 44px (Apple HIG) */
+  min-height: 44px;
 }
-.nav-btn-icon  { font-size: 20px; line-height: 1; }
-.nav-btn-label { font-size: 9px; font-weight: 600; color: var(--text3); letter-spacing: 0.03em; }
+.nav-btn-icon  { font-size: 20px; line-height: 1; color: var(--text3); transition: color 0.15s, transform 0.15s; }
+.nav-btn-label { font-size: 9.5px; font-weight: 600; color: var(--text3); letter-spacing: 0.02em; transition: color 0.15s; }
+.nav-btn.active .nav-btn-icon  { color: var(--primary-light); transform: scale(1.08); }
 .nav-btn.active .nav-btn-label { color: var(--primary-light); }
 .nav-dot {
   width: 4px; height: 4px;
   border-radius: 99px;
   background: var(--primary-light);
-  margin-top: 2px;
+  margin-top: 1px;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -591,11 +644,9 @@ html, body, #root {
 .setup-screen {
   min-height: 100dvh;
   background: var(--bg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 20px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: calc(32px + env(safe-area-inset-top, 0px)) 20px calc(32px + env(safe-area-inset-bottom, 0px));
   text-align: center;
 }
 .setup-logo {
@@ -608,4 +659,54 @@ html, body, #root {
   background-clip: text;
   letter-spacing: -0.04em;
   margin-bottom: 4px;
+}
+
+/* ═══════════════════════════════════════════════════
+   ANIMAÇÕES
+═══════════════════════════════════════════════════ */
+@keyframes drawerSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fabItemIn {
+  from { transform: translateY(12px) scale(0.9); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);   opacity: 1; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slideDown {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Página faz fade in ao trocar de rota */
+.page-content > * {
+  animation: fadeIn 0.2s ease both;
+}
+
+/* ═══════════════════════════════════════════════════
+   ORIENTAÇÃO LANDSCAPE MOBILE — ajustes
+═══════════════════════════════════════════════════ */
+@media (max-width: 768px) and (orientation: landscape) {
+  .bottom-nav {
+    height: calc(52px + env(safe-area-inset-bottom, 0px));
+    --bottom-nav-h: 52px;
+  }
+  .topbar {
+    height: calc(44px + env(safe-area-inset-top, 0px));
+  }
+  .page-content {
+    padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px) + 12px);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   DESATIVA SELEÇÃO DE TEXTO EM ELEMENTOS DE UI
+═══════════════════════════════════════════════════ */
+.nav-btn, .btn, .sidebar-item, .tabs button {
+  -webkit-user-select: none;
+  user-select: none;
 }
