@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Zap, Database, ChevronRight, Eye, EyeOff } from 'lucide-react'
-import { store, saveStore } from '../lib/store'
+import { Zap, Database, ChevronRight, Eye, EyeOff, CheckCircle, XCircle, Loader } from 'lucide-react'
+import { store, saveStore, testSupabaseConnection, syncFromSupabase } from '../lib/store'
 import { toast } from './ui'
 
 interface SetupProps { onDone: () => void }
@@ -12,6 +12,8 @@ export default function Setup({ onDone }: SetupProps) {
   const [sbKey, setSbKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'ok' | 'fail'>('idle')
+  const [connectionError, setConnectionError] = useState('')
 
   const handleStep1 = () => {
     if (!nome.trim()) { toast('Digite seu nome', 'error'); return }
@@ -25,21 +27,36 @@ export default function Setup({ onDone }: SetupProps) {
   }
 
   const handleSaveSupabase = async () => {
-    if (!sbUrl.trim() || !sbKey.trim()) { toast('Preencha URL e chave', 'error'); return }
-    setTesting(true)
-    try {
-      // Test connection
-      // const client = supabase
-      store.config.sbUrl = sbUrl.trim()
-      store.config.sbKey = sbKey.trim()
-      saveStore('config', store.config)
-      toast('Supabase conectado com sucesso!', 'success')
-      setTimeout(onDone, 800)
-    } catch {
-      toast('Erro ao conectar. Verifique as credenciais.', 'error')
-    } finally {
-      setTesting(false)
+    if (!sbUrl.trim() || !sbKey.trim()) {
+      toast('Preencha URL e chave anônima', 'error')
+      return
     }
+
+    // Validação básica de formato
+    if (!sbUrl.trim().startsWith('https://')) {
+      toast('URL deve começar com https://', 'error')
+      return
+    }
+
+    setTesting(true)
+    setConnectionStatus('idle')
+    setConnectionError('')
+
+    const result = await testSupabaseConnection(sbUrl.trim(), sbKey.trim())
+
+    if (result.ok) {
+      setConnectionStatus('ok')
+      toast('Supabase conectado! Sincronizando dados…', 'success')
+      // Sincroniza dados existentes do banco
+      await syncFromSupabase()
+      setTimeout(onDone, 1000)
+    } else {
+      setConnectionStatus('fail')
+      setConnectionError(result.error ?? 'Erro desconhecido')
+      toast('Falha na conexão. Verifique as credenciais.', 'error')
+    }
+
+    setTesting(false)
   }
 
   return (
@@ -98,9 +115,9 @@ export default function Setup({ onDone }: SetupProps) {
             <label className="form-label">URL do Projeto Supabase</label>
             <input
               className="form-input"
-              placeholder="https://xxx.supabase.co"
+              placeholder="https://xxxxxxxxxxx.supabase.co"
               value={sbUrl}
-              onChange={e => setSbUrl(e.target.value)}
+              onChange={e => { setSbUrl(e.target.value); setConnectionStatus('idle') }}
             />
           </div>
           <div className="form-group">
@@ -111,7 +128,7 @@ export default function Setup({ onDone }: SetupProps) {
                 type={showKey ? 'text' : 'password'}
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 value={sbKey}
-                onChange={e => setSbKey(e.target.value)}
+                onChange={e => { setSbKey(e.target.value); setConnectionStatus('idle') }}
                 style={{ paddingRight: 44 }}
               />
               <button
@@ -124,20 +141,46 @@ export default function Setup({ onDone }: SetupProps) {
             </div>
           </div>
 
+          {/* Status da conexão */}
+          {connectionStatus === 'ok' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(0,212,170,0.1)', border: '1px solid rgba(0,212,170,0.3)', borderRadius: 10, marginBottom: 16, fontSize: 13, color: '#00D4AA' }}>
+              <CheckCircle size={15} />
+              Conectado com sucesso! Sincronizando…
+            </div>
+          )}
+          {connectionStatus === 'fail' && (
+            <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, marginBottom: 16, fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#EF4444', marginBottom: connectionError ? 6 : 0 }}>
+                <XCircle size={15} />
+                Falha na conexão
+              </div>
+              {connectionError && (
+                <div style={{ color: 'var(--text3)', fontSize: 12, marginTop: 4, wordBreak: 'break-all' }}>
+                  {connectionError}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{
             background: 'var(--bg3)', borderRadius: 'var(--radius-sm)',
             padding: '10px 12px', fontSize: 12, color: 'var(--text3)', lineHeight: 1.7, marginBottom: 20
           }}>
             💡 Acesse <strong style={{ color: 'var(--secondary)' }}>supabase.com</strong> → Settings → API para obter as credenciais.
-            Execute o SQL do arquivo <code style={{ color: 'var(--primary-light)' }}>supabase-schema.sql</code> no SQL Editor.
+            Execute o SQL do arquivo <code style={{ color: 'var(--primary-light)' }}>supabase-schema.sql</code> no SQL Editor do projeto.
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleSkipSupabase}>
+            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleSkipSupabase} disabled={testing}>
               Pular por agora
             </button>
-            <button className="btn btn-primary" style={{ flex: 1 }} onClick={handleSaveSupabase} disabled={testing}>
-              {testing ? 'Conectando...' : 'Conectar'}
+            <button className="btn btn-primary" style={{ flex: 1, gap: 8 }} onClick={handleSaveSupabase} disabled={testing}>
+              {testing ? (
+                <>
+                  <Loader size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                  Testando…
+                </>
+              ) : 'Conectar'}
             </button>
           </div>
         </div>
@@ -149,6 +192,10 @@ export default function Setup({ onDone }: SetupProps) {
           <span key={f} style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500 }}>{f}</span>
         ))}
       </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   )
 }
