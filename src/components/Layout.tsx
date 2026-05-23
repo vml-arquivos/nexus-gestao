@@ -7,22 +7,24 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 
+// Navegação principal. Renomeamos "Equipe" para "Pessoas" para refletir que o módulo
+// gerencia todos os contatos (membros, clientes, credores, devedores etc.)
 const NAV = [
-  { path: '/',            icon: LayoutDashboard, label: 'Início',     emoji: '🏠' },
-  { path: '/equipe',      icon: Users,            label: 'Equipe',     emoji: '👥' },
-  { path: '/tarefas',     icon: CheckCircle2,     label: 'Tarefas',    emoji: '✅' },
-  { path: '/agenda',      icon: Calendar,         label: 'Agenda',     emoji: '📅' },
-  { path: '/financeiro',  icon: DollarSign,       label: 'Financeiro', emoji: '💳' },
-  { path: '/documentos',  icon: FileText,         label: 'Docs',       emoji: '🗂️' },
-  { path: '/relatorios',  icon: BarChart3,        label: 'Relatórios', emoji: '📊' },
+  { path: '/',            icon: LayoutDashboard, label: 'Início',      emoji: '🏠' },
+  { path: '/pessoas',     icon: Users,            label: 'Pessoas',     emoji: '👥' },
+  { path: '/tarefas',     icon: CheckCircle2,     label: 'Tarefas',     emoji: '✅' },
+  { path: '/agenda',      icon: Calendar,         label: 'Agenda',      emoji: '📅' },
+  { path: '/financeiro',  icon: DollarSign,       label: 'Financeiro',  emoji: '💳' },
+  { path: '/documentos',  icon: FileText,         label: 'Docs',        emoji: '🗂️' },
+  { path: '/relatorios',  icon: BarChart3,        label: 'Relatórios',  emoji: '📊' },
 ]
 
 // Ações rápidas do botão "+"
 const QUICK_ACTIONS = [
   { path: '/tarefas',    label: 'Nova Tarefa',     emoji: '✅', color: '#6C3BFF' },
   { path: '/agenda',     label: 'Novo Evento',     emoji: '📅', color: '#06B6D4' },
-  { path: '/financeiro', label: 'Novo Pagamento',  emoji: '💳', color: '#10B981' },
-  { path: '/equipe',     label: 'Nova Pessoa',     emoji: '👥', color: '#F59E0B' },
+  { path: '/financeiro', label: 'Novo Lançamento', emoji: '💳', color: '#10B981' },
+  { path: '/pessoas',    label: 'Novo Contato',    emoji: '👥', color: '#F59E0B' },
   { path: '/documentos', label: 'Novo Documento',  emoji: '🗂️', color: '#EF4444' },
 ]
 
