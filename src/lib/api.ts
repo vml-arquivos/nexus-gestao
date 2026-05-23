@@ -121,6 +121,8 @@ export interface Pagamento {
    * Data final da recorrência (ISO YYYY-MM-DD). Opcional.
    */
   recorrencia_fim?: string
+  /** Datas avulsas para gerar vários lançamentos na criação. */
+  datas_personalizadas?: string[]
   created_at: string
   updated_at?: string
 }
