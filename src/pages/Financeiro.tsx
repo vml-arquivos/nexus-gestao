@@ -18,11 +18,17 @@ import {
   Pencil,
   Trash2,
   Filter,
+  CreditCard,
+  Layers,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
 
-type ScheduleMode = 'unico' | 'recorrente' | 'personalizado'
+type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
+
+const FORMAS_PAGAMENTO = ['Pix', 'Boleto', 'Transferência', 'Cartão de Crédito', 'Cartão de Débito', 'Dinheiro', 'Cheque']
 
 type FinanceiroLocationState = {
   novoLancamento?: Partial<Pagamento>
@@ -94,6 +100,302 @@ function DateListEditor({ dates, setDates }: { dates: string[]; setDates: (dates
   )
 }
 
+// ── Helpers de parcelamento ───────────────────────────────────────────────────
+function calcPMT(total: number, n: number, taxaMensal: number): number {
+  if (n <= 0) return 0
+  if (taxaMensal === 0) return total / n
+  const i = taxaMensal / 100
+  return total * (i * Math.pow(1 + i, n)) / (Math.pow(1 + i, n) - 1)
+}
+
+function gerarDatasParcelamento(
+  primeiraData: string,
+  n: number,
+  intervalo: 'mensal' | 'quinzenal' | 'semanal',
+): string[] {
+  const datas: string[] = []
+  const base = new Date(`${primeiraData}T00:00:00`)
+  for (let i = 0; i < n; i++) {
+    const d = new Date(base)
+    if (intervalo === 'mensal') d.setMonth(d.getMonth() + i)
+    else if (intervalo === 'quinzenal') d.setDate(d.getDate() + i * 14)
+    else d.setDate(d.getDate() + i * 7)
+    datas.push(d.toISOString().slice(0, 10))
+  }
+  return datas
+}
+
+function ParcelaPreview({ total, n, taxa, intervalo, primeiraData }: {
+  total: number; n: number; taxa: number; intervalo: 'mensal'|'quinzenal'|'semanal'; primeiraData: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  if (!primeiraData || n < 1 || total <= 0) return null
+  const pmt = calcPMT(total, n, taxa)
+  const datas = gerarDatasParcelamento(primeiraData, n, intervalo)
+  const totalFinal = pmt * n
+  const jurosTotal = totalFinal - total
+  const mostrar = expanded ? datas : datas.slice(0, 3)
+
+  return (
+    <div style={{ background: 'var(--bg3)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden', marginTop: 4 }}>
+      <div style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)' }}>Prévia das parcelas</span>
+        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text3)' }}>
+          {jurosTotal > 0.01 && <span>Juros: <strong style={{ color: '#F59E0B' }}>{fmt(jurosTotal)}</strong></span>}
+          <span>Total: <strong style={{ color: 'var(--text1)' }}>{fmt(totalFinal)}</strong></span>
+        </div>
+      </div>
+      <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+        {mostrar.map((d, i) => (
+          <div key={d} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 14px', borderBottom: i < mostrar.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}>
+            <span style={{ color: 'var(--text3)', fontWeight: 500 }}>{i + 1}ª parcela — {fmtDate(d)}</span>
+            <span style={{ fontWeight: 800, color: 'var(--text1)', fontFamily: 'var(--font-heading)' }}>{fmt(pmt)}</span>
+          </div>
+        ))}
+      </div>
+      {datas.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          style={{ width: '100%', padding: '8px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', cursor: 'pointer', fontSize: 12, color: 'var(--text3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+        >
+          {expanded ? <><ChevronUp size={13} /> Mostrar menos</> : <><ChevronDown size={13} /> Ver todas as {datas.length} parcelas</>}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Helpers de grupo de parcelamento ─────────────────────────────────────────
+function extrairGrupoId(obs?: string): string | null {
+  if (!obs) return null
+  const m = obs.match(/grupo_id:(grp_\d+)/)
+  return m ? m[1] : null
+}
+
+function calcSaldoGrupo(parcelas: Pagamento[]) {
+  const pendentes = parcelas.filter(p => p.status === 'pendente')
+  const pagas     = parcelas.filter(p => p.status === 'pago')
+  return {
+    totalOriginal : parcelas.reduce((s, p) => s + Number(p.valor), 0),
+    totalPago     : pagas.reduce((s, p) => s + Number(p.valor), 0),
+    totalPendente : pendentes.reduce((s, p) => s + Number(p.valor), 0),
+    numPendentes  : pendentes.length,
+    pendentes     : [...pendentes].sort((a, b) => (a.vencimento || '') < (b.vencimento || '') ? -1 : 1),
+  }
+}
+
+function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
+  parcelas  : Pagamento[]
+  tipo      : 'pagamento' | 'recebimento'
+  onUpdate  : () => void
+  onClose   : () => void
+}) {
+  const [modo, setModo]     = useState<'abatimento' | 'acrescimo'>('abatimento')
+  const [valor, setValor]   = useState('')
+  const [data, setData]     = useState(new Date().toISOString().slice(0, 10))
+  const [forma, setForma]   = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const saldo    = calcSaldoGrupo(parcelas)
+  const valorNum = parseFloat(valor) || 0
+  const ref      = parcelas[0]
+
+  const novoSaldo      = modo === 'abatimento'
+    ? Math.max(0, saldo.totalPendente - valorNum)
+    : saldo.totalPendente + valorNum
+  const novaParcelaPMT = saldo.numPendentes > 0 ? novoSaldo / saldo.numPendentes : 0
+  const quitado        = modo === 'abatimento' && valorNum >= saldo.totalPendente
+
+  async function handleConfirm() {
+    if (!valorNum || valorNum <= 0) { toast('Informe um valor válido', 'error'); return }
+    if (modo === 'abatimento' && !data) { toast('Informe a data', 'error'); return }
+    setSaving(true)
+    try {
+      const obsMovimento = [
+        forma ? `Forma de pagamento: ${forma}` : '',
+        motivo || '',
+        modo === 'abatimento'
+          ? `Abatimento sobre dívida "${ref?.titulo}"`
+          : `Acréscimo sobre dívida "${ref?.titulo}"`,
+      ].filter(Boolean).join(' | ')
+
+      await pagamentosApi.create({
+        titulo     : modo === 'abatimento' ? `Abatimento — ${ref?.titulo}` : `Acréscimo — ${ref?.titulo}`,
+        valor      : valorNum,
+        tipo,
+        status     : modo === 'abatimento' ? 'pago' : 'pendente',
+        vencimento : data || undefined,
+        pago_em    : modo === 'abatimento' ? data : undefined,
+        pessoa_id  : ref?.pessoa_id  || undefined,
+        pessoa_nome: ref?.pessoa_nome || undefined,
+        categoria  : ref?.categoria  || undefined,
+        obs        : obsMovimento,
+        recorrencia: 'nenhum',
+      })
+
+      if (quitado) {
+        for (const p of saldo.pendentes) {
+          await pagamentosApi.update(p.id, {
+            status: 'cancelado',
+            obs   : `${p.obs ? p.obs + ' | ' : ''}Quitado via abatimento`,
+          })
+        }
+      } else if (saldo.numPendentes > 0) {
+        const novoValor = Math.round(novaParcelaPMT * 100) / 100
+        for (const p of saldo.pendentes) {
+          await pagamentosApi.update(p.id, { valor: novoValor })
+        }
+      }
+
+      toast(
+        quitado
+          ? 'Dívida quitada! Parcelas canceladas.'
+          : modo === 'abatimento'
+            ? `Abatimento registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
+            : `Acréscimo registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
+      )
+      onUpdate()
+      onClose()
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 520, maxHeight: '92dvh', overflowY: 'auto' }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 17, margin: 0 }}>Gerenciar dívida</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 18 }}>{ref?.titulo}{ref?.pessoa_nome ? ` · ${ref.pessoa_nome}` : ''}</div>
+
+        {/* Resumo */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 18 }}>
+          {([
+            { label: 'Total original', value: saldo.totalOriginal, color: 'var(--text1)', bg: 'var(--bg3)' },
+            { label: 'Já pago',        value: saldo.totalPago,     color: '#10B981',      bg: 'rgba(16,185,129,0.1)' },
+            { label: 'Saldo restante', value: saldo.totalPendente, color: '#EF4444',      bg: 'rgba(239,68,68,0.1)'  },
+          ] as const).map(({ label, value, color, bg }) => (
+            <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontWeight: 800, fontSize: 14, color, fontFamily: 'var(--font-heading)' }}>{fmt(value)}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16, textAlign: 'center' }}>
+          {saldo.numPendentes} parcela{saldo.numPendentes !== 1 ? 's' : ''} pendente{saldo.numPendentes !== 1 ? 's' : ''} · {fmt(saldo.totalPendente / (saldo.numPendentes || 1))} cada
+        </div>
+
+        {/* Abas modo */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+          <button type="button" onClick={() => setModo('abatimento')} style={{ padding: '12px', borderRadius: 'var(--radius)', border: `2px solid ${modo === 'abatimento' ? '#10B981' : 'var(--border)'}`, background: modo === 'abatimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: modo === 'abatimento' ? '#10B981' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <TrendingDown size={15} /> Pagar / Abater
+          </button>
+          <button type="button" onClick={() => setModo('acrescimo')} style={{ padding: '12px', borderRadius: 'var(--radius)', border: `2px solid ${modo === 'acrescimo' ? '#F59E0B' : 'var(--border)'}`, background: modo === 'acrescimo' ? 'rgba(245,158,11,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: modo === 'acrescimo' ? '#F59E0B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <TrendingUp size={15} /> Acrescentar valor
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">{modo === 'abatimento' ? 'Valor pago (R$)' : 'Valor a acrescentar (R$)'}</label>
+              <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+            </div>
+            {modo === 'abatimento' && (
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Data do pagamento</label>
+                <input className="form-input" type="date" value={data} onChange={e => setData(e.target.value)} />
+              </div>
+            )}
+          </div>
+
+          {modo === 'abatimento' && (
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><CreditCard size={12} /> Forma de pagamento</label>
+              <select className="form-input" value={forma} onChange={e => setForma(e.target.value)}>
+                <option value="">Não informado</option>
+                {FORMAS_PAGAMENTO.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">{modo === 'abatimento' ? 'Observação (opcional)' : 'Motivo do acréscimo'}</label>
+            <input className="form-input" placeholder={modo === 'abatimento' ? 'Ex: pagamento antecipado...' : 'Ex: juros de atraso, novo item...'} value={motivo} onChange={e => setMotivo(e.target.value)} />
+          </div>
+
+          {/* Prévia do recálculo */}
+          {valorNum > 0 && saldo.numPendentes > 0 && (
+            <div style={{ borderRadius: 10, border: `1px solid ${quitado ? 'rgba(16,185,129,0.4)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.4)' : 'rgba(99,102,241,0.3)'}`, background: quitado ? 'rgba(16,185,129,0.07)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.07)' : 'rgba(99,102,241,0.07)', padding: '12px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 8 }}>
+                {quitado ? '✅ Dívida quitada integralmente' : '📊 Recálculo das parcelas restantes'}
+              </div>
+              {!quitado ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
+                  {[
+                    { label: 'Saldo atual',                                       value: saldo.totalPendente, sign: '',  color: 'var(--text1)' },
+                    { label: modo === 'abatimento' ? '− Pagamento' : '+ Acréscimo', value: valorNum,            sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
+                  ].map(({ label, value, sign, color }) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text3)' }}>{label}</span>
+                      <span style={{ fontWeight: 700, color }}>{sign}{fmt(value)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 5, marginTop: 2 }}>
+                    <span style={{ color: 'var(--text3)' }}>Novo saldo</span>
+                    <span style={{ fontWeight: 800 }}>{fmt(novoSaldo)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text3)' }}>Nova parcela ({saldo.numPendentes}x restantes)</span>
+                    <span style={{ fontWeight: 800, color: '#6366f1' }}>{fmt(novaParcelaPMT)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  As {saldo.numPendentes} parcelas pendentes serão canceladas automaticamente.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
+          <button
+            className="btn btn-primary"
+            onClick={handleConfirm}
+            disabled={saving || !valorNum}
+            style={{
+              flex: 2,
+              background  : quitado ? '#10B981' : modo === 'acrescimo' ? '#F59E0B' : undefined,
+              borderColor : quitado ? '#10B981' : modo === 'acrescimo' ? '#F59E0B' : undefined,
+            }}
+          >
+            {saving
+              ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
+              : quitado
+                ? <><Check size={14} /> Quitar dívida</>
+                : modo === 'abatimento'
+                  ? <><Check size={14} /> Registrar abatimento</>
+                  : <><Plus size={14} /> Registrar acréscimo</>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   pessoas: Pessoa[]
   onSave: (p: Pagamento) => void
@@ -114,6 +416,12 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const [obs, setObs] = useState(initial?.obs || '')
   const [saving, setSaving] = useState(false)
 
+  // ── Parcelado ──
+  const [numParcelas, setNumParcelas] = useState(2)
+  const [taxaJuros, setTaxaJuros] = useState('0')
+  const [formaPagamento, setFormaPagamento] = useState('')
+  const [intervaloParc, setIntervaloParc] = useState<'mensal' | 'quinzenal' | 'semanal'>('mensal')
+
   const initialMode: ScheduleMode = initial?.recorrencia && initial.recorrencia !== 'nenhum' ? 'recorrente' : 'unico'
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialMode)
   const [recorrencia, setRecorrencia] = useState(initial?.recorrencia || 'mensal')
@@ -126,15 +434,34 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
     if (scheduleMode === 'unico' && !vencimento && !isEdit) { toast('Informe uma data ou escolha datas personalizadas', 'error'); return }
     if (scheduleMode === 'recorrente' && !vencimento && !isEdit) { toast('Informe a primeira data da recorrência', 'error'); return }
     if (scheduleMode === 'personalizado' && datasPersonalizadas.length === 0 && !isEdit) { toast('Adicione pelo menos uma data personalizada', 'error'); return }
+    if (scheduleMode === 'parcelado' && !vencimento) { toast('Informe a data da primeira parcela', 'error'); return }
+    if (scheduleMode === 'parcelado' && numParcelas < 2) { toast('Mínimo de 2 parcelas', 'error'); return }
 
     setSaving(true)
     try {
       const pessoa = pessoas.find(p => p.id === pessoaId)
       const primeiraDataPersonalizada = datasPersonalizadas[0]
+
+      // Para parcelado: calcula valor da parcela e gera datas
+      let valorFinal = parseFloat(valor)
+      let datasParcelado: string[] | undefined
+      if (scheduleMode === 'parcelado') {
+        const taxa = parseFloat(taxaJuros) || 0
+        valorFinal = calcPMT(parseFloat(valor), numParcelas, taxa)
+        datasParcelado = gerarDatasParcelamento(vencimento, numParcelas, intervaloParc)
+      }
+
+      const obsComForma = [
+        scheduleMode === 'parcelado' ? `grupo_id:grp_${Date.now()}` : '',
+        formaPagamento ? `Forma de pagamento: ${formaPagamento}` : '',
+        scheduleMode === 'parcelado' ? `${numParcelas}x de ${fmt(valorFinal)}${parseFloat(taxaJuros) > 0 ? ` (${taxaJuros}% a.m.)` : ''}` : '',
+        obs,
+      ].filter(Boolean).join(' | ')
+
       const payload: Partial<Pagamento> = {
         titulo: titulo.trim(),
         descricao: descricao || undefined,
-        valor: parseFloat(valor),
+        valor: valorFinal,
         tipo,
         status,
         vencimento: scheduleMode === 'personalizado' ? (primeiraDataPersonalizada || undefined) : (vencimento || undefined),
@@ -142,10 +469,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         pessoa_id: pessoaId || undefined,
         pessoa_nome: pessoa?.nome || pessoaNome || undefined,
         categoria: categoria || undefined,
-        obs: obs || undefined,
+        obs: obsComForma || undefined,
         recorrencia: scheduleMode === 'recorrente' ? recorrencia : 'nenhum',
         recorrencia_fim: scheduleMode === 'recorrente' && recorrenciaFim ? recorrenciaFim : undefined,
-        datas_personalizadas: scheduleMode === 'personalizado' ? datasPersonalizadas : undefined,
+        datas_personalizadas: scheduleMode === 'personalizado' ? datasPersonalizadas : (scheduleMode === 'parcelado' ? datasParcelado : undefined),
       }
 
       const p = isEdit && initial?.id
@@ -188,7 +515,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="form-group"><label className="form-label">Valor (R$) *</label><input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} /></div>
+            <div className="form-group">
+              <label className="form-label">{scheduleMode === 'parcelado' ? 'Valor total da dívida (R$) *' : 'Valor (R$) *'}</label>
+              <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+            </div>
             <div className="form-group"><label className="form-label">Status</label>
               <select className="form-input" value={status} onChange={e => setStatus(e.target.value as 'pendente' | 'pago' | 'cancelado')}>
                 <option value="pendente">Pendente</option>
@@ -213,17 +543,97 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
             </select>
           </div>
 
+          {scheduleMode !== 'parcelado' && (
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CreditCard size={12} /> Forma de pagamento
+              </label>
+              <select className="form-input" value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)}>
+                <option value="">Não informado</option>
+                {FORMAS_PAGAMENTO.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">Como lançar?</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <button type="button" onClick={() => setScheduleMode('unico')} className={`btn ${scheduleMode === 'unico' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><CalendarDays size={14} /> Único</button>
               <button type="button" onClick={() => setScheduleMode('recorrente')} className={`btn ${scheduleMode === 'recorrente' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><Repeat size={14} /> Recorrente</button>
               <button type="button" onClick={() => setScheduleMode('personalizado')} className={`btn ${scheduleMode === 'personalizado' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><ListPlus size={14} /> Datas</button>
+              <button type="button" onClick={() => setScheduleMode('parcelado')} className={`btn ${scheduleMode === 'parcelado' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><Layers size={14} /> Parcelado</button>
             </div>
           </div>
 
           {scheduleMode !== 'personalizado' && (
-            <div className="form-group"><label className="form-label">{scheduleMode === 'recorrente' ? 'Primeira data' : 'Data de vencimento'}</label><input className="form-input" type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} /></div>
+            <div className="form-group">
+              <label className="form-label">
+                {scheduleMode === 'recorrente' ? 'Primeira data' : scheduleMode === 'parcelado' ? 'Data da 1ª parcela' : 'Data de vencimento'}
+              </label>
+              <input className="form-input" type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} />
+            </div>
+          )}
+
+          {scheduleMode === 'parcelado' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Nº de parcelas</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={2}
+                    max={360}
+                    value={numParcelas}
+                    onChange={e => setNumParcelas(Math.max(2, parseInt(e.target.value) || 2))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Intervalo</label>
+                  <select className="form-input" value={intervaloParc} onChange={e => setIntervaloParc(e.target.value as 'mensal' | 'quinzenal' | 'semanal')}>
+                    <option value="mensal">Mensal</option>
+                    <option value="quinzenal">Quinzenal</option>
+                    <option value="semanal">Semanal</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="form-group">
+                  <label className="form-label">Juros (% ao mês)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    placeholder="0,00"
+                    value={taxaJuros}
+                    onChange={e => setTaxaJuros(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <CreditCard size={12} /> Forma de pagamento
+                  </label>
+                  <select className="form-input" value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)}>
+                    <option value="">Não informado</option>
+                    {FORMAS_PAGAMENTO.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <ParcelaPreview
+                total={parseFloat(valor) || 0}
+                n={numParcelas}
+                taxa={parseFloat(taxaJuros) || 0}
+                intervalo={intervaloParc}
+                primeiraData={vencimento}
+              />
+
+              <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+                <strong>Como funciona:</strong> O valor digitado acima é o <em>total da dívida</em>. O sistema calcula automaticamente o valor de cada parcela{parseFloat(taxaJuros) > 0 ? ' com juros compostos (Tabela Price)' : ' sem juros'} e cria um lançamento por parcela no financeiro, cada um na sua data correta.
+              </div>
+            </>
           )}
 
           {scheduleMode === 'recorrente' && (
@@ -318,6 +728,7 @@ export default function Financeiro() {
   const [porPessoa, setPorPessoa] = useState<ResumoPorPessoa[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [gerenciarDivida, setGerenciarDivida] = useState<{ parcelas: Pagamento[]; tipo: 'pagamento' | 'recebimento' } | null>(null)
   const [editPag, setEditPag] = useState<Pagamento | null>(null)
   const [prefill, setPrefill] = useState<Partial<Pagamento> | null>(null)
   const [tab, setTab] = useState<'lista' | 'pessoas'>('lista')
@@ -510,6 +921,16 @@ export default function Financeiro() {
                           {p.categoria && <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}>{p.categoria}</span>}
                           {p.vencimento && <span style={{ fontSize: 11, color: isVencido ? '#F59E0B' : 'var(--text3)' }}>{isVencido ? 'Vencido: ' : 'Vence: '}{fmtDate(p.vencimento)}</span>}
                           {p.recorrencia && p.recorrencia !== 'nenhum' && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><Repeat size={10} /> {p.recorrencia}</span>}
+                          {p.obs && p.obs.startsWith('Forma de pagamento:') && (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}>
+                              <CreditCard size={10} /> {p.obs.split('|')[0].replace('Forma de pagamento:', '').trim()}
+                            </span>
+                          )}
+                          {p.obs && p.obs.includes('x de R$') && (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6366f1', background: 'rgba(99,102,241,0.1)', padding: '1px 6px', borderRadius: 99 }}>
+                              <Layers size={10} /> {p.obs.split('|').find(s => s.includes('x de'))?.trim()}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -523,11 +944,23 @@ export default function Financeiro() {
                     </div>
 
                     <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                      {p.status === 'pendente' && (
+                      {p.status === 'pendente' && !extrairGrupoId(p.obs) && (
                         <button onClick={() => handleMarcarPago(p)} style={{ flex: 1, padding: '7px 12px', borderRadius: 8, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', color: '#10B981', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <Check size={12} /> Marcar como pago
                         </button>
                       )}
+                      {extrairGrupoId(p.obs) && p.status === 'pendente' && (() => {
+                        const gid = extrairGrupoId(p.obs)
+                        const grupo = pagamentos.filter(x => extrairGrupoId(x.obs) === gid)
+                        return (
+                          <button
+                            onClick={() => setGerenciarDivida({ parcelas: grupo, tipo: p.tipo })}
+                            style={{ flex: 1, padding: '7px 12px', borderRadius: 8, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                          >
+                            <Layers size={12} /> Gerir dívida
+                          </button>
+                        )
+                      })()}
                       <button onClick={() => { setPrefill(null); setEditPag(p); setModalOpen(true) }} style={{ padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Pencil size={12} /> Editar</button>
                       <button onClick={() => handleDelete(p.id)} style={{ padding: '7px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Trash2 size={12} /> Excluir</button>
                     </div>
