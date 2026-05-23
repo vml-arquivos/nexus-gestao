@@ -1,14 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import { useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-// Substitui a antiga página de equipe por Pessoas (contatos)
 import Pessoas from './pages/Pessoas'
 import Tarefas from './pages/Tarefas'
 import Agenda from './pages/Agenda'
 import Financeiro from './pages/Financeiro'
 import Documentos from './pages/Documentos'
+import Compartilhar from './pages/Compartilhar'
 import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
 
@@ -30,7 +31,7 @@ function FullScreenLoader() {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         animation: 'pulse 1.5s ease-in-out infinite',
       }}>
-        <span style={{ fontSize: 22 }}>⚡</span>
+        <Zap size={24} color="#fff" />
       </div>
       <div style={{ fontSize: 13, color: 'var(--text3)', fontWeight: 500 }}>Carregando Nexus…</div>
       <style>{`
@@ -75,12 +76,13 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
-        {/* Rota de contatos (antes era /equipe) */}
         <Route path="pessoas" element={<Pessoas />} />
+        <Route path="equipe" element={<Navigate to="/pessoas" replace />} />
         <Route path="tarefas" element={<Tarefas />} />
         <Route path="agenda" element={<Agenda />} />
         <Route path="financeiro" element={<Financeiro />} />
         <Route path="documentos" element={<Documentos />} />
+        <Route path="compartilhar" element={<Compartilhar />} />
         <Route path="relatorios" element={<Relatorios />} />
         <Route path="configuracoes" element={<Configuracoes />} />
       </Route>
