@@ -3,7 +3,8 @@ import { useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import Equipe from './pages/Equipe'
+// Substitui a antiga página de equipe por Pessoas (contatos)
+import Pessoas from './pages/Pessoas'
 import Tarefas from './pages/Tarefas'
 import Agenda from './pages/Agenda'
 import Financeiro from './pages/Financeiro'
@@ -74,7 +75,8 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
-        <Route path="equipe" element={<Equipe />} />
+        {/* Rota de contatos (antes era /equipe) */}
+        <Route path="pessoas" element={<Pessoas />} />
         <Route path="tarefas" element={<Tarefas />} />
         <Route path="agenda" element={<Agenda />} />
         <Route path="financeiro" element={<Financeiro />} />
