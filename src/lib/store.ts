@@ -1,4 +1,4 @@
-import { supabase, type Pessoa, type Tarefa, type Evento, type Pagamento, type Documento } from './supabase'
+import { getSupabase, resetSupabaseClient, type Pessoa, type Tarefa, type Evento, type Pagamento, type Documento } from './supabase'
 
 // ── LOCAL STORAGE KEYS ────────────────────────────────────
 const KEYS = {
@@ -59,17 +59,63 @@ export function isSupabaseConfigured(): boolean {
   return !!(store.config.sbUrl && store.config.sbKey)
 }
 
+// ── SUPABASE CREDENTIAL MANAGEMENT ───────────────────────
+/**
+ * Salva as credenciais Supabase no store + localStorage e reseta o cliente
+ * para que getSupabase() recrie com as novas credenciais imediatamente.
+ */
+export function saveSupabaseCredentials(sbUrl: string, sbKey: string): void {
+  store.config = { ...store.config, sbUrl: sbUrl.trim(), sbKey: sbKey.trim() }
+  save(KEYS.config, store.config)
+  resetSupabaseClient()
+}
+
+/**
+ * Testa a conexão com o Supabase usando as credenciais fornecidas.
+ * Retorna { ok: true } em caso de sucesso ou { ok: false, error: string } em falha.
+ */
+export async function testSupabaseConnection(
+  sbUrl: string,
+  sbKey: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    // Salva temporariamente para que getSupabase() use as novas credenciais
+    saveSupabaseCredentials(sbUrl, sbKey)
+    const client = getSupabase()
+    if (!client) return { ok: false, error: 'Credenciais inválidas ou vazias.' }
+
+    const { error } = await client.from('pessoas').select('id').limit(1)
+    if (error) {
+      // Limpa credenciais inválidas do store
+      store.config = { ...store.config, sbUrl: undefined, sbKey: undefined }
+      save(KEYS.config, store.config)
+      resetSupabaseClient()
+      return { ok: false, error: error.message }
+    }
+
+    return { ok: true }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Erro desconhecido'
+    store.config = { ...store.config, sbUrl: undefined, sbKey: undefined }
+    save(KEYS.config, store.config)
+    resetSupabaseClient()
+    return { ok: false, error: msg }
+  }
+}
+
 // ── SUPABASE SYNC ─────────────────────────────────────────
 export async function syncFromSupabase() {
-  if (!isSupabaseConfigured()) return
+  const client = getSupabase()
+  if (!client) return
+
   try {
     const uid = store.config.userId || 'local'
     const [p, t, a, pg, d] = await Promise.all([
-      supabase.from('pessoas').select('*').eq('user_id', uid),
-      supabase.from('tarefas').select('*').eq('user_id', uid),
-      supabase.from('agenda').select('*').eq('user_id', uid),
-      supabase.from('pagamentos').select('*').eq('user_id', uid),
-      supabase.from('documentos').select('*').eq('user_id', uid),
+      client.from('pessoas').select('*').eq('user_id', uid),
+      client.from('tarefas').select('*').eq('user_id', uid),
+      client.from('agenda').select('*').eq('user_id', uid),
+      client.from('pagamentos').select('*').eq('user_id', uid),
+      client.from('documentos').select('*').eq('user_id', uid),
     ])
     if (p.data) { store.pessoas = p.data as Pessoa[]; save(KEYS.pessoas, p.data) }
     if (t.data) { store.tarefas = t.data as Tarefa[]; save(KEYS.tarefas, t.data) }
@@ -82,18 +128,20 @@ export async function syncFromSupabase() {
 }
 
 export async function pushToSupabase(table: string, data: Record<string, unknown>) {
-  if (!isSupabaseConfigured()) return
+  const client = getSupabase()
+  if (!client) return
   try {
-    await supabase.from(table).upsert(data)
+    await client.from(table).upsert(data)
   } catch (e) {
     console.warn('Supabase push failed:', e)
   }
 }
 
 export async function deleteFromSupabase(table: string, id: string) {
-  if (!isSupabaseConfigured()) return
+  const client = getSupabase()
+  if (!client) return
   try {
-    await supabase.from(table).delete().eq('id', id)
+    await client.from(table).delete().eq('id', id)
   } catch (e) {
     console.warn('Supabase delete failed:', e)
   }
