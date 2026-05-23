@@ -1,17 +1,26 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Calendar, DollarSign, Users, TrendingUp, TrendingDown, Clock, AlertTriangle, ArrowRight, Loader } from 'lucide-react'
+import { CheckCircle2, Calendar, DollarSign, Users, TrendingUp, TrendingDown, Clock, AlertTriangle, ArrowRight, Loader, ClipboardList, WalletCards } from 'lucide-react'
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
+function parseDateSafe(d?: string) {
+  if (!d) return null
+  const raw = String(d).trim()
+  const onlyDate = raw.slice(0, 10)
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(onlyDate) ? new Date(`${onlyDate}T12:00:00`) : new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
 function fmtDate(d: string) {
-  return new Date(d + (d.length === 10 ? 'T12:00' : '')).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  const parsed = parseDateSafe(d)
+  return parsed ? parsed.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : 'Sem data'
 }
 function fmtTime(d: string) {
-  return new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const parsed = parseDateSafe(d)
+  return parsed ? parsed.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--:--'
 }
 
 export default function Dashboard() {
@@ -58,9 +67,12 @@ export default function Dashboard() {
     const saldo    = receita - despesas
     const vencidos = pagamentos.filter(p => {
       if (p.status !== 'pendente' || !p.vencimento) return false
-      return new Date(p.vencimento + 'T12:00') < new Date()
+      { const d = parseDateSafe(p.vencimento); return !!d && d < new Date() }
     })
-    return { tarefasPendentes, tarefasConcluidas, totalTarefas, eventosHoje, receita, despesas, saldo, vencidos }
+    const tarefasHoje = tarefas.filter(t => t.status !== 'concluida' && t.prazo?.slice(0, 10) === hoje)
+    const tarefasUrgentes = tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta')
+    const financeirosHoje = pagamentos.filter(p => p.status === 'pendente' && p.vencimento?.slice(0, 10) === hoje)
+    return { tarefasPendentes, tarefasConcluidas, totalTarefas, eventosHoje, receita, despesas, saldo, vencidos, tarefasHoje, tarefasUrgentes, financeirosHoje }
   }, [tarefas, agenda, pagamentos, hoje])
 
   if (loading) {
@@ -81,7 +93,7 @@ export default function Dashboard() {
           {saudacao}, {user?.nome?.split(' ')[0]} 👋
         </h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-          {user?.role === 'gestor' ? '👑 Gestor' : '👤 Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+          {user?.role === 'gestor' ? 'Gestor' : 'Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
         </p>
       </div>
 
@@ -100,7 +112,7 @@ export default function Dashboard() {
           { icon: CheckCircle2, label: 'Tarefas Pendentes', value: metrics.tarefasPendentes, sub: `${metrics.tarefasConcluidas} concluídas`, color: '#6C3BFF', to: '/tarefas' },
           { icon: Calendar,     label: 'Eventos Hoje',      value: metrics.eventosHoje.length, sub: 'compromissos', color: '#06B6D4', to: '/agenda' },
           { icon: DollarSign,   label: 'Saldo',             value: fmt(metrics.saldo), sub: `Receita: ${fmt(metrics.receita)}`, color: metrics.saldo >= 0 ? '#10B981' : '#EF4444', to: '/financeiro' },
-          { icon: Users,        label: 'Equipe',            value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/equipe' },
+          { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/pessoas' },
         ].map(({ icon: Icon, label, value, sub, color, to }) => (
           <Link key={label} to={to} style={{ textDecoration: 'none' }}>
             <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
@@ -121,7 +133,7 @@ export default function Dashboard() {
       {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>🔴 Tarefas Urgentes</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='#EF4444' /> Tarefas urgentes</h2>
             <Link to="/tarefas" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               Ver todas <ArrowRight size={12} />
             </Link>
@@ -147,7 +159,7 @@ export default function Dashboard() {
       {metrics.eventosHoje.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>📅 Hoje na Agenda</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={15} /> Hoje na agenda</h2>
             <Link to="/agenda" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               Ver agenda <ArrowRight size={12} />
             </Link>
@@ -166,10 +178,31 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Relatório operacional */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><ClipboardList size={15} /> Relatório de hoje</h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+          <Link to="/tarefas" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Tarefas do dia</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#06B6D4' }}>{metrics.tarefasHoje.length}</div>
+          </Link>
+          <Link to="/financeiro" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos hoje</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#F59E0B' }}>{metrics.financeirosHoje.length}</div>
+          </Link>
+          <Link to="/agenda" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Compromissos</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: '#7C3AED' }}>{metrics.eventosHoje.length}</div>
+          </Link>
+        </div>
+      </div>
+
       {/* Financeiro resumo */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15 }}>💳 Resumo Financeiro</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><WalletCards size={15} /> Resumo financeiro</h2>
           <Link to="/financeiro" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             Detalhes <ArrowRight size={12} />
           </Link>
