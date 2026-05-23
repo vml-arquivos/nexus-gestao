@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
-import { Settings, Save, Trash2, Download, Upload, Bell, Database, Palette } from 'lucide-react'
-import { store, saveStore, requestPushPermission } from '../lib/store'
+import { Settings, Save, Trash2, Download, Bell, Database, Palette, CheckCircle, XCircle, Loader, RefreshCw } from 'lucide-react'
+import { store, saveStore, requestPushPermission, testSupabaseConnection, syncFromSupabase, isSupabaseConfigured } from '../lib/store'
 import { toast } from '../components/ui'
 
 export default function Configuracoes() {
@@ -8,20 +8,63 @@ export default function Configuracoes() {
   const [sbUrl, setSbUrl] = useState(store.config.sbUrl ?? '')
   const [sbKey, setSbKey] = useState(store.config.sbKey ?? '')
   const [theme, setTheme] = useState(store.config.theme ?? 'dark')
+  const [testingConn, setTestingConn] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [connStatus, setConnStatus] = useState<'idle' | 'ok' | 'fail'>(() =>
+    isSupabaseConfigured() ? 'ok' : 'idle'
+  )
+  const [connError, setConnError] = useState('')
 
   function salvarGeral() {
     if (!nome.trim()) { toast('Nome é obrigatório', 'error'); return }
     store.config = { ...store.config, nome: nome.trim(), theme }
     saveStore('config', store.config)
-    // Apply theme
     document.documentElement.setAttribute('data-theme', theme)
     toast('Configurações salvas!')
   }
 
-  function salvarSupabase() {
-    store.config = { ...store.config, sbUrl: sbUrl.trim(), sbKey: sbKey.trim() }
-    saveStore('config', store.config)
-    toast('Supabase configurado! Recarregue para sincronizar.')
+  async function salvarSupabase() {
+    if (!sbUrl.trim() || !sbKey.trim()) {
+      toast('Preencha URL e chave anônima', 'error')
+      return
+    }
+    if (!sbUrl.trim().startsWith('https://')) {
+      toast('URL deve começar com https://', 'error')
+      return
+    }
+
+    setTestingConn(true)
+    setConnStatus('idle')
+    setConnError('')
+
+    const result = await testSupabaseConnection(sbUrl.trim(), sbKey.trim())
+
+    if (result.ok) {
+      setConnStatus('ok')
+      toast('Supabase conectado e salvo!', 'success')
+    } else {
+      setConnStatus('fail')
+      setConnError(result.error ?? 'Erro desconhecido')
+      toast('Falha na conexão: ' + (result.error ?? 'verifique as credenciais'), 'error')
+    }
+
+    setTestingConn(false)
+  }
+
+  async function sincronizarAgora() {
+    if (!isSupabaseConfigured()) {
+      toast('Configure o Supabase primeiro', 'error')
+      return
+    }
+    setSyncing(true)
+    try {
+      await syncFromSupabase()
+      toast('Sincronização concluída!')
+    } catch {
+      toast('Erro ao sincronizar', 'error')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   async function ativarNotificacoes() {
@@ -134,21 +177,71 @@ export default function Configuracoes() {
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Database size={16} color="var(--secondary)" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Supabase (Opcional)</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Supabase (Sincronização em Nuvem)</span>
           </div>
           <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16, lineHeight: 1.6 }}>
             Conecte ao Supabase para sincronizar dados entre dispositivos e fazer backup na nuvem.
           </p>
+
+          {/* Status atual */}
+          {connStatus === 'ok' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(0,212,170,0.1)', border: '1px solid rgba(0,212,170,0.25)', borderRadius: 10, marginBottom: 16, fontSize: 12, color: '#00D4AA' }}>
+              <CheckCircle size={14} />
+              Conectado ao Supabase
+              <button
+                onClick={sincronizarAgora}
+                disabled={syncing}
+                style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#00D4AA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}
+              >
+                <RefreshCw size={13} style={syncing ? { animation: 'spin 1s linear infinite' } : {}} />
+                {syncing ? 'Sincronizando…' : 'Sincronizar agora'}
+              </button>
+            </div>
+          )}
+          {connStatus === 'fail' && (
+            <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, marginBottom: 16, fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#EF4444' }}>
+                <XCircle size={14} /> Falha na conexão
+              </div>
+              {connError && <div style={{ color: 'var(--text3)', marginTop: 4, wordBreak: 'break-all' }}>{connError}</div>}
+            </div>
+          )}
+
           <div className="form-group">
             <label className="form-label">URL do Projeto</label>
-            <input className="form-input" value={sbUrl} onChange={e => setSbUrl(e.target.value)} placeholder="https://xxxx.supabase.co" />
+            <input
+              className="form-input"
+              value={sbUrl}
+              onChange={e => { setSbUrl(e.target.value); setConnStatus('idle') }}
+              placeholder="https://xxxxxxxxxxx.supabase.co"
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Chave Anon (anon key)</label>
-            <input className="form-input" type="password" value={sbKey} onChange={e => setSbKey(e.target.value)} placeholder="eyJhbGciOiJIUzI1..." />
+            <input
+              className="form-input"
+              type="password"
+              value={sbKey}
+              onChange={e => { setSbKey(e.target.value); setConnStatus('idle') }}
+              placeholder="eyJhbGciOiJIUzI1..."
+            />
           </div>
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={salvarSupabase}>
-            <Database size={15} /> Salvar Configuração Supabase
+
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6, padding: '8px 12px', background: 'var(--bg3)', borderRadius: 8 }}>
+            💡 <strong style={{ color: 'var(--secondary)' }}>supabase.com</strong> → seu projeto → Settings → API → Project URL + anon public key
+          </div>
+
+          <button
+            className="btn btn-secondary"
+            style={{ width: '100%', gap: 8 }}
+            onClick={salvarSupabase}
+            disabled={testingConn}
+          >
+            {testingConn ? (
+              <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Testando conexão…</>
+            ) : (
+              <><Database size={15} /> Testar e Salvar Configuração</>
+            )}
           </button>
         </div>
 
@@ -179,6 +272,10 @@ export default function Configuracoes() {
           Gestão Inteligente · v3.0.0 · 100% gratuito
         </div>
       </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   )
 }
