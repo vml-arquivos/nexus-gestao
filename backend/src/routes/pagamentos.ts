@@ -103,15 +103,79 @@ router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => 
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
-    const { titulo, descricao, valor, tipo, status = 'pendente', vencimento, pago_em, pessoa_id, pessoa_nome, categoria, comprovante_url, obs } = req.body
+    const { titulo, descricao, valor, tipo, status = 'pendente', vencimento, pago_em, pessoa_id, pessoa_nome, categoria, comprovante_url, obs, recorrencia = 'nenhum', recorrencia_fim } = req.body
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!valor || isNaN(parseFloat(String(valor)))) { res.status(400).json({ error: 'Valor inválido.' }); return }
     if (!['pagamento','recebimento'].includes(tipo)) { res.status(400).json({ error: 'Tipo inválido.' }); return }
+    // Valida recorrência
+    const allowedRec = ['nenhum','semanal','quinzenal','mensal','anual']
+    if (!allowedRec.includes(recorrencia)) {
+      res.status(400).json({ error: 'Recorrência inválida.' }); return
+    }
+    const baseVenc = vencimento ? new Date(vencimento) : null
+    const fimRec   = recorrencia_fim ? new Date(recorrencia_fim) : null
+
+    // Insere o pagamento principal
     const pag = await queryOne(
-      `INSERT INTO pagamentos (org_id, criado_por, titulo, descricao, valor, tipo, status, vencimento, pago_em, pessoa_id, pessoa_nome, categoria, comprovante_url, obs)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-      [orgId, userId, titulo.trim(), descricao||null, parseFloat(String(valor)), tipo, status, vencimento||null, pago_em||null, pessoa_id||null, pessoa_nome||null, categoria||null, comprovante_url||null, obs||null]
+      `INSERT INTO pagamentos (org_id, criado_por, titulo, descricao, valor, tipo, status, vencimento, pago_em, pessoa_id, pessoa_nome, categoria, comprovante_url, obs, recorrencia, recorrencia_fim)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [orgId, userId, titulo.trim(), descricao||null, parseFloat(String(valor)), tipo, status, vencimento||null, pago_em||null, pessoa_id||null, pessoa_nome||null, categoria||null, comprovante_url||null, obs||null, recorrencia, recorrencia_fim || null]
     )
+
+    // Gera recurrences adicionais se recorrente e houver data de vencimento
+    const recs: any[] = []
+    if (recorrencia !== 'nenhum' && baseVenc) {
+      let current = new Date(baseVenc)
+      let count = 0
+      const limitDate = fimRec || (() => {
+        const d = new Date(baseVenc)
+        // Por padrão, gera 11 ocorrências adicionais (total 12) se não houver data final
+        switch (recorrencia) {
+          case 'semanal':   d.setDate(d.getDate() + 7 * 11); break
+          case 'quinzenal': d.setDate(d.getDate() + 14 * 11); break
+          case 'mensal':    d.setMonth(d.getMonth() + 11); break
+          case 'anual':     d.setFullYear(d.getFullYear() + 11); break
+          default: break
+        }
+        return d
+      })()
+      // Gera registros até atingir a data limite
+      while (true) {
+        // calcula próxima data
+        switch (recorrencia) {
+          case 'semanal':   current.setDate(current.getDate() + 7); break
+          case 'quinzenal': current.setDate(current.getDate() + 14); break
+          case 'mensal':    current.setMonth(current.getMonth() + 1); break
+          case 'anual':     current.setFullYear(current.getFullYear() + 1); break
+          default: break
+        }
+        if (current > limitDate) break
+        count++
+        recs.push(current.toISOString().split('T')[0])
+      }
+    }
+
+    // Insere cada recorrência como um lançamento separado com recorrencia='nenhum'
+    if (recs.length > 0) {
+      const valuesSql = recs.map((_, i) => `($1,$2,$3,$4,$5,$6,$7,$8${i>0?'': ''})`).join(',')
+      // Prepara os parâmetros para cada ocorrência
+      const insertParams: any[] = []
+      for (const venc of recs) {
+        insertParams.push(orgId, userId, titulo.trim(), descricao || null, parseFloat(String(valor)), tipo, status, venc)
+      }
+      // Observação: definimos pessoa_id, pessoa_nome, categoria, obs e comprovante_url iguais ao original
+      // Concatena arrays extras
+      const extraCols = [pessoa_id||null, pessoa_nome||null, categoria||null, comprovante_url||null, obs||null]
+      // Inserção uma a uma usando loop, pois query array é complexo
+      for (const venc of recs) {
+        await queryOne(
+          `INSERT INTO pagamentos (org_id, criado_por, titulo, descricao, valor, tipo, status, vencimento, pessoa_id, pessoa_nome, categoria, comprovante_url, obs, recorrencia)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'nenhum')`,
+          [orgId, userId, titulo.trim(), descricao||null, parseFloat(String(valor)), tipo, status, venc, pessoa_id||null, pessoa_nome||null, categoria||null, comprovante_url||null, obs||null]
+        )
+      }
+    }
+
     res.status(201).json({ pagamento: pag })
   } catch (err) {
     console.error('[PAG] Erro ao criar:', err)
@@ -123,7 +187,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const allowed = ['titulo','descricao','valor','tipo','status','vencimento','pago_em','pessoa_id','pessoa_nome','categoria','comprovante_url','obs']
+    const allowed = ['titulo','descricao','valor','tipo','status','vencimento','pago_em','pessoa_id','pessoa_nome','categoria','comprovante_url','obs','recorrencia','recorrencia_fim']
     const sets: string[] = []
     const params: unknown[] = []
     let idx = 1
