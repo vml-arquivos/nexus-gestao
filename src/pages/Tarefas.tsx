@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
+import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
@@ -77,11 +78,19 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input className="form-input" style={{ flex: 1 }} placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+              {/* Botão de voz para título */}
+              <MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} />
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+              {/* Botão de voz para descrição */}
+              <MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} />
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
