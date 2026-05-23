@@ -52,7 +52,7 @@ COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 RUN mkdir -p /etc/nginx/http.d /etc/nginx/conf.d && \
     rm -f /etc/nginx/http.d/default.conf /etc/nginx/conf.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
-RUN cp /etc/nginx/http.d/app.conf /etc/nginx/conf.d/app.conf
+RUN rm /etc/nginx/http.d/app.conf /etc/nginx/conf.d/app.conf
 
 # ── Supervisor: gerencia nginx + node ────────────────────────
 COPY supervisord.conf /etc/supervisord.conf
