@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign } from 'lucide-react'
+import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
@@ -18,11 +18,11 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 }
 
 const TIPO_CONFIG = {
-  funcionario: { label: 'Funcionário', color: '#6C3BFF', emoji: '👔' },
-  prestador:   { label: 'Prestador',   color: '#06B6D4', emoji: '🔧' },
-  credor:      { label: 'Credor',      color: '#EF4444', emoji: '💸' },
-  devedor:     { label: 'Devedor',     color: '#F59E0B', emoji: '💰' },
-  cliente:     { label: 'Cliente',     color: '#10B981', emoji: '🤝' },
+  funcionario: { label: 'Funcionário', color: '#7C3AED', icon: Briefcase },
+  prestador:   { label: 'Prestador',   color: '#06B6D4', icon: Wrench },
+  credor:      { label: 'Credor',      color: '#EF4444', icon: WalletCards },
+  devedor:     { label: 'Devedor',     color: '#F59E0B', icon: CircleDollarSign },
+  cliente:     { label: 'Cliente',     color: '#10B981', icon: Handshake },
 } as const
 
 function PessoaModal({ initial, onSave, onClose }: {
@@ -80,7 +80,7 @@ function PessoaModal({ initial, onSave, onClose }: {
             <label className="form-label">Tipo</label>
             <select className="form-input" value={tipo} onChange={e => setTipo(e.target.value as Pessoa['tipo'])}>
               {Object.entries(TIPO_CONFIG).map(([k, v]) => (
-                <option key={k} value={k as Pessoa['tipo']}>{v.emoji} {v.label}</option>
+                <option key={k} value={k as Pessoa['tipo']}>{v.label}</option>
               ))}
             </select>
           </div>
@@ -121,10 +121,44 @@ function PessoaModal({ initial, onSave, onClose }: {
 }
 
 function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => void }) {
-  const [nome, setNome]     = useState('')
-  const [email, setEmail]   = useState('')
-  const [senha, setSenha]   = useState('')
+  const [nome, setNome] = useState('')
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
   const [saving, setSaving] = useState(false)
+  const [conviteGerado, setConviteGerado] = useState(false)
+
+  const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const conviteTexto = `Olá${nome ? `, ${nome}` : ''}! Você foi convidado(a) para acessar o Nexus Gestão Inteligente.\n\nAcesse: ${appUrl}/login\nE-mail: ${email}\nSenha inicial: ${senha}\n\nApós entrar, altere sua senha.`
+
+  async function compartilharNativo() {
+    if (!conviteGerado) { toast('Crie o convite antes de compartilhar', 'error'); return }
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Convite Nexus', text: conviteTexto })
+      } else {
+        await navigator.clipboard.writeText(conviteTexto)
+        toast('Convite copiado para compartilhar')
+      }
+    } catch {
+      // usuário cancelou o compartilhamento
+    }
+  }
+
+  function compartilharWhatsApp() {
+    if (!conviteGerado) { toast('Crie o convite antes de enviar', 'error'); return }
+    window.open(`https://wa.me/?text=${encodeURIComponent(conviteTexto)}`, '_blank', 'noopener,noreferrer')
+  }
+
+  function compartilharEmail() {
+    if (!conviteGerado) { toast('Crie o convite antes de enviar', 'error'); return }
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Convite para o Nexus')}&body=${encodeURIComponent(conviteTexto)}`
+  }
+
+  async function copiarConvite() {
+    if (!conviteGerado) { toast('Crie o convite antes de copiar', 'error'); return }
+    await navigator.clipboard.writeText(conviteTexto)
+    toast('Convite copiado')
+  }
 
   async function handleSave() {
     if (!nome.trim() || !email.trim() || !senha) { toast('Preencha todos os campos', 'error'); return }
@@ -132,8 +166,9 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
     setSaving(true)
     try {
       await auth.invite({ nome: nome.trim(), email: email.trim(), senha })
+      setConviteGerado(true)
       onSave()
-      toast('Membro convidado!')
+      toast('Membro convidado! Agora você pode compartilhar o convite.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro', 'error')
     } finally {
@@ -148,19 +183,34 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
     >
       <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Convidar Membro</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Convidar membro</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group"><label className="form-label">Nome *</label><input className="form-input" placeholder="Nome do membro" value={nome} onChange={e => setNome(e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">E-mail *</label><input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => setEmail(e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Senha inicial *</label><input className="form-input" type="password" placeholder="Mínimo 6 caracteres" value={senha} onChange={e => setSenha(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Nome *</label><input className="form-input" placeholder="Nome do membro" value={nome} onChange={e => { setNome(e.target.value); setConviteGerado(false) }} /></div>
+          <div className="form-group"><label className="form-label">E-mail *</label><input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => { setEmail(e.target.value); setConviteGerado(false) }} /></div>
+          <div className="form-group"><label className="form-label">Senha inicial *</label><input className="form-input" type="password" placeholder="Mínimo 6 caracteres" value={senha} onChange={e => { setSenha(e.target.value); setConviteGerado(false) }} /></div>
         </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 2 }}>
-            {saving ? 'Convidando...' : (<><UserPlus size={14} /> Convidar</>)}
-          </button>
+
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ width: '100%', marginTop: 18 }}>
+          {saving ? 'Convidando...' : (<><UserPlus size={14} /> Criar convite</>)}
+        </button>
+
+        <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>Compartilhar convite</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button className="btn btn-secondary" type="button" onClick={compartilharWhatsApp}><MessageCircle size={14} /> WhatsApp</button>
+            <button className="btn btn-secondary" type="button" onClick={compartilharNativo}><Share2 size={14} /> Redes sociais</button>
+            <button className="btn btn-secondary" type="button" onClick={compartilharEmail}><Mail size={14} /> E-mail</button>
+            <button className="btn btn-secondary" type="button" onClick={copiarConvite}><Copy size={14} /> Copiar</button>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 8 }}>
+            Instagram e outros apps aparecem pela opção “Redes sociais” quando o navegador/dispositivo suporta compartilhamento nativo.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Fechar</button>
         </div>
       </div>
     </div>
@@ -271,7 +321,7 @@ export default function Pessoas() {
             <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
               <option value="todos">Todos os tipos</option>
               {Object.entries(TIPO_CONFIG).map(([k, v]) => (
-                <option key={k} value={k}>{v.emoji} {v.label}</option>
+                <option key={k} value={k}>{v.label}</option>
               ))}
             </select>
           </div>
@@ -289,16 +339,17 @@ export default function Pessoas() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filtradas.map(p => {
                 const tc = TIPO_CONFIG[p.tipo as keyof typeof TIPO_CONFIG] || TIPO_CONFIG.funcionario
+                const TipoIcon = tc.icon
                 return (
                   <div key={p.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                       <div style={{ width: 40, height: 40, borderRadius: '50%', background: tc.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16, flexShrink: 0 }}>
-                        {p.nome.charAt(0).toUpperCase()}
+                        {p.avatar_url ? <img src={p.avatar_url} alt={p.nome} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : <UserRound size={18} color={tc.color} />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 14 }}>{p.nome}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: tc.color, background: tc.color + '18', padding: '2px 7px', borderRadius: 99 }}>{tc.emoji} {tc.label}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: tc.color, background: tc.color + '18', padding: '2px 7px', borderRadius: 99 }}><TipoIcon size={10} /> {tc.label}</span>
                           {p.cargo && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{p.cargo}</span>}
                         </div>
                         <div style={{ display: 'flex', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
