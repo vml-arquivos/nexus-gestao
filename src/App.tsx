@@ -12,6 +12,7 @@ import Documentos from './pages/Documentos'
 import Compartilhar from './pages/Compartilhar'
 import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
+import PessoaDetalhe from './pages/PessoaDetalhe'
 
 // ── Loader de tela cheia ──────────────────────────────────────────────────────
 function FullScreenLoader() {
@@ -77,6 +78,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="pessoas" element={<Pessoas />} />
+        <Route path="pessoas/:id" element={<PessoaDetalhe />} />
         <Route path="equipe" element={<Navigate to="/pessoas" replace />} />
         <Route path="tarefas" element={<Tarefas />} />
         <Route path="agenda" element={<Agenda />} />
