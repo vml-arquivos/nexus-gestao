@@ -26,6 +26,14 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    // A partir desta versão, somente gestores podem registrar-se diretamente. Membros
+    // devem ser adicionados via convite por um gestor existente. Se alguém tentar
+    // registrar um membro sem convite, retornaremos erro.
+    if (role === 'membro') {
+      res.status(403).json({ error: 'O registro de membros é feito via convite de um gestor. Solicite acesso ao seu gestor.' })
+      return
+    }
+
     // Verifica e-mail duplicado
     const existing = await queryOne('SELECT id FROM profiles WHERE email = $1', [email.toLowerCase()])
     if (existing) {

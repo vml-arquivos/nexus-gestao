@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { Eye, EyeOff, Loader, Mail, Lock, User, Building2, Zap } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 
-type Mode = 'login' | 'register'
+// Este componente originalmente permitia criação de contas gratuitas através do modo
+// "register". A funcionalidade de auto-registro foi removida: agora somente
+// gestores podem criar organizações via back-end ou adicionar membros por convite.
+
 
 function toast(msg: string, type: 'error' | 'success' = 'error') {
   const el = document.createElement('div')
@@ -19,47 +22,28 @@ function toast(msg: string, type: 'error' | 'success' = 'error') {
 }
 
 export default function Login() {
-  const { signIn, signUp } = useAuth()
-  const [mode, setMode]               = useState<Mode>('login')
-  const [email, setEmail]             = useState('')
-  const [senha, setSenha]             = useState('')
-  const [nome, setNome]               = useState('')
-  const [orgNome, setOrgNome]         = useState('')
-  const [tipoReg, setTipoReg]         = useState<'gestor' | 'membro'>('gestor')
-  const [showPass, setShowPass]       = useState(false)
-  const [loading, setLoading]         = useState(false)
+  const { signIn } = useAuth()
+  // Este estado controla os campos do formulário de login. O modo de registro foi removido.
+  const [email, setEmail]       = useState('')
+  const [senha, setSenha]       = useState('')
+  const [showPass, setShowPass] = useState(false)
+  const [loading, setLoading]   = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!email.trim() || !senha.trim()) { toast('Preencha e-mail e senha'); return }
-    if (mode === 'register') {
-      if (!nome.trim()) { toast('Digite seu nome completo'); return }
-      if (tipoReg === 'gestor' && !orgNome.trim()) { toast('Digite o nome da empresa/equipe'); return }
-      if (senha.length < 6) { toast('Senha deve ter no mínimo 6 caracteres'); return }
+    if (!email.trim() || !senha.trim()) {
+      toast('Preencha e-mail e senha')
+      return
     }
-
     setLoading(true)
     try {
-      if (mode === 'login') {
-        const { error } = await signIn(email.trim(), senha)
-        if (error) toast(
-          error.toLowerCase().includes('incorretos') || error.toLowerCase().includes('invalid')
-            ? 'E-mail ou senha incorretos.'
-            : error
-        )
-      } else {
-        const { error } = await signUp({
-          nome: nome.trim(),
-          email: email.trim(),
-          senha,
-          role: tipoReg,
-          orgNome: tipoReg === 'gestor' ? orgNome.trim() : undefined,
-        })
-        if (error) {
-          toast(error)
-        } else {
-          toast('Conta criada com sucesso! Bem-vindo ao Nexus.', 'success')
-        }
+      const { error } = await signIn(email.trim(), senha)
+      if (error) {
+        // Normaliza mensagens de erro retornadas pelo back-end
+        const msg = error.toLowerCase().includes('incorretos') || error.toLowerCase().includes('invalid')
+          ? 'E-mail ou senha incorretos.'
+          : error
+        toast(msg)
       }
     } finally {
       setLoading(false)
@@ -97,73 +81,13 @@ export default function Login() {
       </div>
 
       <div style={{ width: '100%', maxWidth: 400 }}>
-        {/* Tabs */}
-        <div className="tabs" style={{ marginBottom: 24 }}>
-          <button className={`tab ${mode === 'login' ? 'active' : ''}`} onClick={() => setMode('login')}>
-            Entrar
-          </button>
-          <button className={`tab ${mode === 'register' ? 'active' : ''}`} onClick={() => setMode('register')}>
-            Criar Conta
-          </button>
-        </div>
+      {/* Título de acesso */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ textAlign: 'center', fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 20 }}>Acessar conta</h2>
+      </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {mode === 'register' && (
-            <>
-              {/* Nome */}
-              <div className="form-group">
-                <label className="form-label">Nome completo</label>
-                <div style={{ position: 'relative' }}>
-                  <User size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
-                  <input className="form-input" style={{ paddingLeft: 36 }} placeholder="Seu nome"
-                    value={nome} onChange={e => setNome(e.target.value)} autoComplete="name" />
-                </div>
-              </div>
-
-              {/* Tipo */}
-              <div className="form-group">
-                <label className="form-label">Tipo de acesso</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {(['gestor', 'membro'] as const).map(t => (
-                    <button key={t} type="button" onClick={() => setTipoReg(t)} style={{
-                      padding: '10px 8px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-                      border: tipoReg === t ? '2px solid var(--primary)' : '1px solid var(--border)',
-                      background: tipoReg === t ? 'var(--primary-dim)' : 'var(--bg3)',
-                      color: tipoReg === t ? 'var(--primary-light)' : 'var(--text3)',
-                      fontSize: 13, fontWeight: 600, textAlign: 'center', lineHeight: 1.4,
-                    }}>
-                      {t === 'gestor' ? '👑 Gestor' : '👤 Membro'}<br />
-                      <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}>
-                        {t === 'gestor' ? 'Cria e delega tarefas' : 'Executa tarefas'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Org (somente gestor) */}
-              {tipoReg === 'gestor' && (
-                <div className="form-group">
-                  <label className="form-label">Nome da empresa / equipe</label>
-                  <div style={{ position: 'relative' }}>
-                    <Building2 size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
-                    <input className="form-input" style={{ paddingLeft: 36 }} placeholder="Ex: Minha Empresa Ltda"
-                      value={orgNome} onChange={e => setOrgNome(e.target.value)} />
-                  </div>
-                </div>
-              )}
-
-              {tipoReg === 'membro' && (
-                <div style={{
-                  background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)',
-                  borderRadius: 'var(--radius-sm)', padding: '10px 14px',
-                  fontSize: 12, color: 'var(--text3)', lineHeight: 1.6,
-                }}>
-                  💡 Após criar sua conta, o gestor da sua equipe precisará te adicionar à organização via convite.
-                </div>
-              )}
-            </>
-          )}
+          {/* Nenhum campo extra de registro é exibido aqui. O registro de usuários é feito via convite. */}
 
           {/* E-mail */}
           <div className="form-group">
@@ -182,9 +106,9 @@ export default function Login() {
               <Lock size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
               <input className="form-input" style={{ paddingLeft: 36, paddingRight: 44 }}
                 type={showPass ? 'text' : 'password'}
-                placeholder={mode === 'register' ? 'Mínimo 6 caracteres' : 'Sua senha'}
+                placeholder="Sua senha"
                 value={senha} onChange={e => setSenha(e.target.value)}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+                autoComplete="current-password" />
               <button type="button" onClick={() => setShowPass(!showPass)} style={{
                 position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
                 background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4,
@@ -197,22 +121,14 @@ export default function Login() {
           <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 4, gap: 8 }} disabled={loading}>
             {loading
               ? <><Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> Aguarde…</>
-              : mode === 'login' ? 'Entrar' : 'Criar Conta'
-            }
+              : 'Entrar'}
           </button>
         </form>
 
-        {mode === 'login' && (
-          <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text3)' }}>
-            Não tem conta?{' '}
-            <button onClick={() => setMode('register')} style={{
-              background: 'none', border: 'none', color: 'var(--primary-light)',
-              cursor: 'pointer', fontWeight: 600, fontSize: 13,
-            }}>
-              Criar conta grátis
-            </button>
-          </p>
-        )}
+        {/* Mensagem de convite */}
+        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text3)' }}>
+          Não possui conta? Solicite um convite ao gestor da sua equipe.
+        </p>
       </div>
 
       <style>{`
