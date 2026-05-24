@@ -343,14 +343,14 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
   const [email,   setEmail]   = useState(pessoa.email || '')
   const [valor,   setValor]   = useState(pessoa.valor ? String(pessoa.valor) : '')
   const [obs,     setObs]     = useState(pessoa.obs || '')
-  const [docTipo, setDocTipo] = useState<'pf'|'pj'|''>('')
+  const [docTipo, setDocTipo] = useState<'cpf'|'cnpj'|''>('')
   const [docNum,  setDocNum]  = useState('')
   const [saving,  setSaving]  = useState(false)
 
   // Extrair doc do obs se já existir
   useEffect(() => {
     const m = pessoa.obs?.match(/\|(cpf|cnpj):([^\|]+)/)
-    if (m) { setDocTipo(m[1] as 'cpf'|'pj'); setDocNum(m[2]) }
+    if (m) { setDocTipo(m[1] as 'cpf'|'cnpj'); setDocNum(m[2]) }
   }, [pessoa.obs])
 
   async function handleSave() {
@@ -410,7 +410,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
           <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">Tipo doc.</label>
-              <select className="form-input" value={docTipo} onChange={e => setDocTipo(e.target.value as 'pf'|'pj'|'')}>
+              <select className="form-input" value={docTipo} onChange={e => setDocTipo(e.target.value as 'cpf'|'cnpj'|'')}>
                 <option value="">—</option>
                 <option value="cpf">CPF (PF)</option>
                 <option value="cnpj">CNPJ (PJ)</option>
