@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Calendar, DollarSign, Users, TrendingUp, TrendingDown, Clock, AlertTriangle, ArrowRight, Loader, ClipboardList, WalletCards } from 'lucide-react'
+import RecentFinancialRecords from '../features/dashboard/components/RecentFinancialRecords'
+import UpcomingTasks from '../features/dashboard/components/UpcomingTasks'
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
@@ -89,7 +91,7 @@ export default function Dashboard() {
     <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
       {/* Saudação */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>
           {saudacao}, {user?.nome?.split(' ')[0]} 👋
         </h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
@@ -99,10 +101,10 @@ export default function Dashboard() {
 
       {/* Alertas */}
       {metrics.vencidos.length > 0 && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
           <AlertTriangle size={16} color="#EF4444" />
           <span><strong style={{ color: '#EF4444' }}>{metrics.vencidos.length} pagamento{metrics.vencidos.length > 1 ? 's' : ''}</strong> vencido{metrics.vencidos.length > 1 ? 's' : ''} — verifique o financeiro</span>
-          <Link to="/financeiro" style={{ marginLeft: 'auto', color: '#EF4444', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>Ver →</Link>
+          <Link to="/financeiro" style={{ marginLeft: 'auto', color: '#EF4444', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>Ver →</Link>
         </div>
       )}
 
@@ -115,14 +117,14 @@ export default function Dashboard() {
           { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/pessoas' },
         ].map(({ icon: Icon, label, value, sub, color, to }) => (
           <Link key={label} to={to} style={{ textDecoration: 'none' }}>
-            <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon size={16} color={color} />
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 600 }}>{label}</span>
               </div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 24, color }}>{value}</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 24, color }}>{value}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{sub}</div>
             </div>
           </Link>
@@ -133,20 +135,20 @@ export default function Dashboard() {
       {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='#EF4444' /> Tarefas urgentes</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='#EF4444' /> Tarefas urgentes</h2>
             <Link to="/tarefas" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               Ver todas <ArrowRight size={12} />
             </Link>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').slice(0, 3).map(t => (
-              <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo}</div>
                   {t.prazo && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Prazo: {fmtDate(t.prazo)}</div>}
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', background: 'rgba(245,158,11,0.12)', padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', background: 'rgba(245,158,11,0.08)', padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap' }}>
                   {t.status === 'pendente' ? 'Pendente' : 'Em Progresso'}
                 </span>
               </div>
@@ -159,7 +161,7 @@ export default function Dashboard() {
       {metrics.eventosHoje.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={15} /> Hoje na agenda</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={15} /> Hoje na agenda</h2>
             <Link to="/agenda" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               Ver agenda <ArrowRight size={12} />
             </Link>
@@ -181,20 +183,20 @@ export default function Dashboard() {
       {/* Relatório operacional */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><ClipboardList size={15} /> Relatório de hoje</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><ClipboardList size={15} /> Relatório de hoje</h2>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
           <Link to="/tarefas" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Tarefas do dia</div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: '#06B6D4' }}>{metrics.tarefasHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#06B6D4' }}>{metrics.tarefasHoje.length}</div>
           </Link>
           <Link to="/financeiro" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos hoje</div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: '#F59E0B' }}>{metrics.financeirosHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#F59E0B' }}>{metrics.financeirosHoje.length}</div>
           </Link>
           <Link to="/agenda" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Compromissos</div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: '#7C3AED' }}>{metrics.eventosHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#7C3AED' }}>{metrics.eventosHoje.length}</div>
           </Link>
         </div>
       </div>
@@ -202,7 +204,7 @@ export default function Dashboard() {
       {/* Financeiro resumo */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><WalletCards size={15} /> Resumo financeiro</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><WalletCards size={15} /> Resumo financeiro</h2>
           <Link to="/financeiro" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             Detalhes <ArrowRight size={12} />
           </Link>
@@ -224,6 +226,12 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Últimos lançamentos financeiros */}
+      <RecentFinancialRecords records={pagamentos} />
+
+      {/* Próximas tarefas */}
+      <UpcomingTasks tasks={tarefas} />
     </div>
   )
 }

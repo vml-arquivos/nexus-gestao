@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -26,6 +26,8 @@ import {
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
+import FinancialPersonCard from '../features/finance/components/FinancialPersonCard'
+import { groupFinancialRecords } from '../features/finance/utils/groupFinancialRecords'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -920,13 +922,16 @@ export default function Financeiro() {
 
   const gruposFinanceiros = agruparLancamentosFinanceiros(filtrados)
 
+  // Agrupa lançamentos por pessoa/empresa/responsável para exibir cards consolidados
+  const groupedByPerson = useMemo(() => groupFinancialRecords(filtrados), [filtrados])
+
   const vencidos = pagamentos.filter(p => p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0, 10)}T00:00:00`) < new Date())
 
   return (
     <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Financeiro</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>Financeiro</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Pagamentos, recebimentos, recorrências e datas personalizadas</p>
         </div>
         <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
@@ -934,14 +939,14 @@ export default function Financeiro() {
 
       {resumo && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
-          <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A receber</span></div>
-            <div style={{ fontWeight: 900, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
           </div>
-          <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A pagar</span></div>
-            <div style={{ fontWeight: 900, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
           </div>
         </div>
@@ -1010,75 +1015,23 @@ export default function Financeiro() {
 
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando...</div>
-          ) : gruposFinanceiros.length === 0 ? (
+          ) : groupedByPerson.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
               <WalletCards size={48} style={{ marginBottom: 12 }} />
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhum lançamento</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Nenhum lançamento</div>
               <div style={{ fontSize: 13 }}>Registre pagamentos e recebimentos</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {gruposFinanceiros.map(g => {
-                const Icon = g.tipo === 'pagamento' ? WalletCards : CircleDollarSign
-                const cor = g.tipo === 'pagamento' ? 'var(--danger)' : 'var(--success)'
-                const totalMostrado = g.status === 'pendente' ? g.pendente : g.total
-                return (
-                  <div key={g.id} style={{ background: 'var(--bg2)', border: `1px solid ${g.isVencido ? 'rgba(245,158,11,0.38)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '13px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Icon size={18} color={cor} />
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <button
-                          type="button"
-                          onClick={() => g.pessoaId && navigate(`/pessoas/${g.pessoaId}`)}
-                          style={{ background: 'none', border: 0, padding: 0, color: 'var(--text)', fontWeight: 850, fontSize: 13, cursor: g.pessoaId ? 'pointer' : 'default', textAlign: 'left' }}
-                        >
-                          {g.pessoaNome}
-                        </button>
-                        <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>{g.titulo}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, flexWrap: 'wrap' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><User size={10} /> {g.tipo === 'pagamento' ? 'A pagar' : 'A receber'}</span>
-                          {g.categoria && <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}>{g.categoria}</span>}
-                          {g.proximoVencimento && <span style={{ fontSize: 11, color: g.isVencido ? 'var(--warning)' : 'var(--text3)' }}>{g.isVencido ? 'Vencido: ' : 'Próx.: '}{fmtDate(g.proximoVencimento)}</span>}
-                          {g.grupoId && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', padding: '1px 6px', borderRadius: 99 }}><Layers size={10} /> {g.itens.length} parcelas · pendentes {g.itens.filter(i => i.status === 'pendente').length}</span>}
-                          {g.principal.recorrencia && g.principal.recorrencia !== 'nenhum' && <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><Repeat size={10} /> {g.principal.recorrencia}</span>}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontWeight: 900, fontSize: 16, color: cor, fontFamily: 'var(--font-heading)' }}>
-                          {g.tipo === 'pagamento' ? '-' : '+'}{fmt(Number(totalMostrado))}
-                        </div>
-                        {g.grupoId && <div style={{ fontSize: 10, color: 'var(--text3)' }}>Pago: {fmt(g.pago)}</div>}
-                        <span style={{ fontSize: 10, fontWeight: 700, color: g.status === 'pago' ? 'var(--success)' : g.status === 'cancelado' ? '#6B7280' : 'var(--warning)', background: 'var(--bg3)', padding: '2px 6px', borderRadius: 99 }}>
-                          {statusChip(g)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                      {g.pessoaId && (
-                        <button onClick={() => navigate(`/pessoas/${g.pessoaId}`)} style={{ padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Eye size={12} /> Ver pessoa</button>
-                      )}
-                      {g.grupoId && g.status === 'pendente' && (
-                        <button
-                          onClick={() => setGerenciarDivida({ parcelas: g.itens, tipo: g.tipo })}
-                          style={{ flex: 1, minWidth: 130, padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--primary-light)', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                        >
-                          <Layers size={12} /> Gerir dívida
-                        </button>
-                      )}
-                      {!g.grupoId && g.principal.status === 'pendente' && (
-                        <button onClick={() => handleMarcarPago(g.principal)} style={{ flex: 1, minWidth: 130, padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--success)', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                          <Check size={12} /> Marcar pago
-                        </button>
-                      )}
-                      <button onClick={() => { setPrefill(null); setEditPag(g.principal); setModalOpen(true) }} style={{ padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Pencil size={12} /> Editar</button>
-                      {!g.grupoId && <button onClick={() => handleDelete(g.principal.id)} style={{ padding: '7px 12px', borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><Trash2 size={12} /> Excluir</button>}
-                    </div>
-                  </div>
-                )
-              })}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupedByPerson.map(group => (
+                <FinancialPersonCard
+                  key={group.pessoaId || group.pessoaNome}
+                  group={group}
+                  onMarkPaid={p => handleMarcarPago(p)}
+                  onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
+                  onDelete={p => handleDelete(p.id)}
+                />
+              ))}
             </div>
           )}
         </>
