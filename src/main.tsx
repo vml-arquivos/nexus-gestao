@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import './app-styles.css'
 import App from './App.tsx'
+import { ThemeProvider } from './lib/ThemeContext'
 import { AuthProvider } from './lib/AuthContext.tsx'
 
 // ═══ PWA: Service Worker para offline + instalação ═══
@@ -41,9 +42,11 @@ const rootEl = document.getElementById('root')!
 createRoot(rootEl).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
 )

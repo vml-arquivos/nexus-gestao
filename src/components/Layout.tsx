@@ -21,8 +21,11 @@ import {
   WalletCards,
   UploadCloud,
   Settings,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useAuth } from "../lib/AuthContext";
+import { useTheme } from '../lib/ThemeContext'
 
 const NAV = [
   { path: "/", icon: LayoutDashboard, label: "Início" },
@@ -60,6 +63,9 @@ export default function Layout() {
   const notifCount = 0;
   const pendingTasks = 0;
   const overduePayments = 0;
+
+  // Lida com tema claro/escuro usando ThemeContext
+  const { theme, toggleTheme } = useTheme();
 
   const initials = user?.nome
     ? user.nome.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()
@@ -269,6 +275,16 @@ export default function Layout() {
               </div>
             )}
           </div>
+
+          {/* Alternância de tema claro/escuro */}
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={() => { toggleTheme(); }}
+            style={{ marginLeft: 4 }}
+            aria-label="Alternar tema"
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
 
           {/* Avatar */}
           <div style={{

@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+// Importa PaymentService para delegar listagem, resumo e agregações por pessoa.
+import { PaymentService } from '../services/paymentService'
 
 const router = Router()
 router.use(authMiddleware)
@@ -88,41 +90,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
     const { tipo, status, pessoa_id, vencidos } = req.query
-
-    let sql = `
-      SELECT pg.*, p.nome AS pessoa_nome_atual
-      FROM pagamentos pg
-      LEFT JOIN pessoas p
-        ON p.id = pg.pessoa_id
-       AND p.org_id = pg.org_id
-      WHERE pg.org_id = $1
-    `
-
-    const params: unknown[] = [orgId]
-    let idx = 2
-
-    if (tipo) {
-      sql += ` AND pg.tipo = $${idx++}`
-      params.push(tipo)
+    // Prepara filtros tipados apenas com strings
+    const filtros = {
+      tipo: typeof tipo === 'string' ? tipo : undefined,
+      status: typeof status === 'string' ? status : undefined,
+      pessoa_id: typeof pessoa_id === 'string' ? pessoa_id : undefined,
+      vencidos: typeof vencidos === 'string' ? vencidos : undefined,
     }
-
-    if (status) {
-      sql += ` AND pg.status = $${idx++}`
-      params.push(status)
-    }
-
-    if (pessoa_id) {
-      sql += ` AND pg.pessoa_id = $${idx++}`
-      params.push(pessoa_id)
-    }
-
-    if (vencidos === 'true') {
-      sql += ` AND pg.status = 'pendente' AND pg.vencimento < CURRENT_DATE`
-    }
-
-    sql += ' ORDER BY pg.vencimento ASC NULLS LAST, pg.created_at DESC'
-
-    const pagamentos = await query(sql, params)
+    // Delegar ao service para listagem. O service se encarrega de consultar o repositório.
+    const pagamentos = await PaymentService.listPayments(orgId, filtros)
     res.json({ pagamentos })
   } catch (err) {
     console.error('[PAG] Erro ao listar:', err)
@@ -134,19 +110,8 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-
-    const resumo = await queryOne(
-      `SELECT
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS receita_paga,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente'),0) AS receita_pendente,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pago'),0)     AS despesa_paga,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente'),0) AS despesa_pendente,
-         COALESCE(SUM(valor) FILTER (WHERE status='pendente' AND vencimento < CURRENT_DATE),0) AS total_vencido
-       FROM pagamentos
-       WHERE org_id = $1`,
-      [orgId]
-    )
-
+    // Delegar ao serviço para cálculo do resumo financeiro
+    const resumo = await PaymentService.getResumo(orgId)
     res.json({ resumo })
   } catch (err) {
     console.error('[PAG] Erro ao buscar resumo:', err)
@@ -158,66 +123,10 @@ router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
 router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-
-    const rows = await query<{
-      pessoa_id: string | null
-      pessoa_nome: string
-      devo: string
-      me_devem: string
-      devo_pendente: string
-      me_devem_pendente: string
-      devo_pago: string
-      me_devem_pago: string
-      total_lancamentos: string
-    }>(
-      `SELECT
-         pg.pessoa_id,
-         COALESCE(p.nome, pg.pessoa_nome, 'Sem pessoa') AS pessoa_nome,
-
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'pagamento'), 0) AS devo,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'recebimento'), 0) AS me_devem,
-
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'pagamento' AND pg.status = 'pendente'
-         ), 0) AS devo_pendente,
-
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'recebimento' AND pg.status = 'pendente'
-         ), 0) AS me_devem_pendente,
-
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'pagamento' AND pg.status = 'pago'
-         ), 0) AS devo_pago,
-
-         COALESCE(SUM(pg.valor) FILTER (
-           WHERE pg.tipo = 'recebimento' AND pg.status = 'pago'
-         ), 0) AS me_devem_pago,
-
-         COUNT(*) AS total_lancamentos
-
-       FROM pagamentos pg
-       LEFT JOIN pessoas p
-         ON p.id = pg.pessoa_id
-        AND p.org_id = pg.org_id
-
-       WHERE pg.org_id = $1
-         AND (
-           pg.pessoa_id IS NOT NULL
-           OR pg.pessoa_nome IS NOT NULL
-         )
-
-       GROUP BY
-         pg.pessoa_id,
-         p.nome,
-         pg.pessoa_nome
-
-       ORDER BY
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.status = 'pendente'), 0) DESC,
-         pessoa_nome ASC`,
-      [orgId]
-    )
-
-    const por_pessoa = rows.map((r) => ({
+    // Utiliza o serviço para obter agregações por pessoa
+    const rows = await PaymentService.getPorPessoa(orgId)
+    // Converte campos numéricos de string para number, mantendo compatibilidade
+    const por_pessoa = (rows as any[]).map((r) => ({
       pessoa_id: r.pessoa_id,
       pessoa_nome: r.pessoa_nome,
       devo: Number(r.devo || 0),
@@ -228,7 +137,6 @@ router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => 
       me_devem_pago: Number(r.me_devem_pago || 0),
       total_lancamentos: Number(r.total_lancamentos || 0),
     }))
-
     res.json({ por_pessoa })
   } catch (err) {
     console.error('[PAG] Erro por-pessoa:', err)

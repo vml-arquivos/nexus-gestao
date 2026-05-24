@@ -1,4 +1,7 @@
 /* ===== VARIÁVEIS GLOBAIS (:root) ===== */
+/* Importa tokens de tema que definem light e dark mode. Deve vir antes de
+   definir valores específicos para permitir override. */
+@import url('./styles/theme.css');
 :root {
   /* Layout */
   --sidebar-w:    210px;
