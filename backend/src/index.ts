@@ -6,6 +6,8 @@ import rateLimit from 'express-rate-limit'
 import path from 'path'
 import fs from 'fs'
 import pool from './db/pool'
+import { errorHandler } from './middleware/errorHandler'
+import logger from './utils/logger'
 
 // Rotas
 import authRoutes       from './routes/auth'
@@ -101,10 +103,8 @@ app.use((_req, res) => {
 })
 
 // ── ERROR HANDLER ─────────────────────────────────────────────────────────────
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[SERVER] Erro não tratado:', err)
-  res.status(500).json({ error: 'Erro interno do servidor.' })
-})
+// Utiliza o middleware global definido em src/middleware/errorHandler.ts
+app.use(errorHandler)
 
 // ── STARTUP ───────────────────────────────────────────────────────────────────
 async function start() {
