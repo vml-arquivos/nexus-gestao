@@ -1,93 +1,65 @@
-# Nexus Gestão — Deploy via Coolify (Dockerfile)
+#!/bin/bash
+# ============================================================
+# NEXUS — deploy.sh
+# Script de deploy completo para VPS com Docker
+# Execute: chmod +x deploy.sh && ./deploy.sh
+# ============================================================
 
-## Arquitetura do Container
+set -e  # Para tudo se qualquer comando falhar
 
-Um único container com:
-- **Nginx** (porta 80): serve o frontend React/PWA e faz proxy para a API
-- **Node.js** (porta 3001, interno): API backend Express + JWT + PostgreSQL
-- **supervisord**: gerencia os dois processos simultaneamente
-- **Migração automática**: tabelas criadas no startup (com retry automático no DB)
+echo ""
+echo "🚀 NEXUS — Deploy iniciando..."
+echo ""
 
-O Traefik do Coolify gerencia SSL e domínio externamente.
+# ── 1. Verifica se o .env existe ─────────────────────────────
+if [ ! -f ".env" ]; then
+  echo "❌ Arquivo .env não encontrado!"
+  echo "   Copie o .env.docker para .env e preencha as variáveis."
+  echo "   cp .env.docker .env && nano .env"
+  exit 1
+fi
 
----
+# ── 2. Verifica se Docker está instalado ─────────────────────
+if ! command -v docker &> /dev/null; then
+  echo "📦 Instalando Docker..."
+  curl -fsSL https://get.docker.com | sh
+  sudo usermod -aG docker $USER
+  echo "✅ Docker instalado."
+fi
 
-## Passo a Passo no Coolify
+if ! command -v docker compose &> /dev/null; then
+  echo "📦 Instalando Docker Compose plugin..."
+  sudo apt-get update -qq
+  sudo apt-get install -y docker-compose-plugin
+fi
 
-### 1. Criar novo serviço
-- No Coolify: **New Resource → Application**
-- Repositório: `https://github.com/vml-arquivos/nexus-gestao`
-- Branch: `main`
-- Build Pack: **Dockerfile**
-- Dockerfile Location: `/Dockerfile` (raiz do repositório)
+# ── 3. Para containers existentes (deploy de atualização) ────
+echo "⏹️  Parando containers existentes (se houver)..."
+docker compose down --remove-orphans 2>/dev/null || true
 
-### 2. Configurar variáveis de ambiente
+# ── 4. Build e sobe ──────────────────────────────────────────
+echo "🔨 Fazendo build e subindo containers..."
+docker compose up -d --build
 
-Cole as variáveis abaixo no painel **Environment Variables** do Coolify:
+# ── 5. Aguarda e verifica ────────────────────────────────────
+echo "⏳ Aguardando containers iniciarem..."
+sleep 5
 
-```
-DATABASE_URL=postgres://usuario:senha@host:5432/banco
-JWT_SECRET=<gere com: openssl rand -base64 64>
-JWT_REFRESH_SECRET=<gere com: openssl rand -base64 64>
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=30d
-FRONTEND_URL=https://nexus.permupay.com.br
-NODE_ENV=production
-PORT=3001
-UPLOADS_DIR=/app/uploads
-VITE_API_URL=/api
-```
-
-> ⚠️ **NUNCA coloque credenciais reais neste arquivo.** Use o painel do Coolify.
-> Gere novos secrets com: `openssl rand -base64 64`
-
-### 3. Configurar domínio
-- Em **Domains**: adicione `nexus.permupay.com.br`
-- Ative **SSL automático (Let's Encrypt)**
-- Porta: **80** (o container expõe a porta 80)
-
-### 4. Configurar volume persistente (uploads)
-- Em **Persistent Storage**: adicione `/app/uploads`
-- Isso garante que os arquivos enviados não sejam perdidos em redeploys
-
-### 5. Deploy
-- Clique em **Deploy**
-- O startup demora ~30–60s (aguarda DB + migração + inicialização do Node)
-
-### 6. Logs esperados no startup
-```
-[STARTUP] Aguardando PostgreSQL...
-[STARTUP] ✅ PostgreSQL disponível.
-[STARTUP] Executando migrations...
-[MIGRATE] ✅ Schema aplicado com sucesso!
-[STARTUP] ✅ Migrations OK.
-[STARTUP] Iniciando nginx + node (supervisord)...
-[SERVER] ✅ Nexus API rodando na porta 3001
-```
-
----
-
-## Primeiro Acesso
-
-1. Acesse `https://nexus.permupay.com.br`
-2. Faça login com o e-mail e senha definidos
-3. Para adicionar membros: **Equipe → Convidar Membro**
-
----
-
-## PWA — Instalação no Celular
-
-**Android (Chrome):** menu três pontos → Adicionar à tela inicial
-
-**iOS (Safari):** botão Compartilhar → Adicionar à Tela de Início
-
----
-
-## Gerar novos JWT Secrets (recomendado antes do primeiro deploy)
-
-```bash
-openssl rand -base64 64  # JWT_SECRET
-openssl rand -base64 64  # JWT_REFRESH_SECRET
-```
-
-Atualize no Coolify e faça Redeploy.
+if docker compose ps | grep -q "Up"; then
+  echo ""
+  echo "✅ Deploy concluído com sucesso!"
+  echo ""
+  DOMAIN=$(grep DOMAIN .env | cut -d '=' -f2)
+  echo "🌐 Acesse: https://$DOMAIN"
+  echo ""
+  echo "📱 Para instalar como app no iPhone:"
+  echo "   Safari → https://$DOMAIN → Compartilhar → Adicionar à Tela de Início"
+  echo ""
+  echo "📱 Para instalar como app no Android:"
+  echo "   Chrome → https://$DOMAIN → Menu (⋮) → Instalar aplicativo"
+  echo ""
+else
+  echo "❌ Algo deu errado. Veja os logs:"
+  docker compose logs --tail=50
+  exit 1
+fi

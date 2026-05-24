@@ -12,6 +12,7 @@ import {
   type Documento, type HistoricoPessoa, type Pagamento,
   type Pessoa, type Tarefa,
 } from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -453,9 +454,116 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
   )
 }
 
+// ── Modal de nova tarefa ────────────────────────────────────────────────────
+function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId: string; pessoaNome: string; onClose: () => void; onSaved: () => void }) {
+  const [titulo, setTitulo]       = useState('')
+  const [descricao, setDescricao] = useState('')
+  const [prazo, setPrazo]         = useState('')
+  const [prioridade, setPrioridade] = useState<'baixa' | 'media' | 'alta'>('media')
+  const [saving, setSaving]       = useState(false)
+
+  async function handleSave() {
+    if (!titulo.trim()) {
+      toast('Título é obrigatório', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await tarefasApi.create({
+        titulo: titulo.trim(),
+        descricao: descricao.trim() || undefined,
+        prazo: prazo || undefined,
+        prioridade,
+        responsavel_id: pessoaId,
+      })
+      toast('Tarefa criada!')
+      onSaved()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao criar tarefa', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Nova tarefa para {pessoaNome}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="form-group">
+            <label className="form-label">Título *</label>
+            <input
+              className="form-input"
+              placeholder="Ex: Enviar contrato"
+              value={titulo}
+              onChange={e => setTitulo(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Descrição</label>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="Detalhes da tarefa"
+              value={descricao}
+              onChange={e => setDescricao(e.target.value)}
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="form-group">
+              <label className="form-label">Prazo</label>
+              <input
+                className="form-input"
+                type="date"
+                value={prazo}
+                onChange={e => setPrazo(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Prioridade</label>
+              <select
+                className="form-input"
+                value={prioridade}
+                onChange={e => setPrioridade(e.target.value as 'baixa' | 'media' | 'alta')}
+              >
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvando…' : (
+              <>
+                <Check size={14} /> Criar
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── PÁGINA PRINCIPAL ──────────────────────────────────────────────────────────
 export default function PessoaDetalhe() {
   const { id } = useParams<{ id: string }>()
+  const { user } = useAuth()
   const navigate = useNavigate()
 
   const [hist,    setHist]    = useState<HistoricoPessoa | null>(null)
@@ -465,6 +573,8 @@ export default function PessoaDetalhe() {
   const [modalParcelas, setModalParcelas] = useState<GrupoPag | null>(null)
   const [modalUpload,   setModalUpload]   = useState(false)
   const [modalEdit,     setModalEdit]     = useState(false)
+  // modal para criação de nova tarefa
+  const [modalNovaTarefa, setModalNovaTarefa] = useState(false)
 
   // ── carrega histórico ──
   async function carregar() {
@@ -722,6 +832,12 @@ export default function PessoaDetalhe() {
       {/* TAREFAS */}
       {tab === 'tarefas' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* botão para criar nova tarefa, apenas para gestores */}
+          {user?.role === 'gestor' && (
+            <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setModalNovaTarefa(true)}>
+              <Plus size={13} /> Nova tarefa
+            </button>
+          )}
           {tarefas.length === 0
             ? <EmptyState text="Nenhuma tarefa vinculada a esta pessoa." icon={<ClipboardList size={28} />} />
             : tarefas.map((t: Tarefa) => (
@@ -818,6 +934,16 @@ export default function PessoaDetalhe() {
           pessoa={hist.pessoa}
           onClose={() => setModalEdit(false)}
           onSaved={p => { setHist(h => h ? { ...h, pessoa: p } : h); setModalEdit(false) }}
+        />
+      )}
+
+      {/* modal nova tarefa */}
+      {modalNovaTarefa && hist?.pessoa && (
+        <ModalNovaTarefa
+          pessoaId={hist.pessoa.id}
+          pessoaNome={hist.pessoa.nome}
+          onClose={() => setModalNovaTarefa(false)}
+          onSaved={async () => { await carregar(); setModalNovaTarefa(false) }}
         />
       )}
 
