@@ -713,3 +713,98 @@ body {
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ===== MODAL FIX: garante que modais inline não cortem o topo ===== */
+/* Modais criados com style inline (position:fixed, inset:0) */
+[style*="position: fixed"][style*="inset: 0"],
+[style*="position:fixed"][style*="inset:0"] {
+  align-items: flex-start !important;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top, 16px)) 16px 16px;
+}
+
+@media (min-width: 600px) {
+  [style*="position: fixed"][style*="inset: 0"],
+  [style*="position:fixed"][style*="inset:0"] {
+    align-items: center !important;
+    padding: 24px;
+  }
+}
+
+/* Modal content box — garante scroll interno */
+[style*="borderRadius: '20px'"],
+[style*="border-radius: 20px"] {
+  max-height: calc(100dvh - 32px) !important;
+  overflow-y: auto !important;
+}
+
+/* ===== LEGIBILIDADE GERAL ===== */
+
+/* Labels mais visíveis */
+.form-label {
+  color: var(--text2) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+}
+
+/* Inputs com melhor contraste */
+.form-input,
+.form-select,
+.form-textarea {
+  background: var(--bg4) !important;
+  border-color: var(--border2) !important;
+  color: var(--text) !important;
+  font-size: 14px !important;
+}
+
+/* Select — cor do texto visível no dark mode */
+select,
+.form-select,
+select option {
+  background: var(--bg4);
+  color: var(--text);
+}
+
+/* Inputs de data — cor visível no dark mode */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark;
+  color: var(--text) !important;
+}
+
+/* Cards com melhor separação */
+.card {
+  border-color: var(--border2) !important;
+}
+
+/* Texto secundário mais legível */
+.page-subtitle,
+.metric-label,
+.nav-btn-label,
+.section-title {
+  opacity: 0.85;
+}
+
+/* Botões — melhor visibilidade */
+.btn-ghost {
+  background: var(--bg3) !important;
+  border: 1px solid var(--border) !important;
+}
+
+/* Topbar legível */
+.topbar {
+  border-bottom: 1px solid var(--border2) !important;
+}
+
+/* Sidebar item ativo mais destacado */
+.sidebar-item.active {
+  background: rgba(108,59,255,0.22) !important;
+  font-weight: 700 !important;
+}
+
+/* Scrollbars estilizadas para dark mode */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-dim); }
