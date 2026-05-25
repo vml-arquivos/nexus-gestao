@@ -248,7 +248,7 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
   return res
 }
 
-async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await apiFetch(path, options)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
