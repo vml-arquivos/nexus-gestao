@@ -1,57 +1,43 @@
 import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, gestorOnly } from '../middleware/auth'
 
 const router = Router()
 router.use(authMiddleware)
 
-// ── LISTAR MEMBROS DA EQUIPE ──────────────────────────────────────────────────
-// GET /api/equipe/membros
-// gestor:     vê todos da organização
-// sub_gestor: vê a si mesmo + seus comandados
-// membro:     vê todos (para saber com quem trabalha)
-router.get('/membros', async (req: Request, res: Response): Promise<void> => {
+// ── LISTAR MEMBROS DA ORGANIZAÇÃO ─────────────────────────────────────────────
+// GET /api/equipe
+router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!
-
-    let sql = `
-      SELECT
-        p.id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.criado_por,
-        c.nome AS criado_por_nome,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.status NOT IN ('concluida','cancelada')) AS tarefas_pendentes,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.status = 'concluida') AS tarefas_concluidas
-      FROM profiles p
-      LEFT JOIN profiles c ON c.id = p.criado_por
-      WHERE p.org_id = $1 AND p.ativo = TRUE
-    `
-    const params: unknown[] = [orgId]
-
-    if (role === 'sub_gestor') {
-      sql += ' AND (p.id = $2 OR p.criado_por = $2)'
-      params.push(userId)
-    }
-
-    sql += ' ORDER BY p.role, p.nome'
-    const membros = await query(sql, params)
+    const { orgId } = req.user!
+    const membros = await query(
+      `SELECT p.id, p.nome, p.email, p.role, p.avatar_url, p.created_at,
+              COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida') AS tarefas_pendentes,
+              COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'concluida') AS tarefas_concluidas
+       FROM profiles p
+       LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
+       WHERE p.org_id = $1 AND p.ativo = TRUE
+       GROUP BY p.id
+       ORDER BY p.role DESC, p.nome ASC`,
+      [orgId]
+    )
     res.json({ membros })
   } catch (err) {
-    console.error('[EQUIPE] Erro ao listar membros:', err)
-    res.status(500).json({ error: 'Erro ao buscar membros.' })
+    console.error('[EQUIPE] Erro ao listar:', err)
+    res.status(500).json({ error: 'Erro ao buscar equipe.' })
   }
 })
 
-// ── LISTAR PESSOAS ────────────────────────────────────────────────────────────
+// ── LISTAR PESSOAS (contatos, clientes, credores) ─────────────────────────────
 // GET /api/equipe/pessoas
 router.get('/pessoas', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const { tipo, search } = req.query
+    const { tipo } = req.query
     let sql = 'SELECT * FROM pessoas WHERE org_id = $1'
     const params: unknown[] = [orgId]
-    let idx = 2
-    if (tipo)   { sql += ` AND tipo = $${idx++}`;                    params.push(tipo) }
-    if (search) { sql += ` AND nome ILIKE $${idx++}`;                params.push(`%${search}%`) }
-    sql += ' ORDER BY nome'
+    if (tipo) { sql += ' AND tipo = $2'; params.push(tipo) }
+    sql += ' ORDER BY nome ASC'
     const pessoas = await query(sql, params)
     res.json({ pessoas })
   } catch (err) {
@@ -61,13 +47,10 @@ router.get('/pessoas', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── CRIAR PESSOA ──────────────────────────────────────────────────────────────
-// POST /api/equipe/pessoas  (gestor e sub_gestor)
-router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
+// POST /api/equipe/pessoas  (somente gestor)
+router.post('/pessoas', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (role === 'membro') {
-      res.status(403).json({ error: 'Membros não podem criar pessoas.' }); return
-    }
+    const { orgId } = req.user!
     const { nome, tipo, cargo, contato, email, valor, obs } = req.body
     if (!nome || !tipo) {
       res.status(400).json({ error: 'Nome e tipo são obrigatórios.' })
@@ -86,12 +69,10 @@ router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── ATUALIZAR PESSOA ──────────────────────────────────────────────────────────
-router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
+// PATCH /api/equipe/pessoas/:id  (somente gestor)
+router.patch('/pessoas/:id', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (role === 'membro') {
-      res.status(403).json({ error: 'Membros não podem editar pessoas.' }); return
-    }
+    const { orgId } = req.user!
     const { id } = req.params
     const { nome, tipo, cargo, contato, email, valor, obs } = req.body
     const pessoa = await queryOne(
@@ -111,12 +92,10 @@ router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> 
 })
 
 // ── EXCLUIR PESSOA ────────────────────────────────────────────────────────────
-router.delete('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
+// DELETE /api/equipe/pessoas/:id  (somente gestor)
+router.delete('/pessoas/:id', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (role !== 'gestor') {
-      res.status(403).json({ error: 'Apenas o gestor pode remover pessoas.' }); return
-    }
+    const { orgId } = req.user!
     await query('DELETE FROM pessoas WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
     res.json({ ok: true })
   } catch (err) {

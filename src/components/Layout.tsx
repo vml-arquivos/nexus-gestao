@@ -30,9 +30,7 @@ import { useTheme } from '../lib/ThemeContext'
 const NAV = [
   { path: "/", icon: LayoutDashboard, label: "Início" },
   { path: "/pessoas", icon: Users, label: "Pessoas" },
-  { path: "/equipe", icon: Users, label: "Equipe" },
-  // Novo menu para gestão de usuários (apenas gestores e sub-gestores)
-  { path: "/usuarios", icon: Users, label: "Usuários" },
+  { path: "/equipes", icon: Users, label: "Equipes" },
   { path: "/tarefas", icon: CheckCircle2, label: "Tarefas" },
   { path: "/agenda", icon: Calendar, label: "Agenda" },
   { path: "/financeiro", icon: DollarSign, label: "Financeiro" },
@@ -191,11 +189,7 @@ export default function Layout() {
                 {user?.nome || "Usuário"}
               </div>
               <div style={{ fontSize: 11, color: "var(--text3)", display: "flex", alignItems: "center", gap: 4 }}>
-                {user?.role === 'gestor'
-                  ? (<><Crown size={11} /> Gestor</>)
-                  : user?.role === 'sub_gestor'
-                    ? (<><Crown size={11} /> Sub‑gestor</>)
-                    : (<><UserRound size={11} /> Membro</>)}
+                {user?.role === "gestor" ? <><Crown size={11} /> Gestor</> : <><UserRound size={11} /> Membro</>}
               </div>
             </div>
             <button

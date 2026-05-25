@@ -24,19 +24,12 @@ CREATE TABLE IF NOT EXISTS profiles (
   nome         TEXT NOT NULL,
   email        TEXT NOT NULL UNIQUE,
   senha_hash   TEXT NOT NULL,
-  -- Permissão do usuário dentro da organização. Pode ser 'gestor', 'sub_gestor' ou 'membro'.
-  role         TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('gestor','sub_gestor','membro')),
-  -- Cargo descritivo (ex: Gerente de Vendas, Financeiro, Diretor)
-  cargo        TEXT,
-  -- Identifica o criador deste perfil. Útil para sub-gestores ou membros.
-  criado_por   UUID REFERENCES profiles(id),
+  role         TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('gestor','membro')),
   avatar_url   TEXT,
   ativo        BOOLEAN DEFAULT TRUE,
   created_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
--- Adiciona coluna cargo em bancos já existentes (idempotente)
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cargo TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_profiles_org   ON profiles(org_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
@@ -78,17 +71,9 @@ CREATE TABLE IF NOT EXISTS tarefas (
   status                TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','em_progresso','concluida','cancelada')),
   checklist             JSONB DEFAULT '[]'::jsonb,
   obs                   TEXT,
-  -- Resposta do responsável ao concluir/não concluir a tarefa
-  resposta_status       TEXT CHECK (resposta_status IN ('concluida','nao_concluida')),
-  resposta_obs          TEXT,
-  resposta_em           TIMESTAMPTZ,
   created_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
--- Adiciona colunas de resposta em bancos já existentes (idempotente)
-ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status TEXT CHECK (resposta_status IN ('concluida','nao_concluida'));
-ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs    TEXT;
-ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em     TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_tarefas_org         ON tarefas(org_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel ON tarefas(responsavel_id);
