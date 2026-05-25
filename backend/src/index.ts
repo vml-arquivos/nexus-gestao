@@ -15,7 +15,7 @@ import agendaRoutes     from './routes/agenda'
 import pagamentosRoutes from './routes/pagamentos'
 import uploadsRoutes    from './routes/uploads'
 import documentosRoutes from './routes/documentos'
-import teamsRoutes      from './routes/teams'
+import teamsRoutes from './routes/teams'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)

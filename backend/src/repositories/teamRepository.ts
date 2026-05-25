@@ -1,84 +1,101 @@
 import { query, queryOne } from '../db/pool'
 
-// ── TeamRepository ──────────────────────────────────────────────────
-// Esta camada de dados encapsula as operações de leitura e escrita nas
-// tabelas equipes e equipes_membros. Não contém lógica de negócio.
-
-export interface Team {
-  id: string
-  org_id: string
-  nome: string
-  descricao: string | null
-  criado_por: string | null
-  created_at: string
-  updated_at: string
-  total_membros?: number
-}
-
-export const TeamRepository = {
+/**
+ * Repositório de equipes. Responsável por todas as operações de leitura e
+ * escrita relacionadas às tabelas `equipes` e `equipes_membros`. Ao
+ * encapsular o acesso ao banco neste módulo isolado, reduzimos o
+ * acoplamento entre as rotas/serviços e a camada de persistência e
+ * facilitamos testes unitários.
+ */
+export class TeamRepository {
   /**
-   * Lista todas as equipes da organização, incluindo contagem de membros.
+   * Lista todas as equipes de uma organização e conta quantos membros
+   * cada uma possui. As equipes são ordenadas alfabeticamente.
+   *
+   * @param orgId Identificador da organização
    */
-  async list(orgId: string): Promise<Team[]> {
-    const rows = await query<Team & { total_membros: string }>(
-      `SELECT e.*, COUNT(em.membro_id) AS total_membros
-       FROM equipes e
-       LEFT JOIN equipes_membros em ON em.equipe_id = e.id
-       WHERE e.org_id = $1
-       GROUP BY e.id
-       ORDER BY e.nome ASC`,
-      [orgId]
-    )
-    return rows.map(r => ({ ...r, total_membros: parseInt(r.total_membros, 10) }))
-  },
+  static async list(orgId: string) {
+    const sql = `
+      SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at,
+             COUNT(em.profile_id) AS members_count
+      FROM equipes e
+      LEFT JOIN equipes_membros em ON em.equipe_id = e.id
+      WHERE e.org_id = $1
+      GROUP BY e.id
+      ORDER BY e.nome ASC
+    `
+    const result = await query(sql, [orgId])
+    return result
+  }
 
   /**
-   * Cria uma nova equipe.
+   * Cria uma nova equipe e retorna o registro inserido.
+   *
+   * @param orgId     Organização responsável pela equipe
+   * @param nome      Nome da equipe
+   * @param descricao Descrição opcional
+   * @param criadoPor Identificador do usuário que está criando
    */
-  async create(orgId: string, nome: string, descricao: string | null, criadoPor: string): Promise<Team> {
-    const row = await queryOne<Team>(
-      `INSERT INTO equipes (org_id, nome, descricao, criado_por)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [orgId, nome, descricao, criadoPor]
-    )
-    return row as Team
-  },
+  static async create(orgId: string, nome: string, descricao: string | undefined, criadoPor: string) {
+    const sql = `
+      INSERT INTO equipes (org_id, nome, descricao, criado_por)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `
+    const equipe = await queryOne(sql, [orgId, nome.trim(), descricao || null, criadoPor])
+    return equipe
+  }
 
   /**
-   * Adiciona membros a uma equipe. Ignora membros já existentes.
+   * Lista os membros de uma equipe. Retorna informações básicas de cada
+   * membro, incluindo quantidade de tarefas pendentes e concluídas. A
+   * contagem de tarefas é feita com base no org_id fornecido para que
+   * apenas tarefas daquela organização sejam consideradas.
+   *
+   * @param orgId   Organização
+   * @param equipeId Equipe
    */
-  async addMembers(teamId: string, memberIds: string[]): Promise<void> {
+  static async members(orgId: string, equipeId: string) {
+    const sql = `
+      SELECT p.id, p.nome, p.email, p.role, p.avatar_url,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida' AND t.responsavel_id = p.id) AS tarefas_pendentes,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'concluida'   AND t.responsavel_id = p.id) AS tarefas_concluidas
+      FROM equipes_membros em
+      JOIN profiles p ON p.id = em.profile_id
+      LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
+      WHERE em.equipe_id = $2
+      GROUP BY p.id
+      ORDER BY p.nome ASC
+    `
+    const membros = await query(sql, [orgId, equipeId])
+    return membros
+  }
+
+  /**
+   * Adiciona uma lista de membros a uma equipe. Aceita um array de IDs
+   * (UUIDs) de perfis e insere cada par (equipe_id, profile_id). Caso
+   * alguma combinação já exista, ela é ignorada via ON CONFLICT DO
+   * NOTHING. O método retorna void.
+   *
+   * @param equipeId Identificador da equipe
+   * @param memberIds Lista de IDs de perfis
+   */
+  static async addMembers(equipeId: string, memberIds: string[]) {
     if (!memberIds || memberIds.length === 0) return
-    // Usa UNNEST para inserir múltiplos membros de uma vez
-    await query(
-      `INSERT INTO equipes_membros (equipe_id, membro_id)
-       SELECT $1, x FROM unnest($2::uuid[]) AS x
-       ON CONFLICT (equipe_id, membro_id) DO NOTHING`,
-      [teamId, memberIds]
-    )
-  },
-
-  /**
-   * Retorna membros de uma equipe (profiles) com informações básicas.
-   */
-  async members(teamId: string): Promise<{ id: string; nome: string; email: string; role: string; avatar_url: string | null }[]> {
-    const rows = await query<{
-      id: string
-      nome: string
-      email: string
-      role: string
-      avatar_url: string | null
-    }>(
-      `SELECT p.id, p.nome, p.email, p.role, p.avatar_url
-       FROM equipes_membros em
-       JOIN profiles p ON p.id = em.membro_id
-       WHERE em.equipe_id = $1
-       ORDER BY p.nome ASC`,
-      [teamId]
-    )
-    return rows
-  },
+    // Constrói um array de valores para inserção. O PostgreSQL permite
+    // inserir múltiplas linhas com syntaxe VALUES. Usamos ON CONFLICT
+    // para evitar duplicidades na chave composta (equipe_id, profile_id).
+    const values: string[] = []
+    const params: any[] = []
+    memberIds.forEach((id, idx) => {
+      values.push(`($1, $${idx + 2})`)
+      params.push(id)
+    })
+    const sql = `
+      INSERT INTO equipes_membros (equipe_id, profile_id)
+      VALUES ${values.join(',')}
+      ON CONFLICT DO NOTHING
+    `
+    await query(sql, [equipeId, ...params])
+  }
 }
-
-export default TeamRepository

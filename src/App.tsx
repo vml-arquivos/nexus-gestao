@@ -12,8 +12,8 @@ import Documentos from './pages/Documentos'
 import Compartilhar from './pages/Compartilhar'
 import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
-import PessoaDetalhe from './pages/PessoaDetalhe'
 import Equipes from './pages/Equipes'
+import PessoaDetalhe from './pages/PessoaDetalhe'
 
 // ── Loader de tela cheia ──────────────────────────────────────────────────────
 function FullScreenLoader() {

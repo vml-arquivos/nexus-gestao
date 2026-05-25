@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Plus, Users, X, Check, Loader } from 'lucide-react'
-import { teamsApi, equipeApi, type Equipe, type MembroEquipe, type MembroEquipeDetalhe } from '../lib/api'
+import { Plus, X, Users, Check } from 'lucide-react'
+import { teamsApi, equipeApi, type Equipe, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
-// Página de gerenciamento de equipes (times)
-// Permite a um gestor criar novas equipes, visualizar todas as equipes da organização
-// e adicionar membros existentes a uma equipe. Membros comuns podem apenas
-// visualizar as equipes às quais pertencem.
-
+// Util simples para exibir toasts. Centraliza brevemente mensagens de
+// feedback na parte inferior da tela. Aceita tipos 'success' ou 'error'.
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
   el.textContent = msg
@@ -16,40 +13,54 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
   setTimeout(() => el.remove(), 3000)
 }
 
-interface CreateModalProps {
-  open: boolean
+// ── Modal de criação de equipe ─────────────────────────────────────────────
+function CreateTeamModal({ onSave, onClose }: {
+  onSave: (equipe: Equipe) => void
   onClose: () => void
-  onCreate: (nome: string, descricao?: string | null) => void
-}
-
-function CreateTeamModal({ open, onClose, onCreate }: CreateModalProps) {
-  const [nome, setNome] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [saving, setSaving] = useState(false)
+}) {
+  const [nome, setNome]       = useState('')
+  const [descricao, setDesc]  = useState('')
+  const [saving, setSaving]   = useState(false)
 
   async function handleSave() {
     if (!nome.trim()) { toast('Nome é obrigatório', 'error'); return }
     setSaving(true)
-    await onCreate(nome.trim(), descricao.trim() || null)
-    setSaving(false)
-    setNome(''); setDescricao('')
+    try {
+      const equipe = await teamsApi.create({ nome: nome.trim(), descricao: descricao || undefined })
+      onSave(equipe)
+      toast('Equipe criada!')
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao criar equipe', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
-  if (!open) return null
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems: 'center', justifyContent:'center', backdropFilter:'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', borderRadius: '20px', padding:'24px 20px 32px', width:'100%', maxWidth:540, maxHeight:'92dvh', overflowY:'auto' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-          <h2 style={{ fontFamily:'var(--font-heading)', fontWeight:800, fontSize:18 }}>Nova Equipe</h2>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer' }}><X size={20} /></button>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Nova Equipe</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          <div className="form-group"><label className="form-label">Nome *</label><input className="form-input" value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome da equipe" /></div>
-          <div className="form-group"><label className="form-label">Descrição</label><textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize:'vertical' }} placeholder="Objetivo ou área da equipe (opcional)" /></div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="form-group">
+            <label className="form-label">Nome *</label>
+            <input className="form-input" placeholder="Nome da equipe" value={nome} onChange={e => setNome(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Descrição</label>
+            <textarea className="form-input" rows={2} placeholder="Opcional" value={descricao} onChange={e => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
+          </div>
         </div>
-        <div style={{ display:'flex', gap:10, marginTop:20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex:1 }} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSave} style={{ flex:2 }} disabled={saving}>
-            {saving ? 'Criando…' : (<><Check size={14} /> Criar</>)}
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 2 }}>
+            {saving ? 'Criando...' : (<><Check size={14} /> Criar</>)}
           </button>
         </div>
       </div>
@@ -57,74 +68,79 @@ function CreateTeamModal({ open, onClose, onCreate }: CreateModalProps) {
   )
 }
 
-interface AddMembersModalProps {
-  open: boolean
-  onClose: () => void
-  team: Equipe
+// ── Modal para adicionar membros à equipe ──────────────────────────────────
+function AddMembersModal({ equipe, onAdded, onClose }: {
+  equipe: Equipe
   onAdded: () => void
-}
-
-function AddMembersModal({ open, onClose, team, onAdded }: AddMembersModalProps) {
+  onClose: () => void
+}) {
   const [members, setMembers] = useState<MembroEquipe[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [saving, setSaving]     = useState(false)
 
   useEffect(() => {
-    if (!open) return
     async function load() {
+      setLoading(true)
       try {
-        setLoading(true)
-        const mems = await equipeApi.membros()
-        setMembers(mems)
+        const ms = await equipeApi.membros()
+        setMembers(ms)
       } catch (e) {
-        toast('Erro ao buscar membros', 'error')
-      } finally { setLoading(false) }
+        toast('Erro ao carregar membros', 'error')
+      } finally {
+        setLoading(false)
+      }
     }
     load()
-    // reset selection when reopened
-    setSelected(new Set())
-  }, [open])
+  }, [])
+
+  function toggle(id: string) {
+    setSelected(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
+  }
 
   async function handleAdd() {
-    if (!selected.size) { toast('Selecione pelo menos um membro', 'error'); return }
+    if (selected.length === 0) { toast('Selecione ao menos um membro', 'error'); return }
     setSaving(true)
     try {
-      await teamsApi.addMembers(team.id, Array.from(selected))
+      await teamsApi.addMembers(equipe.id, selected)
       toast('Membros adicionados!')
       onAdded()
       onClose()
-    } catch (e) { toast('Erro ao adicionar membros', 'error') }
-    finally { setSaving(false) }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao adicionar membros', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
-  if (!open) return null
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:200, display:'flex', alignItems: 'center', justifyContent:'center', backdropFilter:'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--bg2)', borderRadius: '20px', padding:'24px 20px 32px', width:'100%', maxWidth:540, maxHeight:'92dvh', overflowY:'auto' }}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-          <h2 style={{ fontFamily:'var(--font-heading)', fontWeight:800, fontSize:18 }}>Adicionar membros</h2>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text3)', cursor:'pointer' }}><X size={20} /></button>
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Adicionar membros</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         {loading ? (
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:'var(--text3)' }}><Loader size={22} style={{ animation:'spin 1s linear infinite', marginRight:10 }} /> Carregando…</div>
+          <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 40 }}>Carregando...</div>
         ) : (
-          <div style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:'50vh', overflowY:'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {members.map(m => (
-              <label key={m.id} style={{ display:'flex', alignItems:'center', gap:8, background:'var(--bg3)', padding:'8px 12px', borderRadius:8, cursor:'pointer' }}>
-                <input type="checkbox" checked={selected.has(m.id)} onChange={e => {
-                  const newSet = new Set(selected)
-                  if (e.target.checked) newSet.add(m.id); else newSet.delete(m.id)
-                  setSelected(newSet)
-                }} />
-                <span>{m.nome} <span style={{ fontSize:11, color:'var(--text3)' }}>({m.email})</span></span>
+              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: selected.includes(m.id) ? 'var(--bg3)' : 'transparent', cursor: 'pointer' }}>
+                <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggle(m.id)} />
+                <span style={{ flex: 1 }}>{m.nome}</span>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{m.role === 'gestor' ? 'Gestor' : 'Membro'}</span>
               </label>
             ))}
+            {members.length === 0 && <div style={{ color: 'var(--text3)', fontSize: 13 }}>Nenhum membro disponível</div>}
           </div>
         )}
-        <div style={{ display:'flex', gap:10, marginTop:20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex:1 }} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleAdd} style={{ flex:2 }} disabled={saving}>
-            {saving ? 'Adicionando…' : (<><Check size={14} /> Adicionar</>)}
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleAdd} disabled={saving || selected.length === 0} style={{ flex: 2 }}>
+            {saving ? 'Adicionando...' : (<><Check size={14} /> Adicionar</>)}
           </button>
         </div>
       </div>
@@ -132,33 +148,32 @@ function AddMembersModal({ open, onClose, team, onAdded }: AddMembersModalProps)
   )
 }
 
+// ── Página principal de Equipes ────────────────────────────────────────────
 export default function Equipes() {
   const { user } = useAuth()
   const isGestor = user?.role === 'gestor'
-  const [teams, setTeams] = useState<Equipe[]>([])
+  const [teams, setTeams]     = useState<Equipe[]>([])
   const [loading, setLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
+  const [addOpen, setAddOpen]       = useState(false)
   const [selectedTeam, setSelectedTeam] = useState<Equipe | null>(null)
 
-  async function load() {
+  async function loadTeams() {
     setLoading(true)
     try {
-      const t = await teamsApi.list()
-      setTeams(t)
-    } catch (e) { toast('Erro ao carregar equipes', 'error') }
-    finally { setLoading(false) }
+      const ts = await teamsApi.list()
+      setTeams(ts)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao carregar equipes', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { loadTeams() }, [])
 
-  async function handleCreate(nome: string, descricao?: string | null) {
-    try {
-      const newTeam = await teamsApi.create({ nome, descricao })
-      setTeams(prev => [...prev, { ...newTeam, total_membros: 0 }])
-      toast('Equipe criada!')
-      setCreateOpen(false)
-    } catch (e) { toast('Erro ao criar equipe', 'error') }
+  function handleCreated(equipe: Equipe) {
+    setTeams(t => [...t, { ...equipe, members_count: 0 }])
   }
 
   function openAddMembers(team: Equipe) {
@@ -167,53 +182,57 @@ export default function Equipes() {
   }
 
   async function onMembersAdded() {
-    // reload count of members for selectedTeam
-    if (!selectedTeam) return
-    try {
-      const members = await teamsApi.members(selectedTeam.id)
-      setTeams(prev => prev.map(t => t.id === selectedTeam.id ? { ...t, total_membros: members.length } : t))
-    } catch (e) { /* ignore */ }
+    // Após adicionar membros, recarrega o contador de membros
+    await loadTeams()
   }
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin:'0 auto' }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900, fontSize:22 }}>Equipes</h1>
-          <p style={{ color:'var(--text3)', fontSize:13, marginTop:2 }}>Gerencie grupos de trabalho</p>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Equipes</h1>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie grupos de trabalho</p>
         </div>
         {isGestor && (
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)} style={{ gap:6 }}><Plus size={16} /> Nova Equipe</button>
+          <button className="btn btn-primary" onClick={() => setCreateOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={16} /> Nova equipe
+          </button>
         )}
       </div>
       {loading ? (
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:60, color:'var(--text3)' }}><Loader size={22} style={{ animation:'spin 1s linear infinite', marginRight:10 }} /> Carregando…</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}>Carregando...</div>
       ) : teams.length === 0 ? (
-        <div style={{ textAlign:'center', padding:60, color:'var(--text3)' }}>
-          <p>Nenhuma equipe encontrada.</p>
-          {isGestor && <p>Clique em "Nova Equipe" para criar a primeira.</p>}
+        <div style={{ color: 'var(--text3)', fontSize: 14, padding: 40, textAlign: 'center' }}>
+          Nenhuma equipe cadastrada.
         </div>
       ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {teams.map(team => (
-            <div key={team.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'var(--bg2)', padding:'14px 16px', border:'1px solid var(--border)', borderRadius:'var(--radius)' }}>
-              <div>
-                <div style={{ fontFamily:'var(--font-heading)', fontWeight:700, fontSize:16 }}>{team.nome}</div>
-                {team.descricao && <div style={{ fontSize:12, color:'var(--text3)', marginTop:2 }}>{team.descricao}</div>}
+            <div key={team.id} style={{ padding: 16, borderRadius: 14, background: 'var(--bg2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(108,59,255,0.3)' }}>
+                  <Users size={18} color="#fff" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{team.nome}</div>
+                  {team.descricao && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.descricao}</div>}
+                </div>
               </div>
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <span style={{ fontSize:12, color:'var(--text3)' }}>{team.total_membros ?? 0} membro{(team.total_membros ?? 0) === 1 ? '' : 's'}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontSize: 13, color: 'var(--text3)', minWidth: 60, textAlign: 'right' }}>{team.members_count || 0} membro{(team.members_count || 0) !== 1 ? 's' : ''}</div>
                 {isGestor && (
-                  <button className="btn btn-secondary" style={{ gap:6 }} onClick={() => openAddMembers(team)}><Users size={14} /> Adicionar</button>
+                  <button className="btn btn-secondary" onClick={() => openAddMembers(team)} style={{ padding: '6px 10px', fontSize: 12 }}>
+                    Adicionar
+                  </button>
                 )}
               </div>
             </div>
           ))}
         </div>
       )}
-      <CreateTeamModal open={createOpen} onClose={() => setCreateOpen(false)} onCreate={handleCreate} />
-      {selectedTeam && <AddMembersModal open={addOpen} onClose={() => setAddOpen(false)} team={selectedTeam} onAdded={onMembersAdded} />}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {createOpen && <CreateTeamModal onSave={handleCreated} onClose={() => setCreateOpen(false)} />}
+      {addOpen && selectedTeam && <AddMembersModal equipe={selectedTeam} onAdded={onMembersAdded} onClose={() => setAddOpen(false)} />}
     </div>
   )
 }

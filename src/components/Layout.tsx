@@ -30,12 +30,12 @@ import { useTheme } from '../lib/ThemeContext'
 const NAV = [
   { path: "/", icon: LayoutDashboard, label: "Início" },
   { path: "/pessoas", icon: Users, label: "Pessoas" },
+  { path: "/equipes", icon: Users, label: "Equipes" },
   { path: "/tarefas", icon: CheckCircle2, label: "Tarefas" },
   { path: "/agenda", icon: Calendar, label: "Agenda" },
   { path: "/financeiro", icon: DollarSign, label: "Financeiro" },
   { path: "/documentos", icon: FileText, label: "Arquivos" },
   { path: "/relatorios", icon: BarChart3, label: "Relatórios" },
-  { path: "/equipes", icon: Grid3X3, label: "Equipes" },
 ];
 
 const QUICK_ACTIONS = [

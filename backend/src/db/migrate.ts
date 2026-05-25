@@ -192,33 +192,6 @@ CREATE INDEX IF NOT EXISTS idx_documentos_org      ON documentos(org_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_pessoa   ON documentos(pessoa_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_pagamento ON documentos(pagamento_id);
 
--- ── EQUIPES (times) ────────────────────────────────────────────────
--- Representa grupos de usuários dentro de uma organização. Equipes podem
--- receber tarefas em conjunto e cada membro pertence a 0 ou mais equipes.
-CREATE TABLE IF NOT EXISTS equipes (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id     UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-  nome       TEXT NOT NULL,
-  descricao  TEXT,
-  criado_por UUID REFERENCES profiles(id),
-  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-
--- Relação entre equipes e membros (profiles). Um membro pode participar
--- de várias equipes e cada equipe pode ter vários membros.
-CREATE TABLE IF NOT EXISTS equipes_membros (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  equipe_id  UUID NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
-  membro_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-  UNIQUE (equipe_id, membro_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_equipes_org ON equipes(org_id);
-CREATE INDEX IF NOT EXISTS idx_equipes_membros_equipe ON equipes_membros(equipe_id);
-CREATE INDEX IF NOT EXISTS idx_equipes_membros_membro ON equipes_membros(membro_id);
-
 DROP TRIGGER IF EXISTS documentos_updated_at ON documentos;
 CREATE TRIGGER documentos_updated_at
   BEFORE UPDATE ON documentos
@@ -235,6 +208,28 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user  ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token);
+
+-- ── EQUIPES E MEMBROS ─────────────────────────────────────────────────────
+-- Representa grupos dentro de uma organização. Cada equipe possui um nome,
+-- descrição opcional e um criador. Membros são armazenados em uma tabela
+-- associativa. A coluna created_at registra quando a equipe foi criada.
+CREATE TABLE IF NOT EXISTS equipes (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  nome        TEXT NOT NULL,
+  descricao   TEXT,
+  criado_por  UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Membros de cada equipe. A chave composta garante unicidade de cada
+-- combinação equipe/perfil. Quando uma equipe ou perfil é removido,
+-- seus vínculos são apagados automaticamente.
+CREATE TABLE IF NOT EXISTS equipes_membros (
+  equipe_id   UUID NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+  profile_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  PRIMARY KEY (equipe_id, profile_id)
+);
 
 -- ============================================================
 -- SCHEMA PRONTO

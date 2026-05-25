@@ -148,6 +148,16 @@ export interface ResumoFinanceiro {
   vencidos_receber: number
 }
 
+
+export interface Equipe {
+  id: string;
+  org_id: string;
+  nome: string;
+  descricao?: string;
+  criado_por?: string;
+  created_at: string;
+  members_count?: number;
+}
 export interface Documento {
   id: string
   org_id: string
@@ -163,46 +173,6 @@ export interface Documento {
   pessoa_nome_atual?: string
   pagamento_id?: string
   created_at: string
-}
-
-// ── EQUIPES (Teams) ────────────────────────────────────────────────────────
-export interface Equipe {
-  id: string
-  org_id?: string
-  nome: string
-  descricao?: string | null
-  criado_por?: string | null
-  created_at: string
-  updated_at?: string
-  total_membros?: number
-}
-
-export interface MembroEquipeDetalhe {
-  id: string; nome: string; email: string; role: 'gestor' | 'membro'; avatar_url?: string | null
-}
-
-// API para gerenciamento de equipes (teams). Somente gestores podem criar
-// equipes e adicionar membros. Usuários membros podem consultar as
-// equipes às quais pertencem. Usa os mesmos helpers de apiJson.
-export const teamsApi = {
-  async list(): Promise<Equipe[]> {
-    const data = await apiJson<{ teams: Equipe[] }>('/teams')
-    return data.teams
-  },
-
-  async create(payload: { nome: string; descricao?: string | null }): Promise<Equipe> {
-    const data = await apiJson<{ team: Equipe }>('/teams', { method: 'POST', body: JSON.stringify(payload) })
-    return data.team
-  },
-
-  async members(teamId: string): Promise<MembroEquipeDetalhe[]> {
-    const data = await apiJson<{ members: MembroEquipeDetalhe[] }>(`/teams/${teamId}/members`)
-    return data.members
-  },
-
-  async addMembers(teamId: string, memberIds: string[]): Promise<void> {
-    await apiJson(`/teams/${teamId}/members`, { method: 'POST', body: JSON.stringify({ memberIds }) })
-  },
 }
 
 export interface HistoricoPessoa {
@@ -528,5 +498,24 @@ export const documentosApi = {
 
   async remove(id: string): Promise<void> {
     await apiJson(`/uploads/${id}`, { method: 'DELETE' })
+  },
+}
+
+// ── EQUIPES ─────────────────────────────────────────────────────────────
+export const teamsApi = {
+  async list(): Promise<Equipe[]> {
+    const data = await apiJson<{ equipes: Equipe[] }>('/teams')
+    return data.equipes
+  },
+  async create(payload: { nome: string; descricao?: string }): Promise<Equipe> {
+    const data = await apiJson<{ equipe: Equipe }>('/teams', { method: 'POST', body: JSON.stringify(payload) })
+    return data.equipe
+  },
+  async members(id: string): Promise<MembroEquipe[]> {
+    const data = await apiJson<{ membros: MembroEquipe[] }>(`/teams/${id}/members`)
+    return data.membros
+  },
+  async addMembers(id: string, members: string[]): Promise<void> {
+    await apiJson(`/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ members }) })
   },
 }

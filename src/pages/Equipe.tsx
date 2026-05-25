@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import {Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, Users } from "lucide-react"
+import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { useNavigate } from 'react-router-dom'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -127,7 +126,6 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 }
 
 export default function Equipe() {
-  const navigate = useNavigate();
   const { user } = useAuth()
   const isGestor = user?.role === 'gestor'
 
@@ -176,7 +174,6 @@ export default function Equipe() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-secondary" onClick={() => setConviteOpen(true)} style={{ gap: 6 }}><UserPlus size={14} /> Convidar</button>
             <button className="btn btn-primary" onClick={() => setModalOpen(true)} style={{ gap: 6 }}><Plus size={16} /> Pessoa</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/equipes')} style={{ gap: 6 }}><Users size={14} /> Equipes</button>
           </div>
         )}
       </div>
