@@ -3,31 +3,31 @@
 # ============================================================
 
 # ── STAGE 1: Build do Backend ─────────────────────────────────
-FROM node:20-alpine AS backend-builder
+FROM node:22-alpine AS backend-builder
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci || npm install --legacy-peer-deps
 COPY backend/ .
 RUN npx tsc --skipLibCheck || true
 
 # ── STAGE 2: Build do Frontend ────────────────────────────────
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY package.json package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci || npm install --legacy-peer-deps
 COPY . .
 RUN rm -rf backend
 RUN npm run build
 
 # ── STAGE 3: Produção ─────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 RUN apk add --no-cache nginx supervisor wget
 
 # Backend
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+RUN npm ci --omit=dev || npm install --omit=dev --legacy-peer-deps
 COPY --from=backend-builder /app/backend/dist ./dist
 
 # Frontend
