@@ -26,10 +26,14 @@ export interface UserProfile {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'membro'
+  role: 'gestor' | 'sub_gestor' | 'membro'
+  cargo?: string
   orgId: string
   org_nome?: string
   avatar_url?: string
+  criado_por?: string
+  criado_por_nome?: string
+  ativo?: boolean
 }
 
 export interface ChecklistItem { id: string; texto: string; feito: boolean }
@@ -38,9 +42,11 @@ export interface Tarefa {
   id: string
   org_id: string
   criado_por: string
+  criado_por_nome?: string
   responsavel_id?: string
   responsavel_nome?: string
   responsavel_nome_perfil?: string
+  responsavel_cargo?: string
   titulo: string
   descricao?: string
   data?: string
@@ -49,6 +55,10 @@ export interface Tarefa {
   status: 'pendente' | 'em_progresso' | 'concluida' | 'cancelada'
   checklist?: ChecklistItem[]
   obs?: string
+  // Resposta de execução do responsável
+  resposta_status?: 'concluida' | 'nao_concluida'
+  resposta_obs?: string
+  resposta_em?: string
   created_at: string
   updated_at?: string
 }
@@ -72,10 +82,13 @@ export interface MembroEquipe {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'membro'
+  role: 'gestor' | 'sub_gestor' | 'membro'
+  cargo?: string
   avatar_url?: string
   tarefas_pendentes: number
   tarefas_concluidas: number
+  criado_por?: string
+  criado_por_nome?: string
   created_at: string
 }
 
@@ -248,7 +261,7 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
   return res
 }
 
-async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await apiFetch(path, options)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -339,12 +352,18 @@ export const tarefasApi = {
   async remove(id: string): Promise<void> {
     await apiJson(`/tarefas/${id}`, { method: 'DELETE' })
   },
+
+  // Resposta de execução: membro informa se concluiu ou não + observação
+  async responder(id: string, payload: { resposta_status: 'concluida' | 'nao_concluida'; resposta_obs?: string }): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/resposta`, { method: 'POST', body: JSON.stringify(payload) })
+    return data.tarefa
+  },
 }
 
 // ── EQUIPE ────────────────────────────────────────────────────────────────────
 export const equipeApi = {
   async membros(): Promise<MembroEquipe[]> {
-    const data = await apiJson<{ membros: MembroEquipe[] }>('/equipe')
+    const data = await apiJson<{ membros: MembroEquipe[] }>('/equipe/membros')
     return data.membros
   },
 
@@ -517,5 +536,42 @@ export const teamsApi = {
   },
   async addMembers(id: string, members: string[]): Promise<void> {
     await apiJson(`/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ members }) })
+  },
+}
+
+// ── USUÁRIOS ───────────────────────────────────────────────────────────────
+/**
+ * API para gerenciamento de usuários (profiles). Disponível apenas para gestores e sub-gestores.
+ */
+export const usersApi = {
+  /**
+   * Lista os usuários da organização atual. Membros veem apenas seu próprio perfil.
+   */
+  async list(): Promise<UserProfile[]> {
+    const data = await apiJson<{ users: UserProfile[] }>('/users')
+    return data.users
+  },
+  /**
+   * Cria um novo usuário. Role pode ser 'sub_gestor' ou 'membro'.
+   * Retorna o usuário criado e a senha provisória (caso tenha sido gerada no servidor).
+   */
+  async create(payload: { nome: string; email: string; role: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ user: UserProfile; senha: string }> {
+    const data = await apiJson<{ user: UserProfile; senha: string }>('/users', { method: 'POST', body: JSON.stringify(payload) })
+    return data
+  },
+
+  async update(id: string, payload: { nome?: string; cargo?: string; novoRole?: string; ativo?: boolean }): Promise<UserProfile> {
+    const data = await apiJson<{ user: UserProfile }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return data.user
+  },
+
+  async remove(id: string): Promise<void> {
+    await apiJson(`/users/${id}`, { method: 'DELETE' })
+  },
+
+  // Lista apenas os comandados diretos do sub_gestor autenticado
+  async meusComandados(): Promise<UserProfile[]> {
+    const data = await apiJson<{ users: UserProfile[] }>('/users/meus-comandados')
+    return data.users
   },
 }

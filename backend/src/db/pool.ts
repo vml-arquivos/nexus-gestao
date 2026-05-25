@@ -4,11 +4,19 @@ import { Pool } from 'pg'
 // Usa a variável DATABASE_URL definida no .env / Coolify
 // Formato: postgres://usuario:senha@host:porta/banco
 
+// Detecta automaticamente se SSL é necessário:
+// 1. Variável DATABASE_SSL=true (configurada no Coolify)
+// 2. DATABASE_URL contém sslmode=require
+// 3. DATABASE_URL contém ?ssl=true
+const dbUrl = process.env.DATABASE_URL || ''
+const needsSsl =
+  process.env.DATABASE_SSL === 'true' ||
+  dbUrl.includes('sslmode=require') ||
+  dbUrl.includes('ssl=true')
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === 'true'
-    ? { rejectUnauthorized: false }
-    : false,
+  connectionString: dbUrl,
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

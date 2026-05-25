@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Pessoas from './pages/Pessoas'
+import Equipe from './pages/Equipe'
 import Tarefas from './pages/Tarefas'
 import Agenda from './pages/Agenda'
 import Financeiro from './pages/Financeiro'
@@ -12,8 +13,8 @@ import Documentos from './pages/Documentos'
 import Compartilhar from './pages/Compartilhar'
 import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
-import Equipes from './pages/Equipes'
 import PessoaDetalhe from './pages/PessoaDetalhe'
+import Usuarios from './pages/Usuarios'
 
 // ── Loader de tela cheia ──────────────────────────────────────────────────────
 function FullScreenLoader() {
@@ -80,8 +81,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="pessoas" element={<Pessoas />} />
         <Route path="pessoas/:id" element={<PessoaDetalhe />} />
-        <Route path="equipe" element={<Navigate to="/pessoas" replace />} />
-        <Route path="equipes" element={<Equipes />} />
+        <Route path="equipe" element={<Equipe />} />
         <Route path="tarefas" element={<Tarefas />} />
         <Route path="agenda" element={<Agenda />} />
         <Route path="financeiro" element={<Financeiro />} />
@@ -89,6 +89,7 @@ export default function App() {
         <Route path="compartilhar" element={<Compartilhar />} />
         <Route path="relatorios" element={<Relatorios />} />
         <Route path="configuracoes" element={<Configuracoes />} />
+        <Route path="usuarios" element={<Usuarios />} />
       </Route>
 
       {/* Fallback: redireciona para home */}

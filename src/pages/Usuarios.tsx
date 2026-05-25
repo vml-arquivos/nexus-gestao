@@ -11,9 +11,11 @@ interface UsuarioPerfil {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'membro'
+  role: 'gestor' | 'sub_gestor' | 'membro'
   ativo: boolean
+  cargo?: string
   avatar_url?: string
+  criado_por_nome?: string
   created_at: string
   tarefas_pendentes?: number
   tarefas_concluidas?: number
@@ -151,8 +153,8 @@ export default function Usuarios() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // A rota correta é /api/equipe (lista todos os perfis da organização)
-      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe')
+      // Rota correta: /api/equipe/membros
+      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe/membros')
       setUsuarios(data.membros)
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Erro ao listar usuários.', 'error')
@@ -177,7 +179,7 @@ export default function Usuarios() {
     setModalOpen(false)
   }
 
-  const gestores = usuarios.filter(u => u.role === 'gestor')
+  const gestores = usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor')
   const membros  = usuarios.filter(u => u.role === 'membro')
 
   return (
@@ -237,7 +239,7 @@ export default function Usuarios() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-light)', background: 'rgba(108,59,255,0.15)', padding: '2px 8px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Crown size={9} /> GESTOR
+                    <Crown size={9} /> {u.role === 'gestor' ? 'GESTOR' : 'SUB-GESTOR'}
                   </span>
                   {u.id === eu?.id && (
                     <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 600 }}>você</span>
