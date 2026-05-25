@@ -42,23 +42,14 @@ COPY supervisord.conf /etc/supervisord.conf
 # Entrypoint embutido — sem depender de arquivo externo
 RUN printf '#!/bin/sh\n\
 mkdir -p /app/uploads\n\
-echo "[STARTUP] Aguardando PostgreSQL..."\n\
-i=0\n\
-until node -e "const {Client}=require('"'"'pg'"'"');const c=new Client({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='"'"'true'"'"'?{rejectUnauthorized:false}:false});c.connect().then(()=>{c.end();process.exit(0)}).catch(()=>process.exit(1))" 2>/dev/null; do\n\
-  i=$((i+1))\n\
-  [ $i -ge 20 ] && echo "[STARTUP] DB nao respondeu. Abortando." && exit 1\n\
-  echo "[STARTUP] Tentativa $i/20 — aguardando 3s..."\n\
-  sleep 3\n\
-done\n\
-echo "[STARTUP] PostgreSQL OK."\n\
-cd /app/backend && node dist/db/migrate.js 2>/dev/null && echo "[STARTUP] Migrations OK." || echo "[STARTUP] Migrations ignoradas."\n\
+echo "[STARTUP] Iniciando Nexus..."\n\
 exec /usr/bin/supervisord -c /etc/supervisord.conf\n\
 ' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 VOLUME ["/app/uploads"]
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
   CMD wget -qO- http://localhost/health || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]
