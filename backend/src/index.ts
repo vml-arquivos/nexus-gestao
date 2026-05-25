@@ -7,45 +7,35 @@ import path from 'path'
 import fs from 'fs'
 import pool from './db/pool'
 
-// Rotas
-import authRoutes          from './routes/auth'
-import tarefasRoutes       from './routes/tarefas'
-import equipeRoutes        from './routes/equipe'
-import agendaRoutes        from './routes/agenda'
-import pagamentosRoutes    from './routes/pagamentos'
-import uploadsRoutes       from './routes/uploads'
-import documentosRoutes    from './routes/documentos'
-import notificacoesRoutes  from './routes/notificacoes'
-import relatoriosRoutes    from './routes/relatorios'
-import teamsRoutes         from './routes/teams'
+import authRoutes         from './routes/auth'
+import tarefasRoutes      from './routes/tarefas'
+import equipeRoutes       from './routes/equipe'
+import agendaRoutes       from './routes/agenda'
+import pagamentosRoutes   from './routes/pagamentos'
+import uploadsRoutes      from './routes/uploads'
+import documentosRoutes   from './routes/documentos'
+import teamsRoutes        from './routes/teams'
+import notificacoesRoutes from './routes/notificacoes'
+import relatoriosRoutes   from './routes/relatorios'
 
 const app = express()
-const PORT = parseInt(process.env.PORT || '3001', 10)
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
-const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
+const PORT         = parseInt(process.env.PORT         || '3001', 10)
+const FRONTEND_URL = process.env.FRONTEND_URL          || 'https://nexus.permupay.com.br'
+const UPLOADS_DIR  = process.env.UPLOADS_DIR           || path.join(process.cwd(), 'uploads')
 
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
-}
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 
 // ── SEGURANÇA ─────────────────────────────────────────────────────────────────
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-}))
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
 
 app.use(cors({
-  origin: [
-    FRONTEND_URL,
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ],
+  origin: [FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Rate limiting global — 150 req / 15min (reduzido de 500 para segurança)
+// Rate limiting global — 150 req / 15min (reduzido de 500 por segurança)
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 150,
@@ -54,7 +44,6 @@ app.use(rateLimit({
   message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
 }))
 
-// Rate limiting auth
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -87,16 +76,16 @@ app.get('/health', async (_req, res) => {
 })
 
 // ── ROTAS API ─────────────────────────────────────────────────────────────────
-app.use('/api/auth',           authLimiter, authRoutes)
-app.use('/api/tarefas',        tarefasRoutes)
-app.use('/api/equipe',         equipeRoutes)
-app.use('/api/agenda',         agendaRoutes)
-app.use('/api/pagamentos',     pagamentosRoutes)
-app.use('/api/uploads',        uploadsRoutes)
-app.use('/api/documentos',     documentosRoutes)
-app.use('/api/notificacoes',   notificacoesRoutes)
-app.use('/api/relatorios',     relatoriosRoutes)
-app.use('/api/teams',          teamsRoutes)
+app.use('/api/auth',          authLimiter, authRoutes)
+app.use('/api/tarefas',       tarefasRoutes)
+app.use('/api/equipe',        equipeRoutes)
+app.use('/api/agenda',        agendaRoutes)
+app.use('/api/pagamentos',    pagamentosRoutes)
+app.use('/api/uploads',       uploadsRoutes)
+app.use('/api/documentos',    documentosRoutes)
+app.use('/api/teams',         teamsRoutes)
+app.use('/api/notificacoes',  notificacoesRoutes)
+app.use('/api/relatorios',    relatoriosRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -123,11 +112,11 @@ async function start() {
     const { execSync } = require('child_process')
     execSync('node dist/db/migrate.js', { stdio: 'inherit' })
   } catch {
-    console.warn('[MIGRATE] Migração automática ignorada em modo dev — execute manualmente se necessário.')
+    console.warn('[MIGRATE] Migração automática ignorada em modo dev.')
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SERVER] ✅ Nexus API rodando na porta ${PORT}`)
+    console.log(`[SERVER] ✅ Nexus API na porta ${PORT}`)
     console.log(`[SERVER] 🌐 Frontend: ${FRONTEND_URL}`)
     console.log(`[SERVER] 📁 Uploads: ${UPLOADS_DIR}`)
   })

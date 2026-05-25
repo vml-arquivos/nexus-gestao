@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, gestorOnly } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { PaymentService } from '../services/paymentService'
 import { randomUUID } from 'crypto'
 
 const router = Router()
@@ -30,10 +31,10 @@ function normalizeDateList(value: unknown): string[] {
 
 function addRecurrenceDate(base: Date, recorrencia: Recorrencia) {
   switch (recorrencia) {
-    case 'semanal':    base.setDate(base.getDate() + 7); break
-    case 'quinzenal':  base.setDate(base.getDate() + 14); break
-    case 'mensal':     base.setMonth(base.getMonth() + 1); break
-    case 'anual':      base.setFullYear(base.getFullYear() + 1); break
+    case 'semanal':   base.setDate(base.getDate() + 7); break
+    case 'quinzenal': base.setDate(base.getDate() + 14); break
+    case 'mensal':    base.setMonth(base.getMonth() + 1); break
+    case 'anual':     base.setFullYear(base.getFullYear() + 1); break
   }
 }
 
@@ -67,26 +68,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
     const { tipo, status, pessoa_id, vencidos } = req.query
-
-    let sql = `
-      SELECT pg.*, p.nome AS pessoa_nome_atual
-      FROM pagamentos pg
-      LEFT JOIN pessoas p ON p.id = pg.pessoa_id AND p.org_id = pg.org_id
-      WHERE pg.org_id = $1
-    `
-    const params: unknown[] = [orgId]
-    let idx = 2
-
-    if (tipo)      { sql += ` AND pg.tipo = $${idx++}`; params.push(tipo) }
-    if (status)    { sql += ` AND pg.status = $${idx++}`; params.push(status) }
-    if (pessoa_id) { sql += ` AND pg.pessoa_id = $${idx++}`; params.push(pessoa_id) }
-    if (vencidos === 'true') {
-      sql += ` AND pg.status = 'pendente' AND pg.vencimento < CURRENT_DATE`
+    const filtros = {
+      tipo:      typeof tipo      === 'string' ? tipo      : undefined,
+      status:    typeof status    === 'string' ? status    : undefined,
+      pessoa_id: typeof pessoa_id === 'string' ? pessoa_id : undefined,
+      vencidos:  typeof vencidos  === 'string' ? vencidos  : undefined,
     }
-
-    sql += ' ORDER BY pg.vencimento ASC NULLS LAST, pg.created_at DESC'
-
-    const pagamentos = await query(sql, params)
+    const pagamentos = await PaymentService.listPayments(orgId, filtros)
     res.json({ pagamentos })
   } catch (err) {
     console.error('[PAG] Erro ao listar:', err)
@@ -95,10 +83,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 })
 
 // GET /api/pagamentos/resumo
+// CORRIGIDO: vencidos_pagar e vencidos_receber separados (não mais hardcoded 0)
 router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-
     const resumo = await queryOne(
       `SELECT
          COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS receita_paga,
@@ -110,12 +98,15 @@ router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
          ),0) AS vencidos_pagar,
          COALESCE(SUM(valor) FILTER (
            WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE
-         ),0) AS vencidos_receber
+         ),0) AS vencidos_receber,
+         -- total_vencido mantido para compatibilidade com código legado
+         COALESCE(SUM(valor) FILTER (
+           WHERE status='pendente' AND vencimento < CURRENT_DATE
+         ),0) AS total_vencido
        FROM pagamentos
        WHERE org_id = $1`,
       [orgId]
     )
-
     res.json({ resumo })
   } catch (err) {
     console.error('[PAG] Erro ao buscar resumo:', err)
@@ -127,45 +118,18 @@ router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
 router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-
-    const rows = await query<{
-      pessoa_id: string | null; pessoa_nome: string
-      devo: string; me_devem: string
-      devo_pendente: string; me_devem_pendente: string
-      devo_pago: string; me_devem_pago: string
-      total_lancamentos: string
-    }>(
-      `SELECT
-         pg.pessoa_id,
-         COALESCE(p.nome, pg.pessoa_nome, 'Sem pessoa') AS pessoa_nome,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'pagamento'), 0)   AS devo,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'recebimento'), 0) AS me_devem,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'pagamento'   AND pg.status = 'pendente'), 0) AS devo_pendente,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'recebimento' AND pg.status = 'pendente'), 0) AS me_devem_pendente,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'pagamento'   AND pg.status = 'pago'), 0)     AS devo_pago,
-         COALESCE(SUM(pg.valor) FILTER (WHERE pg.tipo = 'recebimento' AND pg.status = 'pago'), 0)     AS me_devem_pago,
-         COUNT(*) AS total_lancamentos
-       FROM pagamentos pg
-       LEFT JOIN pessoas p ON p.id = pg.pessoa_id AND p.org_id = pg.org_id
-       WHERE pg.org_id = $1
-         AND (pg.pessoa_id IS NOT NULL OR pg.pessoa_nome IS NOT NULL)
-       GROUP BY pg.pessoa_id, p.nome, pg.pessoa_nome
-       ORDER BY COALESCE(SUM(pg.valor) FILTER (WHERE pg.status = 'pendente'), 0) DESC, pessoa_nome ASC`,
-      [orgId]
-    )
-
-    const por_pessoa = rows.map(r => ({
-      pessoa_id:           r.pessoa_id,
-      pessoa_nome:         r.pessoa_nome,
-      devo:                Number(r.devo || 0),
-      me_devem:            Number(r.me_devem || 0),
-      devo_pendente:       Number(r.devo_pendente || 0),
-      me_devem_pendente:   Number(r.me_devem_pendente || 0),
-      devo_pago:           Number(r.devo_pago || 0),
-      me_devem_pago:       Number(r.me_devem_pago || 0),
-      total_lancamentos:   Number(r.total_lancamentos || 0),
+    const rows = await PaymentService.getPorPessoa(orgId)
+    const por_pessoa = (rows as Record<string, unknown>[]).map((r) => ({
+      pessoa_id:         r.pessoa_id,
+      pessoa_nome:       r.pessoa_nome,
+      devo:              Number(r.devo || 0),
+      me_devem:          Number(r.me_devem || 0),
+      devo_pendente:     Number(r.devo_pendente || 0),
+      me_devem_pendente: Number(r.me_devem_pendente || 0),
+      devo_pago:         Number(r.devo_pago || 0),
+      me_devem_pago:     Number(r.me_devem_pago || 0),
+      total_lancamentos: Number(r.total_lancamentos || 0),
     }))
-
     res.json({ por_pessoa })
   } catch (err) {
     console.error('[PAG] Erro por-pessoa:', err)
@@ -178,54 +142,53 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
     const {
-      titulo, descricao, valor, tipo, status = 'pendente',
-      vencimento, pago_em, pessoa_id, pessoa_nome, categoria,
-      comprovante_url, obs, recorrencia = 'nenhum', recorrencia_fim,
-      datas_personalizadas,
+      titulo, descricao, valor, tipo,
+      status = 'pendente', vencimento, pago_em,
+      pessoa_id, pessoa_nome, categoria, comprovante_url, obs,
+      recorrencia = 'nenhum', recorrencia_fim, datas_personalizadas,
     } = req.body
 
-    if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
+    if (!titulo?.trim())                           { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!valor || isNaN(parseFloat(String(valor)))) { res.status(400).json({ error: 'Valor inválido.' }); return }
     if (!['pagamento', 'recebimento'].includes(tipo)) { res.status(400).json({ error: 'Tipo inválido.' }); return }
-    if (!isRecorrencia(recorrencia)) { res.status(400).json({ error: 'Recorrência inválida.' }); return }
+    if (!isRecorrencia(recorrencia))               { res.status(400).json({ error: 'Recorrência inválida.' }); return }
 
-    const customDates = normalizeDateList(datas_personalizadas)
+    const customDates   = normalizeDateList(datas_personalizadas)
     const mainVencimento = vencimento || customDates[0] || null
 
-    // Gera grupo_id para parcelamentos/personalizados
-    const hasMultipleDates = customDates.length > 1 || (recorrencia !== 'nenhum')
-    const grupoId = hasMultipleDates ? randomUUID() : null
+    // grupo_id para parcelamentos e recorrências
+    const hasMultiple = customDates.length > 1 || recorrencia !== 'nenhum'
+    const grupoId     = hasMultiple ? randomUUID() : null
 
     const pag = await queryOne(
-      `INSERT INTO pagamentos (
-         org_id, criado_por, titulo, descricao, valor, tipo, status,
-         vencimento, pago_em, pessoa_id, pessoa_nome, categoria,
-         comprovante_url, obs, recorrencia, recorrencia_fim, grupo_id
-       )
+      `INSERT INTO pagamentos
+         (org_id, criado_por, titulo, descricao, valor, tipo, status,
+          vencimento, pago_em, pessoa_id, pessoa_nome, categoria,
+          comprovante_url, obs, recorrencia, recorrencia_fim, grupo_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING *`,
       [
         orgId, userId, titulo.trim(), descricao || null,
-        parseFloat(String(valor)), tipo, status, mainVencimento, pago_em || null,
+        parseFloat(String(valor)), tipo, status,
+        mainVencimento, pago_em || null,
         pessoa_id || null, pessoa_nome || null, categoria || null,
-        comprovante_url || null, obs || null, recorrencia, recorrencia_fim || null,
-        grupoId,
+        comprovante_url || null, obs || null,
+        recorrencia, recorrencia_fim || null, grupoId,
       ]
     )
 
     const generatedDates = new Set<string>()
-    for (const date of customDates) { if (date !== mainVencimento) generatedDates.add(date) }
-    for (const date of buildRecurringDates(mainVencimento || undefined, recorrencia, recorrencia_fim || undefined)) {
-      if (date !== mainVencimento) generatedDates.add(date)
+    for (const d of customDates) { if (d !== mainVencimento) generatedDates.add(d) }
+    for (const d of buildRecurringDates(mainVencimento || undefined, recorrencia, recorrencia_fim || undefined)) {
+      if (d !== mainVencimento) generatedDates.add(d)
     }
 
     for (const venc of Array.from(generatedDates).sort()) {
       await queryOne(
-        `INSERT INTO pagamentos (
-           org_id, criado_por, titulo, descricao, valor, tipo, status,
-           vencimento, pessoa_id, pessoa_nome, categoria, comprovante_url, obs,
-           recorrencia, grupo_id
-         )
+        `INSERT INTO pagamentos
+           (org_id, criado_por, titulo, descricao, valor, tipo, status,
+            vencimento, pessoa_id, pessoa_nome, categoria,
+            comprovante_url, obs, recorrencia, grupo_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'nenhum',$14)
          RETURNING id`,
         [
@@ -248,13 +211,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-
     const allowed = [
-      'titulo', 'descricao', 'valor', 'tipo', 'status', 'vencimento', 'pago_em',
-      'pessoa_id', 'pessoa_nome', 'categoria', 'comprovante_url', 'obs',
-      'recorrencia', 'recorrencia_fim', 'grupo_id',
+      'titulo','descricao','valor','tipo','status','vencimento','pago_em',
+      'pessoa_id','pessoa_nome','categoria','comprovante_url','obs',
+      'recorrencia','recorrencia_fim','grupo_id',
     ]
-
     const sets: string[] = []
     const params: unknown[] = []
     let idx = 1
@@ -268,12 +229,12 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
     if (req.body.status === 'pago' && !req.body.pago_em) {
       sets.push(`pago_em = $${idx++}`)
-      params.push(new Date().toISOString())
+      params.push(new Date().toISOString().slice(0, 10))
     }
 
     if (sets.length === 0) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
 
-    sets.push(`updated_at = NOW()`)
+    sets.push('updated_at = NOW()')
     params.push(req.params.id, orgId)
 
     const pag = await queryOne(
@@ -291,7 +252,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-// DELETE /api/pagamentos/:id — SOMENTE GESTORES
+// DELETE /api/pagamentos/:id — SOMENTE GESTORES (corrigido: faltava gestorOnly)
 router.delete('/:id', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!

@@ -409,8 +409,8 @@ export const pagamentosApi = {
       despesa_paga:      parseFloat(r.despesa_paga      || '0'),
       despesa_pendente:  parseFloat(r.despesa_pendente  || '0'),
       saldo:             parseFloat(r.receita_paga || '0') - parseFloat(r.despesa_paga || '0'),
-      vencidos_pagar:    parseFloat(r.total_vencido     || '0'),
-      vencidos_receber:  0,
+      vencidos_pagar:   parseFloat(r.vencidos_pagar   || r.total_vencido || '0'),
+      vencidos_receber: parseFloat(r.vencidos_receber || '0'),
     }
   },
 
@@ -517,5 +517,55 @@ export const teamsApi = {
   },
   async addMembers(id: string, members: string[]): Promise<void> {
     await apiJson(`/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ members }) })
+  },
+}
+
+// ── NOTIFICAÇÕES ──────────────────────────────────────────────────────────────
+export interface Notificacao {
+  id: string
+  org_id: string
+  user_id: string
+  tipo: 'tarefa' | 'vencimento' | 'info' | 'alerta'
+  titulo: string
+  body?: string
+  referencia_id?: string
+  referencia_tipo?: string
+  lida: boolean
+  created_at: string
+}
+
+export const notificacoesApi = {
+  async list(apenasNaoLidas = false): Promise<{ notificacoes: Notificacao[]; nao_lidas: number }> {
+    const qs = apenasNaoLidas ? '?apenas_nao_lidas=true' : ''
+    return apiJson<{ notificacoes: Notificacao[]; nao_lidas: number }>(`/notificacoes${qs}`)
+  },
+  async marcarLida(id: string): Promise<void> {
+    await apiJson(`/notificacoes/${id}/ler`, { method: 'PATCH' })
+  },
+  async marcarTodasLidas(): Promise<void> {
+    await apiJson('/notificacoes/ler-todas', { method: 'PATCH' })
+  },
+}
+
+// ── RELATÓRIOS ────────────────────────────────────────────────────────────────
+export const relatoriosApi = {
+  async resumoGeral(params?: { data_inicio?: string; data_fim?: string }) {
+    const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : ''
+    return apiJson<Record<string, unknown>>(`/relatorios/resumo-geral${qs}`)
+  },
+  async mensal(meses = 12) {
+    return apiJson<{ mensal: Record<string, unknown>[] }>(`/relatorios/mensal?meses=${meses}`)
+  },
+  async aging() {
+    return apiJson<{ aging: Record<string, unknown>; proximos: Record<string, unknown>[] }>('/relatorios/aging')
+  },
+  async porCategoria() {
+    return apiJson<{ por_categoria: Record<string, unknown>[] }>('/relatorios/por-categoria')
+  },
+  async tarefasPorMembro() {
+    return apiJson<{ por_membro: Record<string, unknown>[] }>('/relatorios/tarefas-por-membro')
+  },
+  async pessoa(id: string) {
+    return apiJson<Record<string, unknown>>(`/relatorios/pessoa/${id}`)
   },
 }

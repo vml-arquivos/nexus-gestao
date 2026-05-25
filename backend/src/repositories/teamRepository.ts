@@ -1,106 +1,92 @@
 import { query, queryOne } from '../db/pool'
 
 /**
- * TeamRepository — acesso direto ao banco para operações de equipe.
- *
- * No modelo de dados do Nexus, "equipes" são os próprios profiles da
- * organização (tabela `profiles`). Não existe uma tabela separada de
- * equipes — o agrupamento é feito pela `org_id`. Esta camada abstrai
- * as queries necessárias que o TeamService espera.
+ * TeamRepository — operações sobre as tabelas `equipes` e `equipes_membros`.
+ * As tabelas existem no schema v2 (migrate.ts).
  */
 export class TeamRepository {
   /**
-   * Lista todos os membros ativos de uma organização com contadores
-   * de tarefas pendentes e concluídas.
+   * Lista todas as equipes da organização com contagem de membros.
    */
   static async list(orgId: string) {
     return query(
-      `SELECT
-         p.id,
-         p.nome,
-         p.email,
-         p.role,
-         p.avatar_url,
-         p.ativo,
-         p.created_at,
-         COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida') AS tarefas_pendentes,
-         COUNT(DISTINCT t.id) FILTER (WHERE t.status  = 'concluida') AS tarefas_concluidas
-       FROM profiles p
-       LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
-       WHERE p.org_id = $1 AND p.ativo = TRUE
-       GROUP BY p.id
-       ORDER BY p.role DESC, p.nome ASC`,
+      `SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at,
+              COUNT(em.profile_id) AS members_count
+       FROM equipes e
+       LEFT JOIN equipes_membros em ON em.equipe_id = e.id
+       WHERE e.org_id = $1
+       GROUP BY e.id
+       ORDER BY e.nome ASC`,
       [orgId]
     )
   }
 
   /**
-   * Cria um novo membro na organização (convite direto com senha
-   * provisória). O hash de senha deve ser gerado antes de chamar
-   * este método.
+   * Cria uma nova equipe.
    */
-  static async create(
-    orgId: string,
-    nome: string,
-    descricao: string | undefined,
-    criadoPor: string
-  ) {
-    // No modelo atual, "criar equipe" equivale a criar um membro.
-    // `descricao` é armazenado em um campo obs fictício — não há
-    // coluna dedicada; adaptamos para retornar um objeto padronizado.
+  static async create(orgId: string, nome: string, descricao: string | undefined, criadoPor: string) {
     return queryOne(
-      `INSERT INTO profiles (org_id, nome, email, senha_hash, role)
-       VALUES ($1, $2,
-               'pendente-' || gen_random_uuid() || '@nexus.internal',
-               'PENDING',
-               'membro')
-       RETURNING id, org_id, nome, email, role, created_at`,
-      [orgId, nome.trim()]
-    ).then(row => ({
-      ...row,
-      descricao: descricao ?? null,
-      criado_por: criadoPor,
-    }))
-  }
-
-  /**
-   * Retorna o perfil de um único membro da organização pelo seu ID.
-   */
-  static async findById(orgId: string, memberId: string) {
-    return queryOne(
-      `SELECT
-         p.id, p.nome, p.email, p.role, p.avatar_url, p.ativo, p.created_at,
-         COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida') AS tarefas_pendentes,
-         COUNT(DISTINCT t.id) FILTER (WHERE t.status  = 'concluida') AS tarefas_concluidas
-       FROM profiles p
-       LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
-       WHERE p.org_id = $1 AND p.id = $2
-       GROUP BY p.id`,
-      [orgId, memberId]
+      `INSERT INTO equipes (org_id, nome, descricao, criado_por)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [orgId, nome.trim(), descricao || null, criadoPor]
     )
   }
 
   /**
-   * Lista os membros de um "grupo" (equipe lógica identificada por
-   * equipeId). No modelo atual, equipeId é tratado como o ID de
-   * um perfil-líder — retorna todos os membros da org como fallback.
+   * Lista membros de uma equipe com contadores de tarefas.
    */
   static async members(orgId: string, equipeId: string) {
-    // Fallback: retorna todos os membros da org.
-    // Quando uma tabela dedicada de equipes for criada, ajustar aqui.
-    void equipeId
-    return TeamRepository.list(orgId)
+    return query(
+      `SELECT p.id, p.nome, p.email, p.role, p.avatar_url,
+              COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida') AS tarefas_pendentes,
+              COUNT(DISTINCT t.id) FILTER (WHERE t.status  = 'concluida') AS tarefas_concluidas
+       FROM equipes_membros em
+       JOIN profiles p ON p.id = em.profile_id
+       LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
+       WHERE em.equipe_id = $2
+       GROUP BY p.id
+       ORDER BY p.nome ASC`,
+      [orgId, equipeId]
+    )
   }
 
   /**
-   * Associa múltiplos usuários a uma equipe lógica.
-   * Implementação futura quando tabela `equipes` for criada.
-   * Por ora, valida apenas que os IDs pertencem à organização.
+   * Adiciona membros a uma equipe. Ignora duplicados via ON CONFLICT.
    */
   static async addMembers(equipeId: string, memberIds: string[]) {
-    // Stub seguro — sem efeito colateral até existir tabela equipes.
-    void equipeId
-    void memberIds
-    return { added: memberIds.length }
+    if (!memberIds || memberIds.length === 0) return
+
+    const values: string[] = []
+    const params: unknown[] = [equipeId]
+
+    memberIds.forEach((id, idx) => {
+      values.push(`($1, $${idx + 2})`)
+      params.push(id)
+    })
+
+    await query(
+      `INSERT INTO equipes_membros (equipe_id, profile_id)
+       VALUES ${values.join(', ')}
+       ON CONFLICT DO NOTHING`,
+      params
+    )
+  }
+
+  /**
+   * Remove um membro de uma equipe.
+   */
+  static async removeMember(equipeId: string, profileId: string) {
+    await query(
+      'DELETE FROM equipes_membros WHERE equipe_id = $1 AND profile_id = $2',
+      [equipeId, profileId]
+    )
+  }
+
+  /**
+   * Deleta uma equipe (cascata remove os membros automaticamente).
+   */
+  static async delete(orgId: string, equipeId: string) {
+    await query('DELETE FROM equipes WHERE id = $1 AND org_id = $2', [equipeId, orgId])
   }
 }

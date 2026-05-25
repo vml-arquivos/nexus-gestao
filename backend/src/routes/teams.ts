@@ -1,72 +1,85 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, gestorOnly } from '../middleware/auth'
 import { TeamService } from '../services/teamService'
+import { TeamRepository } from '../repositories/teamRepository'
 
-/**
- * Rota /api/teams
- *
- * O frontend chama /api/teams. Este router conecta os endpoints ao
- * TeamService → TeamRepository → PostgreSQL.
- *
- * Registrar em index.ts:
- *   import teamsRoutes from './routes/teams'
- *   app.use('/api/teams', teamsRoutes)
- */
 const router = Router()
 router.use(authMiddleware)
 
-// GET /api/teams — lista membros da organização
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+// GET /api/teams — lista equipes da organização
+router.get('/', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const membros = await TeamService.listTeams(req)
-    res.json({ equipes: membros, membros })
+    const equipes = await TeamService.listTeams(req)
+    res.json({ equipes })
   } catch (err) {
-    console.error('[TEAMS] Erro ao listar:', err)
+    console.error('[TEAMS] Erro ao listar equipes:', err)
     res.status(500).json({ error: 'Erro ao listar equipes.' })
   }
 })
 
-// GET /api/teams/:id — detalhe de um membro/grupo
-router.get('/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const membros = await TeamService.getMembers(req, req.params.id)
-    res.json({ membros })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Erro ao buscar equipe.'
-    res.status(403).json({ error: msg })
-  }
-})
-
-// POST /api/teams — criar equipe (somente gestor)
+// POST /api/teams — criar equipe
 router.post('/', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { nome, descricao } = req.body
-    if (!nome?.trim()) {
-      res.status(400).json({ error: 'Nome é obrigatório.' })
+    if (!nome || typeof nome !== 'string' || !nome.trim()) {
+      res.status(400).json({ error: 'Nome da equipe é obrigatório.' })
       return
     }
-    const equipe = await TeamService.createTeam(req, nome.trim(), descricao)
+    const equipe = await TeamService.createTeam(req, nome, descricao)
     res.status(201).json({ equipe })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Erro ao criar equipe.'
-    console.error('[TEAMS] Erro ao criar:', err)
-    res.status(500).json({ error: msg })
+  } catch (err) {
+    console.error('[TEAMS] Erro ao criar equipe:', err)
+    res.status(500).json({ error: 'Erro ao criar equipe.' })
   }
 })
 
-// POST /api/teams/:id/members — adicionar membros (somente gestor)
+// GET /api/teams/:id/members — listar membros de uma equipe
+router.get('/:id/members', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const membros = await TeamService.getMembers(req, req.params.id)
+    res.json({ membros })
+  } catch (err) {
+    console.error('[TEAMS] Erro ao listar membros:', err)
+    res.status(500).json({ error: 'Erro ao listar membros da equipe.' })
+  }
+})
+
+// POST /api/teams/:id/members — adicionar membros
 router.post('/:id/members', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { memberIds } = req.body
-    if (!Array.isArray(memberIds) || memberIds.length === 0) {
-      res.status(400).json({ error: 'memberIds deve ser um array não vazio.' })
+    const { members } = req.body
+    if (!Array.isArray(members) || members.some((m: unknown) => typeof m !== 'string')) {
+      res.status(400).json({ error: 'Lista de membros inválida.' })
       return
     }
-    await TeamService.addMembers(req, req.params.id, memberIds)
+    await TeamService.addMembers(req, req.params.id, members)
     res.json({ ok: true })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Erro ao adicionar membros.'
-    res.status(500).json({ error: msg })
+  } catch (err) {
+    console.error('[TEAMS] Erro ao adicionar membros:', err)
+    res.status(500).json({ error: 'Erro ao adicionar membros à equipe.' })
+  }
+})
+
+// DELETE /api/teams/:id/members/:profileId — remover membro
+router.delete('/:id/members/:profileId', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    await TeamRepository.removeMember(req.params.id, req.params.profileId)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[TEAMS] Erro ao remover membro:', err)
+    res.status(500).json({ error: 'Erro ao remover membro.' })
+  }
+})
+
+// DELETE /api/teams/:id — deletar equipe
+router.delete('/:id', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!
+    await TeamRepository.delete(orgId, req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[TEAMS] Erro ao deletar equipe:', err)
+    res.status(500).json({ error: 'Erro ao deletar equipe.' })
   }
 })
 

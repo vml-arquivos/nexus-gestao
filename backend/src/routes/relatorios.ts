@@ -9,40 +9,36 @@ router.use(authMiddleware)
 router.get('/resumo-geral', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const { data_inicio, data_fim } = req.query
+    const dataIni = (req.query.data_inicio as string) || new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10)
+    const dataFim = (req.query.data_fim as string)    || new Date().toISOString().slice(0, 10)
 
-    const dataIni = data_inicio || new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10)
-    const dataFim = data_fim || new Date().toISOString().slice(0, 10)
-
-    const financeiro = await queryOne(
-      `SELECT
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS receita_paga,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente'),0) AS receita_pendente,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pago'),0)     AS despesa_paga,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente'),0) AS despesa_pendente,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente' AND vencimento < CURRENT_DATE),0) AS vencidos_pagar,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE),0) AS vencidos_receber
-       FROM pagamentos
-       WHERE org_id=$1 AND (pago_em IS NULL OR (pago_em >= $2 AND pago_em <= $3))`,
-      [orgId, dataIni, dataFim]
-    )
-
-    const tarefas = await queryOne(
-      `SELECT
-         COUNT(*) AS total,
-         COUNT(*) FILTER (WHERE status='pendente')     AS pendentes,
-         COUNT(*) FILTER (WHERE status='em_progresso') AS em_progresso,
-         COUNT(*) FILTER (WHERE status='concluida')    AS concluidas,
-         COUNT(*) FILTER (WHERE status='cancelada')    AS canceladas,
-         COUNT(*) FILTER (WHERE prioridade='alta' AND status NOT IN ('concluida','cancelada')) AS urgentes
-       FROM tarefas WHERE org_id=$1`,
-      [orgId]
-    )
-
-    const pessoas = await queryOne(
-      `SELECT COUNT(*) AS total FROM pessoas WHERE org_id=$1`,
-      [orgId]
-    )
+    const [financeiro, tarefas, pessoas] = await Promise.all([
+      queryOne(
+        `SELECT
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS receita_paga,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente'),0) AS receita_pendente,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pago'),0)     AS despesa_paga,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente'),0) AS despesa_pendente,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente' AND vencimento < CURRENT_DATE),0) AS vencidos_pagar,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE),0) AS vencidos_receber
+         FROM pagamentos
+         WHERE org_id=$1
+           AND COALESCE(pago_em, vencimento, created_at::date) BETWEEN $2 AND $3`,
+        [orgId, dataIni, dataFim]
+      ),
+      queryOne(
+        `SELECT
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE status='pendente')     AS pendentes,
+           COUNT(*) FILTER (WHERE status='em_progresso') AS em_progresso,
+           COUNT(*) FILTER (WHERE status='concluida')    AS concluidas,
+           COUNT(*) FILTER (WHERE status='cancelada')    AS canceladas,
+           COUNT(*) FILTER (WHERE prioridade='alta' AND status NOT IN ('concluida','cancelada')) AS urgentes
+         FROM tarefas WHERE org_id=$1`,
+        [orgId]
+      ),
+      queryOne(`SELECT COUNT(*) AS total FROM pessoas WHERE org_id=$1`, [orgId]),
+    ])
 
     res.json({ financeiro, tarefas, pessoas, periodo: { inicio: dataIni, fim: dataFim } })
   } catch (err) {
@@ -55,20 +51,20 @@ router.get('/resumo-geral', async (req: Request, res: Response): Promise<void> =
 router.get('/mensal', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const { meses = '12' } = req.query
+    const meses = parseInt((req.query.meses as string) || '12')
 
     const rows = await query(
       `SELECT
          TO_CHAR(DATE_TRUNC('month', COALESCE(pago_em, vencimento, created_at::date)), 'YYYY-MM') AS mes,
          COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0) AS receita,
          COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pago'),0) AS despesa,
-         COUNT(*)                                                                    AS total_lancamentos
+         COUNT(*) AS total_lancamentos
        FROM pagamentos
        WHERE org_id=$1
-         AND COALESCE(pago_em, vencimento, created_at::date) >= (CURRENT_DATE - INTERVAL '1 month' * $2::int)
+         AND COALESCE(pago_em, vencimento, created_at::date) >= (CURRENT_DATE - ($2 || ' months')::INTERVAL)
        GROUP BY mes
        ORDER BY mes ASC`,
-      [orgId, parseInt(String(meses))]
+      [orgId, meses]
     )
 
     res.json({ mensal: rows })
@@ -83,38 +79,34 @@ router.get('/aging', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
 
-    const aging = await queryOne(
-      `SELECT
-         -- A PAGAR (saídas)
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento < CURRENT_DATE - 30),0) AS pagar_30_mais,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento >= CURRENT_DATE - 30 AND vencimento < CURRENT_DATE),0) AS pagar_vencido_30,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento = CURRENT_DATE),0) AS pagar_hoje,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento > CURRENT_DATE AND vencimento <= CURRENT_DATE + 7),0) AS pagar_7d,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento > CURRENT_DATE + 7 AND vencimento <= CURRENT_DATE + 30),0) AS pagar_30d,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento > CURRENT_DATE + 30),0) AS pagar_futuro,
-         -- A RECEBER (entradas)
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE - 30),0) AS receber_30_mais,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento >= CURRENT_DATE - 30 AND vencimento < CURRENT_DATE),0) AS receber_vencido_30,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento = CURRENT_DATE),0) AS receber_hoje,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento > CURRENT_DATE AND vencimento <= CURRENT_DATE + 7),0) AS receber_7d,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento > CURRENT_DATE + 7 AND vencimento <= CURRENT_DATE + 30),0) AS receber_30d,
-         COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento > CURRENT_DATE + 30),0) AS receber_futuro
-       FROM pagamentos WHERE org_id=$1`,
-      [orgId]
-    )
-
-    // Próximos vencimentos (lista detalhada)
-    const proximos = await query(
-      `SELECT pg.id, pg.titulo, pg.valor, pg.tipo, pg.vencimento, pg.status,
-              COALESCE(p.nome, pg.pessoa_nome, 'Sem pessoa') AS pessoa_nome
-       FROM pagamentos pg
-       LEFT JOIN pessoas p ON p.id = pg.pessoa_id AND p.org_id = pg.org_id
-       WHERE pg.org_id=$1 AND pg.status='pendente'
-         AND pg.vencimento BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
-       ORDER BY pg.vencimento ASC
-       LIMIT 20`,
-      [orgId]
-    )
+    const [aging, proximos] = await Promise.all([
+      queryOne(
+        `SELECT
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento < CURRENT_DATE - 30),0)   AS pagar_vencido_30_mais,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento >= CURRENT_DATE - 30 AND vencimento < CURRENT_DATE),0) AS pagar_vencido_30,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento = CURRENT_DATE),0)         AS pagar_hoje,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento > CURRENT_DATE AND vencimento <= CURRENT_DATE + 7),0)  AS pagar_7d,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente' AND vencimento > CURRENT_DATE + 7 AND vencimento <= CURRENT_DATE + 30),0) AS pagar_30d,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE - 30),0) AS receber_vencido_30_mais,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento >= CURRENT_DATE - 30 AND vencimento < CURRENT_DATE),0) AS receber_vencido_30,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento = CURRENT_DATE),0)       AS receber_hoje,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento > CURRENT_DATE AND vencimento <= CURRENT_DATE + 7),0)  AS receber_7d,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento > CURRENT_DATE + 7 AND vencimento <= CURRENT_DATE + 30),0) AS receber_30d
+         FROM pagamentos WHERE org_id=$1`,
+        [orgId]
+      ),
+      query(
+        `SELECT pg.id, pg.titulo, pg.valor, pg.tipo, pg.vencimento, pg.status,
+                COALESCE(p.nome, pg.pessoa_nome, 'Sem pessoa') AS pessoa_nome
+         FROM pagamentos pg
+         LEFT JOIN pessoas p ON p.id = pg.pessoa_id AND p.org_id = pg.org_id
+         WHERE pg.org_id=$1 AND pg.status='pendente'
+           AND pg.vencimento BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+         ORDER BY pg.vencimento ASC
+         LIMIT 20`,
+        [orgId]
+      ),
+    ])
 
     res.json({ aging, proximos })
   } catch (err) {
@@ -156,24 +148,21 @@ router.get('/tarefas-por-membro', async (req: Request, res: Response): Promise<v
 
     const rows = await query(
       `SELECT
-         p.id AS user_id,
-         p.nome,
-         COUNT(*) AS total,
-         COUNT(*) FILTER (WHERE t.status = 'pendente')     AS pendentes,
-         COUNT(*) FILTER (WHERE t.status = 'em_progresso') AS em_progresso,
-         COUNT(*) FILTER (WHERE t.status = 'concluida')    AS concluidas,
-         COUNT(*) FILTER (WHERE t.status = 'cancelada')    AS canceladas,
-         COUNT(*) FILTER (WHERE t.prioridade = 'alta' AND t.status NOT IN ('concluida','cancelada')) AS urgentes,
-         COUNT(*) FILTER (WHERE t.prazo < CURRENT_DATE AND t.status NOT IN ('concluida','cancelada')) AS vencidas,
+         p.id AS user_id, p.nome,
+         COUNT(t.id) AS total,
+         COUNT(t.id) FILTER (WHERE t.status = 'pendente')     AS pendentes,
+         COUNT(t.id) FILTER (WHERE t.status = 'em_progresso') AS em_progresso,
+         COUNT(t.id) FILTER (WHERE t.status = 'concluida')    AS concluidas,
+         COUNT(t.id) FILTER (WHERE t.prioridade = 'alta' AND t.status NOT IN ('concluida','cancelada')) AS urgentes,
+         COUNT(t.id) FILTER (WHERE t.prazo < CURRENT_DATE AND t.status NOT IN ('concluida','cancelada')) AS vencidas,
          ROUND(
-           CASE WHEN COUNT(*) > 0
-             THEN COUNT(*) FILTER (WHERE t.status='concluida')::numeric / COUNT(*) * 100
-             ELSE 0
-           END, 1
+           CASE WHEN COUNT(t.id) > 0
+             THEN COUNT(t.id) FILTER (WHERE t.status='concluida')::numeric / COUNT(t.id) * 100
+             ELSE 0 END, 1
          ) AS taxa_conclusao
        FROM profiles p
        LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = p.org_id
-       WHERE p.org_id = $1 AND p.ativo = true
+       WHERE p.org_id=$1 AND p.ativo=true
        GROUP BY p.id, p.nome
        ORDER BY total DESC`,
       [orgId]
@@ -186,45 +175,31 @@ router.get('/tarefas-por-membro', async (req: Request, res: Response): Promise<v
   }
 })
 
-// GET /api/relatorios/pessoa/:id — histórico consolidado de uma pessoa
+// GET /api/relatorios/pessoa/:id — relatório consolidado por pessoa
 router.get('/pessoa/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
     const pessoaId = req.params.id
 
-    const pessoa = await queryOne(
-      'SELECT * FROM pessoas WHERE id=$1 AND org_id=$2',
-      [pessoaId, orgId]
-    )
+    const pessoa = await queryOne('SELECT * FROM pessoas WHERE id=$1 AND org_id=$2', [pessoaId, orgId])
     if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada.' }); return }
 
-    const [pagamentos, tarefas, documentos, resumoFin] = await Promise.all([
+    const [pagamentos, documentos, resumoFin] = await Promise.all([
       query(
         `SELECT * FROM pagamentos WHERE org_id=$1 AND pessoa_id=$2 ORDER BY vencimento DESC NULLS LAST`,
         [orgId, pessoaId]
       ),
       query(
-        `SELECT t.*, p.nome AS responsavel_nome_perfil
-         FROM tarefas t
-         LEFT JOIN profiles p ON p.id = t.responsavel_id
-         WHERE t.org_id=$1 AND (t.responsavel_id=(SELECT user_id FROM pessoas WHERE id=$2 AND org_id=$1) OR t.id IN (
-           -- tarefas sem user vinculado: não filtrar
-           SELECT id FROM tarefas WHERE org_id=$1 LIMIT 0
-         ))
-         ORDER BY t.created_at DESC`,
-        [orgId, pessoaId]
-      ),
-      query(
-        'SELECT * FROM documentos WHERE org_id=$1 AND pessoa_id=$2 ORDER BY created_at DESC',
+        `SELECT * FROM documentos WHERE org_id=$1 AND pessoa_id=$2 ORDER BY created_at DESC`,
         [orgId, pessoaId]
       ),
       queryOne(
         `SELECT
            COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'),0)   AS total_devo,
            COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento'),0) AS total_me_devem,
-           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pago'),0)     AS devo_pago,
-           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)   AS me_devem_pago,
-           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento' AND status='pendente'),0)   AS devo_pendente,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pago'),0)     AS devo_pago,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS me_devem_pago,
+           COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente'),0) AS devo_pendente,
            COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente'),0) AS me_devem_pendente,
            COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente' AND vencimento < CURRENT_DATE),0) AS devo_vencido,
            COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pendente' AND vencimento < CURRENT_DATE),0) AS me_devem_vencido
@@ -233,7 +208,7 @@ router.get('/pessoa/:id', async (req: Request, res: Response): Promise<void> => 
       ),
     ])
 
-    res.json({ pessoa, pagamentos, tarefas, documentos, resumo: resumoFin })
+    res.json({ pessoa, pagamentos, documentos, resumo: resumoFin })
   } catch (err) {
     console.error('[REL] Erro pessoa/:id:', err)
     res.status(500).json({ error: 'Erro ao buscar relatório da pessoa.' })
