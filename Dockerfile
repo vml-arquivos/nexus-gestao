@@ -18,7 +18,7 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci 2>/dev/null || npm install
 COPY backend/ .
-RUN npx tsc --skipLibCheck --noEmitOnError false
+RUN npx tsc --skipLibCheck
 
 # ── STAGE 2: Build do Frontend (React + Vite + PWA) ──────────
 FROM node:20-alpine AS frontend-builder

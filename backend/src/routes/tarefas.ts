@@ -55,24 +55,34 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-    // Permite apenas gestores e sub-gestores
-    if (role !== 'gestor' && role !== 'sub_gestor') {
-      res.status(403).json({ error: 'Somente gestores ou sub-gestores podem criar tarefas.' })
+    const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs } = req.body
+
+    // Permissões:
+    //  - Gestores e sub-gestores podem criar tarefas para qualquer membro
+    //  - Membros podem criar tarefas apenas para si próprios (responsável deve ser igual ao próprio id ou indefinido)
+    if (role === 'membro') {
+      if (responsavel_id && responsavel_id !== userId) {
+        res.status(403).json({ error: 'Membros só podem criar tarefas para si mesmos.' })
+        return
+      }
+    } else if (role !== 'gestor' && role !== 'sub_gestor') {
+      res.status(403).json({ error: 'Sem permissão para criar tarefa.' })
       return
     }
-    const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs } = req.body
 
     if (!titulo?.trim()) {
       res.status(400).json({ error: 'Título é obrigatório.' })
       return
     }
 
-    // Busca nome do responsável se fornecido
+    // Se responsável não informado, para membros usar o próprio ID; para gestores e sub-gestores manter nulo
+    const finalResponsavelId = responsavel_id || (role === 'membro' ? userId : null)
+
     let responsavelNome: string | null = null
-    if (responsavel_id) {
+    if (finalResponsavelId) {
       const resp = await queryOne<{ nome: string }>(
         'SELECT nome FROM profiles WHERE id = $1 AND org_id = $2',
-        [responsavel_id, orgId]
+        [finalResponsavelId, orgId]
       )
       responsavelNome = resp?.nome ?? null
     }
@@ -82,10 +92,9 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
-      [orgId, userId, responsavel_id || null, responsavelNome, titulo.trim(), descricao || null,
+      [orgId, userId, finalResponsavelId, responsavelNome, titulo.trim(), descricao || null,
        data || null, prazo || null, prioridade, JSON.stringify(checklist), obs || null]
     )
-
     res.status(201).json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao criar:', err)

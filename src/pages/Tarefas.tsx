@@ -252,7 +252,10 @@ function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChec
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function Tarefas() {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor'
+  // Gestores e sub‑gestores têm painel completo; membros têm painel pessoal
+  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  // Todos os usuários autenticados podem criar tarefas. Membros criarão apenas para si (verificado no backend).
+  const canCreateTask = !!user
 
   const [tarefas, setTarefas]       = useState<Tarefa[]>([])
   const [membros, setMembros]       = useState<MembroEquipe[]>([])
@@ -346,11 +349,11 @@ export default function Tarefas() {
             {isGestor ? 'Delegue e acompanhe tarefas da equipe' : 'Tarefas atribuídas a você'}
           </p>
         </div>
-        {isGestor && (
-          <button className="btn btn-primary" onClick={() => { setEditTarefa(null); setModalOpen(true) }} style={{ gap: 6 }}>
-            <Plus size={16} /> Nova
-          </button>
-        )}
+         {canCreateTask && (
+           <button className="btn btn-primary" onClick={() => { setEditTarefa(null); setModalOpen(true) }} style={{ gap: 6 }}>
+             <Plus size={16} /> Nova
+           </button>
+         )}
       </div>
 
       {/* Stats */}
