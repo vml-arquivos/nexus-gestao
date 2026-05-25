@@ -928,7 +928,7 @@ export default function Financeiro() {
   const vencidos = pagamentos.filter(p => p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0, 10)}T00:00:00`) < new Date())
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>Financeiro</h1>

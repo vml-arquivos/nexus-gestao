@@ -401,7 +401,7 @@ export default function Equipe() {
   const membrosSimples = membros.filter(m => m.role === 'membro')
 
   return (
-    <div style={{ padding: '0 0 80px' }}>
+    <div style={{ padding: '0 0 calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 12px' }}>
         <div>

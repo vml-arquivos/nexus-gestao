@@ -183,7 +183,7 @@ export default function Usuarios() {
   const membros  = usuarios.filter(u => u.role === 'membro')
 
   return (
-    <div style={{ padding: 20, maxWidth: 700, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' as const }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>

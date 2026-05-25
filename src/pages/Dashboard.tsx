@@ -88,7 +88,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: "20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)", maxWidth: 760, margin: "0 auto", boxSizing: "border-box" as const }}>
       {/* Saudação */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>

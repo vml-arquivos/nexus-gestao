@@ -69,7 +69,7 @@ export default function Configuracoes() {
   const roleColor = user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
 
   return (
-    <div style={{ padding: 20, maxWidth: 540, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>⚙️ Configurações</h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie seu perfil e preferências</p>
