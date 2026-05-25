@@ -4,39 +4,48 @@
 
 # ── STAGE 1: Build do Backend ─────────────────────────────────
 FROM node:22-alpine AS backend-builder
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
+    NPM_CONFIG_CACHE=/root/.npm
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# FIX: cache mount preserva o cache npm entre builds — elimina re-download de 192 pacotes
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 COPY backend/ .
 RUN npm run build
 
 # ── STAGE 2: Build do Frontend ────────────────────────────────
 FROM node:22-alpine AS frontend-builder
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
+    NPM_CONFIG_CACHE=/root/.npm
 WORKDIR /app/frontend
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# FIX: cache mount preserva o cache npm entre builds — elimina re-download de 554 pacotes
+# --prefer-offline usa o cache local antes de ir à rede (mais resiliente a timeouts)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund --prefer-offline
 COPY . .
 RUN rm -rf backend
 RUN npm run build
 
 # ── STAGE 3: Produção ─────────────────────────────────────────
 FROM node:22-alpine AS production
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
+    NPM_CONFIG_CACHE=/root/.npm
 
 RUN apk add --no-cache nginx supervisor wget
 
 # Backend production dependencies
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --no-audit --no-fund --prefer-offline
 COPY --from=backend-builder /app/backend/dist ./dist
 
 # Frontend build
