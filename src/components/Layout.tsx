@@ -35,6 +35,7 @@ const NAV = [
   { path: "/financeiro", icon: DollarSign, label: "Financeiro" },
   { path: "/documentos", icon: FileText, label: "Arquivos" },
   { path: "/relatorios", icon: BarChart3, label: "Relatórios" },
+  { path: "/equipes", icon: Grid3X3, label: "Equipes" },
 ];
 
 const QUICK_ACTIONS = [

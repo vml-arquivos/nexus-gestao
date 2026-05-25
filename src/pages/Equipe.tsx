@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check } from 'lucide-react'
+import {Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, Users } from "lucide-react"
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useNavigate } from 'react-router-dom'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -50,8 +51,8 @@ function PessoaModal({ initial, onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{initial?.id ? 'Editar Pessoa' : 'Nova Pessoa'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -103,8 +104,8 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Convidar Membro</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -126,6 +127,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 }
 
 export default function Equipe() {
+  const navigate = useNavigate();
   const { user } = useAuth()
   const isGestor = user?.role === 'gestor'
 
@@ -174,6 +176,7 @@ export default function Equipe() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-secondary" onClick={() => setConviteOpen(true)} style={{ gap: 6 }}><UserPlus size={14} /> Convidar</button>
             <button className="btn btn-primary" onClick={() => setModalOpen(true)} style={{ gap: 6 }}><Plus size={16} /> Pessoa</button>
+            <button className="btn btn-secondary" onClick={() => navigate('/equipes')} style={{ gap: 6 }}><Users size={14} /> Equipes</button>
           </div>
         )}
       </div>

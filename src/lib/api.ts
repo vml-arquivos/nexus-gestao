@@ -165,6 +165,46 @@ export interface Documento {
   created_at: string
 }
 
+// ── EQUIPES (Teams) ────────────────────────────────────────────────────────
+export interface Equipe {
+  id: string
+  org_id?: string
+  nome: string
+  descricao?: string | null
+  criado_por?: string | null
+  created_at: string
+  updated_at?: string
+  total_membros?: number
+}
+
+export interface MembroEquipeDetalhe {
+  id: string; nome: string; email: string; role: 'gestor' | 'membro'; avatar_url?: string | null
+}
+
+// API para gerenciamento de equipes (teams). Somente gestores podem criar
+// equipes e adicionar membros. Usuários membros podem consultar as
+// equipes às quais pertencem. Usa os mesmos helpers de apiJson.
+export const teamsApi = {
+  async list(): Promise<Equipe[]> {
+    const data = await apiJson<{ teams: Equipe[] }>('/teams')
+    return data.teams
+  },
+
+  async create(payload: { nome: string; descricao?: string | null }): Promise<Equipe> {
+    const data = await apiJson<{ team: Equipe }>('/teams', { method: 'POST', body: JSON.stringify(payload) })
+    return data.team
+  },
+
+  async members(teamId: string): Promise<MembroEquipeDetalhe[]> {
+    const data = await apiJson<{ members: MembroEquipeDetalhe[] }>(`/teams/${teamId}/members`)
+    return data.members
+  },
+
+  async addMembers(teamId: string, memberIds: string[]): Promise<void> {
+    await apiJson(`/teams/${teamId}/members`, { method: 'POST', body: JSON.stringify({ memberIds }) })
+  },
+}
+
 export interface HistoricoPessoa {
   pessoa: Pessoa
   documentos: Documento[]

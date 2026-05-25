@@ -192,6 +192,33 @@ CREATE INDEX IF NOT EXISTS idx_documentos_org      ON documentos(org_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_pessoa   ON documentos(pessoa_id);
 CREATE INDEX IF NOT EXISTS idx_documentos_pagamento ON documentos(pagamento_id);
 
+-- ── EQUIPES (times) ────────────────────────────────────────────────
+-- Representa grupos de usuários dentro de uma organização. Equipes podem
+-- receber tarefas em conjunto e cada membro pertence a 0 ou mais equipes.
+CREATE TABLE IF NOT EXISTS equipes (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  nome       TEXT NOT NULL,
+  descricao  TEXT,
+  criado_por UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- Relação entre equipes e membros (profiles). Um membro pode participar
+-- de várias equipes e cada equipe pode ter vários membros.
+CREATE TABLE IF NOT EXISTS equipes_membros (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  equipe_id  UUID NOT NULL REFERENCES equipes(id) ON DELETE CASCADE,
+  membro_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  UNIQUE (equipe_id, membro_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_equipes_org ON equipes(org_id);
+CREATE INDEX IF NOT EXISTS idx_equipes_membros_equipe ON equipes_membros(equipe_id);
+CREATE INDEX IF NOT EXISTS idx_equipes_membros_membro ON equipes_membros(membro_id);
+
 DROP TRIGGER IF EXISTS documentos_updated_at ON documentos;
 CREATE TRIGGER documentos_updated_at
   BEFORE UPDATE ON documentos

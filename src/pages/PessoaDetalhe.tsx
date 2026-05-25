@@ -6,7 +6,6 @@ import {
   CreditCard, FileText, History, Loader, Pencil, Phone,
   Plus, Mail, Trash2, Upload, UserRound, WalletCards, X,
   AlertTriangle, Link2, ReceiptText,
-  Mic, MicOff,
 } from 'lucide-react'
 import {
   documentosApi, equipeApi, pagamentosApi, tarefasApi,
@@ -14,7 +13,6 @@ import {
   type Pessoa, type Tarefa,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { useSpeechToText } from '../hooks/useSpeechToText'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -218,9 +216,9 @@ function ModalParcelas({ grupo, onClose, onMarcarPago, onExcluirParcela }: {
   const sorted = [...grupo.itens].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const now = hoje()
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '88dvh', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '88dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>{grupo.titulo}</h2>
@@ -291,9 +289,9 @@ function ModalUpload({ pessoaId, onClose, onSaved }: { pessoaId: string; onClose
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', width: '100%', maxWidth: 540 }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '20px 18px 32px', width: '100%', maxWidth: 540 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Enviar documento</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
@@ -381,9 +379,9 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Editar contato</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
@@ -464,11 +462,6 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
   const [prioridade, setPrioridade] = useState<'baixa' | 'media' | 'alta'>('media')
   const [saving, setSaving]       = useState(false)
 
-  // Reconhecimento de voz para descrição: anexa o texto falado ao campo de descrição
-  const { listening: listeningDesc, toggle: toggleDesc } = useSpeechToText((text: string) => {
-    setDescricao(prev => (prev ? prev + ' ' : '') + text)
-  })
-
   async function handleSave() {
     if (!titulo.trim()) {
       toast('Título é obrigatório', 'error')
@@ -494,11 +487,11 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}
+        style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '20px 18px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Nova tarefa para {pessoaNome}</h2>
@@ -525,12 +518,6 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
               value={descricao}
               onChange={e => setDescricao(e.target.value)}
             />
-            {/* Botão de gravação de voz para descrição */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-              <button type="button" onClick={toggleDesc} className="btn btn-ghost btn-sm" style={{ display:'flex', alignItems:'center', gap:4 }}>
-                {listeningDesc ? <MicOff size={14} /> : <Mic size={14} />} {listeningDesc ? 'Parar' : 'Voz'}
-              </button>
-            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">

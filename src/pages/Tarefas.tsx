@@ -18,13 +18,13 @@ const PRIORIDADE_CONFIG = {
 } as const
 
 function parseDateSafe(d?: string) {
-  if (!d) return undefined
+  if (!d) return null
   const raw = String(d).trim()
   const onlyDate = raw.slice(0, 10)
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(onlyDate)
     ? new Date(`${onlyDate}T12:00:00`)
     : new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 function fmtDate(d?: string) {
   const parsed = parseDateSafe(d)
@@ -84,9 +84,9 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '90dvh', overflowY: 'auto', animation: 'slideUp 0.22s ease' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '90dvh', overflowY: 'auto', animation: 'slideUp 0.22s ease' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{tarefa?.id ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
