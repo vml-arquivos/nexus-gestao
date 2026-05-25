@@ -6,6 +6,7 @@ import {
   CreditCard, FileText, History, Loader, Pencil, Phone,
   Plus, Mail, Trash2, Upload, UserRound, WalletCards, X,
   AlertTriangle, Link2, ReceiptText,
+  Mic, MicOff,
 } from 'lucide-react'
 import {
   documentosApi, equipeApi, pagamentosApi, tarefasApi,
@@ -13,6 +14,7 @@ import {
   type Pessoa, type Tarefa,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -462,6 +464,11 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
   const [prioridade, setPrioridade] = useState<'baixa' | 'media' | 'alta'>('media')
   const [saving, setSaving]       = useState(false)
 
+  // Reconhecimento de voz para descrição: anexa o texto falado ao campo de descrição
+  const { listening: listeningDesc, toggle: toggleDesc } = useSpeechToText((text: string) => {
+    setDescricao(prev => (prev ? prev + ' ' : '') + text)
+  })
+
   async function handleSave() {
     if (!titulo.trim()) {
       toast('Título é obrigatório', 'error')
@@ -518,6 +525,12 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
               value={descricao}
               onChange={e => setDescricao(e.target.value)}
             />
+            {/* Botão de gravação de voz para descrição */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="button" onClick={toggleDesc} className="btn btn-ghost btn-sm" style={{ display:'flex', alignItems:'center', gap:4 }}>
+                {listeningDesc ? <MicOff size={14} /> : <Mic size={14} />} {listeningDesc ? 'Parar' : 'Voz'}
+              </button>
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">

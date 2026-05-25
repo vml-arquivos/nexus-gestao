@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search } from 'lucide-react'
+import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, Mic, MicOff, StickyNote } from 'lucide-react'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
@@ -64,6 +65,16 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
   const [novoItem, setNovoItem]     = useState('')
   const [loading, setLoading]       = useState(false)
 
+  // -------------------------------------------------------------------------
+  // Reconhecimento de voz
+  // Usa o hook useSpeechToText para transcrever a voz do usuário e anexar ao
+  // campo de descrição. Quando a gravação termina, o texto retornado pelo
+  // navegador é adicionado ao conteúdo existente. O botão para gravar/pausar
+  // é exibido logo abaixo do campo de descrição.
+  const { listening: listeningDesc, toggle: toggleDesc } = useSpeechToText((text: string) => {
+    setDescricao(prev => (prev ? prev + ' ' : '') + text)
+  })
+
   function addItem() {
     if (!novoItem.trim()) return
     setChecklist(p => [...p, { id: nanoid(), texto: novoItem.trim(), feito: false }])
@@ -99,6 +110,12 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
           <div className="form-group">
             <label className="form-label">Descrição</label>
             <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+            {/* Botão de gravação de voz para preencher a descrição */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="button" onClick={toggleDesc} className="btn btn-ghost btn-sm" style={{ display:'flex', alignItems:'center', gap:4 }}>
+                {listeningDesc ? <MicOff size={14} /> : <Mic size={14} />} {listeningDesc ? 'Parar' : 'Voz'}
+              </button>
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
@@ -152,11 +169,16 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
 }
 
 // ── Card de tarefa ─────────────────────────────────────────────────────────────
-function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChecklistToggle }: {
+function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChecklistToggle, onObsChange }: {
   tarefa: Tarefa; isGestor: boolean;
   onStatusChange: (id: string, status: Tarefa['status']) => void;
   onEdit: (t: Tarefa) => void; onDelete: (id: string) => void;
-  onChecklistToggle: (tarefa: Tarefa, itemId: string) => void
+  onChecklistToggle: (tarefa: Tarefa, itemId: string) => void;
+  /**
+   * Permite editar a observação da tarefa. Recebe o ID da tarefa. A página
+   * principal cuidará de abrir um prompt ou modal e chamar a API de update.
+   */
+  onObsChange: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const sc = STATUS_CONFIG[tarefa.status]
@@ -198,14 +220,19 @@ function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChec
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {/* Botões de ação: editar, excluir, observação, expandir */}
             {isGestor && (
               <>
-                <button onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}><Edit3 size={15} /></button>
-                <button onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 6 }}><Trash2 size={15} /></button>
+                <button onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }} title="Editar tarefa"><Edit3 size={15} /></button>
+                <button onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 6 }} title="Excluir tarefa"><Trash2 size={15} /></button>
               </>
             )}
+            {/* Observação: disponível para gestores e membros */}
+            <button onClick={() => onObsChange(tarefa.id)} style={{ background: 'none', border: 'none', color: tarefa.obs ? 'var(--primary)' : 'var(--text3)', cursor: 'pointer', padding: 6 }} title={tarefa.obs ? 'Editar observação' : 'Adicionar observação'}>
+              <StickyNote size={15} />
+            </button>
             {(tarefa.descricao || checkTotal > 0) && (
-              <button onClick={() => setExpanded(!expanded)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}>
+              <button onClick={() => setExpanded(!expanded)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }} title="Mostrar detalhes">
                 <ChevronDown size={16} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
               </button>
             )}
@@ -242,6 +269,13 @@ function TarefaCard({ tarefa, isGestor, onStatusChange, onEdit, onDelete, onChec
                 <div style={{ height: '100%', borderRadius: 99, background: '#10B981', width: `${checkTotal > 0 ? (checkDone / checkTotal) * 100 : 0}%`, transition: 'width 0.3s' }} />
               </div>
             </div>
+          )}
+
+          {/* Observação da tarefa */}
+          {tarefa.obs && (
+            <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 12 }}>
+              <strong>Observação:</strong> {tarefa.obs}
+            </p>
           )}
         </div>
       )}
@@ -315,6 +349,27 @@ export default function Tarefas() {
       return [saved, ...p]
     })
     setModalOpen(false); setEditTarefa(null)
+  }
+
+  /**
+   * Edita ou adiciona uma observação a uma tarefa. Abre um prompt para o
+   * usuário digitar o texto e atualiza via API. Qualquer texto em branco
+   * remove a observação. Disponível para gestores e membros.
+   */
+  async function handleObsChange(id: string) {
+    const t = tarefas.find(t => t.id === id)
+    const current = t?.obs || ''
+    const note = prompt('Observação:', current)
+    // Se o usuário cancelou, não faz nada
+    if (note === null) return
+    try {
+      const trimmed = note.trim()
+      const updated = await tarefasApi.update(id, { obs: trimmed || null })
+      setTarefas(p => p.map(t => t.id === id ? updated : t))
+      toast('Observação atualizada!')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao atualizar observação', 'error')
+    }
   }
 
   const filtradas = tarefas.filter(t => {
@@ -427,6 +482,7 @@ export default function Tarefas() {
               onEdit={t => { setEditTarefa(t); setModalOpen(true) }}
               onDelete={handleDelete}
               onChecklistToggle={handleChecklistToggle}
+              onObsChange={handleObsChange}
             />
           ))}
         </div>
