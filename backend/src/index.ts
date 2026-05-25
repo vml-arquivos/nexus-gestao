@@ -8,21 +8,22 @@ import fs from 'fs'
 import pool from './db/pool'
 
 // Rotas
-import authRoutes       from './routes/auth'
-import tarefasRoutes    from './routes/tarefas'
-import equipeRoutes     from './routes/equipe'
-import agendaRoutes     from './routes/agenda'
-import pagamentosRoutes from './routes/pagamentos'
-import uploadsRoutes    from './routes/uploads'
-import documentosRoutes from './routes/documentos'
-import teamsRoutes from './routes/teams'
+import authRoutes          from './routes/auth'
+import tarefasRoutes       from './routes/tarefas'
+import equipeRoutes        from './routes/equipe'
+import agendaRoutes        from './routes/agenda'
+import pagamentosRoutes    from './routes/pagamentos'
+import uploadsRoutes       from './routes/uploads'
+import documentosRoutes    from './routes/documentos'
+import notificacoesRoutes  from './routes/notificacoes'
+import relatoriosRoutes    from './routes/relatorios'
+import teamsRoutes         from './routes/teams'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
 const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
 
-// Garante que o diretório de uploads existe
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 }
@@ -44,33 +45,32 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Rate limiting global
+// Rate limiting global — 150 req / 15min (reduzido de 500 para segurança)
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500,
+  max: 150,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
 }))
 
-// Rate limiting mais restrito para auth
-// Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
-// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
-// página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
-
+// Rate limiting auth
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+})
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
-// Servir arquivos de upload publicamente via /uploads/:filename
+// ── ARQUIVOS ESTÁTICOS ────────────────────────────────────────────────────────
 app.use('/uploads', express.static(UPLOADS_DIR, {
   maxAge: '7d',
   etag: true,
   setHeaders: (res, filePath) => {
-    // Permite visualização inline de imagens e PDFs
     const ext = path.extname(filePath).toLowerCase()
-    if (['.jpg','.jpeg','.png','.webp','.gif','.pdf'].includes(ext)) {
+    if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'].includes(ext)) {
       res.setHeader('Content-Disposition', 'inline')
     }
   },
@@ -87,15 +87,16 @@ app.get('/health', async (_req, res) => {
 })
 
 // ── ROTAS API ─────────────────────────────────────────────────────────────────
-// A rota de autenticação não utiliza mais o authLimiter específico.
-app.use('/api/auth',        authRoutes)
-app.use('/api/tarefas',     tarefasRoutes)
-app.use('/api/equipe',      equipeRoutes)
-app.use('/api/agenda',      agendaRoutes)
-app.use('/api/pagamentos',  pagamentosRoutes)
-app.use('/api/uploads',     uploadsRoutes)
-app.use('/api/documentos',  documentosRoutes)
-app.use('/api/teams',       teamsRoutes)
+app.use('/api/auth',           authLimiter, authRoutes)
+app.use('/api/tarefas',        tarefasRoutes)
+app.use('/api/equipe',         equipeRoutes)
+app.use('/api/agenda',         agendaRoutes)
+app.use('/api/pagamentos',     pagamentosRoutes)
+app.use('/api/uploads',        uploadsRoutes)
+app.use('/api/documentos',     documentosRoutes)
+app.use('/api/notificacoes',   notificacoesRoutes)
+app.use('/api/relatorios',     relatoriosRoutes)
+app.use('/api/teams',          teamsRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
