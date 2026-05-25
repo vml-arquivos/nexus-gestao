@@ -8,18 +8,15 @@ import fs from 'fs'
 import pool from './db/pool'
 
 // Rotas
-import authRoutes          from './routes/auth'
-import tarefasRoutes       from './routes/tarefas'
-import equipeRoutes        from './routes/equipe'
-import agendaRoutes        from './routes/agenda'
-import pagamentosRoutes    from './routes/pagamentos'
-import uploadsRoutes       from './routes/uploads'
-import documentosRoutes    from './routes/documentos'
-import teamsRoutes         from './routes/teams'
-import usersRoutes         from './routes/users'
-// FIX: rotas existentes que não estavam registradas
-import notificacoesRoutes  from './routes/notificacoes'
-import relatoriosRoutes    from './routes/relatorios'
+import authRoutes       from './routes/auth'
+import tarefasRoutes    from './routes/tarefas'
+import equipeRoutes     from './routes/equipe'
+import agendaRoutes     from './routes/agenda'
+import pagamentosRoutes from './routes/pagamentos'
+import uploadsRoutes    from './routes/uploads'
+import documentosRoutes from './routes/documentos'
+import teamsRoutes from './routes/teams'
+import usersRoutes from './routes/users'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -57,14 +54,22 @@ app.use(rateLimit({
   message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
 }))
 
+// Rate limiting mais restrito para auth
+// Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
+// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
+// página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
+
+
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
+// Servir arquivos de upload publicamente via /uploads/:filename
 app.use('/uploads', express.static(UPLOADS_DIR, {
   maxAge: '7d',
   etag: true,
   setHeaders: (res, filePath) => {
+    // Permite visualização inline de imagens e PDFs
     const ext = path.extname(filePath).toLowerCase()
     if (['.jpg','.jpeg','.png','.webp','.gif','.pdf'].includes(ext)) {
       res.setHeader('Content-Disposition', 'inline')
@@ -83,18 +88,16 @@ app.get('/health', async (_req, res) => {
 })
 
 // ── ROTAS API ─────────────────────────────────────────────────────────────────
-app.use('/api/auth',          authRoutes)
-app.use('/api/tarefas',       tarefasRoutes)
-app.use('/api/equipe',        equipeRoutes)
-app.use('/api/agenda',        agendaRoutes)
-app.use('/api/pagamentos',    pagamentosRoutes)
-app.use('/api/uploads',       uploadsRoutes)
-app.use('/api/documentos',    documentosRoutes)
-app.use('/api/teams',         teamsRoutes)
-app.use('/api/users',         usersRoutes)
-// FIX: registrar rotas que existiam mas não estavam montadas
-app.use('/api/notificacoes',  notificacoesRoutes)
-app.use('/api/relatorios',    relatoriosRoutes)
+// A rota de autenticação não utiliza mais o authLimiter específico.
+app.use('/api/auth',        authRoutes)
+app.use('/api/tarefas',     tarefasRoutes)
+app.use('/api/equipe',      equipeRoutes)
+app.use('/api/agenda',      agendaRoutes)
+app.use('/api/pagamentos',  pagamentosRoutes)
+app.use('/api/uploads',     uploadsRoutes)
+app.use('/api/documentos',  documentosRoutes)
+app.use('/api/teams',       teamsRoutes)
+app.use('/api/users',       usersRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -108,16 +111,33 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 })
 
 // ── STARTUP ───────────────────────────────────────────────────────────────────
-// FIX: migrate é executado pelo entrypoint.sh antes de subir o processo.
-// Removida a chamada duplicada via execSync que causava race condition e
-// warnings de "Migração automática ignorada" em produção.
+async function waitForDb(retries = 30, delay = 3000): Promise<void> {
+  for (let i = 1; i <= retries; i++) {
+    try {
+      await pool.query('SELECT 1')
+      console.log('[DB] ✅ PostgreSQL conectado')
+      return
+    } catch (err) {
+      console.warn(`[DB] Tentativa ${i}/${retries} — aguardando ${delay / 1000}s...`)
+      if (i === retries) {
+        console.error('[DB] ❌ Não foi possível conectar ao PostgreSQL após todas as tentativas.')
+        // Não encerra o processo — permite que o nginx suba e retorne 503 em vez de 502
+        return
+      }
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+}
+
 async function start() {
+  await waitForDb()
+
   try {
-    await pool.query('SELECT 1')
-    console.log('[DB] ✅ PostgreSQL conectado')
-  } catch (err) {
-    console.error('[DB] ❌ Falha ao conectar ao PostgreSQL:', err)
-    process.exit(1)
+    const { execSync } = require('child_process')
+    execSync('node dist/db/migrate.js', { stdio: 'inherit' })
+    console.log('[MIGRATE] ✅ Migrations executadas.')
+  } catch {
+    console.warn('[MIGRATE] Migração automática ignorada — execute manualmente se necessário.')
   }
 
   app.listen(PORT, '0.0.0.0', () => {

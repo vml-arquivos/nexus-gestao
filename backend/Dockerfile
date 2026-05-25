@@ -1,32 +1,39 @@
 # ============================================================
 # NEXUS GESTÃO — Dockerfile Backend (multi-stage)
+# Stage 1: build TypeScript → JavaScript
+# Stage 2: imagem de produção Node 20 Alpine (~80MB)
+#
+# STARTUP ORDER:
+#   1. node dist/db/migrate.js  → cria/atualiza tabelas (idempotente)
+#   2. node dist/index.js       → inicia o servidor Express
 # ============================================================
-FROM node:22-alpine AS builder
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
-    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+# Instala TODAS as dependências (dev necessário para compilar TS)
+COPY package.json package-lock.json* ./
+RUN npm ci 2>/dev/null || npm install
 
+# Compila TypeScript (gera dist/)
 COPY . .
-RUN npm run build
+RUN npx tsc --skipLibCheck
 
-FROM node:22-alpine AS production
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
-    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+# ── Imagem de produção ────────────────────────────────────────────────────────
+FROM node:20-alpine AS production
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+# Apenas dependências de produção
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
+# Copia build compilado (inclui dist/db/migrate.js e dist/index.js)
 COPY --from=builder /app/dist ./dist
 
+# Entrypoint: roda migrate ANTES do servidor
 RUN printf '#!/bin/sh\nset -e\necho "[ENTRYPOINT] Aplicando migrations no PostgreSQL..."\nnode dist/db/migrate.js\necho "[ENTRYPOINT] Migrations OK. Iniciando servidor Nexus..."\nexec node dist/index.js\n' \
     > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
+# Volume de uploads
 RUN mkdir -p /app/uploads && chown -R node:node /app
 
 USER node

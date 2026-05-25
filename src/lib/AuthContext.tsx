@@ -9,7 +9,7 @@ interface AuthContextValue {
     nome: string
     email: string
     senha: string
-    role: 'gestor' | 'sub_gestor' | 'membro'
+    role: 'gestor' | 'membro'
     orgNome?: string
   }) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signUp = async (payload: {
-    nome: string; email: string; senha: string; role: 'gestor' | 'sub_gestor' | 'membro'; orgNome?: string
+    nome: string; email: string; senha: string; role: 'gestor' | 'membro'; orgNome?: string
   }): Promise<{ error: string | null }> => {
     try {
       const { user: u } = await auth.register(payload)

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { api } from '../lib/api'
+import { useTheme } from '../lib/ThemeContext'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -13,23 +14,19 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 
 export default function Configuracoes() {
   const { user, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
 
   const [nome, setNome]           = useState(user?.nome || '')
   const [email, setEmail]         = useState(user?.email || '')
   const [senhaAtual, setSenhaAtual]   = useState('')
   const [novaSenha, setNovaSenha]     = useState('')
   const [confirmSenha, setConfirmSenha] = useState('')
-  const [theme, setTheme]         = useState<'dark' | 'light'>(() =>
-    (localStorage.getItem('nexus-theme') as 'dark' | 'light') || 'dark'
-  )
   const [savingPerfil, setSavingPerfil]   = useState(false)
   const [savingSenha, setSavingSenha]     = useState(false)
   const [notifEnabled, setNotifEnabled]   = useState(Notification.permission === 'granted')
 
   function aplicarTema(t: 'dark' | 'light') {
     setTheme(t)
-    localStorage.setItem('nexus-theme', t)
-    document.documentElement.setAttribute('data-theme', t)
   }
 
   async function salvarPerfil() {
@@ -68,8 +65,8 @@ export default function Configuracoes() {
     }
   }
 
-  const roleLabel = user?.role === 'gestor' ? '👑 Gestor' : '👤 Membro'
-  const roleColor = user?.role === 'gestor' ? '#6C3BFF' : '#06B6D4'
+  const roleLabel = user?.role === 'gestor' ? '👑 Gestor' : user?.role === 'sub_gestor' ? '👑 Sub‑gestor' : '👤 Membro'
+  const roleColor = user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
 
   return (
     <div style={{ padding: 20, maxWidth: 540, margin: '0 auto' }}>

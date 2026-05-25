@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader, Mic, MicOff } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader } from 'lucide-react'
 import { agendaApi, type Evento } from '../lib/api'
-import { useSpeechToText } from '../hooks/useSpeechToText'
+import { MicBtn } from '../components/ui'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -38,9 +38,6 @@ function EventoModal({ initial, onSave, onClose }: {
     lembrete_minutos: initial?.lembrete_minutos ?? 15,
   })
   const [saving, setSaving] = useState(false)
-  const { listening: micTitulo, toggle: toggleTitulo } = useSpeechToText(t => setForm(f => ({ ...f, titulo: (f.titulo ? f.titulo + ' ' : '') + t })))
-  const { listening: micDescricao, toggle: toggleDescricao } = useSpeechToText(t => setForm(f => ({ ...f, descricao: (f.descricao ? f.descricao + ' ' : '') + t })))
-  const { listening: micLocal, toggle: toggleLocal } = useSpeechToText(t => setForm(f => ({ ...f, local: (f.local ? f.local + ' ' : '') + t })))
 
   async function handleSave() {
     if (!form.titulo.trim()) { toast('Titulo e obrigatorio', 'error'); return }
@@ -72,7 +69,7 @@ function EventoModal({ initial, onSave, onClose }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group"><label className="form-label">Titulo *</label><div style={{ display: 'flex', gap: 8 }}><input className="form-input" placeholder="Nome do evento" value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} /><button type="button" onClick={toggleTitulo} className="btn btn-secondary" style={{ width: 44, padding: 0 }}>{micTitulo ? <MicOff size={16} /> : <Mic size={16} />}</button></div></div>
+          <div className="form-group"><label className="form-label">Titulo *</label><div className="mic-row"><input className="form-input" placeholder="Nome do evento" value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} /><MicBtn onResult={t => setForm(f => ({ ...f, titulo: (f.titulo + ' ' + t).trim() }))} /></div></div>
           <div className="form-group"><label className="form-label">Tipo</label>
             <select className="form-input" value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
               <option value="compromisso">Compromisso</option>
@@ -85,8 +82,8 @@ function EventoModal({ initial, onSave, onClose }: {
             <div className="form-group"><label className="form-label">Inicio *</label><input className="form-input" type="datetime-local" value={form.data_inicio} onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))} /></div>
             <div className="form-group"><label className="form-label">Fim</label><input className="form-input" type="datetime-local" value={form.data_fim} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} /></div>
           </div>
-          <div className="form-group"><label className="form-label">Local</label><div style={{ display: 'flex', gap: 8 }}><input className="form-input" placeholder="Endereco ou link" value={form.local} onChange={e => setForm(f => ({ ...f, local: e.target.value }))} /><button type="button" onClick={toggleLocal} className="btn btn-secondary" style={{ width: 44, padding: 0 }}>{micLocal ? <MicOff size={16} /> : <Mic size={16} />}</button></div></div>
-          <div className="form-group"><label className="form-label">Descricao</label><div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><textarea className="form-input" rows={2} placeholder="Detalhes..." value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} style={{ resize: 'vertical' }} /><button type="button" onClick={toggleDescricao} className="btn btn-secondary" style={{ width: 44, height: 44, padding: 0 }}>{micDescricao ? <MicOff size={16} /> : <Mic size={16} />}</button></div></div>
+          <div className="form-group"><label className="form-label">Local</label><div className="mic-row"><input className="form-input" placeholder="Endereco ou link" value={form.local} onChange={e => setForm(f => ({ ...f, local: e.target.value }))} /><MicBtn onResult={t => setForm(f => ({ ...f, local: (f.local + ' ' + t).trim() }))} /></div></div>
+          <div className="form-group"><label className="form-label">Descricao</label><div className="mic-row"><textarea className="form-input" rows={2} placeholder="Detalhes..." value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} style={{ resize: 'vertical' }} /><MicBtn onResult={t => setForm(f => ({ ...f, descricao: (f.descricao + ' ' + t).trim() }))} /></div></div>
           <div className="form-group"><label className="form-label">Lembrete</label>
             <select className="form-input" value={form.lembrete_minutos} onChange={e => setForm(f => ({ ...f, lembrete_minutos: Number(e.target.value) }))}>
               <option value={5}>5 minutos antes</option>
