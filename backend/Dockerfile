@@ -2,7 +2,11 @@
 # NEXUS GESTÃO — Dockerfile Backend (multi-stage)
 # ============================================================
 FROM node:22-alpine AS builder
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
+#
+# Define o registrador padrão para o npm para evitar uso do registro interno.
+# Ver detalhes no Dockerfile raiz sobre por que definimos NPM_CONFIG_REGISTRY.
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_FETCH_RETRIES=3 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
 WORKDIR /app
@@ -14,7 +18,8 @@ COPY . .
 RUN npm run build
 
 FROM node:22-alpine AS production
-ENV NPM_CONFIG_FETCH_RETRIES=3 \
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_FETCH_RETRIES=3 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
 WORKDIR /app

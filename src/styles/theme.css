@@ -11,8 +11,12 @@
   --primary-dim:   rgba(108,59,255,0.18);
   --secondary:     #06B6D4;
   --success:       #10B981;
-  --danger:        #EF4444;
-  --warning:       #F59E0B;
+  /* Ajuste de cores para reduzir contraste excessivo e tornar a interface mais leve.  
+   * O laranja e o vermelho originais (#F59E0B e #EF4444) eram muito fortes, causando 
+   * desconforto visual.  Substituímos por tons mais suaves de vermelho e âmbar.
+   */
+  --danger:        #F87171;   /* vermelho suave */
+  --warning:       #FBBF24;   /* âmbar claro */
 
   /* Fundos (light mode) */
   --bg:   #ffffff;

@@ -37,7 +37,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
       {/* Cabeçalho com nome e saldo */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pessoaNome}</div>
+        {/* Ajustamos o peso da fonte de 700 para 600 para deixar o texto menos pesado visualmente. */}
+        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pessoaNome}</div>
           {proximoVencimento && (
             <div style={{ fontSize: 11, color: vencido ? 'var(--warning)' : 'var(--text3)', marginTop: 2 }}>
               {vencido ? 'Vencido:' : 'Próx. venc:'} {fmtDate(proximoVencimento)}
@@ -45,7 +46,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
           )}
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontWeight: 700, fontSize: 16, color: saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+        {/* Reduzimos o peso da fonte do saldo para 600 para amenizar o contraste visual. */}
+        <div style={{ fontWeight: 600, fontSize: 16, color: saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>
             {saldo >= 0 ? '+' : '-'}{fmt(Math.abs(saldo))}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text3)' }}>Saldo</div>
@@ -61,7 +63,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
         ].map(({ label, value, color }) => (
           <div key={label} style={{ flex: 1, minWidth: 80, background: 'var(--bg3)', borderRadius: 8, padding: '6px 8px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 9, color: 'var(--text3)', marginBottom: 2 }}>{label}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color }}>{fmt(value)}</span>
+            {/* Peso da fonte reduzido de 700 para 600 para suavizar os números */}
+            <span style={{ fontSize: 13, fontWeight: 600, color }}>{fmt(value)}</span>
           </div>
         ))}
       </div>
@@ -80,7 +83,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color }}>{sign}{fmt(valor)}</div>
-                <div style={{ fontSize: 9, fontWeight: 600, color: item.status === 'pago' ? 'var(--success)' : item.status === 'pendente' ? 'var(--warning)' : 'var(--text3)' }}>{item.status === 'pago' ? 'Pago' : item.status === 'pendente' ? 'Pendente' : 'Cancelado'}</div>
+                {/* Peso da fonte reduzido de 600 para 500 para tornar o texto menos intenso */}
+                <div style={{ fontSize: 9, fontWeight: 500, color: item.status === 'pago' ? 'var(--success)' : item.status === 'pendente' ? 'var(--warning)' : 'var(--text3)' }}>{item.status === 'pago' ? 'Pago' : item.status === 'pendente' ? 'Pendente' : 'Cancelado'}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 {item.status === 'pendente' && (

@@ -4,7 +4,18 @@
 
 # ── STAGE 1: Build do Backend ─────────────────────────────────
 FROM node:22-alpine AS backend-builder
-ENV NPM_CONFIG_FETCH_RETRIES=5 \
+#
+# Configurações para instalação do NPM
+#
+# - NPM_CONFIG_REGISTRY: força o npm a utilizar o registro público oficial
+#   em vez do registro interno da plataforma (packages.applied‑caas‑gateway1).
+#   Isso torna o processo de instalação mais resiliente quando o registro
+#   corporativo está indisponível ou lento. Sem essa linha, o build tenta
+#   buscar pacotes do registro interno e sofre timeouts como visto nos logs
+#   (ETIMEDOUT ao baixar react‑is).  Usar o registry público é seguro e
+#   recomendado para projetos open source que publicam suas dependências.
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
     NPM_CONFIG_CACHE=/root/.npm
@@ -18,7 +29,8 @@ RUN npm run build
 
 # ── STAGE 2: Build do Frontend ────────────────────────────────
 FROM node:22-alpine AS frontend-builder
-ENV NPM_CONFIG_FETCH_RETRIES=5 \
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
     NPM_CONFIG_CACHE=/root/.npm
@@ -34,7 +46,8 @@ RUN npm run build
 
 # ── STAGE 3: Produção ─────────────────────────────────────────
 FROM node:22-alpine AS production
-ENV NPM_CONFIG_FETCH_RETRIES=5 \
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ \
+    NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
     NPM_CONFIG_CACHE=/root/.npm
