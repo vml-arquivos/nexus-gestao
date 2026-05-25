@@ -5,16 +5,22 @@
 # ── STAGE 1: Build do Backend ─────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /app/backend
+# Força registry oficial — evita proxy corporativo do ambiente de build
+RUN npm config set registry https://registry.npmjs.org
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci --registry https://registry.npmjs.org 2>/dev/null || \
+    npm install --registry https://registry.npmjs.org
 COPY backend/ .
 RUN npx tsc --skipLibCheck || true
 
 # ── STAGE 2: Build do Frontend ────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
+# Força registry oficial — evita proxy corporativo do ambiente de build
+RUN npm config set registry https://registry.npmjs.org
 COPY package.json package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci --registry https://registry.npmjs.org 2>/dev/null || \
+    npm install --registry https://registry.npmjs.org
 COPY . .
 RUN rm -rf backend
 RUN npm run build
@@ -24,25 +30,34 @@ FROM node:20-alpine AS production
 
 RUN apk add --no-cache nginx supervisor wget
 
-# Backend
+# Backend — dependências de produção
 WORKDIR /app/backend
+RUN npm config set registry https://registry.npmjs.org
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+RUN npm ci --omit=dev --registry https://registry.npmjs.org 2>/dev/null || \
+    npm install --omit=dev --registry https://registry.npmjs.org
 COPY --from=backend-builder /app/backend/dist ./dist
 
-# Frontend
+# Frontend — arquivos estáticos
 RUN mkdir -p /usr/share/nginx/html
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Configs
+# Configs nginx + supervisor
 RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf
 
-# Entrypoint embutido — sem depender de arquivo externo
+# Entrypoint inline
 RUN printf '#!/bin/sh\n\
 mkdir -p /app/uploads\n\
-echo "[STARTUP] Iniciando Nexus..."\n\
+echo "[STARTUP] Aguardando PostgreSQL..."\n\
+i=0\n\
+until node -e "const {Client}=require('"'"'pg'"'"');const c=new Client({connectionString:process.env.DATABASE_URL,ssl:process.env.DATABASE_SSL==='"'"'true'"'"'?{rejectUnauthorized:false}:false});c.connect().then(()=>{c.end();process.exit(0)}).catch(()=>process.exit(1))" 2>/dev/null; do\n\
+  i=$((i+1)); [ $i -ge 20 ] && echo "[STARTUP] DB timeout." && exit 1\n\
+  echo "[STARTUP] Tentativa $i/20..."; sleep 3\n\
+done\n\
+echo "[STARTUP] PostgreSQL OK."\n\
+cd /app/backend && node dist/db/migrate.js 2>/dev/null && echo "[STARTUP] Migrations OK." || echo "[STARTUP] Migrations ignoradas."\n\
 exec /usr/bin/supervisord -c /etc/supervisord.conf\n\
 ' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
