@@ -22,7 +22,7 @@ export class TeamService {
    * middleware, mas esta verificação extra é feita por segurança.
    */
   static async createTeam(req: Request, nome: string, descricao?: string) {
-    const { orgId, id: userId, role } = req.user!
+    const { orgId, userId, role } = req.user!
     if (role !== 'gestor') {
       throw new Error('Apenas gestores podem criar equipes.')
     }
