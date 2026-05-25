@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound, Eye } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { MicBtn } from '../components/ui'
 
 // O componente Pessoas unifica todos os tipos de pessoas cadastradas no sistema:
 // membros da equipe, prestadores de serviço, credores, devedores e clientes.
@@ -74,7 +75,7 @@ function PessoaModal({ initial, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Nome *</label>
-            <input className="form-input" placeholder="Nome completo" value={nome} onChange={e => setNome(e.target.value)} />
+            <div className="mic-row"><input className="form-input" placeholder="Nome completo" value={nome} onChange={e => setNome(e.target.value)} /><MicBtn onResult={t => setNome(prev => (prev + ' ' + t).trim())} /></div>
           </div>
           <div className="form-group">
             <label className="form-label">Tipo</label>
@@ -106,7 +107,7 @@ function PessoaModal({ initial, onSave, onClose }: {
           )}
           <div className="form-group">
             <label className="form-label">Observações</label>
-            <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} />
+            <div className="mic-row"><textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} /><MicBtn onResult={t => setObs(prev => (prev + ' ' + t).trim())} /></div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
@@ -187,7 +188,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group"><label className="form-label">Nome *</label><input className="form-input" placeholder="Nome do membro" value={nome} onChange={e => { setNome(e.target.value); setConviteGerado(false) }} /></div>
+          <div className="form-group"><label className="form-label">Nome *</label><div className="mic-row"><input className="form-input" placeholder="Nome do membro" value={nome} onChange={e => { setNome(e.target.value); setConviteGerado(false) }} /><MicBtn onResult={t => { setNome(prev => (prev + ' ' + t).trim()); setConviteGerado(false) }} /></div></div>
           <div className="form-group"><label className="form-label">E-mail *</label><input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => { setEmail(e.target.value); setConviteGerado(false) }} /></div>
           <div className="form-group"><label className="form-label">Senha inicial *</label><input className="form-input" type="password" placeholder="Mínimo 6 caracteres" value={senha} onChange={e => { setSenha(e.target.value); setConviteGerado(false) }} /></div>
         </div>

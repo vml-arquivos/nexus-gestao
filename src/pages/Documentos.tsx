@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search, Camera } from 'lucide-react'
 import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { MicBtn } from '../components/ui'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -110,8 +111,8 @@ function UploadModal({ pessoas, pagamentos, onSave, onClose }: {
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group"><label className="form-label">Título *</label><input className="form-input" placeholder="Ex: Comprovante transferência João" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Descrição</label><input className="form-input" placeholder="Detalhes adicionais…" value={descricao} onChange={e => setDescricao(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Título *</label><div className="mic-row"><input className="form-input" placeholder="Ex: Comprovante transferência João" value={titulo} onChange={e => setTitulo(e.target.value)} /><MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} /></div></div>
+          <div className="form-group"><label className="form-label">Descrição</label><div className="mic-row"><input className="form-input" placeholder="Detalhes adicionais…" value={descricao} onChange={e => setDescricao(e.target.value)} /><MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} /></div></div>
           <div className="form-group"><label className="form-label">Tipo de documento</label><select className="form-input" value={tipo} onChange={e => setTipo(e.target.value)}>{Object.entries(TIPO_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.emoji} {v.label}</option>)}</select></div>
           {pessoas.length > 0 && <div className="form-group"><label className="form-label">Vincular à pessoa (histórico)</label><select className="form-input" value={pessoaId} onChange={e => setPessoaId(e.target.value)}><option value="">Sem vínculo</option>{pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></div>}
           {pagamentos.length > 0 && <div className="form-group"><label className="form-label">Vincular a pagamento (comprovante)</label><select className="form-input" value={pagamentoId} onChange={e => setPagamentoId(e.target.value)}><option value="">Sem vínculo</option>{pagamentos.slice(0,50).map(p => <option key={p.id} value={p.id}>{p.tipo === 'pagamento' ? '💸' : '💰'} {p.titulo} — R$ {Number(p.valor).toFixed(2)}</option>)}</select></div>}

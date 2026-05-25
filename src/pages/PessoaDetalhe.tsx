@@ -13,6 +13,7 @@ import {
   type Pessoa, type Tarefa,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { MicBtn } from '../components/ui'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -299,7 +300,7 @@ function ModalUpload({ pessoaId, onClose, onSaved }: { pessoaId: string; onClose
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <input className="form-input" placeholder="Ex: Comprovante de pagamento" value={titulo} onChange={e => setTitulo(e.target.value)} />
+            <div className="mic-row"><input className="form-input" placeholder="Ex: Comprovante de pagamento" value={titulo} onChange={e => setTitulo(e.target.value)} /><MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} /></div>
           </div>
           <div className="form-group">
             <label className="form-label">Tipo</label>
@@ -389,7 +390,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Nome *</label>
-            <input className="form-input" value={nome} onChange={e => setNome(e.target.value)} />
+            <div className="mic-row"><input className="form-input" value={nome} onChange={e => setNome(e.target.value)} /><MicBtn onResult={t => setNome(prev => (prev + ' ' + t).trim())} /></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
@@ -404,7 +405,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
             </div>
             <div className="form-group">
               <label className="form-label">Cargo / Função</label>
-              <input className="form-input" value={cargo} onChange={e => setCargo(e.target.value)} />
+              <div className="mic-row"><input className="form-input" value={cargo} onChange={e => setCargo(e.target.value)} /><MicBtn onResult={t => setCargo(prev => (prev + ' ' + t).trim())} /></div>
             </div>
           </div>
           {/* PF / PJ */}
@@ -440,7 +441,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
           )}
           <div className="form-group">
             <label className="form-label">Observações</label>
-            <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
+            <div className="mic-row"><textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} /><MicBtn onResult={t => setObs(prev => (prev + ' ' + t).trim())} /></div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
@@ -502,22 +503,22 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <input
+            <div className="mic-row"><input
               className="form-input"
               placeholder="Ex: Enviar contrato"
               value={titulo}
               onChange={e => setTitulo(e.target.value)}
-            />
+            /><MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} /></div>
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <textarea
+            <div className="mic-row"><textarea
               className="form-input"
               rows={2}
               placeholder="Detalhes da tarefa"
               value={descricao}
               onChange={e => setDescricao(e.target.value)}
-            />
+            /><MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} /></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">

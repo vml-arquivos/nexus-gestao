@@ -62,6 +62,58 @@
   --radius-lg: 16px;
 }
 
+
+
+/* ===== CORREÇÃO DEFINITIVA DE TEMA =====
+   app-styles.css definia cores escuras em :root depois do import de theme.css.
+   Isso sobrescrevia o tema claro e fazia o botão claro/escuro parecer quebrado.
+   Estes seletores vêm depois do :root local e têm prioridade conforme data-theme. */
+html[data-theme="light"],
+:root[data-theme="light"] {
+  --bg:   #FFFFFF;
+  --bg2:  #F8F7FC;
+  --bg3:  #F0EEF8;
+  --bg4:  #E6E2F2;
+
+  --text:       #171126;
+  --text2:      #3B2870;
+  --text3:      #6E6293;
+  --text-muted: #8E84A8;
+
+  --border:  rgba(44, 30, 84, 0.12);
+  --border2: rgba(44, 30, 84, 0.20);
+
+  --grad-card: linear-gradient(145deg, #FFFFFF 0%, #F0EEF8 100%);
+  --shadow-sm: 0 1px 4px rgba(21, 16, 43, 0.08);
+  --shadow-md: 0 4px 16px rgba(21, 16, 43, 0.10);
+  --shadow-lg: 0 8px 32px rgba(21, 16, 43, 0.14);
+
+  color-scheme: light;
+}
+
+html[data-theme="dark"],
+:root[data-theme="dark"] {
+  --bg:   #0F0A1E;
+  --bg2:  #16102B;
+  --bg3:  #1E1638;
+  --bg4:  #2A2048;
+
+  --text:       #F0EEFF;
+  --text2:      #C4B5FD;
+  --text3:      #8B7EC8;
+  --text-muted: #5B4F8A;
+
+  --border:  rgba(108,59,255,0.18);
+  --border2: rgba(108,59,255,0.30);
+
+  --grad-card: linear-gradient(145deg, #16102B 0%, #1E1638 100%);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+
+  color-scheme: dark;
+}
+
 /* ===== RESET & BASE ===== */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -712,4 +764,36 @@ body {
 .nav-btn, .btn, .sidebar-item, .tabs button {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* ── Microfone / ditado por voz ─────────────────────────────────────────── */
+.mic-btn {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(108,59,255,0.14);
+  color: var(--primary-light);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+  flex-shrink: 0;
+}
+.mic-btn:hover { transform: translateY(-1px); background: rgba(108,59,255,0.22); }
+.mic-btn.listening {
+  color: #fff;
+  background: #EF4444;
+  box-shadow: 0 0 0 0 rgba(239,68,68,.45);
+  animation: micPulse 1.15s infinite;
+}
+.mic-row { display: flex; gap: 8px; align-items: stretch; }
+.mic-row > .form-input { flex: 1; }
+.mic-row textarea.form-input { min-height: 70px; }
+@keyframes micPulse {
+  0% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); }
+  70% { box-shadow: 0 0 0 10px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
 }
