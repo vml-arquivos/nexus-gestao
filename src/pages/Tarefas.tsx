@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, MessageSquare } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
-import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
@@ -101,11 +100,11 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <div className="mic-row"><input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} /><MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} /></div>
+            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <div className="mic-row"><textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} /><MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} /></div>
+            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
@@ -140,7 +139,6 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
               <input className="form-input" style={{ flex: 1 }} placeholder="Adicionar item…" value={novoItem}
                 onChange={e => setNovoItem(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addItem())} />
-              <MicBtn onResult={t => setNovoItem(prev => (prev + ' ' + t).trim())} />
               <button className="btn btn-secondary" onClick={addItem}><Plus size={16} /></button>
             </div>
             {checklist.map(item => (

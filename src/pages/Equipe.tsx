@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Users, UserPlus, Loader, X, CheckCircle2, XCircle, Crown, Star, User, Trash2, Edit3, Eye, EyeOff, ChevronDown, MessageSquare, Calendar, Flag } from 'lucide-react'
 import { equipeApi, usersApi, tarefasApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { MicBtn } from '../components/ui'
 import { nanoid } from '../lib/utils'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -60,7 +59,7 @@ function ConvidarModal({ onSave, onClose, gestorId }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Nome *</label>
-            <div className="mic-row"><input className="form-input" placeholder="Nome completo" value={nome} onChange={e => setNome(e.target.value)} /><MicBtn onResult={t => setNome(prev => (prev + ' ' + t).trim())} /></div>
+            <input className="form-input" placeholder="Nome completo" value={nome} onChange={e => setNome(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">E-mail *</label>
@@ -69,7 +68,7 @@ function ConvidarModal({ onSave, onClose, gestorId }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Cargo</label>
-              <div className="mic-row"><input className="form-input" placeholder="Ex: Gerente de Vendas" value={cargo} onChange={e => setCargo(e.target.value)} /><MicBtn onResult={t => setCargo(prev => (prev + ' ' + t).trim())} /></div>
+              <input className="form-input" placeholder="Ex: Gerente de Vendas" value={cargo} onChange={e => setCargo(e.target.value)} />
             </div>
             <div className="form-group">
               <label className="form-label">Nível de acesso</label>
@@ -150,11 +149,11 @@ function AtribuirTarefaModal({ membro, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <div className="mic-row"><input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} /><MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} /></div>
+            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <div className="mic-row"><textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} /><MicBtn onResult={t => setDescricao(prev => (prev + ' ' + t).trim())} /></div>
+            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
@@ -176,7 +175,6 @@ function AtribuirTarefaModal({ membro, onSave, onClose }: {
               <input className="form-input" style={{ flex: 1 }} placeholder="Adicionar item…" value={novoItem}
                 onChange={e => setNovoItem(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addItem())} />
-              <MicBtn onResult={t => setNovoItem(prev => (prev + ' ' + t).trim())} />
               <button className="btn btn-secondary" onClick={addItem}><Plus size={16} /></button>
             </div>
             {checklist.map(item => (

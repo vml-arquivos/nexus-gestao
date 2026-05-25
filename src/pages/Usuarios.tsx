@@ -5,18 +5,15 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { apiJson } from '../lib/api'
-import { MicBtn } from '../components/ui'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface UsuarioPerfil {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'sub_gestor' | 'membro'
+  role: 'gestor' | 'membro'
   ativo: boolean
-  cargo?: string
   avatar_url?: string
-  criado_por_nome?: string
   created_at: string
   tarefas_pendentes?: number
   tarefas_concluidas?: number
@@ -95,7 +92,7 @@ function ModalConvidar({ onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Nome completo *</label>
-            <div className="mic-row"><input className="form-input" placeholder="Ex: João Silva" value={nome} onChange={e => setNome(e.target.value)} /><MicBtn onResult={t => setNome(prev => (prev + ' ' + t).trim())} /></div>
+            <input className="form-input" placeholder="Ex: João Silva" value={nome} onChange={e => setNome(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">E-mail *</label>
@@ -154,8 +151,8 @@ export default function Usuarios() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // Rota correta: /api/equipe/membros
-      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe/membros')
+      // A rota correta é /api/equipe (lista todos os perfis da organização)
+      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe')
       setUsuarios(data.membros)
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Erro ao listar usuários.', 'error')
@@ -180,7 +177,7 @@ export default function Usuarios() {
     setModalOpen(false)
   }
 
-  const gestores = usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor')
+  const gestores = usuarios.filter(u => u.role === 'gestor')
   const membros  = usuarios.filter(u => u.role === 'membro')
 
   return (
@@ -240,7 +237,7 @@ export default function Usuarios() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-light)', background: 'rgba(108,59,255,0.15)', padding: '2px 8px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Crown size={9} /> {u.role === 'gestor' ? 'GESTOR' : 'SUB-GESTOR'}
+                    <Crown size={9} /> GESTOR
                   </span>
                   {u.id === eu?.id && (
                     <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 600 }}>você</span>

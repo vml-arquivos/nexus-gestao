@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Plus, X, Users, Check } from 'lucide-react'
 import { teamsApi, equipeApi, type Equipe, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { MicBtn } from '../components/ui'
 
 // Util simples para exibir toasts. Centraliza brevemente mensagens de
 // feedback na parte inferior da tela. Aceita tipos 'success' ou 'error'.
@@ -51,11 +50,11 @@ function CreateTeamModal({ onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Nome *</label>
-            <div className="mic-row"><input className="form-input" placeholder="Nome da equipe" value={nome} onChange={e => setNome(e.target.value)} /><MicBtn onResult={t => setNome(prev => (prev + ' ' + t).trim())} /></div>
+            <input className="form-input" placeholder="Nome da equipe" value={nome} onChange={e => setNome(e.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <div className="mic-row"><textarea className="form-input" rows={2} placeholder="Opcional" value={descricao} onChange={e => setDesc(e.target.value)} style={{ resize: 'vertical' }} /><MicBtn onResult={t => setDesc(prev => (prev + ' ' + t).trim())} /></div>
+            <textarea className="form-input" rows={2} placeholder="Opcional" value={descricao} onChange={e => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

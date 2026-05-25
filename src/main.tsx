@@ -7,14 +7,6 @@ import App from './App.tsx'
 import { ThemeProvider } from './lib/ThemeContext'
 import { AuthProvider } from './lib/AuthContext.tsx'
 
-// ═══ APLICA TEMA ANTES DO REACT PARA EVITAR FLASH E ESTADO QUEBRADO ═══
-const savedTheme = localStorage.getItem('nexus-theme')
-const initialTheme = savedTheme === 'light' || savedTheme === 'dark'
-  ? savedTheme
-  : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-document.documentElement.setAttribute('data-theme', initialTheme)
-document.documentElement.style.colorScheme = initialTheme
-
 // ═══ PWA: Service Worker para offline + instalação ═══
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
