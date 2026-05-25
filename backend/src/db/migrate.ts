@@ -166,7 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_pagamentos_org        ON pagamentos(org_id);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_status     ON pagamentos(status);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_pessoa     ON pagamentos(pessoa_id);
 CREATE INDEX IF NOT EXISTS idx_pagamentos_vencimento ON pagamentos(vencimento);
-CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo      ON pagamentos(grupo_id);
+
 
 DROP TRIGGER IF EXISTS pagamentos_updated_at ON pagamentos;
 CREATE TRIGGER pagamentos_updated_at
