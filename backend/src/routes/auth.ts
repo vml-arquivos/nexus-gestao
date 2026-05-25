@@ -326,7 +326,7 @@ router.post('/invite', authMiddleware, async (req: Request, res: Response): Prom
       [req.user!.orgId, nome.trim(), email.toLowerCase().trim(), senhaHash]
     )
 
-    res.status(201).json({ user: newUser })
+    res.status(201).json({ usuario: newUser })
   } catch (err) {
     console.error('[AUTH] Erro no convite:', err)
     res.status(500).json({ error: 'Erro interno do servidor.' })
