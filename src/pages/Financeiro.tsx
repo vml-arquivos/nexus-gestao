@@ -648,7 +648,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               {pessoas.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
             </select>
           </div>
-          {!pessoaId && <div className="form-group"><label className="form-label">Nome da pessoa livre</label><div className="mic-row"><input className="form-input" placeholder="Nome sem cadastro..." value={pessoaNome} onChange={e => setPessoaNome(e.target.value)} /><MicBtn onResult={t => setPessoaNome(prev => (prev + ' ' + t).trim())} /></div></div>}
+          {!pessoaId && <div className="form-group"><label className="form-label">Nome da pessoa livre</label><input className="form-input" placeholder="Nome sem cadastro..." value={pessoaNome} onChange={e => setPessoaNome(e.target.value)} /></div>}
 
           <div className="form-group"><label className="form-label">Categoria</label>
             <select className="form-input" value={categoria} onChange={e => setCategoria(e.target.value)}>

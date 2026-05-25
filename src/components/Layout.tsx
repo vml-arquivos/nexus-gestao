@@ -30,7 +30,7 @@ import { useTheme } from '../lib/ThemeContext'
 const NAV = [
   { path: "/", icon: LayoutDashboard, label: "Início" },
   { path: "/pessoas", icon: Users, label: "Pessoas" },
-  { path: "/equipe", icon: Users, label: "Equipe" },
+  { path: "/equipes", icon: Users, label: "Equipes" },
   // Novo menu para gestão de usuários (apenas gestores e sub-gestores)
   { path: "/usuarios", icon: Users, label: "Usuários" },
   { path: "/tarefas", icon: CheckCircle2, label: "Tarefas" },

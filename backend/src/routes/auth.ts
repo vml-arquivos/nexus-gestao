@@ -70,7 +70,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as 'gestor' | 'sub_gestor' | 'membro',
       nome: user.nome,
       email: user.email,
     }
@@ -128,7 +128,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as 'gestor' | 'sub_gestor' | 'membro',
       nome: user.nome,
       email: user.email,
     }
@@ -185,7 +185,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as 'gestor' | 'sub_gestor' | 'membro',
       nome: user.nome,
       email: user.email,
     }
@@ -301,8 +301,8 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response): Prom
 // Body: { email, nome, senha }  — gestor cria conta para o membro da sua org
 router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (req.user!.role !== 'gestor') {
-      res.status(403).json({ error: 'Apenas gestores podem convidar membros.' })
+    if (req.user!.role !== 'gestor' && req.user!.role !== 'sub_gestor') {
+      res.status(403).json({ error: 'Apenas gestores e sub-gestores podem convidar membros.' })
       return
     }
 
@@ -320,10 +320,10 @@ router.post('/invite', authMiddleware, async (req: Request, res: Response): Prom
 
     const senhaHash = await bcrypt.hash(senha, 12)
     const newUser = await queryOne<{ id: string; nome: string; email: string; role: string }>(
-      `INSERT INTO profiles (org_id, nome, email, senha_hash, role)
-       VALUES ($1, $2, $3, $4, 'membro')
+      `INSERT INTO profiles (org_id, nome, email, senha_hash, role, criado_por)
+       VALUES ($1, $2, $3, $4, 'membro', $5)
        RETURNING id, nome, email, role`,
-      [req.user!.orgId, nome.trim(), email.toLowerCase().trim(), senhaHash]
+      [req.user!.orgId, nome.trim(), email.toLowerCase().trim(), senhaHash, req.user!.userId]
     )
 
     res.status(201).json({ user: newUser })

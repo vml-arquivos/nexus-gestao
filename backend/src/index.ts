@@ -111,33 +111,20 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 })
 
 // ── STARTUP ───────────────────────────────────────────────────────────────────
-async function waitForDb(retries = 30, delay = 3000): Promise<void> {
-  for (let i = 1; i <= retries; i++) {
-    try {
-      await pool.query('SELECT 1')
-      console.log('[DB] ✅ PostgreSQL conectado')
-      return
-    } catch (err) {
-      console.warn(`[DB] Tentativa ${i}/${retries} — aguardando ${delay / 1000}s...`)
-      if (i === retries) {
-        console.error('[DB] ❌ Não foi possível conectar ao PostgreSQL após todas as tentativas.')
-        // Não encerra o processo — permite que o nginx suba e retorne 503 em vez de 502
-        return
-      }
-      await new Promise(r => setTimeout(r, delay))
-    }
-  }
-}
-
 async function start() {
-  await waitForDb()
+  try {
+    await pool.query('SELECT 1')
+    console.log('[DB] ✅ PostgreSQL conectado')
+  } catch (err) {
+    console.error('[DB] ❌ Falha ao conectar ao PostgreSQL:', err)
+    process.exit(1)
+  }
 
   try {
     const { execSync } = require('child_process')
     execSync('node dist/db/migrate.js', { stdio: 'inherit' })
-    console.log('[MIGRATE] ✅ Migrations executadas.')
   } catch {
-    console.warn('[MIGRATE] Migração automática ignorada — execute manualmente se necessário.')
+    console.warn('[MIGRATE] Migração automática ignorada em modo dev — execute manualmente se necessário.')
   }
 
   app.listen(PORT, '0.0.0.0', () => {
