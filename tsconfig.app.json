@@ -13,8 +13,7 @@
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "types": ["vite/client", "vite-plugin-pwa/client"]
+    "noUnusedParameters": false
   },
   "include": ["src"]
 }
