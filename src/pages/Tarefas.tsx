@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search } from 'lucide-react'
+import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, Mic, MicOff } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
@@ -64,6 +65,11 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
   const [novoItem, setNovoItem]     = useState('')
   const [loading, setLoading]       = useState(false)
 
+  // Microfone: adiciona transcrição aos campos
+  const { listening: micTitulo, toggle: toggleTitulo } = useSpeechToText((text: string) => setTitulo(prev => (prev + ' ' + text).trim()))
+  const { listening: micDescricao, toggle: toggleDescricao } = useSpeechToText((text: string) => setDescricao(prev => (prev + ' ' + text).trim()))
+  const { listening: micItem, toggle: toggleItem } = useSpeechToText((text: string) => setNovoItem(prev => (prev + ' ' + text).trim()))
+
   function addItem() {
     if (!novoItem.trim()) return
     setChecklist(p => [...p, { id: nanoid(), texto: novoItem.trim(), feito: false }])
@@ -94,11 +100,21 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+              <button type="button" onClick={toggleTitulo} className="btn btn-secondary" style={{ width: 44, padding: 0 }} title={micTitulo ? 'Parar gravação' : 'Falar título'}>
+                {micTitulo ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            </div>
           </div>
           <div className="form-group">
             <label className="form-label">Descrição</label>
-            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+              <button type="button" onClick={toggleDescricao} className="btn btn-secondary" style={{ width: 44, height: 44, padding: 0 }} title={micDescricao ? 'Parar gravação' : 'Falar descrição'}>
+                {micDescricao ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
@@ -127,6 +143,9 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
             <label className="form-label">Checklist</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <input className="form-input" style={{ flex: 1 }} placeholder="Adicionar item…" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addItem())} />
+              <button type="button" onClick={toggleItem} className="btn btn-secondary" style={{ width: 38, padding: 0 }} title={micItem ? 'Parar gravação' : 'Falar item'}>
+                {micItem ? <MicOff size={14} /> : <Mic size={14} />}
+              </button>
               <button className="btn btn-secondary" onClick={addItem}><Plus size={16} /></button>
             </div>
             {checklist.map(item => (
