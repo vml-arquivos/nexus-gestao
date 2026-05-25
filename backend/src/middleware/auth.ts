@@ -4,7 +4,8 @@ import jwt, { SignOptions } from 'jsonwebtoken'
 export interface JwtPayload {
   userId: string
   orgId: string
-  role: 'gestor' | 'membro'
+  // Permissão do usuário: 'gestor', 'sub_gestor' ou 'membro'
+  role: 'gestor' | 'sub_gestor' | 'membro'
   nome: string
   email: string
 }

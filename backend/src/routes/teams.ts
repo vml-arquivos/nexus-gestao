@@ -1,13 +1,15 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, gestorOnly } from '../middleware/auth'
 import { TeamService } from '../services/teamService'
-import { TeamRepository } from '../repositories/teamRepository'
 
 const router = Router()
+
+// Aplica autenticação a todas as rotas de equipes
 router.use(authMiddleware)
 
-// GET /api/teams — lista equipes da organização
-router.get('/', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+// ── LISTAR EQUIPES ────────────────────────────────────────────────────────
+// GET /api/teams
+router.get('/', gestorOnly, async (req: Request, res: Response) => {
   try {
     const equipes = await TeamService.listTeams(req)
     res.json({ equipes })
@@ -17,8 +19,9 @@ router.get('/', gestorOnly, async (req: Request, res: Response): Promise<void> =
   }
 })
 
-// POST /api/teams — criar equipe
-router.post('/', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+// ── CRIAR EQUIPE ─────────────────────────────────────────────────────────-
+// POST /api/teams
+router.post('/', gestorOnly, async (req: Request, res: Response) => {
   try {
     const { nome, descricao } = req.body
     if (!nome || typeof nome !== 'string' || !nome.trim()) {
@@ -33,53 +36,34 @@ router.post('/', gestorOnly, async (req: Request, res: Response): Promise<void> 
   }
 })
 
-// GET /api/teams/:id/members — listar membros de uma equipe
-router.get('/:id/members', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+// ── LISTAR MEMBROS DA EQUIPE ─────────────────────────────────────────────
+// GET /api/teams/:id/members
+router.get('/:id/members', gestorOnly, async (req: Request, res: Response) => {
   try {
-    const membros = await TeamService.getMembers(req, req.params.id)
+    const { id } = req.params
+    const membros = await TeamService.getMembers(req, id)
     res.json({ membros })
   } catch (err) {
-    console.error('[TEAMS] Erro ao listar membros:', err)
+    console.error('[TEAMS] Erro ao listar membros da equipe:', err)
     res.status(500).json({ error: 'Erro ao listar membros da equipe.' })
   }
 })
 
-// POST /api/teams/:id/members — adicionar membros
-router.post('/:id/members', gestorOnly, async (req: Request, res: Response): Promise<void> => {
+// ── ADICIONAR MEMBROS À EQUIPE ───────────────────────────────────────────
+// POST /api/teams/:id/members  body: { members: [profileId] }
+router.post('/:id/members', gestorOnly, async (req: Request, res: Response) => {
   try {
+    const { id } = req.params
     const { members } = req.body
-    if (!Array.isArray(members) || members.some((m: unknown) => typeof m !== 'string')) {
+    if (!Array.isArray(members) || members.some(m => typeof m !== 'string')) {
       res.status(400).json({ error: 'Lista de membros inválida.' })
       return
     }
-    await TeamService.addMembers(req, req.params.id, members)
+    await TeamService.addMembers(req, id, members)
     res.json({ ok: true })
   } catch (err) {
-    console.error('[TEAMS] Erro ao adicionar membros:', err)
+    console.error('[TEAMS] Erro ao adicionar membros à equipe:', err)
     res.status(500).json({ error: 'Erro ao adicionar membros à equipe.' })
-  }
-})
-
-// DELETE /api/teams/:id/members/:profileId — remover membro
-router.delete('/:id/members/:profileId', gestorOnly, async (req: Request, res: Response): Promise<void> => {
-  try {
-    await TeamRepository.removeMember(req.params.id, req.params.profileId)
-    res.json({ ok: true })
-  } catch (err) {
-    console.error('[TEAMS] Erro ao remover membro:', err)
-    res.status(500).json({ error: 'Erro ao remover membro.' })
-  }
-})
-
-// DELETE /api/teams/:id — deletar equipe
-router.delete('/:id', gestorOnly, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { orgId } = req.user!
-    await TeamRepository.delete(orgId, req.params.id)
-    res.json({ ok: true })
-  } catch (err) {
-    console.error('[TEAMS] Erro ao deletar equipe:', err)
-    res.status(500).json({ error: 'Erro ao deletar equipe.' })
   }
 })
 

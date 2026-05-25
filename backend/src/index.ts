@@ -7,59 +7,71 @@ import path from 'path'
 import fs from 'fs'
 import pool from './db/pool'
 
-import authRoutes         from './routes/auth'
-import tarefasRoutes      from './routes/tarefas'
-import equipeRoutes       from './routes/equipe'
-import agendaRoutes       from './routes/agenda'
-import pagamentosRoutes   from './routes/pagamentos'
-import uploadsRoutes      from './routes/uploads'
-import documentosRoutes   from './routes/documentos'
-import teamsRoutes        from './routes/teams'
-import notificacoesRoutes from './routes/notificacoes'
-import relatoriosRoutes   from './routes/relatorios'
+// Rotas
+import authRoutes       from './routes/auth'
+import tarefasRoutes    from './routes/tarefas'
+import equipeRoutes     from './routes/equipe'
+import agendaRoutes     from './routes/agenda'
+import pagamentosRoutes from './routes/pagamentos'
+import uploadsRoutes    from './routes/uploads'
+import documentosRoutes from './routes/documentos'
+import teamsRoutes from './routes/teams'
+import usersRoutes from './routes/users'
 
 const app = express()
-const PORT         = parseInt(process.env.PORT         || '3001', 10)
-const FRONTEND_URL = process.env.FRONTEND_URL          || 'https://nexus.permupay.com.br'
-const UPLOADS_DIR  = process.env.UPLOADS_DIR           || path.join(process.cwd(), 'uploads')
+const PORT = parseInt(process.env.PORT || '3001', 10)
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
+const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
 
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+// Garante que o diretório de uploads existe
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+}
 
 // ── SEGURANÇA ─────────────────────────────────────────────────────────────────
-app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}))
 
 app.use(cors({
-  origin: [FRONTEND_URL, 'http://localhost:5173', 'http://localhost:3000'],
+  origin: [
+    FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
-// Rate limiting global — 150 req / 15min (reduzido de 500 por segurança)
+// Rate limiting global
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 150,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },
 }))
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
-})
+// Rate limiting mais restrito para auth
+// Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
+// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
+// página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
+
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// ── ARQUIVOS ESTÁTICOS ────────────────────────────────────────────────────────
+// ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
+// Servir arquivos de upload publicamente via /uploads/:filename
 app.use('/uploads', express.static(UPLOADS_DIR, {
   maxAge: '7d',
   etag: true,
   setHeaders: (res, filePath) => {
+    // Permite visualização inline de imagens e PDFs
     const ext = path.extname(filePath).toLowerCase()
-    if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf'].includes(ext)) {
+    if (['.jpg','.jpeg','.png','.webp','.gif','.pdf'].includes(ext)) {
       res.setHeader('Content-Disposition', 'inline')
     }
   },
@@ -76,16 +88,16 @@ app.get('/health', async (_req, res) => {
 })
 
 // ── ROTAS API ─────────────────────────────────────────────────────────────────
-app.use('/api/auth',          authLimiter, authRoutes)
-app.use('/api/tarefas',       tarefasRoutes)
-app.use('/api/equipe',        equipeRoutes)
-app.use('/api/agenda',        agendaRoutes)
-app.use('/api/pagamentos',    pagamentosRoutes)
-app.use('/api/uploads',       uploadsRoutes)
-app.use('/api/documentos',    documentosRoutes)
-app.use('/api/teams',         teamsRoutes)
-app.use('/api/notificacoes',  notificacoesRoutes)
-app.use('/api/relatorios',    relatoriosRoutes)
+// A rota de autenticação não utiliza mais o authLimiter específico.
+app.use('/api/auth',        authRoutes)
+app.use('/api/tarefas',     tarefasRoutes)
+app.use('/api/equipe',      equipeRoutes)
+app.use('/api/agenda',      agendaRoutes)
+app.use('/api/pagamentos',  pagamentosRoutes)
+app.use('/api/uploads',     uploadsRoutes)
+app.use('/api/documentos',  documentosRoutes)
+app.use('/api/teams',       teamsRoutes)
+app.use('/api/users',       usersRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -112,11 +124,11 @@ async function start() {
     const { execSync } = require('child_process')
     execSync('node dist/db/migrate.js', { stdio: 'inherit' })
   } catch {
-    console.warn('[MIGRATE] Migração automática ignorada em modo dev.')
+    console.warn('[MIGRATE] Migração automática ignorada em modo dev — execute manualmente se necessário.')
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SERVER] ✅ Nexus API na porta ${PORT}`)
+    console.log(`[SERVER] ✅ Nexus API rodando na porta ${PORT}`)
     console.log(`[SERVER] 🌐 Frontend: ${FRONTEND_URL}`)
     console.log(`[SERVER] 📁 Uploads: ${UPLOADS_DIR}`)
   })
