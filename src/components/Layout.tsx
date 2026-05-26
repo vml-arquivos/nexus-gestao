@@ -237,7 +237,6 @@ export default function Layout() {
 
       {/* ── BOTTOM NAV (mobile) ──────────────────────────────────────── */}
       <nav className="bottom-nav">
-        {/* Itens esquerda */}
         {BOTTOM_MAIN.slice(0, 2).map(({ path, icon: Icon, label }) => (
           <Link
             key={path}

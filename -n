@@ -1,0 +1,15 @@
+301:            <label className="form-label">Título *</label>
+305:            <label className="form-label">Tipo</label>
+391:            <label className="form-label">Nome *</label>
+396:              <label className="form-label">Tipo</label>
+406:              <label className="form-label">Cargo / Função</label>
+413:              <label className="form-label">Tipo doc.</label>
+421:              <label className="form-label">{docTipo === 'cnpj' ? 'CNPJ' : 'CPF'}</label>
+427:              <label className="form-label">Telefone / WhatsApp</label>
+431:              <label className="form-label">E-mail</label>
+437:              <label className="form-label">Valor de referência (R$)</label>
+442:            <label className="form-label">Observações</label>
+504:            <label className="form-label">Título *</label>
+513:            <label className="form-label">Descrição</label>
+524:              <label className="form-label">Prazo</label>
+533:              <label className="form-label">Prioridade</label>

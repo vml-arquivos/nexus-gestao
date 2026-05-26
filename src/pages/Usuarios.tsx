@@ -11,9 +11,11 @@ interface UsuarioPerfil {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'membro'
+  role: 'gestor' | 'sub_gestor' | 'membro'
   ativo: boolean
+  cargo?: string
   avatar_url?: string
+  criado_por_nome?: string
   created_at: string
   tarefas_pendentes?: number
   tarefas_concluidas?: number
@@ -73,9 +75,9 @@ function ModalConvidar({ onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 200 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 480, animation: 'slideUp 0.22s ease' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '28px 24px 28px', maxHeight: 'calc(100dvh - 40px)', overflowY: 'auto', width: '100%', maxWidth: 480, boxShadow: '0 -8px 40px rgba(0,0,0,0.4)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>
@@ -151,8 +153,8 @@ export default function Usuarios() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      // A rota correta é /api/equipe (lista todos os perfis da organização)
-      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe')
+      // Rota correta: /api/equipe/membros
+      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe/membros')
       setUsuarios(data.membros)
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Erro ao listar usuários.', 'error')
@@ -177,11 +179,11 @@ export default function Usuarios() {
     setModalOpen(false)
   }
 
-  const gestores = usuarios.filter(u => u.role === 'gestor')
+  const gestores = usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor')
   const membros  = usuarios.filter(u => u.role === 'membro')
 
   return (
-    <div style={{ padding: 20, maxWidth: 700, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' as const }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -237,7 +239,7 @@ export default function Usuarios() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</span>
                   <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-light)', background: 'rgba(108,59,255,0.15)', padding: '2px 8px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Crown size={9} /> GESTOR
+                    <Crown size={9} /> {u.role === 'gestor' ? 'GESTOR' : 'SUB-GESTOR'}
                   </span>
                   {u.id === eu?.id && (
                     <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 600 }}>você</span>
