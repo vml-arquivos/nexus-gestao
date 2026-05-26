@@ -1214,7 +1214,7 @@ export default function Financeiro() {
           <AlertTriangle size={16} color="#F59E0B" style={{ flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 13, color: '#F59E0B' }}>{vencidos.length} lançamento{vencidos.length > 1 ? 's' : ''} vencido{vencidos.length > 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor), 0))}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor_pendente), 0))}</div>
           </div>
         </div>
       )}
