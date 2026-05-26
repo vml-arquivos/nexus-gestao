@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
   LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
+  CheckCircle, XCircle, AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
+import { useNotificacoes } from '../hooks/useNotificacoes'
+import { NotificacaoToast } from './NotificacaoToast'
 
 // ── Rotas de navegação ────────────────────────────────────────────────────────
 const NAV = [
@@ -22,20 +25,38 @@ const NAV = [
   { path: '/configuracoes',icon: Settings,        label: 'Config.'     },
 ]
 
-// Bottom nav: 4 itens + FAB + Mais
 const BOTTOM_MAIN = [NAV[0], NAV[1], NAV[2], NAV[3]]
+
+function iconeNotif(tipo: string) {
+  if (tipo === 'tarefa_concluida')     return <CheckCircle size={15} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
+  if (tipo === 'tarefa_nao_concluida') return <XCircle size={15} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
+  if (tipo === 'tarefa_vencida')       return <AlertTriangle size={15} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />
+  return <Bell size={15} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+}
+
+function tempoRelativo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime()
+  const min  = Math.floor(diff / 60000)
+  if (min < 1)  return 'agora'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h}h`
+  return `${Math.floor(h / 24)}d`
+}
 
 // ── Componente ────────────────────────────────────────────────────────────────
 export default function Layout() {
-  const { pathname }          = useLocation()
-  const navigate              = useNavigate()
-  const { user, logout }      = useAuth()
-  const { theme, toggleTheme }= useTheme()
+  const { pathname }           = useLocation()
+  const navigate               = useNavigate()
+  const { user, logout }       = useAuth()
+  const { theme, toggleTheme } = useTheme()
+  const { notificacoes, naoLidas, toasts, marcarLida, marcarTodasLidas, fecharToast } = useNotificacoes()
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [moreOpen, setMoreOpen]       = useState(false)
   const [fabOpen, setFabOpen]         = useState(false)
   const [notifOpen, setNotifOpen]     = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
 
   const initials = user?.nome
     ? user.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
@@ -50,7 +71,6 @@ export default function Layout() {
 
   useEffect(() => { closeAll() }, [pathname])
 
-  // Fecha sidebar ao redimensionar para desktop
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
     const handler = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(false) }
@@ -58,19 +78,31 @@ export default function Layout() {
     return () => mq.removeEventListener('change', handler)
   }, [])
 
+  // Fecha painel de notificações ao clicar fora
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false)
+      }
+    }
+    if (notifOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [notifOpen])
+
   const isActive = (path: string) =>
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
   return (
     <div className="app-shell">
-      {/* ── SIDEBAR (desktop always visible, mobile drawer) ─────────── */}
-      {/* Overlay mobile */}
+      {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
+      <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
+
+      {/* ── SIDEBAR ───────────────────────────────────────────────────── */}
       {sidebarOpen && (
         <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
       )}
 
       <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
-        {/* Logo */}
         <div style={{
           padding: '16px 16px 12px',
           paddingTop: `calc(16px + var(--safe-top))`,
@@ -80,8 +112,7 @@ export default function Layout() {
           <div style={{
             width: 36, height: 36, borderRadius: 10,
             background: 'var(--grad-primary)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <Zap size={18} color="#fff" />
           </div>
@@ -89,20 +120,16 @@ export default function Layout() {
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 15, lineHeight: 1 }}>NEXUS</div>
             <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, letterSpacing: '0.05em' }}>GESTÃO</div>
           </div>
-          {/* Fechar sidebar no mobile */}
           <button
             onClick={() => setSidebarOpen(false)}
             style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4 }}
-            className="lg:hidden"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Nav items */}
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto' }}>
           {NAV.map(({ path, icon: Icon, label }) => {
-            // Oculta "Usuários" para membros
             if (path === '/usuarios' && user?.role === 'membro') return null
             return (
               <Link
@@ -119,14 +146,12 @@ export default function Layout() {
           })}
         </nav>
 
-        {/* Footer: user + tema */}
         <div style={{
           padding: '12px 16px',
           paddingBottom: `calc(12px + var(--safe-bot))`,
           borderTop: '1px solid var(--border)',
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
-          {/* Tema */}
           <button
             onClick={toggleTheme}
             style={{
@@ -141,7 +166,6 @@ export default function Layout() {
             {theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
           </button>
 
-          {/* Usuário */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 34, height: 34, borderRadius: '50%',
@@ -170,11 +194,9 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── ÁREA PRINCIPAL ──────────────────────────────────────────── */}
+      {/* ── ÁREA PRINCIPAL ────────────────────────────────────────────── */}
       <div className="main-content">
-        {/* Topbar */}
         <header className="topbar">
-          {/* Hambúrguer (mobile) */}
           <button
             onClick={() => setSidebarOpen(true)}
             style={{ background: 'none', border: 'none', color: 'var(--text2)', cursor: 'pointer', padding: 4, display: 'flex' }}
@@ -182,7 +204,6 @@ export default function Layout() {
             <Menu size={22} />
           </button>
 
-          {/* Logo mobile */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
             <div style={{
               width: 28, height: 28, borderRadius: 8,
@@ -194,9 +215,7 @@ export default function Layout() {
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 14 }}>NEXUS</span>
           </div>
 
-          {/* Ações topbar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {/* Tema */}
             <button
               onClick={toggleTheme}
               style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}
@@ -205,15 +224,158 @@ export default function Layout() {
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
 
-            {/* Notificações */}
-            <button
-              onClick={() => { closeAll(); setNotifOpen(!notifOpen) }}
-              style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6, borderRadius: 8, position: 'relative', display: 'flex' }}
-            >
-              <Bell size={18} />
-            </button>
+            {/* ── SINO DE NOTIFICAÇÕES ──────────────────────────────── */}
+            <div ref={notifRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => { setFabOpen(false); setMoreOpen(false); setNotifOpen(v => !v) }}
+                style={{
+                  background: 'none', border: 'none', color: 'var(--text3)',
+                  cursor: 'pointer', padding: 6, borderRadius: 8,
+                  position: 'relative', display: 'flex',
+                }}
+                title="Notificações"
+              >
+                <Bell size={18} />
+                {naoLidas > 0 && (
+                  <span style={{
+                    position: 'absolute', top: 2, right: 2,
+                    width: naoLidas > 9 ? 18 : 16,
+                    height: 16,
+                    borderRadius: 99,
+                    background: 'var(--color-danger)',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    lineHeight: 1,
+                    border: '2px solid var(--color-surface)',
+                    animation: naoLidas > 0 ? 'pulse 2s infinite' : 'none',
+                  }}>
+                    {naoLidas > 99 ? '99+' : naoLidas}
+                  </span>
+                )}
+              </button>
 
-            {/* Avatar */}
+              {/* Painel de notificações */}
+              {notifOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  width: 340,
+                  maxHeight: 480,
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 16,
+                  boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
+                  zIndex: 200,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}>
+                  {/* Header do painel */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '14px 16px 10px',
+                    borderBottom: '1px solid var(--border)',
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                      Notificações
+                      {naoLidas > 0 && (
+                        <span style={{
+                          marginLeft: 8, background: 'var(--color-danger)',
+                          color: '#fff', borderRadius: 99, padding: '1px 7px', fontSize: 11,
+                        }}>
+                          {naoLidas}
+                        </span>
+                      )}
+                    </div>
+                    {naoLidas > 0 && (
+                      <button
+                        onClick={marcarTodasLidas}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--color-primary)', fontSize: 12, fontWeight: 600,
+                        }}
+                      >
+                        Marcar todas lidas
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Lista */}
+                  <div style={{ overflowY: 'auto', flex: 1 }}>
+                    {notificacoes.length === 0 ? (
+                      <div style={{
+                        padding: '32px 16px', textAlign: 'center',
+                        color: 'var(--color-text-secondary)', fontSize: '0.85rem',
+                      }}>
+                        <Bell size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
+                        <div>Nenhuma notificação</div>
+                      </div>
+                    ) : (
+                      notificacoes.map(n => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            marcarLida(n.id)
+                            if (n.referencia_tipo === 'tarefa' && n.referencia_id) {
+                              navigate('/tarefas')
+                              setNotifOpen(false)
+                            }
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 10,
+                            padding: '12px 16px',
+                            borderBottom: '1px solid var(--border)',
+                            background: n.lida ? 'transparent' : 'var(--color-primary-dim)',
+                            cursor: n.referencia_id ? 'pointer' : 'default',
+                            transition: 'background 0.15s',
+                          }}
+                        >
+                          <div style={{ marginTop: 2 }}>{iconeNotif(n.tipo)}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontWeight: n.lida ? 500 : 700,
+                              fontSize: '0.82rem',
+                              color: 'var(--color-text-primary)',
+                              marginBottom: 2,
+                            }}>
+                              {n.titulo}
+                            </div>
+                            {n.body && (
+                              <div style={{
+                                fontSize: '0.77rem',
+                                color: 'var(--color-text-secondary)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {n.body}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{
+                            fontSize: 11, color: 'var(--color-text-secondary)',
+                            flexShrink: 0, marginTop: 2,
+                          }}>
+                            {tempoRelativo(n.created_at)}
+                          </div>
+                          {!n.lida && (
+                            <div style={{
+                              width: 8, height: 8, borderRadius: '50%',
+                              background: 'var(--color-primary)',
+                              flexShrink: 0, marginTop: 4,
+                            }} />
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={logout}
               title="Sair"
@@ -229,7 +391,6 @@ export default function Layout() {
           </div>
         </header>
 
-        {/* Conteúdo da página */}
         <main className="page-scroll">
           <Outlet />
         </main>
@@ -255,7 +416,6 @@ export default function Layout() {
 
         {/* FAB central */}
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          {/* FAB actions */}
           {fabOpen && (
             <div style={{
               position: 'absolute', bottom: 64, left: '50%', transform: 'translateX(-50%)',
@@ -291,7 +451,6 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Itens direita */}
         {BOTTOM_MAIN.slice(2, 4).map(({ path, icon: Icon, label }) => (
           <Link
             key={path}
@@ -308,17 +467,32 @@ export default function Layout() {
           </Link>
         ))}
 
-        {/* Mais */}
+        {/* Sino mobile com badge */}
         <button
-          onClick={() => { setFabOpen(false); setNotifOpen(false); setMoreOpen(!moreOpen) }}
+          onClick={() => { setFabOpen(false); setMoreOpen(false); setNotifOpen(v => !v) }}
           style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-            padding: '6px 12px', color: moreOpen ? 'var(--primary)' : 'var(--text-muted)',
-            fontSize: 10, fontWeight: 600, flex: 1, background: 'none', border: 'none', cursor: 'pointer',
+            padding: '6px 12px', color: notifOpen ? 'var(--primary)' : 'var(--text-muted)',
+            fontSize: 10, fontWeight: 600, flex: 1, background: 'none', border: 'none',
+            cursor: 'pointer', position: 'relative',
           }}
         >
-          {moreOpen ? <X size={21} /> : <Grid3X3 size={21} />}
-          <span>Mais</span>
+          <div style={{ position: 'relative' }}>
+            <Bell size={21} />
+            {naoLidas > 0 && (
+              <span style={{
+                position: 'absolute', top: -4, right: -4,
+                width: 16, height: 16, borderRadius: 99,
+                background: 'var(--color-danger)', color: '#fff',
+                fontSize: 9, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                border: '2px solid var(--color-surface)',
+              }}>
+                {naoLidas > 9 ? '9+' : naoLidas}
+              </span>
+            )}
+          </div>
+          <span>Avisos</span>
         </button>
       </nav>
 
@@ -373,13 +547,19 @@ export default function Layout() {
         </>
       )}
 
-      {/* Overlay FAB */}
       {fabOpen && (
         <div
           style={{ position: 'fixed', inset: 0, zIndex: 48 }}
           onClick={() => setFabOpen(false)}
         />
       )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); }
+          50%       { transform: scale(1.15); }
+        }
+      `}</style>
     </div>
   )
 }

@@ -1,14 +1,12 @@
 import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware } from '../middleware/auth'
+import { criarNotificacao } from '../lib/notifHelper'
 
 const router = Router()
 router.use(authMiddleware)
 
 // ── LISTAR TAREFAS ────────────────────────────────────────────────────────────
-// gestor:     vê todas da organização
-// sub_gestor: vê as que criou + as atribuídas a ele + as dos seus comandados
-// membro:     vê apenas as atribuídas a ele
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -57,8 +55,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── CRIAR TAREFA ──────────────────────────────────────────────────────────────
-// gestor e sub_gestor podem criar tarefas.
-// sub_gestor só pode atribuir para si ou seus comandados diretos.
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -95,7 +91,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       responsavelNome = resp?.nome ?? null
     }
 
-    const tarefa = await queryOne(
+    // Busca nome do criador para a notificação
+    const criador = await queryOne<{ nome: string }>(
+      'SELECT nome FROM profiles WHERE id = $1', [userId]
+    )
+    const criadorNome = criador?.nome || 'Gestor'
+
+    const tarefa = await queryOne<{ id: string }>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -104,6 +106,20 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
        titulo.trim(), descricao || null, data || null, prazo || null,
        prioridade, JSON.stringify(checklist), obs || null]
     )
+
+    // ── Notifica responsável se for diferente do criador ──────────────────────
+    if (responsavel_id && responsavel_id !== userId) {
+      const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
+      await criarNotificacao({
+        orgId, userId: responsavel_id,
+        tipo: 'nova_tarefa',
+        titulo: '📋 Nova tarefa atribuída a você!',
+        body: `"${titulo.trim()}" por ${criadorNome}${prazoFmt}`,
+        referenciaId: (tarefa as any).id,
+        referenciaTipo: 'tarefa',
+      })
+    }
+
     res.status(201).json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao criar:', err)
@@ -141,8 +157,11 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
 
-    const existing = await queryOne<{ id: string; responsavel_id: string; criado_por: string; org_id: string }>(
-      'SELECT id, responsavel_id, criado_por, org_id FROM tarefas WHERE id = $1 AND org_id = $2',
+    const existing = await queryOne<{
+      id: string; responsavel_id: string; criado_por: string; org_id: string
+      titulo: string; responsavel_nome: string
+    }>(
+      'SELECT id, responsavel_id, criado_por, org_id, titulo, responsavel_nome FROM tarefas WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
@@ -177,6 +196,32 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         `UPDATE tarefas SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
         params
       )
+
+      // ── Notifica gestor/criador ao responder ──────────────────────────────
+      if (resposta_status && existing.criado_por && existing.criado_por !== userId) {
+        const membro = await queryOne<{ nome: string }>(
+          'SELECT nome FROM profiles WHERE id = $1', [userId]
+        )
+        const membroNome = membro?.nome || 'Membro'
+        if (resposta_status === 'concluida') {
+          await criarNotificacao({
+            orgId, userId: existing.criado_por,
+            tipo: 'tarefa_concluida',
+            titulo: '✅ Tarefa concluída!',
+            body: `${membroNome} concluiu "${existing.titulo}".`,
+            referenciaId: id, referenciaTipo: 'tarefa',
+          })
+        } else {
+          await criarNotificacao({
+            orgId, userId: existing.criado_por,
+            tipo: 'tarefa_nao_concluida',
+            titulo: '❌ Tarefa não concluída',
+            body: `${membroNome} não concluiu "${existing.titulo}". Obs: ${resposta_obs || 'sem observação'}`,
+            referenciaId: id, referenciaTipo: 'tarefa',
+          })
+        }
+      }
+
       res.json({ tarefa })
       return
     }
@@ -202,6 +247,20 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         [responsavel_id, orgId]
       )
       responsavelNome = resp?.nome ?? null
+    }
+
+    // Notifica novo responsável se mudou
+    const novoResponsavel = responsavel_id && responsavel_id !== existing.responsavel_id
+    if (novoResponsavel && responsavel_id !== userId) {
+      const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
+      await criarNotificacao({
+        orgId, userId: responsavel_id,
+        tipo: 'nova_tarefa',
+        titulo: '📋 Nova tarefa atribuída a você!',
+        body: `"${titulo || existing.titulo}" por ${criador?.nome || 'Gestor'}${prazoFmt}`,
+        referenciaId: id, referenciaTipo: 'tarefa',
+      })
     }
 
     const tarefa = await queryOne(
@@ -231,8 +290,6 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── RESPONDER TAREFA ──────────────────────────────────────────────────────────
-// POST /api/tarefas/:id/resposta
-// Body: { resposta_status: 'concluida'|'nao_concluida', resposta_obs?: string }
 router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -244,8 +301,10 @@ router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> 
       return
     }
 
-    const existing = await queryOne<{ id: string; responsavel_id: string }>(
-      'SELECT id, responsavel_id FROM tarefas WHERE id = $1 AND org_id = $2',
+    const existing = await queryOne<{
+      id: string; responsavel_id: string; criado_por: string; titulo: string
+    }>(
+      'SELECT id, responsavel_id, criado_por, titulo FROM tarefas WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
@@ -268,6 +327,30 @@ router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> 
        RETURNING *`,
       [resposta_status, resposta_obs || null, novoStatus, id, orgId]
     )
+
+    // ── Notifica criador da tarefa ────────────────────────────────────────────
+    if (existing.criado_por && existing.criado_por !== userId) {
+      const membro = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      const membroNome = membro?.nome || 'Membro'
+      if (resposta_status === 'concluida') {
+        await criarNotificacao({
+          orgId, userId: existing.criado_por,
+          tipo: 'tarefa_concluida',
+          titulo: '✅ Tarefa concluída!',
+          body: `${membroNome} concluiu "${existing.titulo}" com sucesso.`,
+          referenciaId: id, referenciaTipo: 'tarefa',
+        })
+      } else {
+        await criarNotificacao({
+          orgId, userId: existing.criado_por,
+          tipo: 'tarefa_nao_concluida',
+          titulo: '❌ Tarefa não concluída',
+          body: `${membroNome} não concluiu "${existing.titulo}". Obs: ${resposta_obs || 'sem observação'}`,
+          referenciaId: id, referenciaTipo: 'tarefa',
+        })
+      }
+    }
+
     res.json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao responder:', err)
