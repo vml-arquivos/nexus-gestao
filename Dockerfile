@@ -6,15 +6,15 @@
 FROM node:20-alpine AS backend-builder
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci --no-audit --no-fund
 COPY backend/ .
-RUN npx tsc --skipLibCheck || true
+RUN npx tsc --skipLibCheck
 
 # ── STAGE 2: Build do Frontend ────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY package.json package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN rm -rf backend
 RUN npm run build
@@ -27,7 +27,7 @@ RUN apk add --no-cache nginx supervisor wget
 # Backend
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=backend-builder /app/backend/dist ./dist
 
 # Frontend

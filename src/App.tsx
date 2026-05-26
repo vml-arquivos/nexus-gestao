@@ -15,6 +15,7 @@ import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
 import PessoaDetalhe from './pages/PessoaDetalhe'
 import Usuarios from './pages/Usuarios'
+import AceitarConvite from './pages/AceitarConvite'
 
 // ── Loader de tela cheia ──────────────────────────────────────────────────────
 function FullScreenLoader() {
@@ -91,6 +92,9 @@ export default function App() {
         <Route path="configuracoes" element={<Configuracoes />} />
         <Route path="usuarios" element={<Usuarios />} />
       </Route>
+
+      {/* Convite público — não requer autenticação */}
+      <Route path="/convite/:token" element={<AceitarConvite />} />
 
       {/* Fallback: redireciona para home */}
       <Route path="*" element={<Navigate to="/" replace />} />

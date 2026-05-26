@@ -35,11 +35,17 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
--- Adiciona coluna cargo em bancos já existentes (idempotente)
+-- Adiciona colunas em bancos já existentes (idempotente)
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cargo TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS criado_por UUID REFERENCES profiles(id);
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE;
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('gestor','sub_gestor','membro'));
 
-CREATE INDEX IF NOT EXISTS idx_profiles_org   ON profiles(org_id);
-CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
+CREATE INDEX IF NOT EXISTS idx_profiles_org        ON profiles(org_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_email      ON profiles(email);
+CREATE INDEX IF NOT EXISTS idx_profiles_criado_por ON profiles(criado_por);
 
 -- ── PESSOAS / EQUIPE ─────────────────────────────────────────
 -- tipo: funcionario, prestador, credor, devedor, cliente
@@ -246,6 +252,22 @@ CREATE TABLE IF NOT EXISTS equipes_membros (
   PRIMARY KEY (equipe_id, profile_id)
 );
 
+-- ── CONVITES (link de acesso para novos membros) ─────────────────────────────
+CREATE TABLE IF NOT EXISTS convites (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  criado_por UUID NOT NULL REFERENCES profiles(id),
+  email      TEXT,
+  role       TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('sub_gestor','membro')),
+  cargo      TEXT,
+  token      TEXT NOT NULL UNIQUE,
+  usado      BOOLEAN DEFAULT FALSE,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_convites_token ON convites(token);
+CREATE INDEX IF NOT EXISTS idx_convites_org   ON convites(org_id);
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================
@@ -268,3 +290,4 @@ async function migrate() {
 }
 
 migrate()
+

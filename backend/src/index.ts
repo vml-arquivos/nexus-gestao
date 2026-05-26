@@ -15,8 +15,9 @@ import agendaRoutes     from './routes/agenda'
 import pagamentosRoutes from './routes/pagamentos'
 import uploadsRoutes    from './routes/uploads'
 import documentosRoutes from './routes/documentos'
-import teamsRoutes from './routes/teams'
-import usersRoutes from './routes/users'
+import teamsRoutes      from './routes/teams'
+import usersRoutes      from './routes/users'
+import convitesRoutes   from './routes/convites'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -98,6 +99,7 @@ app.use('/api/uploads',     uploadsRoutes)
 app.use('/api/documentos',  documentosRoutes)
 app.use('/api/teams',       teamsRoutes)
 app.use('/api/users',       usersRoutes)
+app.use('/api/convites',    convitesRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
