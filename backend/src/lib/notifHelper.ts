@@ -151,6 +151,132 @@ async function jobLembreteDiario() {
   }
 }
 
+// ── Job: processar tabela lembretes ─────────────────────────────────────────
+async function jobLembretes() {
+  try {
+    const agora = new Date().toISOString()
+    const pendentes = await query<{
+      id: string; org_id: string; destinatario_id: string; criado_por: string
+      titulo: string; body: string; referencia_id: string; referencia_tipo: string
+    }>(
+      `SELECT l.id, l.org_id,
+              COALESCE(l.destinatario_id, l.criado_por) AS destinatario_id,
+              l.criado_por, l.titulo, l.body,
+              l.referencia_id, l.referencia_tipo
+       FROM lembretes l
+       WHERE l.ativo = TRUE
+         AND l.enviado = FALSE
+         AND l.data_lembrete <= $1`,
+      [agora]
+    )
+    for (const l of pendentes) {
+      await criarNotificacao({
+        orgId: l.org_id,
+        userId: l.destinatario_id,
+        tipo: 'info',
+        titulo: l.titulo,
+        body: l.body || undefined,
+        referenciaId: l.referencia_id || undefined,
+        referenciaTipo: l.referencia_tipo || undefined,
+      })
+      // Marca como enviado (ou reagenda se recorrente)
+      await query(
+        `UPDATE lembretes SET enviado = TRUE WHERE id = $1`,
+        [l.id]
+      )
+    }
+    if (pendentes.length > 0) {
+      console.log(`[NOTIF] ${pendentes.length} lembrete(s) personalizado(s) disparado(s).`)
+    }
+  } catch (err) {
+    console.error('[NOTIF] Erro no job de lembretes:', err)
+  }
+}
+
+// ── Job: vencimentos financeiros ─────────────────────────────────────────────
+async function jobFinanceiroVencimento() {
+  try {
+    // Pagamentos que vencem amanhã e ainda não foram notificados hoje
+    const pagamentos = await query<{
+      id: string; org_id: string; criado_por: string; titulo: string
+      pessoa_nome: string; valor: string; vencimento: string
+    }>(
+      `SELECT p.id, p.org_id, p.criado_por, p.titulo,
+              COALESCE(p.pessoa_nome,'') AS pessoa_nome,
+              p.valor::text, p.vencimento::text
+       FROM pagamentos p
+       WHERE p.status = 'pendente'
+         AND p.vencimento IS NOT NULL
+         AND p.vencimento::date = CURRENT_DATE + INTERVAL '1 day'
+         AND NOT EXISTS (
+           SELECT 1 FROM notificacoes n
+           WHERE n.referencia_id = p.id
+             AND n.tipo = 'financeiro_vencimento'
+             AND n.created_at::date = CURRENT_DATE
+         )`,
+      []
+    )
+    for (const p of pagamentos) {
+      const valor = parseFloat(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      await criarNotificacao({
+        orgId: p.org_id,
+        userId: p.criado_por,
+        tipo: 'financeiro_vencimento',
+        titulo: `💰 Vencimento amanhã: ${p.titulo}`,
+        body: `${p.pessoa_nome ? p.pessoa_nome + ' — ' : ''}${valor} vence amanhã.`,
+        referenciaId: p.id,
+        referenciaTipo: 'pagamento',
+      })
+    }
+    if (pagamentos.length > 0) {
+      console.log(`[NOTIF] ${pagamentos.length} vencimento(s) financeiro(s) notificado(s).`)
+    }
+  } catch (err) {
+    console.error('[NOTIF] Erro no job de vencimentos financeiros:', err)
+  }
+}
+
+// ── Job: lembretes de agenda ──────────────────────────────────────────────────
+async function jobAgendaLembrete() {
+  try {
+    const agora = new Date()
+    const em15min = new Date(agora.getTime() + 16 * 60 * 1000).toISOString()
+    const eventos = await query<{
+      id: string; org_id: string; criado_por: string; titulo: string
+      data_inicio: string; lembrete_minutos: number
+    }>(
+      `SELECT a.id, a.org_id, a.criado_por, a.titulo, a.data_inicio, a.lembrete_minutos
+       FROM agenda a
+       WHERE a.lembrete_enviado = FALSE
+         AND a.data_inicio > NOW()
+         AND a.data_inicio <= NOW() + (a.lembrete_minutos || ' minutes')::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM notificacoes n
+           WHERE n.referencia_id = a.id
+             AND n.tipo = 'agenda_lembrete'
+         )`,
+      []
+    )
+    for (const e of eventos) {
+      await criarNotificacao({
+        orgId: e.org_id,
+        userId: e.criado_por,
+        tipo: 'agenda_lembrete',
+        titulo: `📅 Em breve: ${e.titulo}`,
+        body: `Compromisso em ${e.lembrete_minutos} minuto(s).`,
+        referenciaId: e.id,
+        referenciaTipo: 'agenda',
+      })
+      await query(`UPDATE agenda SET lembrete_enviado = TRUE WHERE id = $1`, [e.id])
+    }
+    if (eventos.length > 0) {
+      console.log(`[NOTIF] ${eventos.length} lembrete(s) de agenda disparado(s).`)
+    }
+  } catch (err) {
+    console.error('[NOTIF] Erro no job de agenda:', err)
+  }
+}
+
 // ── Inicializar jobs ──────────────────────────────────────────────────────────
 export function iniciarJobsNotificacao() {
   // Verifica vencimentos a cada hora
@@ -168,7 +294,19 @@ export function iniciarJobsNotificacao() {
     }
   }, 5 * 60 * 1000)
 
+  // Lembretes personalizados: verifica a cada 2 minutos
+  setInterval(jobLembretes, 2 * 60 * 1000)
+
+  // Vencimentos financeiros: verifica a cada hora
+  setInterval(jobFinanceiroVencimento, 60 * 60 * 1000)
+
+  // Lembretes de agenda: verifica a cada 5 minutos
+  setInterval(jobAgendaLembrete, 5 * 60 * 1000)
+
   // Executa imediatamente ao iniciar (para pegar vencimentos do dia)
   setTimeout(jobVencimentos, 10_000)
-  console.log('[NOTIF] Jobs de notificação iniciados.')
+  setTimeout(jobLembretes, 15_000)
+  setTimeout(jobFinanceiroVencimento, 20_000)
+  setTimeout(jobAgendaLembrete, 25_000)
+  console.log('[NOTIF] Jobs de notificação iniciados (tarefas, lembretes, financeiro, agenda).')
 }

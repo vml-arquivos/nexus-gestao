@@ -287,6 +287,70 @@ DO $$ BEGIN
 END$$;
 CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
 
+-- ── NOTIFICAÇÕES ─────────────────────────────────────────────────────────────
+-- Armazena todas as notificações do sistema (tarefas, financeiro, agenda, etc.)
+CREATE TABLE IF NOT EXISTS notificacoes (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  tipo            TEXT NOT NULL DEFAULT 'info'
+                    CHECK (tipo IN (
+                      'tarefa_nova', 'tarefa_concluida', 'tarefa_nao_concluida',
+                      'tarefa_vencida', 'lembrete_diario', 'financeiro_vencimento',
+                      'agenda_lembrete', 'aniversario', 'info', 'aviso', 'erro'
+                    )),
+  titulo          TEXT NOT NULL,
+  body            TEXT,
+  referencia_id   UUID,
+  referencia_tipo TEXT CHECK (referencia_tipo IN ('tarefa','pagamento','agenda','pessoa') OR referencia_tipo IS NULL),
+  lida            BOOLEAN DEFAULT FALSE NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notificacoes(user_id, lida, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_org  ON notificacoes(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_ref  ON notificacoes(referencia_id) WHERE referencia_id IS NOT NULL;
+
+-- ── HISTÓRICO DE TAREFAS ─────────────────────────────────────────────────────
+-- Auditoria de todas as ações sobre tarefas
+CREATE TABLE IF NOT EXISTS tarefa_historico (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tarefa_id     UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  org_id        UUID NOT NULL,
+  usuario_id    UUID NOT NULL REFERENCES profiles(id),
+  usuario_nome  TEXT NOT NULL DEFAULT '',
+  acao          TEXT NOT NULL CHECK (acao IN (
+                  'criada','atualizada','concluida','nao_concluida',
+                  'reaberta','excluida','comentario'
+                )),
+  dados         JSONB,
+  created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_th_tarefa  ON tarefa_historico(tarefa_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_th_org     ON tarefa_historico(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_th_usuario ON tarefa_historico(usuario_id);
+
+-- ── LEMBRETES PERSONALIZADOS ───────────────────────────────────────────────
+-- Lembretes criados pelo gestor ou membro, vinculados a qualquer entidade
+CREATE TABLE IF NOT EXISTS lembretes (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  criado_por      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  destinatario_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  titulo          TEXT NOT NULL,
+  body            TEXT,
+  data_lembrete   TIMESTAMPTZ NOT NULL,
+  recorrencia     TEXT NOT NULL DEFAULT 'nenhum'
+                    CHECK (recorrencia IN ('nenhum','diario','semanal','mensal','anual')),
+  referencia_id   UUID,
+  referencia_tipo TEXT CHECK (referencia_tipo IN ('tarefa','pagamento','agenda','pessoa') OR referencia_tipo IS NULL),
+  enviado         BOOLEAN DEFAULT FALSE NOT NULL,
+  ativo           BOOLEAN DEFAULT TRUE  NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lembretes_data ON lembretes(data_lembrete) WHERE enviado = FALSE AND ativo = TRUE;
+CREATE INDEX IF NOT EXISTS idx_lembretes_org  ON lembretes(org_id);
+CREATE INDEX IF NOT EXISTS idx_lembretes_dest ON lembretes(destinatario_id);
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================
