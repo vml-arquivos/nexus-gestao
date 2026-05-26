@@ -175,6 +175,11 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   recorrencia      TEXT NOT NULL DEFAULT 'nenhum' CHECK (recorrencia IN ('nenhum','semanal','quinzenal','mensal','anual')),
   -- Data de término da recorrência. Se nula, considera recorrência indefinida.
   recorrencia_fim  DATE,
+  -- Agrupamento de parcelas: todas as parcelas de um mesmo financiamento/parcelamento
+  -- recebem o mesmo grupo_id. NULL = lançamento avulso.
+  grupo_id         UUID,
+  num_parcelas     INT,
+  num_parcela      INT,
   created_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
@@ -267,6 +272,20 @@ CREATE TABLE IF NOT EXISTS convites (
 );
 CREATE INDEX IF NOT EXISTS idx_convites_token ON convites(token);
 CREATE INDEX IF NOT EXISTS idx_convites_org   ON convites(org_id);
+
+-- ── MIGRAÇÕES IDEMPOTENTES (colunas adicionadas após criação inicial) ────────────
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='grupo_id') THEN
+    ALTER TABLE pagamentos ADD COLUMN grupo_id UUID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='num_parcelas') THEN
+    ALTER TABLE pagamentos ADD COLUMN num_parcelas INT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='num_parcela') THEN
+    ALTER TABLE pagamentos ADD COLUMN num_parcela INT;
+  END IF;
+END$$;
+CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
 
 -- ============================================================
 -- SCHEMA PRONTO

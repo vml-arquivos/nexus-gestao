@@ -136,8 +136,36 @@ export interface Pagamento {
   recorrencia_fim?: string
   /** Datas avulsas para gerar vários lançamentos na criação. */
   datas_personalizadas?: string[]
+  /** UUID que agrupa parcelas de um mesmo financiamento/parcelamento */
+  grupo_id?: string
+  /** Total de parcelas do grupo */
+  num_parcelas?: number
+  /** Número desta parcela dentro do grupo */
+  num_parcela?: number
   created_at: string
   updated_at?: string
+}
+
+/** Card consolidado de uma dívida ou crédito (agrupado por grupo_id ou avulso) */
+export interface GrupoPagamento {
+  grupo_id: string | null
+  titulo: string
+  tipo: 'pagamento' | 'recebimento'
+  categoria: string | null
+  pessoa_id: string | null
+  pessoa_nome: string | null
+  recorrencia: string
+  parcelas: Pagamento[]
+  valor_total: number
+  valor_pago: number
+  valor_pendente: number
+  num_parcelas: number
+  parcelas_pagas: number
+  parcelas_pendentes: number
+  proxima_parcela: string | null
+  ultima_parcela: string | null
+  vencido: boolean
+  is_grupo: boolean
 }
 
 export interface ResumoPorPessoa {
@@ -450,6 +478,20 @@ export const pagamentosApi = {
 
   async remove(id: string): Promise<void> {
     await apiJson(`/pagamentos/${id}`, { method: 'DELETE' })
+  },
+
+  async grupos(): Promise<GrupoPagamento[]> {
+    const data = await apiJson<{ grupos: GrupoPagamento[] }>('/pagamentos/grupos')
+    return data.grupos
+  },
+
+  async grupoParcelas(grupoId: string): Promise<Pagamento[]> {
+    const data = await apiJson<{ parcelas: Pagamento[] }>(`/pagamentos/grupo/${grupoId}`)
+    return data.parcelas
+  },
+
+  async removeGrupo(grupoId: string): Promise<void> {
+    await apiJson(`/pagamentos/grupo/${grupoId}`, { method: 'DELETE' })
   },
 }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -26,8 +26,6 @@ import {
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
-import FinancialPersonCard from '../features/finance/components/FinancialPersonCard'
-import { groupFinancialRecords } from '../features/finance/utils/groupFinancialRecords'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -258,6 +256,139 @@ function statusChip(g: GrupoFinanceiro) {
   if (g.status === 'pago') return 'Pago'
   if (g.status === 'cancelado') return 'Cancelado'
   return 'Pendente'
+}
+
+// ── Card de grupo (uma dívida/crédito = um card) ─────────────────────────────
+function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
+  g: GrupoFinanceiro
+  onGerenciar: () => void
+  onEdit: (p: Pagamento) => void
+  onDelete: (id: string) => void
+  onMarkPaid: (p: Pagamento) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isGrupo = g.itens.length > 1
+  const chip = statusChip(g)
+  const chipColor = chip === 'Vencido' ? '#EF4444' : chip === 'Pago' ? '#10B981' : chip === 'Cancelado' ? 'var(--text3)' : '#F59E0B'
+  const chipBg = chip === 'Vencido' ? 'rgba(239,68,68,0.12)' : chip === 'Pago' ? 'rgba(16,185,129,0.12)' : chip === 'Cancelado' ? 'var(--bg3)' : 'rgba(245,158,11,0.12)'
+  const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
+  const sinal = g.tipo === 'recebimento' ? '+' : '-'
+
+  return (
+    <div style={{ background: 'var(--bg2)', border: `1px solid ${g.isVencido ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+      {/* Cabeçalho do card */}
+      <div style={{ padding: '14px 16px', cursor: isGrupo ? 'pointer' : 'default' }} onClick={() => isGrupo && setExpanded(e => !e)}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{g.titulo}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: chipColor, background: chipBg, borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>{chip}</span>
+              {isGrupo && (
+                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>
+                  {g.itens.filter(p => p.status === 'pago').length}/{g.itens.length} parcelas
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
+              {g.pessoaNome && g.pessoaNome !== 'Sem pessoa' && (
+                <span style={{ fontSize: 12, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <User size={11} /> {g.pessoaNome}
+                </span>
+              )}
+              {g.categoria && (
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{g.categoria}</span>
+              )}
+              {g.proximoVencimento && (
+                <span style={{ fontSize: 12, color: g.isVencido ? '#EF4444' : 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <CalendarDays size={11} /> {g.isVencido ? 'Venceu ' : 'Vence '}{fmtDate(g.proximoVencimento)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: valorColor, fontFamily: 'var(--font-heading)' }}>
+              {sinal}{fmt(isGrupo ? g.pendente : g.total)}
+            </div>
+            {isGrupo && g.pago > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(g.pago)}</div>
+            )}
+          </div>
+        </div>
+
+        {/* Barra de progresso para grupos */}
+        {isGrupo && g.total > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.min(100, (g.pago / g.total) * 100)}%`, background: '#10B981', borderRadius: 999, transition: 'width 0.3s' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>
+              <span>Total: {fmt(g.total)}</span>
+              <span>{Math.round((g.pago / g.total) * 100)}% pago</span>
+            </div>
+          </div>
+        )}
+
+        {/* Botões de ação para lançamento único */}
+        {!isGrupo && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {g.principal.status === 'pendente' && (
+              <button
+                onClick={e => { e.stopPropagation(); onMarkPaid(g.principal) }}
+                style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+              >
+                <Check size={13} /> Marcar pago
+              </button>
+            )}
+            <button onClick={e => { e.stopPropagation(); onEdit(g.principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
+            <button onClick={e => { e.stopPropagation(); onDelete(g.principal.id) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
+          </div>
+        )}
+
+        {/* Botões de ação para grupo */}
+        {isGrupo && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              onClick={e => { e.stopPropagation(); onGerenciar() }}
+              style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,0.12)', color: '#6366F1', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+            >
+              <WalletCards size={13} /> Gerenciar dívida
+            </button>
+            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
+              {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Lista de parcelas expandida */}
+      {isGrupo && expanded && (
+        <div style={{ borderTop: '1px solid var(--border)' }}>
+          {[...g.itens].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '')).map((p, i) => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < g.itens.length - 1 ? '1px solid var(--border)' : 'none', background: p.status === 'pago' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
+                  {i + 1}ª parcela
+                  {p.status === 'pago' && <span style={{ marginLeft: 6, fontSize: 11, color: '#10B981' }}>Paga</span>}
+                  {p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0,10)}T00:00:00`) < new Date() && (
+                    <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>Vencida</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDate(p.vencimento)}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: p.status === 'pago' ? '#10B981' : valorColor }}>{fmt(Number(p.valor))}</span>
+                {p.status === 'pendente' && (
+                  <button onClick={() => onMarkPaid(p)} style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                    <Check size={11} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
@@ -922,9 +1053,6 @@ export default function Financeiro() {
 
   const gruposFinanceiros = agruparLancamentosFinanceiros(filtrados)
 
-  // Agrupa lançamentos por pessoa/empresa/responsável para exibir cards consolidados
-  const groupedByPerson = useMemo(() => groupFinancialRecords(filtrados), [filtrados])
-
   const vencidos = pagamentos.filter(p => p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0, 10)}T00:00:00`) < new Date())
 
   return (
@@ -1015,7 +1143,7 @@ export default function Financeiro() {
 
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando...</div>
-          ) : groupedByPerson.length === 0 ? (
+          ) : gruposFinanceiros.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
               <WalletCards size={48} style={{ marginBottom: 12 }} />
               <div style={{ fontWeight: 600, marginBottom: 6 }}>Nenhum lançamento</div>
@@ -1023,13 +1151,14 @@ export default function Financeiro() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {groupedByPerson.map(group => (
-                <FinancialPersonCard
-                  key={group.pessoaId || group.pessoaNome}
-                  group={group}
-                  onMarkPaid={p => handleMarcarPago(p)}
+              {gruposFinanceiros.map(g => (
+                <GrupoCard
+                  key={g.id}
+                  g={g}
+                  onGerenciar={() => setGerenciarDivida({ parcelas: g.itens, tipo: g.tipo })}
                   onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
-                  onDelete={p => handleDelete(p.id)}
+                  onDelete={id => handleDelete(id)}
+                  onMarkPaid={p => handleMarcarPago(p)}
                 />
               ))}
             </div>
