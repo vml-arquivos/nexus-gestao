@@ -6,11 +6,12 @@ import {
   Plus, Grid3X3, X, LogOut, Crown, UserRound,
   CalendarPlus, WalletCards, UploadCloud, Settings,
   Sun, Moon, ClipboardList,
+  type LucideIcon,
 } from "lucide-react"
 import { useAuth } from "../lib/AuthContext"
 import { useTheme } from '../lib/ThemeContext'
 
-interface NavItem { path: string; icon: React.ComponentType<{size?:number;color?:string}>; label: string }
+interface NavItem { path: string; icon: LucideIcon; label: string }
 
 const NAV_GESTOR: NavItem[] = [
   { path: "/",             icon: LayoutDashboard, label: "Início"     },
