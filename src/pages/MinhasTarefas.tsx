@@ -251,7 +251,7 @@ export default function MinhasTarefas() {
   const lista = filtro==='todas' ? tarefas : tarefas.filter(t => t.status===filtro)
 
   return (
-    <div style={{ width:'100%' }}>
+    <div style={{ width:'100%', maxWidth:760, margin:'0 auto', boxSizing:'border-box' as const }}>
       {/* Header hero */}
       <div style={{ padding:'20px 16px 0', background:'linear-gradient(180deg,var(--bg3) 0%,transparent 100%)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>

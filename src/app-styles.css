@@ -428,3 +428,90 @@ body {
 
 /* Desativa seleção em elementos de UI */
 .nav-btn, .btn, .sidebar-item, .tabs button { -webkit-user-select: none; user-select: none; }
+
+/* ═══════════════════════════════════════════════════
+   RESPONSIVE LAYOUT FIXES — todas as telas
+═══════════════════════════════════════════════════ */
+
+/* Desktop: sidebar fixa, conteúdo flui à direita */
+@media (min-width: 769px) {
+  .sidebar {
+    position: relative;
+    transform: none !important;
+  }
+  .bottom-nav { display: none !important; }
+  .page-content {
+    max-height: calc(100dvh - var(--topbar-h));
+  }
+}
+
+/* Tablet intermediário */
+@media (min-width: 769px) and (max-width: 1024px) {
+  :root { --sidebar-w: 180px; }
+}
+
+/* Mobile: garante que nenhum container corte */
+@media (max-width: 768px) {
+  .app-shell { flex-direction: column; }
+
+  /* Qualquer div wrapper de página que não defina maxWidth */
+  .page-content > div {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Grids de métricas: 2 colunas em telas pequenas */
+  .grid-metrics {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Extra small — iPhone SE / Galaxy A */
+@media (max-width: 390px) {
+  :root { --sidebar-w: 100vw; }
+  .metric-value { font-size: 18px !important; }
+  .page-title   { font-size: 18px !important; }
+}
+
+/* Garante que modais não ultrapassem a tela */
+@media (max-width: 560px) {
+  [style*="maxWidth: 540"],
+  [style*="max-width: 540px"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+  [style*="maxWidth: 480"],
+  [style*="max-width: 480px"] {
+    max-width: calc(100vw - 32px) !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   CORREÇÕES FINAIS DE LAYOUT — DESKTOP VS MOBILE
+═══════════════════════════════════════════════════ */
+
+/* Desktop: remove bottom padding desnecessário (sem bottom-nav) */
+@media (min-width: 769px) {
+  /* Os wrappers de página que usam var(--bottom-nav-h) no desktop */
+  .page-content {
+    padding-bottom: 0 !important;
+  }
+  /* Mas os wrappers internos que têm calc(--bottom-nav-h+...) ficam OK
+     pois o page-content overflow-y:auto já cuida do scroll */
+}
+
+/* Garante que o conteúdo de cada página tenha padding mínimo */
+.page-content > * {
+  min-height: 0;
+}
+
+/* Fix: sidebar drawer mobile fecha ao clicar overlay */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 54;
+  display: none;
+}
+@media (max-width: 768px) {
+  .sidebar-overlay.visible { display: block; }
+}
