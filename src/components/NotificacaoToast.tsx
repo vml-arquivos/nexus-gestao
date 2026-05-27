@@ -12,18 +12,30 @@ interface Props {
 }
 
 function iconeParaTipo(tipo: string) {
-  if (tipo === 'nova_tarefa')        return <Bell size={18} style={{ color: 'var(--color-primary)' }} />
-  if (tipo === 'tarefa_concluida')   return <CheckCircle size={18} style={{ color: 'var(--color-success)' }} />
-  if (tipo === 'tarefa_nao_concluida') return <XCircle size={18} style={{ color: 'var(--color-danger)' }} />
-  if (tipo === 'tarefa_vencida')     return <AlertTriangle size={18} style={{ color: 'var(--color-warning)' }} />
+  if (tipo === 'nova_tarefa' || tipo === 'tarefa_criada') {
+    return <Bell size={18} style={{ color: 'var(--color-primary)' }} />
+  }
+
+  if (tipo === 'tarefa_concluida' || tipo === 'tarefa_aprovada') {
+    return <CheckCircle size={18} style={{ color: 'var(--color-success)' }} />
+  }
+
+  if (tipo === 'tarefa_nao_concluida' || tipo === 'tarefa_devolvida') {
+    return <XCircle size={18} style={{ color: 'var(--color-danger)' }} />
+  }
+
+  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario') {
+    return <AlertTriangle size={18} style={{ color: 'var(--color-warning)' }} />
+  }
+
   return <Bell size={18} style={{ color: 'var(--color-primary)' }} />
 }
 
 function corParaTipo(tipo: string): string {
-  if (tipo === 'nova_tarefa')          return 'var(--color-primary)'
-  if (tipo === 'tarefa_concluida')     return 'var(--color-success)'
-  if (tipo === 'tarefa_nao_concluida') return 'var(--color-danger)'
-  if (tipo === 'tarefa_vencida')       return 'var(--color-warning)'
+  if (tipo === 'nova_tarefa' || tipo === 'tarefa_criada') return 'var(--color-primary)'
+  if (tipo === 'tarefa_concluida' || tipo === 'tarefa_aprovada') return 'var(--color-success)'
+  if (tipo === 'tarefa_nao_concluida' || tipo === 'tarefa_devolvida') return 'var(--color-danger)'
+  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario') return 'var(--color-warning)'
   return 'var(--color-primary)'
 }
 
@@ -31,18 +43,20 @@ export function NotificacaoToast({ toasts, onFechar }: Props) {
   if (toasts.length === 0) return null
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: '1rem',
-      right: '1rem',
-      zIndex: 9999,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0.5rem',
-      maxWidth: '360px',
-      width: '100%',
-      pointerEvents: 'none',
-    }}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 'calc(1rem + env(safe-area-inset-top))',
+        right: 'calc(1rem + env(safe-area-inset-right))',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.5rem',
+        maxWidth: '360px',
+        width: 'min(100% - 2rem, 360px)',
+        pointerEvents: 'none',
+      }}
+    >
       {toasts.map(toast => (
         <div
           key={toast.id}
@@ -57,34 +71,45 @@ export function NotificacaoToast({ toasts, onFechar }: Props) {
             gap: '0.75rem',
             pointerEvents: 'all',
             animation: 'slideInRight 0.3s ease',
+            minWidth: 0,
           }}
         >
           <div style={{ flexShrink: 0, marginTop: '2px' }}>
             {iconeParaTipo(toast.tipo)}
           </div>
+
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontWeight: 600,
-              fontSize: '0.875rem',
-              color: 'var(--color-text-primary)',
-              marginBottom: toast.body ? '0.25rem' : 0,
-            }}>
+            <div
+              style={{
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                color: 'var(--color-text-primary)',
+                marginBottom: toast.body ? '0.25rem' : 0,
+                overflowWrap: 'anywhere',
+              }}
+            >
               {toast.titulo}
             </div>
+
             {toast.body && (
-              <div style={{
-                fontSize: '0.8rem',
-                color: 'var(--color-text-secondary)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
+              <div
+                style={{
+                  fontSize: '0.8rem',
+                  color: 'var(--color-text-secondary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {toast.body}
               </div>
             )}
           </div>
+
           <button
+            type="button"
             onClick={() => onFechar(toast.id)}
+            aria-label="Fechar notificação"
             style={{
               background: 'none',
               border: 'none',
@@ -102,7 +127,7 @@ export function NotificacaoToast({ toasts, onFechar }: Props) {
       <style>{`
         @keyframes slideInRight {
           from { transform: translateX(120%); opacity: 0; }
-          to   { transform: translateX(0);   opacity: 1; }
+          to   { transform: translateX(0); opacity: 1; }
         }
       `}</style>
     </div>
