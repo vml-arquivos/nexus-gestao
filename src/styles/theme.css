@@ -43,13 +43,13 @@
   --font-heading: 'Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
   /* Escala tipográfica */
-  --text-xs:   0.75rem;
-  --text-sm:   0.8125rem;
-  --text-base: 0.875rem;
-  --text-md:   1rem;
-  --text-lg:   1.125rem;
-  --text-xl:   1.25rem;
-  --text-2xl:  1.5rem;
+  --text-xs:   clamp(0.72rem, 0.68rem + 0.18vw, 0.78rem);
+  --text-sm:   clamp(0.78rem, 0.74rem + 0.20vw, 0.88rem);
+  --text-base: clamp(0.86rem, 0.80rem + 0.24vw, 0.96rem);
+  --text-md:   clamp(0.95rem, 0.88rem + 0.32vw, 1.08rem);
+  --text-lg:   clamp(1.05rem, 0.95rem + 0.45vw, 1.25rem);
+  --text-xl:   clamp(1.18rem, 1.02rem + 0.65vw, 1.45rem);
+  --text-2xl:  clamp(1.38rem, 1.12rem + 1.00vw, 1.85rem);
 
   /* Pesos */
   --fw-normal:   400;
@@ -59,9 +59,12 @@
   --fw-black:    900;
 
   /* Layout */
-  --sidebar-w:    210px;
-  --topbar-h:     52px;
-  --bottom-nav-h: 60px;
+  --sidebar-w:    clamp(212px, 15vw, 248px);
+  --topbar-h:     56px;
+  --bottom-nav-h: 64px;
+  --page-max:     1180px;
+  --page-pad:     clamp(14px, 2.5vw, 28px);
+  --card-pad:     clamp(14px, 2vw, 22px);
 
   /* Safe areas */
   --safe-top:   env(safe-area-inset-top,    0px);
@@ -79,7 +82,18 @@
   --z-sticky:   200;
   --z-modal:    300;
   --z-toast:    400;
+
+  /* Aliases legados usados por componentes antigos */
+  --color-primary: var(--primary);
+  --color-primary-dim: var(--primary-dim);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-surface: var(--bg2);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text3);
 }
+
 
 /* ── LIGHT MODE (padrão) ─────────────────────────────────────────── */
 :root,

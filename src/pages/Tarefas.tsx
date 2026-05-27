@@ -1,236 +1,585 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Plus, Loader, CheckCircle2, Clock, AlertTriangle, XCircle, Play, ThumbsUp, RotateCcw, History, Mic, MicOff, X } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, MessageSquare } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { useSpeechToText } from '../hooks/useSpeechToText'
 import { nanoid } from '../lib/utils'
 
-type StatusFiltro = '' | Tarefa['status']
+const STATUS_CONFIG = {
+  pendente:     { label: 'Pendente',      color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)' },
+  em_progresso: { label: 'Em Progresso',  color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'  },
+  concluida:    { label: 'Concluída',     color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)' },
+  cancelada:    { label: 'Cancelada',     color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)'},
+} as const
 
-type ModalAcao =
-  | { tipo: 'concluir'; tarefa: Tarefa }
-  | { tipo: 'nao_concluida'; tarefa: Tarefa }
-  | { tipo: 'devolver'; tarefa: Tarefa }
-  | { tipo: 'historico'; tarefa: Tarefa }
-  | null
+const PRIORIDADE_CONFIG = {
+  baixa: { label: 'Baixa', color: '#10B981' },
+  media: { label: 'Média', color: '#F59E0B' },
+  alta:  { label: 'Alta',  color: '#EF4444' },
+} as const
 
-const STATUS_LABEL: Record<Tarefa['status'], string> = {
-  pendente: 'Pendente',
-  em_progresso: 'Em progresso',
-  concluida: 'Concluída aguardando',
-  nao_concluida: 'Não concluída',
-  devolvida: 'Devolvida',
-  aprovada: 'Aprovada',
-  cancelada: 'Cancelada',
+function parseDateSafe(d?: string) {
+  if (!d) return null
+  const raw = String(d).trim()
+  const onlyDate = raw.slice(0, 10)
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(onlyDate)
+    ? new Date(`${onlyDate}T12:00:00`)
+    : new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
-
-const STATUS_COLOR: Record<Tarefa['status'], string> = {
-  pendente: '#F59E0B',
-  em_progresso: '#06B6D4',
-  concluida: '#10B981',
-  nao_concluida: '#EF4444',
-  devolvida: '#8B5CF6',
-  aprovada: '#22C55E',
-  cancelada: '#6B7280',
+function fmtDate(d?: string) {
+  const parsed = parseDateSafe(d)
+  return parsed ? parsed.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : ''
 }
-
+function fmtDateTime(d?: string) {
+  const parsed = parseDateSafe(d)
+  return parsed ? parsed.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
+}
+function isToday(d?: string) {
+  const parsed = parseDateSafe(d)
+  if (!parsed) return false
+  const now = new Date()
+  return parsed.getFullYear() === now.getFullYear() && parsed.getMonth() === now.getMonth() && parsed.getDate() === now.getDate()
+}
+function isOverdue(prazo?: string) {
+  const parsed = parseDateSafe(prazo)
+  if (!parsed) return false
+  parsed.setHours(23, 59, 59, 999)
+  return parsed < new Date()
+}
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
   el.textContent = msg
-  el.className = `toast ${type}`
+  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? '#EF4444' : '#10B981'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:toastIn 0.2s ease;`
   document.body.appendChild(el)
   setTimeout(() => el.remove(), 3000)
 }
 
-function fmtDate(d?: string) {
-  if (!d) return 'Sem prazo'
-  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-}
+// ── Modal de criação/edição ───────────────────────────────────────────────────
+function TarefaModal({ tarefa, membros, onSave, onClose }: {
+  tarefa?: Tarefa | null; membros: MembroEquipe[];
+  onSave: (t: Tarefa) => void; onClose: () => void
+}) {
+  const [titulo, setTitulo]         = useState(tarefa?.titulo || '')
+  const [descricao, setDescricao]   = useState(tarefa?.descricao || '')
+  const [prazo, setPrazo]           = useState(tarefa?.prazo?.slice(0,10) || '')
+  const [prioridade, setPrioridade] = useState<Tarefa['prioridade']>(tarefa?.prioridade || 'media')
+  const [responsavel, setResponsavel] = useState(tarefa?.responsavel_id || '')
+  const [checklist, setChecklist]   = useState<ChecklistItem[]>(tarefa?.checklist || [])
+  const [novoItem, setNovoItem]     = useState('')
+  const [loading, setLoading]       = useState(false)
 
-function Pill({ status }: { status: Tarefa['status'] }) {
-  return <span style={{ fontSize: 11, fontWeight: 800, borderRadius: 999, padding: '4px 8px', color: STATUS_COLOR[status], background: `${STATUS_COLOR[status]}18` }}>{STATUS_LABEL[status]}</span>
-}
-
-function MicButton({ mic }: { mic: ReturnType<typeof useSpeechToText> }) {
-  return <button type="button" className={`mic-btn${mic.listening ? ' listening' : ''}`} onClick={mic.toggle} title={mic.listening ? 'Parar ditado' : 'Ditar'} style={{ width: 42, minWidth: 42 }}>{mic.listening ? <MicOff size={16} /> : <Mic size={16} />}</button>
-}
-
-function NovaTarefaModal({ membros, presetResponsavel, onClose, onSaved }: { membros: MembroEquipe[]; presetResponsavel?: string; onClose: () => void; onSaved: (t: Tarefa, manterAberto?: boolean) => void }) {
-  const [titulo, setTitulo] = useState('')
-  const [descricao, setDescricao] = useState('')
-  const [prazo, setPrazo] = useState('')
-  const [prioridade, setPrioridade] = useState<Tarefa['prioridade']>('media')
-  const [responsavel, setResponsavel] = useState(presetResponsavel || '')
-  const [obs, setObs] = useState('')
-  const [novoItem, setNovoItem] = useState('')
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const micTitulo = useSpeechToText(t => setTitulo(p => `${p}${p ? ' ' : ''}${t}`))
-  const micDesc = useSpeechToText(t => setDescricao(p => `${p}${p ? ' ' : ''}${t}`))
-  const micItem = useSpeechToText(t => setNovoItem(p => `${p}${p ? ' ' : ''}${t}`))
-
-  function addChecklist() {
+  function addItem() {
     if (!novoItem.trim()) return
     setChecklist(p => [...p, { id: nanoid(), texto: novoItem.trim(), feito: false }])
     setNovoItem('')
   }
-
-  function reset() {
-    setTitulo(''); setDescricao(''); setPrazo(''); setPrioridade('media'); setObs(''); setNovoItem(''); setChecklist([])
-    if (!presetResponsavel) setResponsavel('')
-  }
-
-  async function salvar(manterAberto = false) {
-    if (!titulo.trim()) { toast('Título é obrigatório.', 'error'); return }
+  async function handleSave() {
+    if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
     setLoading(true)
     try {
-      const tarefa = await tarefasApi.create({ titulo, descricao, prazo, prioridade, responsavel_id: responsavel || undefined, checklist, obs })
-      onSaved(tarefa, manterAberto)
-      toast('Tarefa enviada com sucesso!')
-      if (manterAberto) reset(); else onClose()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao criar tarefa.', 'error')
+      const payload: Partial<Tarefa> = {
+        titulo: titulo.trim(), descricao: descricao || undefined,
+        prazo: prazo || undefined, prioridade,
+        responsavel_id: responsavel || undefined, checklist
+      }
+      const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
+      onSave(saved)
+      toast(tarefa?.id ? 'Tarefa atualizada!' : 'Tarefa criada!')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao salvar', 'error')
     } finally { setLoading(false) }
   }
-
-  return <div className="modal-overlay" onClick={e => e.currentTarget === e.target && onClose()}>
-    <div className="modal-box" style={{ maxWidth: 620 }}>
-      <div className="modal-header"><div className="modal-title">Enviar nova tarefa</div><button className="modal-close" onClick={onClose}><X size={18} /></button></div>
-      <div style={{ display: 'grid', gap: 12 }}>
-        <label className="form-group"><span className="form-label">Título *</span><div style={{ display: 'flex', gap: 8 }}><input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="O que precisa ser feito?" /><MicButton mic={micTitulo} /></div></label>
-        <label className="form-group"><span className="form-label">Descrição</span><div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes da tarefa" /><MicButton mic={micDesc} /></div></label>
-        <div className="grid-2">
-          <label className="form-group"><span className="form-label">Responsável</span><select className="form-input" value={responsavel} onChange={e => setResponsavel(e.target.value)}><option value="">Eu mesmo</option>{membros.map(m => <option key={m.id} value={m.id}>{m.nome} — {m.email}</option>)}</select></label>
-          <label className="form-group"><span className="form-label">Prazo</span><input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} /></label>
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{tarefa?.id ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
-        <div className="grid-2">
-          <label className="form-group"><span className="form-label">Prioridade</span><select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Tarefa['prioridade'])}><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option></select></label>
-          <label className="form-group"><span className="form-label">Observação</span><input className="form-input" value={obs} onChange={e => setObs(e.target.value)} placeholder="Observação interna" /></label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="form-group">
+            <label className="form-label">Título *</label>
+            <input className="form-input" placeholder="Descreva a tarefa…" value={titulo} onChange={e => setTitulo(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Descrição</label>
+            <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Prazo</label>
+              <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Prioridade</label>
+              <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Tarefa['prioridade'])}>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+          </div>
+          {membros.length > 0 && (
+            <div className="form-group">
+              <label className="form-label">Responsável</label>
+              <select className="form-input" value={responsavel} onChange={e => setResponsavel(e.target.value)}>
+                <option value="">Sem responsável</option>
+                {membros.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.role === 'gestor' ? '👑 ' : m.role === 'sub_gestor' ? '⭐ ' : ''}{m.nome}{m.cargo ? ` · ${m.cargo}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="form-group">
+            <label className="form-label">Checklist</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="form-input" style={{ flex: 1 }} placeholder="Adicionar item…" value={novoItem}
+                onChange={e => setNovoItem(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addItem())} />
+              <button className="btn btn-secondary" onClick={addItem}><Plus size={16} /></button>
+            </div>
+            {checklist.map(item => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg3)', borderRadius: 8, marginBottom: 4 }}>
+                <button onClick={() => setChecklist(p => p.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))}
+                  style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer', background: item.feito ? '#10B981' : 'transparent', border: `2px solid ${item.feito ? '#10B981' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {item.feito && <Check size={11} color="#fff" />}
+                </button>
+                <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none', color: item.feito ? 'var(--text3)' : 'var(--text)' }}>{item.texto}</span>
+                <button onClick={() => setChecklist(p => p.filter(i => i.id !== item.id))} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={13} /></button>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="form-group"><span className="form-label">Checklist</span>{checklist.map(item => <div key={item.id} className="checklist-item"><CheckCircle2 size={14} /> <span style={{ flex: 1 }}>{item.texto}</span><button className="btn btn-ghost btn-icon" onClick={() => setChecklist(p => p.filter(i => i.id !== item.id))}><X size={12} /></button></div>)}<div style={{ display: 'flex', gap: 8 }}><input className="form-input" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addChecklist()} placeholder="Item do checklist" /><MicButton mic={micItem} /><button className="btn btn-secondary" onClick={addChecklist}>Adicionar</button></div></div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={loading} style={{ flex: 2, gap: 8 }}>
+            {loading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</> : 'Salvar Tarefa'}
+          </button>
+        </div>
       </div>
-      <div className="modal-actions"><button className="btn btn-ghost" onClick={onClose}>Fechar</button><button className="btn btn-secondary" disabled={loading} onClick={() => salvar(true)}>Salvar e adicionar outra</button><button className="btn btn-primary" disabled={loading} onClick={() => salvar(false)}>{loading ? <Loader size={14} /> : <Plus size={14} />} Enviar tarefa</button></div>
     </div>
-  </div>
+  )
 }
 
-function AcaoModal({ acao, onClose, onDone }: { acao: ModalAcao; onClose: () => void; onDone: (t: Tarefa) => void }) {
-  const [texto, setTexto] = useState('')
+// ── Modal de resposta de execução ─────────────────────────────────────────────
+function RespostaModal({ tarefa, onSave, onClose }: {
+  tarefa: Tarefa;
+  onSave: (t: Tarefa) => void;
+  onClose: () => void
+}) {
+  const [respostaStatus, setRespostaStatus] = useState<'concluida' | 'nao_concluida'>(
+    tarefa.resposta_status || 'concluida'
+  )
+  const [respostaObs, setRespostaObs] = useState(tarefa.resposta_obs || '')
   const [loading, setLoading] = useState(false)
-  const [historico, setHistorico] = useState<any[]>([])
-  const mic = useSpeechToText(t => setTexto(p => `${p}${p ? ' ' : ''}${t}`))
 
-  useEffect(() => {
-    if (acao?.tipo === 'historico') tarefasApi.historico(acao.tarefa.id).then(setHistorico).catch(() => setHistorico([]))
-  }, [acao])
-
-  if (!acao) return null
-  async function executar() {
-    if (!acao) return
-    if ((acao.tipo === 'nao_concluida' || acao.tipo === 'devolver') && !texto.trim()) { toast('Observação obrigatória.', 'error'); return }
+  async function handleSave() {
     setLoading(true)
     try {
-      const tarefa = acao.tipo === 'concluir'
-        ? await tarefasApi.setStatus(acao.tarefa.id, { status: 'concluida', observacao_conclusao: texto })
-        : acao.tipo === 'nao_concluida'
-          ? await tarefasApi.setStatus(acao.tarefa.id, { status: 'nao_concluida', motivo_nao_conclusao: texto })
-          : await tarefasApi.devolver(acao.tarefa.id, texto)
-      onDone(tarefa)
-      toast('Tarefa atualizada!')
-      onClose()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro na tarefa.', 'error')
+      const updated = await tarefasApi.responder(tarefa.id, {
+        resposta_status: respostaStatus,
+        resposta_obs: respostaObs || undefined,
+      })
+      onSave(updated)
+      toast('Resposta registrada!')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao registrar resposta', 'error')
     } finally { setLoading(false) }
   }
 
-  const titulo = acao.tipo === 'concluir' ? 'Concluir tarefa' : acao.tipo === 'nao_concluida' ? 'Marcar como não concluída' : acao.tipo === 'devolver' ? 'Devolver com ressalva' : 'Histórico da tarefa'
-  return <div className="modal-overlay" onClick={e => e.currentTarget === e.target && onClose()}>
-    <div className="modal-box" style={{ maxWidth: 560 }}>
-      <div className="modal-header"><div><div className="modal-title">{titulo}</div><div style={{ color: 'var(--text3)', fontSize: 12 }}>{acao.tarefa.titulo}</div></div><button className="modal-close" onClick={onClose}><X size={18} /></button></div>
-      {acao.tipo === 'historico' ? <div style={{ display: 'grid', gap: 8 }}>{historico.length === 0 ? <p style={{ color: 'var(--text3)' }}>Sem histórico registrado.</p> : historico.map(h => <div key={h.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong>{h.acao}</strong><div style={{ fontSize: 12, color: 'var(--text3)' }}>{h.status_anterior || '—'} → {h.status_novo || '—'} · {h.user_nome || 'Usuário'} · {new Date(h.created_at).toLocaleString('pt-BR')}</div>{h.observacao && <div style={{ marginTop: 6 }}>{h.observacao}</div>}</div>)}</div> : <label className="form-group"><span className="form-label">{acao.tipo === 'concluir' ? 'Observação opcional' : 'Observação obrigatória'}</span><div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><textarea className="form-input" rows={4} value={texto} onChange={e => setTexto(e.target.value)} placeholder="Digite ou use o microfone" /><MicButton mic={mic} /></div></label>}
-      <div className="modal-actions"><button className="btn btn-ghost" onClick={onClose}>Fechar</button>{acao.tipo !== 'historico' && <button className="btn btn-primary" disabled={loading} onClick={executar}>{loading ? <Loader size={14} /> : <CheckCircle2 size={14} />} Confirmar</button>}</div>
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 460, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 17 }}>Resposta de Execução</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 18, lineHeight: 1.5 }}>
+          <strong>{tarefa.titulo}</strong>
+        </p>
+
+        {/* Resultado */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+          <button
+            onClick={() => setRespostaStatus('concluida')}
+            style={{
+              padding: '12px 8px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 13,
+              background: respostaStatus === 'concluida' ? 'rgba(16,185,129,0.15)' : 'var(--bg3)',
+              border: respostaStatus === 'concluida' ? '2px solid #10B981' : '2px solid var(--border)',
+              color: respostaStatus === 'concluida' ? '#10B981' : 'var(--text2)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+            }}>
+            <CheckCircle2 size={22} />
+            Concluída
+          </button>
+          <button
+            onClick={() => setRespostaStatus('nao_concluida')}
+            style={{
+              padding: '12px 8px', borderRadius: 12, cursor: 'pointer', fontWeight: 700, fontSize: 13,
+              background: respostaStatus === 'nao_concluida' ? 'rgba(239,68,68,0.15)' : 'var(--bg3)',
+              border: respostaStatus === 'nao_concluida' ? '2px solid #EF4444' : '2px solid var(--border)',
+              color: respostaStatus === 'nao_concluida' ? '#EF4444' : 'var(--text2)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+            }}>
+            <XCircle size={22} />
+            Não Concluída
+          </button>
+        </div>
+
+        {/* Observação */}
+        <div className="form-group" style={{ marginBottom: 20 }}>
+          <label className="form-label">Observação {respostaStatus === 'nao_concluida' ? '(motivo)' : '(opcional)'}</label>
+          <textarea
+            className="form-input"
+            rows={3}
+            placeholder={respostaStatus === 'nao_concluida' ? 'Explique o motivo de não ter concluído…' : 'Alguma observação sobre a execução…'}
+            value={respostaObs}
+            onChange={e => setRespostaObs(e.target.value)}
+            style={{ resize: 'vertical', minHeight: 70 }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={loading} style={{ flex: 2 }}>
+            {loading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Enviando…</> : 'Enviar Resposta'}
+          </button>
+        </div>
+      </div>
     </div>
-  </div>
+  )
 }
 
+// ── Card de tarefa ─────────────────────────────────────────────────────────────
+function TarefaCard({ tarefa, userId, isGestor, onStatusChange, onEdit, onDelete, onChecklistToggle, onResponder }: {
+  tarefa: Tarefa; userId: string; isGestor: boolean;
+  onStatusChange: (id: string, status: Tarefa['status']) => void;
+  onEdit: (t: Tarefa) => void;
+  onDelete: (id: string) => void;
+  onChecklistToggle: (tarefa: Tarefa, itemId: string) => void;
+  onResponder: (t: Tarefa) => void;
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const pc = PRIORIDADE_CONFIG[tarefa.prioridade]
+  const sc = STATUS_CONFIG[tarefa.status]
+  const checkTotal = tarefa.checklist?.length || 0
+  const checkDone  = tarefa.checklist?.filter(i => i.feito).length || 0
+  const overdue    = isOverdue(tarefa.prazo) && tarefa.status !== 'concluida'
+  const isMeuaTarefa = tarefa.responsavel_id === userId
+  const temResposta = !!tarefa.resposta_status
+
+  return (
+    <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px' }}>
+        {/* Ícone de status */}
+        <div style={{ marginTop: 2, flexShrink: 0 }}>
+          {(() => { const Icon = sc.icon; return <Icon size={16} color={sc.color} /> })()}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 700, fontSize: 14, textDecoration: tarefa.status === 'concluida' ? 'line-through' : 'none', color: tarefa.status === 'concluida' ? 'var(--text3)' : 'var(--text)' }}>{tarefa.titulo}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: pc.color, background: pc.color + '18', padding: '2px 7px', borderRadius: 99 }}>{pc.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 7px', borderRadius: 99 }}>{sc.label}</span>
+            {/* Badge de resposta */}
+            {temResposta && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                background: tarefa.resposta_status === 'concluida' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                color: tarefa.resposta_status === 'concluida' ? '#10B981' : '#EF4444',
+              }}>
+                {tarefa.resposta_status === 'concluida' ? '✓ Confirmada' : '✗ Não concluída'}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+            {(tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>
+                <User size={12} /> {tarefa.responsavel_nome_perfil || tarefa.responsavel_nome}
+                {tarefa.responsavel_cargo && <span style={{ color: 'var(--text3)', fontSize: 11 }}> · {tarefa.responsavel_cargo}</span>}
+              </span>
+            )}
+            {tarefa.prazo && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: overdue ? '#EF4444' : 'var(--text3)', fontWeight: overdue ? 700 : 400 }}>
+                <Calendar size={12} /> {fmtDate(tarefa.prazo)}{isToday(tarefa.prazo) && ' · hoje'}{overdue && ' · vencida'}
+              </span>
+            )}
+            {checkTotal > 0 && <span style={{ fontSize: 12, color: 'var(--text3)' }}>{checkDone}/{checkTotal} itens</span>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Botão responder: aparece para o responsável da tarefa */}
+          {isMeuaTarefa && tarefa.status !== 'cancelada' && (
+            <button
+              onClick={() => onResponder(tarefa)}
+              title="Responder execução"
+              style={{ background: temResposta ? 'rgba(16,185,129,0.12)' : 'none', border: temResposta ? '1px solid #10B981' : 'none', borderRadius: 6, color: temResposta ? '#10B981' : 'var(--text3)', cursor: 'pointer', padding: 6 }}>
+              <MessageSquare size={15} />
+            </button>
+          )}
+          {isGestor && (
+            <>
+              <button onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}><Edit3 size={15} /></button>
+              <button onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 'none', color: '#EF4444', cursor: 'pointer', padding: 6 }}><Trash2 size={15} /></button>
+            </>
+          )}
+          {(tarefa.descricao || checkTotal > 0 || temResposta) && (
+            <button onClick={() => setExpanded(!expanded)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6 }}>
+              <ChevronDown size={16} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Seletor de status para membro (somente sua tarefa) */}
+      {!isGestor && isMeuaTarefa && (
+        <div style={{ padding: '0 16px 12px', display: 'flex', gap: 6 }}>
+          {(Object.keys(STATUS_CONFIG) as Tarefa['status'][]).map(s => (
+            <button key={s} onClick={() => onStatusChange(tarefa.id, s)}
+              style={{ flex: 1, padding: '5px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                background: tarefa.status === s ? STATUS_CONFIG[s].bg : 'var(--bg3)',
+                border: tarefa.status === s ? `1.5px solid ${STATUS_CONFIG[s].color}` : '1px solid var(--border)',
+                color: tarefa.status === s ? STATUS_CONFIG[s].color : 'var(--text3)' }}>
+              {STATUS_CONFIG[s].label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Expandido */}
+      {expanded && (
+        <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
+          {tarefa.descricao && <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginTop: 12, marginBottom: checkTotal > 0 ? 12 : 0 }}>{tarefa.descricao}</p>}
+          {checkTotal > 0 && (
+            <div>
+              {tarefa.checklist!.map(item => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <button onClick={() => onChecklistToggle(tarefa, item.id)}
+                    style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer', background: item.feito ? '#10B981' : 'transparent', border: `2px solid ${item.feito ? '#10B981' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {item.feito && <Check size={11} color="#fff" />}
+                  </button>
+                  <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none', color: item.feito ? 'var(--text3)' : 'var(--text)' }}>{item.texto}</span>
+                </div>
+              ))}
+              <div style={{ marginTop: 10, height: 4, background: 'var(--bg3)', borderRadius: 99 }}>
+                <div style={{ height: '100%', borderRadius: 99, background: '#10B981', width: `${checkTotal > 0 ? (checkDone / checkTotal) * 100 : 0}%`, transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          )}
+          {/* Resposta de execução (visível para gestor/sub_gestor) */}
+          {temResposta && (
+            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: tarefa.resposta_status === 'concluida' ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${tarefa.resposta_status === 'concluida' ? '#10B981' : '#EF4444'}30` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: tarefa.resposta_obs ? 6 : 0 }}>
+                <MessageSquare size={13} color={tarefa.resposta_status === 'concluida' ? '#10B981' : '#EF4444'} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: tarefa.resposta_status === 'concluida' ? '#10B981' : '#EF4444' }}>
+                  {tarefa.resposta_status === 'concluida' ? 'Responsável confirmou conclusão' : 'Responsável informou não conclusão'}
+                </span>
+                {tarefa.resposta_em && <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 'auto' }}>{fmtDateTime(tarefa.resposta_em)}</span>}
+              </div>
+              {tarefa.resposta_obs && <p style={{ fontSize: 12, color: 'var(--text2)', margin: 0, lineHeight: 1.5 }}>{tarefa.resposta_obs}</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
 export default function Tarefas() {
   const { user } = useAuth()
-  const isMembro = user?.role === 'membro'
-  const [tarefas, setTarefas] = useState<Tarefa[]>([])
-  const [membros, setMembros] = useState<MembroEquipe[]>([])
-  const [dashboard, setDashboard] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [modalNova, setModalNova] = useState(false)
-  const [acao, setAcao] = useState<ModalAcao>(null)
-  const [filtroStatus, setFiltroStatus] = useState<StatusFiltro>('')
-  const [filtroPrioridade, setFiltroPrioridade] = useState('')
-  const [filtroMembro, setFiltroMembro] = useState('')
+  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const [tarefas, setTarefas]       = useState<Tarefa[]>([])
+  const [membros, setMembros]       = useState<MembroEquipe[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [modalOpen, setModalOpen]   = useState(false)
+  const [editTarefa, setEditTarefa] = useState<Tarefa | null>(null)
+  const [respostaTarefa, setRespostaTarefa] = useState<Tarefa | null>(null)
+  const [filtroStatus, setFiltroStatus]       = useState('todos')
+  const [filtroPrioridade, setFiltroPrioridade] = useState('todos')
+  const [search, setSearch]         = useState('')
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [ts, dash, ms] = await Promise.all([tarefasApi.list(), tarefasApi.dashboard(), !isMembro ? equipeApi.membros() : Promise.resolve([])])
-      setTarefas(ts); setDashboard(dash); setMembros(ms)
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error') } finally { setLoading(false) }
-  }
-  useEffect(() => { load() }, [user?.role])
+      const [t, m] = await Promise.all([
+        tarefasApi.list(),
+        isGestor ? equipeApi.membros() : Promise.resolve([]),
+      ])
+      setTarefas(t)
+      setMembros(m)
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas', 'error')
+    } finally { setLoading(false) }
+  }, [isGestor])
 
-  const filtradas = useMemo(() => tarefas.filter(t => {
-    if (filtroStatus && t.status !== filtroStatus) return false
-    if (filtroPrioridade && t.prioridade !== filtroPrioridade) return false
-    if (filtroMembro && t.responsavel_id !== filtroMembro) return false
+  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const h = () => { setEditTarefa(null); setModalOpen(true) }
+    window.addEventListener('nexus:open-new', h)
+    return () => window.removeEventListener('nexus:open-new', h)
+  }, [])
+
+  async function handleStatusChange(id: string, status: Tarefa['status']) {
+    try {
+      const updated = await tarefasApi.update(id, { status })
+      setTarefas(p => p.map(t => t.id === id ? updated : t))
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+  async function handleDelete(id: string) {
+    if (!confirm('Excluir esta tarefa?')) return
+    try {
+      await tarefasApi.remove(id)
+      setTarefas(p => p.filter(t => t.id !== id))
+      toast('Tarefa excluída')
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+  async function handleChecklistToggle(tarefa: Tarefa, itemId: string) {
+    const newChecklist = (tarefa.checklist || []).map(i => i.id === itemId ? { ...i, feito: !i.feito } : i)
+    try {
+      const updated = await tarefasApi.update(tarefa.id, { checklist: newChecklist })
+      setTarefas(p => p.map(t => t.id === tarefa.id ? updated : t))
+    } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+  function handleSaved(saved: Tarefa) {
+    setTarefas(p => {
+      const idx = p.findIndex(t => t.id === saved.id)
+      if (idx >= 0) { const n = [...p]; n[idx] = saved; return n }
+      return [saved, ...p]
+    })
+    setModalOpen(false); setEditTarefa(null)
+  }
+  function handleRespostaSaved(updated: Tarefa) {
+    setTarefas(p => p.map(t => t.id === updated.id ? updated : t))
+    setRespostaTarefa(null)
+  }
+
+  const filtradas = tarefas.filter(t => {
+    if (filtroStatus !== 'todos' && t.status !== filtroStatus) return false
+    if (filtroPrioridade !== 'todos' && t.prioridade !== filtroPrioridade) return false
+    if (search && !t.titulo.toLowerCase().includes(search.toLowerCase()) &&
+        !(t.responsavel_nome_perfil || t.responsavel_nome || '').toLowerCase().includes(search.toLowerCase())) return false
     return true
-  }), [tarefas, filtroStatus, filtroPrioridade, filtroMembro])
+  })
 
-  async function iniciar(t: Tarefa) {
-    try { const up = await tarefasApi.setStatus(t.id, { status: 'em_progresso' }); setTarefas(p => p.map(x => x.id === up.id ? up : x)); toast('Tarefa iniciada!') } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao iniciar.', 'error') }
-  }
-  async function aprovar(t: Tarefa) {
-    try { const up = await tarefasApi.aprovar(t.id); setTarefas(p => p.map(x => x.id === up.id ? up : x)); toast('Tarefa aprovada!') } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao aprovar.', 'error') }
-  }
-  function upsert(t: Tarefa) { setTarefas(p => p.some(x => x.id === t.id) ? p.map(x => x.id === t.id ? t : x) : [t, ...p]) }
+  const statsData = [
+    { label: 'Total',       value: tarefas.length,                                          color: 'var(--text)' },
+    { label: 'Pendentes',   value: tarefas.filter(t => t.status === 'pendente').length,      color: '#F59E0B' },
+    { label: 'Em Progresso',value: tarefas.filter(t => t.status === 'em_progresso').length,  color: '#06B6D4' },
+    { label: 'Concluídas',  value: tarefas.filter(t => t.status === 'concluida').length,     color: '#10B981' },
+  ]
 
-  const resumo = dashboard?.resumo || {}
-
-  return <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 980, margin: '0 auto' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-      <div><h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 24, fontWeight: 900 }}>{isMembro ? 'Minhas tarefas' : 'Tarefas delegadas'}</h1><p style={{ color: 'var(--text3)', fontSize: 13 }}>{isMembro ? 'Execute e responda suas tarefas' : 'Acompanhe retornos, aprove ou devolva com ressalva'}</p></div>
-      <button className="btn btn-primary" onClick={() => setModalNova(true)}><Plus size={16} /> Nova tarefa</button>
-    </div>
-
-    <div className="grid-auto" style={{ marginBottom: 16 }}>
-      {[['Total', resumo.total], ['Pendentes', resumo.pendentes], ['Em progresso', resumo.em_progresso], ['Aguardando aprovação', resumo.aguardando_aprovacao], ['Não concluídas', resumo.nao_concluidas], ['Devolvidas', resumo.devolvidas], ['Aprovadas', resumo.aprovadas]].map(([label, value]) => <div key={label} className="stat-card"><div style={{ color: 'var(--text3)', fontSize: 12 }}>{label}</div><div style={{ fontSize: 24, fontWeight: 900 }}>{Number(value || 0)}</div></div>)}
-    </div>
-
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
-      <select className="form-input" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as StatusFiltro)}><option value="">Todos os status</option>{Object.keys(STATUS_LABEL).map(s => <option key={s} value={s}>{STATUS_LABEL[s as Tarefa['status']]}</option>)}</select>
-      <select className="form-input" value={filtroPrioridade} onChange={e => setFiltroPrioridade(e.target.value)}><option value="">Todas prioridades</option><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option></select>
-      {!isMembro && <select className="form-input" value={filtroMembro} onChange={e => setFiltroMembro(e.target.value)}><option value="">Todos membros</option>{membros.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>}
-    </div>
-
-    {loading ? <div style={{ color: 'var(--text3)', padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /> Carregando…</div> : <div style={{ display: 'grid', gap: 12 }}>
-      {filtradas.map(t => <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}><div style={{ minWidth: 0 }}><h3 style={{ fontSize: 16, fontWeight: 900, marginBottom: 4 }}>{t.titulo}</h3><p style={{ color: 'var(--text3)', fontSize: 13 }}>{t.descricao || 'Sem descrição'}</p></div><Pill status={t.status} /></div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, fontSize: 12, color: 'var(--text3)' }}><span><Clock size={13} /> Prazo: {fmtDate(t.prazo)}</span><span>Prioridade: {t.prioridade}</span>{t.responsavel_nome_perfil && <span>Responsável: {t.responsavel_nome_perfil}</span>}</div>
-        {t.ressalva_gestor && <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: 'rgba(139,92,246,.10)', color: 'var(--text2)', fontSize: 13 }}><strong>Ressalva:</strong> {t.ressalva_gestor}</div>}
-        {t.motivo_nao_conclusao && <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: 'rgba(239,68,68,.10)', fontSize: 13 }}><strong>Motivo:</strong> {t.motivo_nao_conclusao}</div>}
-        {t.observacao_conclusao && <div style={{ marginTop: 10, padding: 10, borderRadius: 10, background: 'rgba(16,185,129,.10)', fontSize: 13 }}><strong>Observação:</strong> {t.observacao_conclusao}</div>}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-          {isMembro ? <>
-            {t.status === 'pendente' && <button className="btn btn-secondary" onClick={() => iniciar(t)}><Play size={14} /> Iniciar</button>}
-            {(t.status === 'pendente' || t.status === 'em_progresso' || t.status === 'devolvida') && <button className="btn btn-primary" onClick={() => setAcao({ tipo: 'concluir', tarefa: t })}><CheckCircle2 size={14} /> {t.status === 'devolvida' ? 'Reenviar após correção' : 'Concluir'}</button>}
-            {(t.status === 'pendente' || t.status === 'em_progresso') && <button className="btn btn-danger" onClick={() => setAcao({ tipo: 'nao_concluida', tarefa: t })}><XCircle size={14} /> Não concluí</button>}
-          </> : <>
-            {(t.status === 'concluida' || t.status === 'nao_concluida') && <button className="btn btn-primary" onClick={() => aprovar(t)}><ThumbsUp size={14} /> Aprovar</button>}
-            {(t.status === 'concluida' || t.status === 'nao_concluida') && <button className="btn btn-secondary" onClick={() => setAcao({ tipo: 'devolver', tarefa: t })}><RotateCcw size={14} /> Devolver</button>}
-          </>}
-          <button className="btn btn-ghost" onClick={() => setAcao({ tipo: 'historico', tarefa: t })}><History size={14} /> Histórico</button>
+  return (
+    <div style={{ padding: '0 0 calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 12px' }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22, margin: 0 }}>Tarefas</h1>
+          <p style={{ fontSize: 12, color: 'var(--text3)', margin: 0 }}>{tarefas.length} tarefa{tarefas.length !== 1 ? 's' : ''}</p>
         </div>
-      </div>)}
-      {filtradas.length === 0 && <div style={{ color: 'var(--text3)', textAlign: 'center', padding: 40 }}>Nenhuma tarefa encontrada.</div>}
-    </div>}
+        {isGestor && (
+          <button className="btn btn-primary" onClick={() => { setEditTarefa(null); setModalOpen(true) }} style={{ gap: 6 }}>
+            <Plus size={16} /> Nova
+          </button>
+        )}
+      </div>
 
-    {modalNova && <NovaTarefaModal membros={membros} onClose={() => setModalNova(false)} onSaved={(t, manter) => { upsert(t); if (!manter) setModalNova(false) }} />}
-    <AcaoModal acao={acao} onClose={() => setAcao(null)} onDone={upsert} />
-  </div>
+      <div style={{ padding: '0 16px' }}>
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+          {statsData.map(s => (
+            <div key={s.label} style={{ background: 'var(--bg2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', padding: '12px 10px', textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: s.color, fontFamily: 'var(--font-heading)' }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Relatório rápido */}
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 16 }}>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Relatório rápido</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Hoje</div>
+              <div style={{ fontWeight: 900, color: '#06B6D4' }}>{tarefas.filter(t => t.status !== 'concluida' && isToday(t.prazo)).length}</div>
+            </div>
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Urgentes</div>
+              <div style={{ fontWeight: 900, color: '#EF4444' }}>{tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length}</div>
+            </div>
+            <div style={{ background: 'var(--bg3)', borderRadius: 10, padding: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Vencidas</div>
+              <div style={{ fontWeight: 900, color: '#F59E0B' }}>{tarefas.filter(t => t.status !== 'concluida' && isOverdue(t.prazo)).length}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filtros */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 2, minWidth: 160 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
+            <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar tarefas…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+            <option value="todos">Todos os status</option>
+            <option value="pendente">Pendente</option>
+            <option value="em_progresso">Em Progresso</option>
+            <option value="concluida">Concluída</option>
+            <option value="cancelada">Cancelada</option>
+          </select>
+          <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroPrioridade} onChange={e => setFiltroPrioridade(e.target.value)}>
+            <option value="todos">Todas prioridades</option>
+            <option value="alta">Alta</option>
+            <option value="media">Média</option>
+            <option value="baixa">Baixa</option>
+          </select>
+        </div>
+
+        {/* Lista */}
+        {loading ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}>
+            <Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando…
+          </div>
+        ) : filtradas.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
+            <CheckCircle2 size={48} style={{ marginBottom: 12 }} />
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhuma tarefa encontrada</div>
+            <div style={{ fontSize: 13 }}>{isGestor ? 'Crie uma nova tarefa acima' : 'Nenhuma tarefa atribuída a você ainda'}</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {filtradas.map(tarefa => (
+              <TarefaCard
+                key={tarefa.id}
+                tarefa={tarefa}
+                userId={user?.id || ''}
+                isGestor={isGestor}
+                onStatusChange={handleStatusChange}
+                onEdit={t => { setEditTarefa(t); setModalOpen(true) }}
+                onDelete={handleDelete}
+                onChecklistToggle={handleChecklistToggle}
+                onResponder={t => setRespostaTarefa(t)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modalOpen && (
+        <TarefaModal tarefa={editTarefa} membros={membros} onSave={handleSaved} onClose={() => { setModalOpen(false); setEditTarefa(null) }} />
+      )}
+      {respostaTarefa && (
+        <RespostaModal tarefa={respostaTarefa} onSave={handleRespostaSaved} onClose={() => setRespostaTarefa(null)} />
+      )}
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { transform: translateY(30px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+        @keyframes toastIn { from { opacity:0; transform:translateX(-50%) translateY(8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+      `}</style>
+    </div>
+  )
 }

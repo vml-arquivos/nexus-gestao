@@ -29,10 +29,10 @@ const NAV = [
 // Mantemos NAV no escopo global. BOTTOM_MAIN será calculado dentro do componente Layout.
 
 function iconeNotif(tipo: string) {
-  if (tipo === 'tarefa_concluida')     return <CheckCircle size={15} style={{ color: 'var(--color-success)', flexShrink: 0 }} />
-  if (tipo === 'tarefa_nao_concluida') return <XCircle size={15} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
-  if (tipo === 'tarefa_vencida')       return <AlertTriangle size={15} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />
-  return <Bell size={15} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+  if (tipo === 'tarefa_concluida')     return <CheckCircle size={15} style={{ color: 'var(--success)', flexShrink: 0 }} />
+  if (tipo === 'tarefa_nao_concluida') return <XCircle size={15} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+  if (tipo === 'tarefa_vencida')       return <AlertTriangle size={15} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+  return <Bell size={15} style={{ color: 'var(--primary)', flexShrink: 0 }} />
 }
 
 function tempoRelativo(iso: string) {
@@ -261,13 +261,13 @@ export default function Layout() {
                     width: naoLidas > 9 ? 18 : 16,
                     height: 16,
                     borderRadius: 99,
-                    background: 'var(--color-danger)',
+                    background: 'var(--danger)',
                     color: '#fff',
                     fontSize: 10,
                     fontWeight: 700,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     lineHeight: 1,
-                    border: '2px solid var(--color-surface)',
+                    border: '2px solid var(--bg2)',
                     animation: naoLidas > 0 ? 'pulse 2s infinite' : 'none',
                   }}>
                     {naoLidas > 99 ? '99+' : naoLidas}
@@ -281,9 +281,9 @@ export default function Layout() {
                   position: 'absolute',
                   top: 'calc(100% + 8px)',
                   right: 0,
-                  width: 340,
-                  maxHeight: 480,
-                  background: 'var(--color-surface)',
+                  width: 'min(340px, calc(100vw - 24px))',
+                  maxHeight: 'min(480px, calc(100dvh - var(--topbar-h) - var(--safe-top) - 24px))',
+                  background: 'var(--bg2)',
                   border: '1px solid var(--border)',
                   borderRadius: 16,
                   boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
@@ -302,7 +302,7 @@ export default function Layout() {
                       Notificações
                       {naoLidas > 0 && (
                         <span style={{
-                          marginLeft: 8, background: 'var(--color-danger)',
+                          marginLeft: 8, background: 'var(--danger)',
                           color: '#fff', borderRadius: 99, padding: '1px 7px', fontSize: 11,
                         }}>
                           {naoLidas}
@@ -314,7 +314,7 @@ export default function Layout() {
                         onClick={marcarTodasLidas}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
-                          color: 'var(--color-primary)', fontSize: 12, fontWeight: 600,
+                          color: 'var(--primary)', fontSize: 12, fontWeight: 600,
                         }}
                       >
                         Marcar todas lidas
@@ -327,7 +327,7 @@ export default function Layout() {
                     {notificacoes.length === 0 ? (
                       <div style={{
                         padding: '32px 16px', textAlign: 'center',
-                        color: 'var(--color-text-secondary)', fontSize: '0.85rem',
+                        color: 'var(--text3)', fontSize: '0.85rem',
                       }}>
                         <Bell size={32} style={{ opacity: 0.3, marginBottom: 8 }} />
                         <div>Nenhuma notificação</div>
@@ -347,7 +347,7 @@ export default function Layout() {
                             display: 'flex', alignItems: 'flex-start', gap: 10,
                             padding: '12px 16px',
                             borderBottom: '1px solid var(--border)',
-                            background: n.lida ? 'transparent' : 'var(--color-primary-dim)',
+                            background: n.lida ? 'transparent' : 'var(--primary-dim)',
                             cursor: n.referencia_id ? 'pointer' : 'default',
                             transition: 'background 0.15s',
                           }}
@@ -357,7 +357,7 @@ export default function Layout() {
                             <div style={{
                               fontWeight: n.lida ? 500 : 700,
                               fontSize: '0.82rem',
-                              color: 'var(--color-text-primary)',
+                              color: 'var(--text)',
                               marginBottom: 2,
                             }}>
                               {n.titulo}
@@ -365,7 +365,7 @@ export default function Layout() {
                             {n.body && (
                               <div style={{
                                 fontSize: '0.77rem',
-                                color: 'var(--color-text-secondary)',
+                                color: 'var(--text3)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -375,7 +375,7 @@ export default function Layout() {
                             )}
                           </div>
                           <div style={{
-                            fontSize: 11, color: 'var(--color-text-secondary)',
+                            fontSize: 11, color: 'var(--text3)',
                             flexShrink: 0, marginTop: 2,
                           }}>
                             {tempoRelativo(n.created_at)}
@@ -383,7 +383,7 @@ export default function Layout() {
                           {!n.lida && (
                             <div style={{
                               width: 8, height: 8, borderRadius: '50%',
-                              background: 'var(--color-primary)',
+                              background: 'var(--primary)',
                               flexShrink: 0, marginTop: 4,
                             }} />
                           )}
@@ -510,10 +510,10 @@ export default function Layout() {
               <span style={{
                 position: 'absolute', top: -4, right: -4,
                 width: 16, height: 16, borderRadius: 99,
-                background: 'var(--color-danger)', color: '#fff',
+                background: 'var(--danger)', color: '#fff',
                 fontSize: 9, fontWeight: 700,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                border: '2px solid var(--color-surface)',
+                border: '2px solid var(--bg2)',
               }}>
                 {naoLidas > 9 ? '9+' : naoLidas}
               </span>

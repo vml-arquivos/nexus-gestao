@@ -8,8 +8,8 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /**
- * Componente de botão reutilizável. Usa tokens de cor do design system.
- * Permite variantes, estado de loading e desativação.
+ * Botão reutilizável responsivo. Mantém identidade visual Nexus e
+ * usa os tokens globais de tema, sem cores hardcoded fora do necessário.
  */
 export default function Button({
   variant = 'primary',
@@ -17,29 +17,21 @@ export default function Button({
   disabled,
   children,
   className,
+  style,
   ...rest
 }: ButtonProps) {
   const variants: Record<ButtonVariant, React.CSSProperties> = {
-    primary: {
-      background: 'var(--primary)',
-      color: '#fff',
-    },
-    secondary: {
-      background: 'var(--secondary)',
-      color: '#fff',
-    },
-    danger: {
-      background: 'var(--danger)',
-      color: '#fff',
-    },
-    ghost: {
-      background: 'transparent',
-      color: 'var(--text)',
-    },
+    primary: { background: 'var(--primary)', color: 'var(--text-on-primary)' },
+    secondary: { background: 'var(--secondary)', color: 'var(--text-on-primary)' },
+    danger: { background: 'var(--danger)', color: 'var(--text-on-primary)' },
+    ghost: { background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)' },
   }
-  const style: React.CSSProperties = {
-    padding: '8px 16px',
-    fontSize: 14,
+
+  const baseStyle: React.CSSProperties = {
+    minHeight: 42,
+    minWidth: 0,
+    padding: 'clamp(8px, 1.6vw, 10px) clamp(12px, 2.2vw, 18px)',
+    fontSize: 'var(--text-sm)',
     borderRadius: 'var(--radius-sm)',
     border: 'none',
     cursor: disabled || loading ? 'not-allowed' : 'pointer',
@@ -48,12 +40,18 @@ export default function Button({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    whiteSpace: 'normal',
+    textAlign: 'center',
+    lineHeight: 1.2,
+    touchAction: 'manipulation',
     ...variants[variant],
+    ...style,
   }
+
   return (
     <button
       className={className}
-      style={style}
+      style={baseStyle}
       disabled={disabled || loading}
       {...rest}
     >
@@ -67,6 +65,7 @@ export default function Button({
             border: '2px solid currentColor',
             borderTopColor: 'transparent',
             animation: 'spin 1s linear infinite',
+            flexShrink: 0,
           }}
         />
       )}

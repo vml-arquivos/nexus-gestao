@@ -13,13 +13,11 @@ interface TableProps<T> {
   className?: string
 }
 
-/**
- * Tabela simples responsiva. Para tabelas complexas use uma biblioteca adequada.
- */
+/** Tabela simples com wrapper responsivo e scroll discreto no mobile. */
 export default function Table<T extends { [key: string]: any }>({ columns, data, keyField, className }: TableProps<T>) {
   return (
-    <div style={{ overflowX: 'auto' }} className={className}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }} className={`table-responsive ${className || ''}`.trim()}>
+      <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             {columns.map((col, idx) => (
@@ -27,11 +25,12 @@ export default function Table<T extends { [key: string]: any }>({ columns, data,
                 key={idx}
                 style={{
                   textAlign: 'left',
-                  padding: '8px 12px',
+                  padding: '10px 12px',
                   borderBottom: '1px solid var(--border2)',
-                  fontSize: 12,
+                  fontSize: 'var(--text-xs)',
                   color: 'var(--text2)',
-                  fontWeight: 600,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
                 }}
                 className={col.className}
               >
@@ -44,14 +43,11 @@ export default function Table<T extends { [key: string]: any }>({ columns, data,
           {data.map((row, rowIndex) => (
             <tr key={(keyField ? row[keyField] : rowIndex) as any}>
               {columns.map((col, colIndex) => {
-                const value =
-                  typeof col.accessor === 'function'
-                    ? col.accessor(row)
-                    : (row[col.accessor] as React.ReactNode)
+                const value = typeof col.accessor === 'function' ? col.accessor(row) : (row[col.accessor] as React.ReactNode)
                 return (
                   <td
                     key={colIndex}
-                    style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', fontSize: 13, color: 'var(--text)' }}
+                    style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', fontSize: 'var(--text-sm)', color: 'var(--text)', overflowWrap: 'anywhere' }}
                     className={col.className}
                   >
                     {value}
@@ -62,7 +58,7 @@ export default function Table<T extends { [key: string]: any }>({ columns, data,
           ))}
           {data.length === 0 && (
             <tr>
-              <td colSpan={columns.length} style={{ padding: '16px', textAlign: 'center', color: 'var(--text3)' }}>
+              <td colSpan={columns.length} style={{ padding: 18, textAlign: 'center', color: 'var(--text3)' }}>
                 Nenhum registro encontrado
               </td>
             </tr>
