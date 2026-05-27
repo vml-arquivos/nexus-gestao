@@ -22,6 +22,8 @@ import notificacoesRoutes  from './routes/notificacoes'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 
 const app = express()
+// Necessário em produção atrás do Coolify/Traefik para o express-rate-limit interpretar X-Forwarded-For corretamente.
+app.set('trust proxy', 1)
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
 const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
