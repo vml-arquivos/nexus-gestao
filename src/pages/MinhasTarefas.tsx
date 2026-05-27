@@ -40,12 +40,6 @@ const SC = {
   cancelada:    { label:'Cancelada',    color:'#6B7280', icon:XCircle,      bg:'rgba(107,114,128,0.12)'},
 } as const
 
-// Fallback seguro — nunca retorna undefined mesmo com status inesperado do backend
-function getSC(status: string) {
-  const map = SC as Record<string, typeof SC[keyof typeof SC] | undefined>
-  return map[status] ?? { label: status || 'Pendente', color:'#8B7EC8', icon:Clock, bg:'rgba(139,126,200,0.12)' }
-}
-
 const PC = {
   baixa: { label:'Baixa', color:'#10B981', bg:'rgba(16,185,129,0.1)' },
   media: { label:'Média', color:'#F59E0B', bg:'rgba(245,158,11,0.1)' },
@@ -106,8 +100,8 @@ function TarefaCard({ tarefa, userId, onStatus, onChecklist, onResponder }: {
 }) {
   const [expanded, setExpanded]   = useState(false)
   const [btnLoad, setBtnLoad]     = useState<string|null>(null)
-  const pri      = (PC as Record<string,any>)[tarefa.prioridade] ?? { label: tarefa.prioridade||"média", color:"#F59E0B", bg:"rgba(245,158,11,0.1)" }
-  const sc       = getSC(tarefa.status)
+  const pri      = PC[tarefa.prioridade]
+  const sc       = SC[tarefa.status]
   const Icon     = sc.icon
   const total    = tarefa.checklist?.length || 0
   const done     = tarefa.checklist?.filter(i=>i.feito).length || 0

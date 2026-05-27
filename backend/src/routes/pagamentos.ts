@@ -84,6 +84,29 @@ function compareNullableDates(a: unknown, b: unknown): number {
   return dateA.localeCompare(dateB)
 }
 
+
+function normalizeGroupPart(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildNaturalGroupKey(row: any): string {
+  const pessoa = row.pessoa_id || row.pessoa_nome_atual || row.pessoa_nome || 'sem-pessoa'
+  const valor = Number(row.valor || 0).toFixed(2)
+  return [
+    'natural',
+    normalizeGroupPart(row.titulo),
+    normalizeGroupPart(row.tipo),
+    normalizeGroupPart(row.categoria || 'sem-categoria'),
+    normalizeGroupPart(pessoa),
+    valor,
+  ].join('|')
+}
+
 // ── GET /api/pagamentos ──────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -103,6 +126,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
+
 // ── GET /api/pagamentos/resumo ───────────────────────────────────────────────
 router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -114,6 +138,7 @@ router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ error: 'Erro ao buscar resumo financeiro.' })
   }
 })
+
 
 // ── GET /api/pagamentos/por-pessoa ───────────────────────────────────────────
 router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => {
@@ -137,6 +162,7 @@ router.get('/por-pessoa', async (req: Request, res: Response): Promise<void> => 
     res.status(500).json({ error: 'Erro ao calcular por pessoa.' })
   }
 })
+
 
 // ── GET /api/pagamentos/grupos ───────────────────────────────────────────────
 // Retorna um card por dívida/crédito agrupado:
@@ -183,7 +209,9 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
     }>()
 
     for (const row of rows) {
-      const chave = row.grupo_id || `avulso:${row.id}`
+      // Registros novos possuem grupo_id. Registros antigos podem não ter.
+      // Para eles, agrupamos por chave natural: título + pessoa + tipo + categoria + valor.
+      const chave = row.grupo_id ? `grupo:${row.grupo_id}` : buildNaturalGroupKey(row)
       const isGrupo = !!row.grupo_id
 
       if (!gruposMap.has(chave)) {
@@ -257,6 +285,7 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({ error: 'Erro ao buscar grupos de pagamentos.' })
   }
 })
+
 
 // ── GET /api/pagamentos/grupo/:grupo_id ──────────────────────────────────────
 // Retorna todas as parcelas de um grupo específico

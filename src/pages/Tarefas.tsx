@@ -1,29 +1,38 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, MessageSquare } from 'lucide-react'
+import { Plus, CheckCircle2, Clock, AlertCircle, XCircle, Loader, ChevronDown, User, Calendar, Trash2, Edit3, Check, X, Search, MessageSquare, RotateCcw } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
-const STATUS_CONFIG: Record<string, { label:string; color:string; icon:any; bg:string }> = {
-  pendente:      { label: 'Pendente',       color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)'  },
-  em_progresso:  { label: 'Em Progresso',   color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'   },
-  concluida:     { label: 'Concluída',      color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)'  },
-  cancelada:     { label: 'Cancelada',      color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)' },
-  nao_concluida: { label: 'Não Concluída',  color: '#EF4444', icon: XCircle,      bg: 'rgba(239,68,68,0.12)'   },
-  devolvida:     { label: 'Devolvida',      color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)'  },
-}
-function getStatusConfig(status: string) {
-  return STATUS_CONFIG[status] ?? { label: status || 'Pendente', color: '#8B7EC8', icon: Clock, bg: 'rgba(139,126,200,0.12)' }
-}
+const STATUS_CONFIG = {
+  pendente:       { label: 'Pendente',       color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)' },
+  em_progresso:   { label: 'Em Progresso',   color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'  },
+  concluida:      { label: 'Concluída',      color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)' },
+  nao_concluida:  { label: 'Não concluída',  color: '#EF4444', icon: XCircle,      bg: 'rgba(239,68,68,0.12)' },
+  devolvida:      { label: 'Devolvida',      color: '#8B5CF6', icon: RotateCcw,    bg: 'rgba(139,92,246,0.12)' },
+  aprovada:       { label: 'Aprovada',       color: '#059669', icon: CheckCircle2, bg: 'rgba(5,150,105,0.12)' },
+  cancelada:      { label: 'Cancelada',      color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)'},
+} as const
 
-const PRIORIDADE_CONFIG: Record<string, { label:string; color:string }> = {
+const PRIORIDADE_CONFIG = {
   baixa: { label: 'Baixa', color: '#10B981' },
   media: { label: 'Média', color: '#F59E0B' },
   alta:  { label: 'Alta',  color: '#EF4444' },
+} as const
+
+const DEFAULT_STATUS_CONFIG = STATUS_CONFIG.pendente
+const DEFAULT_PRIORIDADE_CONFIG = PRIORIDADE_CONFIG.media
+
+function getStatusConfig(status?: string) {
+  return STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || DEFAULT_STATUS_CONFIG
 }
-function getPrioridadeConfig(p: string) {
-  return PRIORIDADE_CONFIG[p] ?? { label: p || 'Média', color: '#F59E0B' }
+
+function getPrioridadeConfig(prioridade?: string) {
+  return PRIORIDADE_CONFIG[prioridade as keyof typeof PRIORIDADE_CONFIG] || DEFAULT_PRIORIDADE_CONFIG
 }
+
+const MEMBER_STATUS_ACTIONS = ['pendente', 'em_progresso', 'concluida', 'nao_concluida'] as const
+
 
 function parseDateSafe(d?: string) {
   if (!d) return null
@@ -345,13 +354,13 @@ function TarefaCard({ tarefa, userId, isGestor, onStatusChange, onEdit, onDelete
       {/* Seletor de status para membro (somente sua tarefa) */}
       {!isGestor && isMeuaTarefa && (
         <div style={{ padding: '0 16px 12px', display: 'flex', gap: 6 }}>
-          {(Object.keys(STATUS_CONFIG) as Tarefa['status'][]).map(s => (
-            <button key={s} onClick={() => onStatusChange(tarefa.id, s)}
+          {MEMBER_STATUS_ACTIONS.map(s => (
+            <button key={s} onClick={() => onStatusChange(tarefa.id, s as Tarefa['status'])}
               style={{ flex: 1, padding: '5px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                background: tarefa.status === s ? STATUS_CONFIG[s].bg : 'var(--bg3)',
-                border: tarefa.status === s ? `1.5px solid ${STATUS_CONFIG[s].color}` : '1px solid var(--border)',
-                color: tarefa.status === s ? STATUS_CONFIG[s].color : 'var(--text3)' }}>
-              {STATUS_CONFIG[s].label}
+                background: tarefa.status === s ? getStatusConfig(s).bg : 'var(--bg3)',
+                border: tarefa.status === s ? `1.5px solid ${getStatusConfig(s).color}` : '1px solid var(--border)',
+                color: tarefa.status === s ? getStatusConfig(s).color : 'var(--text3)' }}>
+              {getStatusConfig(s).label}
             </button>
           ))}
         </div>

@@ -281,7 +281,7 @@ function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{g.titulo}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(100%, 320px)' }}>{g.titulo}</span>
               <span style={{ fontSize: 11, fontWeight: 700, color: chipColor, background: chipBg, borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>{chip}</span>
               {isGrupo && (
                 <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>
@@ -964,6 +964,142 @@ function PessoaCard({ r, onClick, onAddPagamento, onAddRecebimento }: {
 }
 
 // ── Card usando GrupoPagamento do backend ─────────────────────────────────────
+
+function normalizeDateValue(value: unknown): string | null {
+  if (!value) return null
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10)
+  if (typeof value === 'string') {
+    const v = value.trim()
+    return v ? v.slice(0, 10) : null
+  }
+  try {
+    const d = new Date(value as any)
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  } catch {
+    return null
+  }
+  return null
+}
+
+function compareNullableDates(a: unknown, b: unknown): number {
+  const da = normalizeDateValue(a)
+  const db = normalizeDateValue(b)
+  const ta = da ? new Date(`${da}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER
+  const tb = db ? new Date(`${db}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER
+  return ta - tb
+}
+
+function normalizeGroupPart(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildFinancialNaturalKey(g: GrupoPagamento): string {
+  const first = g.parcelas?.[0]
+  const pessoa = g.pessoa_id || g.pessoa_nome || first?.pessoa_id || first?.pessoa_nome || first?.pessoa_nome_atual || 'sem-pessoa'
+  const valorUnitario = Number(first?.valor ?? (g.num_parcelas ? Number(g.valor_total || 0) / Number(g.num_parcelas || 1) : g.valor_total || 0)).toFixed(2)
+
+  return [
+    'natural',
+    normalizeGroupPart(g.titulo || first?.titulo),
+    normalizeGroupPart(g.tipo || first?.tipo),
+    normalizeGroupPart(g.categoria || first?.categoria || 'sem-categoria'),
+    normalizeGroupPart(pessoa),
+    valorUnitario,
+  ].join('|')
+}
+
+function normalizarGruposFinanceiros(input: GrupoPagamento[]): GrupoPagamento[] {
+  const map = new Map<string, GrupoPagamento>()
+
+  for (const grupo of input || []) {
+    const key = grupo.grupo_id ? `grupo:${grupo.grupo_id}` : buildFinancialNaturalKey(grupo)
+    const parcelas = Array.isArray(grupo.parcelas) ? grupo.parcelas : []
+
+    if (!map.has(key)) {
+      map.set(key, {
+        ...grupo,
+        grupo_id: grupo.grupo_id || key,
+        parcelas: [...parcelas],
+        valor_total: Number(grupo.valor_total || 0),
+        valor_pago: Number(grupo.valor_pago || 0),
+        valor_pendente: Number(grupo.valor_pendente || 0),
+        num_parcelas: Number(grupo.num_parcelas || parcelas.length || 1),
+        parcelas_pagas: Number(grupo.parcelas_pagas || parcelas.filter(p => p.status === 'pago').length),
+        parcelas_pendentes: Number(grupo.parcelas_pendentes || parcelas.filter(p => p.status === 'pendente').length),
+        proxima_parcela: normalizeDateValue(grupo.proxima_parcela),
+        ultima_parcela: normalizeDateValue(grupo.ultima_parcela),
+        vencido: Boolean(grupo.vencido),
+        is_grupo: Boolean(grupo.is_grupo || parcelas.length > 1),
+      })
+      continue
+    }
+
+    const existente = map.get(key)!
+    const parcelasExistentes = new Map<string, Pagamento>()
+    for (const p of existente.parcelas || []) parcelasExistentes.set(p.id, p)
+    for (const p of parcelas) parcelasExistentes.set(p.id, p)
+    const todasParcelas = Array.from(parcelasExistentes.values()).sort((a, b) => {
+      const byNum = Number(a.num_parcela || 0) - Number(b.num_parcela || 0)
+      if (byNum !== 0) return byNum
+      return compareNullableDates(a.vencimento, b.vencimento)
+    })
+
+    const pagas = todasParcelas.filter(p => p.status === 'pago')
+    const pendentes = todasParcelas.filter(p => p.status === 'pendente')
+    const proxima = pendentes[0] || todasParcelas[0]
+    const ultima = [...todasParcelas].sort((a, b) => compareNullableDates(b.vencimento, a.vencimento))[0]
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    existente.parcelas = todasParcelas
+    existente.valor_total = todasParcelas.filter(p => p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor || 0), 0)
+    existente.valor_pago = pagas.reduce((s, p) => s + Number(p.valor || 0), 0)
+    existente.valor_pendente = pendentes.reduce((s, p) => s + Number(p.valor || 0), 0)
+    existente.num_parcelas = todasParcelas.length
+    existente.parcelas_pagas = pagas.length
+    existente.parcelas_pendentes = pendentes.length
+    existente.proxima_parcela = normalizeDateValue(proxima?.vencimento)
+    existente.ultima_parcela = normalizeDateValue(ultima?.vencimento)
+    existente.vencido = pendentes.some(p => compareNullableDates(p.vencimento, hoje) < 0)
+    existente.is_grupo = true
+  }
+
+  return Array.from(map.values()).map(g => {
+    const parcelas = [...(g.parcelas || [])].sort((a, b) => {
+      const byNum = Number(a.num_parcela || 0) - Number(b.num_parcela || 0)
+      if (byNum !== 0) return byNum
+      return compareNullableDates(a.vencimento, b.vencimento)
+    })
+    const pagas = parcelas.filter(p => p.status === 'pago')
+    const pendentes = parcelas.filter(p => p.status === 'pendente')
+    const proxima = pendentes[0] || parcelas[0]
+    const ultima = [...parcelas].sort((a, b) => compareNullableDates(b.vencimento, a.vencimento))[0]
+    const hoje = new Date().toISOString().slice(0, 10)
+
+    return {
+      ...g,
+      parcelas,
+      valor_total: parcelas.filter(p => p.status !== 'cancelado').reduce((s, p) => s + Number(p.valor || 0), 0),
+      valor_pago: pagas.reduce((s, p) => s + Number(p.valor || 0), 0),
+      valor_pendente: pendentes.reduce((s, p) => s + Number(p.valor || 0), 0),
+      num_parcelas: parcelas.length,
+      parcelas_pagas: pagas.length,
+      parcelas_pendentes: pendentes.length,
+      proxima_parcela: normalizeDateValue(proxima?.vencimento),
+      ultima_parcela: normalizeDateValue(ultima?.vencimento),
+      vencido: pendentes.some(p => compareNullableDates(p.vencimento, hoje) < 0),
+      is_grupo: Boolean(g.is_grupo || parcelas.length > 1),
+    }
+  }).sort((a, b) => {
+    if (a.vencido !== b.vencido) return a.vencido ? -1 : 1
+    return compareNullableDates(a.proxima_parcela, b.proxima_parcela)
+  })
+}
+
 function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
   g: GrupoPagamento
   onEdit: (p: Pagamento) => void
@@ -972,7 +1108,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
   onGerenciar: (g: GrupoPagamento) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const isGrupo = g.is_grupo
+  const isGrupo = Boolean(g.is_grupo || g.parcelas.length > 1)
   const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
   const sinal = g.tipo === 'recebimento' ? '+' : '-'
   const chip = g.vencido ? 'Vencido' : g.valor_pendente === 0 ? 'Pago' : 'Pendente'
@@ -986,7 +1122,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{g.titulo}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(100%, 320px)' }}>{g.titulo}</span>
               <span style={{ fontSize: 11, fontWeight: 700, color: chipColor, background: chipBg, borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>{chip}</span>
               {isGrupo && (
                 <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>
@@ -1060,7 +1196,11 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
       {/* Parcelas expandidas */}
       {isGrupo && expanded && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
-          {g.parcelas.map((p, i) => (
+          {[...g.parcelas].sort((a, b) => {
+            const byNum = Number(a.num_parcela || 0) - Number(b.num_parcela || 0)
+            if (byNum !== 0) return byNum
+            return compareNullableDates(a.vencimento, b.vencimento)
+          }).map((p, i) => (
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < g.parcelas.length - 1 ? '1px solid var(--border)' : 'none', background: p.status === 'pago' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
@@ -1115,7 +1255,7 @@ export default function Financeiro() {
         pagamentosApi.resumo(),
         pagamentosApi.porPessoa(),
       ])
-      setGrupos(gs)
+      setGrupos(normalizarGruposFinanceiros(gs))
       setPessoas(ps)
       setResumo(res)
       setPorPessoa(pp)
@@ -1277,7 +1417,7 @@ export default function Financeiro() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <TrendingDown size={16} color="#EF4444" />
                     <span style={{ fontWeight: 700, fontSize: 15, color: '#EF4444' }}>A Pagar</span>
-                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposPagar.length}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposPagar.length} registro{gruposPagar.length === 1 ? '' : 's'}</span>
                   </div>
                   <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 10px', gap: 4 }} onClick={() => openLancamento({ tipo: 'pagamento' })}>
                     <Plus size={13} /> Novo
@@ -1291,7 +1431,7 @@ export default function Financeiro() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {gruposPagar.map(g => (
                       <GrupoBetaCard
-                        key={g.grupo_id || g.parcelas[0]?.id}
+                        key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
@@ -1309,7 +1449,7 @@ export default function Financeiro() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <TrendingUp size={16} color="#10B981" />
                     <span style={{ fontWeight: 700, fontSize: 15, color: '#10B981' }}>A Receber</span>
-                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposReceber.length}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposReceber.length} registro{gruposReceber.length === 1 ? '' : 's'}</span>
                   </div>
                   <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 10px', gap: 4 }} onClick={() => openLancamento({ tipo: 'recebimento' })}>
                     <Plus size={13} /> Novo
@@ -1323,7 +1463,7 @@ export default function Financeiro() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {gruposReceber.map(g => (
                       <GrupoBetaCard
-                        key={g.grupo_id || g.parcelas[0]?.id}
+                        key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
