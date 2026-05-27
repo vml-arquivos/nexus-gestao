@@ -1,7 +1,7 @@
 /**
  * useNotificacoes.ts
  * Hook que mantém conexão SSE com o backend para receber notificações em tempo real.
- * Expõe lista de notificações, contagem de não lidas e funções de ação.
+ * Corrigido para NÃO duplicar /api nas chamadas REST.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiJson, getAccessToken } from '../lib/api'
@@ -20,9 +20,13 @@ export interface Notificacao {
 // ── Som de notificação gerado via Web Audio API (sem arquivo externo) ─────────
 function tocarSom(tipo: 'nova_tarefa' | 'concluida' | 'alerta' | 'lembrete') {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextClass) return
+
+    const ctx = new AudioContextClass()
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
+
     osc.connect(gain)
     gain.connect(ctx.destination)
 
@@ -56,16 +60,30 @@ function tocarSom(tipo: 'nova_tarefa' | 'concluida' | 'alerta' | 'lembrete') {
       osc.stop(agora + 0.3)
     }
 
-    osc.onended = () => ctx.close()
+    osc.onended = () => {
+      try {
+        ctx.close()
+      } catch {
+        // silencioso
+      }
+    }
   } catch {
     // Navegador sem suporte a Web Audio — silencioso
   }
 }
 
 function tipoParaSom(tipo: string): 'nova_tarefa' | 'concluida' | 'alerta' | 'lembrete' {
-  if (tipo === 'nova_tarefa') return 'nova_tarefa'
-  if (tipo === 'tarefa_concluida') return 'concluida'
-  if (tipo === 'tarefa_nao_concluida' || tipo === 'tarefa_vencida') return 'alerta'
+  if (tipo === 'nova_tarefa' || tipo === 'tarefa_criada') return 'nova_tarefa'
+  if (tipo === 'tarefa_concluida' || tipo === 'tarefa_aprovada') return 'concluida'
+
+  if (
+    tipo === 'tarefa_nao_concluida' ||
+    tipo === 'tarefa_vencida' ||
+    tipo === 'tarefa_devolvida'
+  ) {
+    return 'alerta'
+  }
+
   return 'lembrete'
 }
 
@@ -80,13 +98,22 @@ export function useNotificacoes() {
   // Carrega notificações iniciais
   const carregar = useCallback(async () => {
     try {
+      /**
+       * IMPORTANTE:
+       * apiJson já adiciona o prefixo /api.
+       * Portanto aqui deve ser /notificacoes, e NÃO /api/notificacoes.
+       *
+       * Errado:  apiJson('/api/notificacoes')  -> vira /api/api/notificacoes
+       * Correto: apiJson('/notificacoes')      -> vira /api/notificacoes
+       */
       const data = await apiJson<{ notificacoes: Notificacao[]; nao_lidas: number }>(
-        '/api/notificacoes'
+        '/notificacoes'
       )
-      setNotificacoes(data.notificacoes)
-      setNaoLidas(data.nao_lidas)
+
+      setNotificacoes(Array.isArray(data.notificacoes) ? data.notificacoes : [])
+      setNaoLidas(Number(data.nao_lidas || 0))
     } catch {
-      // Silencioso — não bloqueia a UI
+      // Silencioso — notificações não podem bloquear a UI
     }
   }, [])
 
@@ -94,12 +121,15 @@ export function useNotificacoes() {
   const adicionarNotificacao = useCallback((n: Notificacao) => {
     setNotificacoes(prev => [n, ...prev.slice(0, 49)])
     setNaoLidas(prev => prev + 1)
+
     // Toast visual
     setToasts(prev => [...prev, n])
+
     // Remove toast após 6s
-    setTimeout(() => {
+    window.setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== n.id))
     }, 6000)
+
     // Som
     tocarSom(tipoParaSom(n.tipo))
   }, [])
@@ -109,38 +139,38 @@ export function useNotificacoes() {
     const token = getAccessToken()
     if (!token) return
 
-    const url = `/api/notificacoes/stream`
+    /**
+     * EventSource não aceita header Authorization.
+     * Por isso mantemos a URL real do backend com /api uma única vez.
+     */
+    const url = `/api/notificacoes/stream?_t=${encodeURIComponent(token)}`
     const es = new EventSource(url, { withCredentials: false })
 
-    // EventSource não suporta headers — usamos cookie de sessão ou query param
-    // Como usamos Bearer token, precisamos de uma abordagem alternativa:
-    // Passamos o token como query param (seguro pois é HTTPS)
-    const esWithToken = new EventSource(
-      `/api/notificacoes/stream?_t=${encodeURIComponent(token)}`
-    )
-    es.close()
-
-    esWithToken.addEventListener('notificacao', (e: MessageEvent) => {
+    es.addEventListener('notificacao', (e: MessageEvent) => {
       try {
         const notif: Notificacao = JSON.parse(e.data)
         adicionarNotificacao(notif)
-      } catch { /* ignore */ }
+      } catch {
+        // ignora payload inválido
+      }
     })
 
-    esWithToken.onerror = () => {
-      esWithToken.close()
+    es.onerror = () => {
+      es.close()
       sseRef.current = null
+
       // Tenta reconectar após 5s
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
       reconectarRef.current = setTimeout(conectarSse, 5000)
     }
 
-    sseRef.current = esWithToken
+    sseRef.current = es
   }, [adicionarNotificacao])
 
   useEffect(() => {
     carregar()
     conectarSse()
+
     return () => {
       sseRef.current?.close()
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
@@ -150,19 +180,27 @@ export function useNotificacoes() {
   // Marcar uma como lida
   const marcarLida = useCallback(async (id: string) => {
     try {
-      await apiJson(`/api/notificacoes/${id}/ler`, { method: 'PATCH' })
-      setNotificacoes(prev => prev.map(n => n.id === id ? { ...n, lida: true } : n))
+      await apiJson(`/notificacoes/${id}/ler`, { method: 'PATCH' })
+
+      setNotificacoes(prev =>
+        prev.map(n => (n.id === id ? { ...n, lida: true } : n))
+      )
       setNaoLidas(prev => Math.max(0, prev - 1))
-    } catch { /* ignore */ }
+    } catch {
+      // silencioso
+    }
   }, [])
 
   // Marcar todas como lidas
   const marcarTodasLidas = useCallback(async () => {
     try {
-      await apiJson('/api/notificacoes/ler-todas', { method: 'PATCH' })
+      await apiJson('/notificacoes/ler-todas', { method: 'PATCH' })
+
       setNotificacoes(prev => prev.map(n => ({ ...n, lida: true })))
       setNaoLidas(0)
-    } catch { /* ignore */ }
+    } catch {
+      // silencioso
+    }
   }, [])
 
   // Fechar toast manualmente
@@ -170,5 +208,13 @@ export function useNotificacoes() {
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
-  return { notificacoes, naoLidas, toasts, marcarLida, marcarTodasLidas, fecharToast, carregar }
+  return {
+    notificacoes,
+    naoLidas,
+    toasts,
+    marcarLida,
+    marcarTodasLidas,
+    fecharToast,
+    carregar,
+  }
 }
