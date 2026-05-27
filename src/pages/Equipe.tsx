@@ -31,10 +31,13 @@ function Avatar({ nome, size = 40, color = 'var(--primary)' }: { nome: string; s
   )
 }
 
-const ROLE_CONFIG = {
+const ROLE_CONFIG: Record<string, { label:string; icon:any; color:string; bg:string }> = {
   gestor:     { label: 'Gestor',     icon: Crown,  color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
   sub_gestor: { label: 'Gerente',    icon: Shield, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' },
   membro:     { label: 'Membro',     icon: User,   color: '#06B6D4', bg: 'rgba(6,182,212,0.12)'  },
+}
+function getRoleConfig(role: string) {
+  return ROLE_CONFIG[role] ?? ROLE_CONFIG['membro']
 }
 
 // ── Modal de Nova Tarefa para Membro ──────────────────────────────────────────
@@ -361,7 +364,7 @@ function CardMembro({
   onRemover: (m: MembroEquipe) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const rc = ROLE_CONFIG[membro.role] || ROLE_CONFIG.membro
+  const rc = getRoleConfig(membro.role)
   const RoleIcon = rc.icon
   const total = membro.tarefas_pendentes + membro.tarefas_concluidas
   const pct = total > 0 ? Math.round((membro.tarefas_concluidas / total) * 100) : 0
