@@ -92,16 +92,46 @@ CREATE TABLE IF NOT EXISTS tarefas (
   created_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
--- Adiciona colunas de resposta em bancos já existentes (idempotente)
+-- Ajustes idempotentes do fluxo completo de tarefas
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','aprovada','cancelada'));
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status TEXT CHECK (resposta_status IN ('concluida','nao_concluida'));
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs    TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em     TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT 'aguardando';
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS tarefas_historico (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  tarefa_id       UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  user_id         UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  acao            TEXT NOT NULL,
+  status_anterior TEXT,
+  status_novo     TEXT,
+  observacao      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
 
 CREATE INDEX IF NOT EXISTS idx_tarefas_org         ON tarefas(org_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel ON tarefas(responsavel_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status      ON tarefas(status);
 CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
+CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
+CREATE INDEX IF NOT EXISTS idx_tarefas_historico_tarefa ON tarefas_historico(tarefa_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_historico_org ON tarefas_historico(org_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_historico_user ON tarefas_historico(user_id);
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

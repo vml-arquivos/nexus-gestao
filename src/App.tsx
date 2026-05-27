@@ -8,7 +8,6 @@ import Pessoas from './pages/Pessoas'
 import Equipe from './pages/Equipe'
 import Equipes from './pages/Equipes'
 import Tarefas from './pages/Tarefas'
-import MinhasTarefas from './pages/MinhasTarefas'
 import Agenda from './pages/Agenda'
 import Financeiro from './pages/Financeiro'
 import Documentos from './pages/Documentos'
@@ -53,9 +52,9 @@ export default function App() {
         {/* Equipe/Equipes: apenas gestor ou subgestor visualiza. Membro não acessa */}
         <Route path="equipe"    element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Equipe /> : <Navigate to="/" replace />} />
         <Route path="equipes"   element={user?.role === 'gestor' ? <Equipes /> : <Navigate to="/" replace />} />
-        {/* Tarefas: gestores e subgestores veem todas as suas tarefas criadas, membros acessam MinhasTarefas */}
-        <Route path="tarefas"   element={user?.role === 'membro' ? <Navigate to="/minhas-tarefas" replace /> : <Tarefas />} />
-        <Route path="minhas-tarefas" element={user?.role === 'membro' ? <MinhasTarefas /> : <Navigate to="/tarefas" replace />} />
+        {/* Tarefas: a própria tela adapta o fluxo conforme a role */}
+        <Route path="tarefas"   element={<Tarefas />} />
+        <Route path="minhas-tarefas" element={<Tarefas />} />
         {/* Agenda: cada usuário tem sua agenda pessoal; membros podem acessar sua agenda */}
         <Route path="agenda"    element={<Agenda />} />
         {/* Financeiro e documentos são privados por usuário; membros acessam somente seus próprios dados */}
