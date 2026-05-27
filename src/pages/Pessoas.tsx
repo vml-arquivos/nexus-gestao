@@ -17,13 +17,16 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
   setTimeout(() => el.remove(), 3000)
 }
 
-const TIPO_CONFIG = {
+const TIPO_CONFIG: Record<string, { label:string; color:string; icon:any }> = {
   funcionario: { label: 'Funcionário', color: '#7C3AED', icon: Briefcase },
   prestador:   { label: 'Prestador',   color: '#06B6D4', icon: Wrench },
   credor:      { label: 'Credor',      color: '#EF4444', icon: WalletCards },
   devedor:     { label: 'Devedor',     color: '#F59E0B', icon: CircleDollarSign },
   cliente:     { label: 'Cliente',     color: '#10B981', icon: Handshake },
-} as const
+}
+function getTipoConfig(tipo: string) {
+  return TIPO_CONFIG[tipo] ?? TIPO_CONFIG['cliente']
+}
 
 function PessoaModal({ initial, onSave, onClose }: {
   initial?: Pessoa; onSave: (p: Pessoa) => void; onClose: () => void
@@ -338,7 +341,7 @@ export default function Pessoas() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filtradas.map(p => {
-                const tc = TIPO_CONFIG[p.tipo as keyof typeof TIPO_CONFIG] || TIPO_CONFIG.funcionario
+                const tc = getTipoConfig(p.tipo)
                 const TipoIcon = tc.icon
                 return (
                   <div key={p.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
