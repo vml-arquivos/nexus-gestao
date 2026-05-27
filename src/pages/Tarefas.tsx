@@ -4,18 +4,26 @@ import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistIt
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
-const STATUS_CONFIG = {
-  pendente:     { label: 'Pendente',      color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)' },
-  em_progresso: { label: 'Em Progresso',  color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'  },
-  concluida:    { label: 'Concluída',     color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)' },
-  cancelada:    { label: 'Cancelada',     color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)'},
-} as const
+const STATUS_CONFIG: Record<string, { label:string; color:string; icon:any; bg:string }> = {
+  pendente:      { label: 'Pendente',       color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)'  },
+  em_progresso:  { label: 'Em Progresso',   color: '#06B6D4', icon: AlertCircle,  bg: 'rgba(6,182,212,0.12)'   },
+  concluida:     { label: 'Concluída',      color: '#10B981', icon: CheckCircle2, bg: 'rgba(16,185,129,0.12)'  },
+  cancelada:     { label: 'Cancelada',      color: '#6B7280', icon: XCircle,      bg: 'rgba(107,114,128,0.12)' },
+  nao_concluida: { label: 'Não Concluída',  color: '#EF4444', icon: XCircle,      bg: 'rgba(239,68,68,0.12)'   },
+  devolvida:     { label: 'Devolvida',      color: '#F59E0B', icon: Clock,        bg: 'rgba(245,158,11,0.12)'  },
+}
+function getStatusConfig(status: string) {
+  return STATUS_CONFIG[status] ?? { label: status || 'Pendente', color: '#8B7EC8', icon: Clock, bg: 'rgba(139,126,200,0.12)' }
+}
 
-const PRIORIDADE_CONFIG = {
+const PRIORIDADE_CONFIG: Record<string, { label:string; color:string }> = {
   baixa: { label: 'Baixa', color: '#10B981' },
   media: { label: 'Média', color: '#F59E0B' },
   alta:  { label: 'Alta',  color: '#EF4444' },
-} as const
+}
+function getPrioridadeConfig(p: string) {
+  return PRIORIDADE_CONFIG[p] ?? { label: p || 'Média', color: '#F59E0B' }
+}
 
 function parseDateSafe(d?: string) {
   if (!d) return null
@@ -264,8 +272,8 @@ function TarefaCard({ tarefa, userId, isGestor, onStatusChange, onEdit, onDelete
   onResponder: (t: Tarefa) => void;
 }) {
   const [expanded, setExpanded] = useState(false)
-  const pc = PRIORIDADE_CONFIG[tarefa.prioridade]
-  const sc = STATUS_CONFIG[tarefa.status]
+  const pc = getPrioridadeConfig(tarefa.prioridade)
+  const sc = getStatusConfig(tarefa.status)
   const checkTotal = tarefa.checklist?.length || 0
   const checkDone  = tarefa.checklist?.filter(i => i.feito).length || 0
   const overdue    = isOverdue(tarefa.prazo) && tarefa.status !== 'concluida'
