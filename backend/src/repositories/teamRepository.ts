@@ -1,114 +1,107 @@
 import { query, queryOne } from '../db/pool'
 
-/**
- * Repositório de equipes. Responsável por todas as operações de leitura e
- * escrita relacionadas às tabelas `equipes` e `equipes_membros`. Ao
- * encapsular o acesso ao banco neste módulo isolado, reduzimos o
- * acoplamento entre as rotas/serviços e a camada de persistência e
- * facilitamos testes unitários.
- */
 export class TeamRepository {
-  /**
-   * Lista todas as equipes de uma organização e conta quantos membros
-   * cada uma possui. As equipes são ordenadas alfabeticamente.
-   *
-   * @param orgId Identificador da organização
-   */
-  static async list(orgId: string, userId: string) {
-    // Lista equipes criadas pelo usuário. Não expõe equipes de outros gestores.
+  static async list(orgId: string, criadoPor: string) {
     const sql = `
-      SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at,
-             COUNT(em.profile_id) AS members_count
+      SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at, e.updated_at,
+             COUNT(em.user_id) FILTER (WHERE COALESCE(em.ativo, TRUE) = TRUE) AS members_count
       FROM equipes e
-      LEFT JOIN equipes_membros em ON em.equipe_id = e.id
+      LEFT JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id
       WHERE e.org_id = $1 AND e.criado_por = $2
       GROUP BY e.id
       ORDER BY e.nome ASC
     `
-    const result = await query(sql, [orgId, userId])
-    return result
+    return query(sql, [orgId, criadoPor])
   }
 
-  /**
-   * Cria uma nova equipe e retorna o registro inserido.
-   *
-   * @param orgId     Organização responsável pela equipe
-   * @param nome      Nome da equipe
-   * @param descricao Descrição opcional
-   * @param criadoPor Identificador do usuário que está criando
-   */
+  static async detail(orgId: string, criadoPor: string, equipeId: string) {
+    return queryOne(
+      `SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at, e.updated_at,
+              COUNT(em.user_id) FILTER (WHERE COALESCE(em.ativo, TRUE) = TRUE) AS members_count
+       FROM equipes e
+       LEFT JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id
+       WHERE e.id = $1 AND e.org_id = $2 AND e.criado_por = $3
+       GROUP BY e.id`,
+      [equipeId, orgId, criadoPor]
+    )
+  }
+
   static async create(orgId: string, nome: string, descricao: string | undefined, criadoPor: string) {
-    const sql = `
-      INSERT INTO equipes (org_id, nome, descricao, criado_por)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `
-    const equipe = await queryOne(sql, [orgId, nome.trim(), descricao || null, criadoPor])
-    return equipe
+    return queryOne(
+      `INSERT INTO equipes (org_id, nome, descricao, criado_por)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [orgId, nome.trim(), descricao || null, criadoPor]
+    )
   }
 
-  /**
-   * Lista os membros de uma equipe. Retorna informações básicas de cada
-   * membro, incluindo quantidade de tarefas pendentes e concluídas. A
-   * contagem de tarefas é feita com base no org_id fornecido para que
-   * apenas tarefas daquela organização sejam consideradas.
-   *
-   * @param orgId   Organização
-   * @param equipeId Equipe
-   */
-  static async members(orgId: string, equipeId: string) {
+  static async update(orgId: string, criadoPor: string, equipeId: string, data: { nome?: string; descricao?: string | null }) {
+    const updates: string[] = []
+    const params: unknown[] = []
+    let idx = 1
+    if (data.nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(data.nome.trim()) }
+    if (data.descricao !== undefined) { updates.push(`descricao = $${idx++}`); params.push(data.descricao || null) }
+    if (!updates.length) return null
+    params.push(equipeId, orgId, criadoPor)
+    return queryOne(
+      `UPDATE equipes SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = $${idx++} AND org_id = $${idx++} AND criado_por = $${idx}
+       RETURNING *`,
+      params
+    )
+  }
+
+  static async members(orgId: string, criadoPor: string, equipeId: string) {
     const sql = `
-      SELECT p.id, p.nome, p.email, p.role, p.avatar_url,
-             COUNT(DISTINCT t.id) FILTER (WHERE t.status != 'concluida' AND t.responsavel_id = p.id) AS tarefas_pendentes,
-             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'concluida'   AND t.responsavel_id = p.id) AS tarefas_concluidas
-      FROM equipes_membros em
-      JOIN profiles p ON p.id = em.profile_id
-      LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = $1
-      WHERE em.equipe_id = $2
-      GROUP BY p.id
+      SELECT p.id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.ativo,
+             em.role_na_equipe, em.created_at AS membro_desde,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'pendente' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_pendentes,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'concluida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_concluidas,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.resposta_status = 'nao_concluida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_nao_concluidas,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'devolvida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_devolvidas
+      FROM equipes e
+      JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id AND COALESCE(em.ativo, TRUE) = TRUE
+      JOIN profiles p ON p.id = em.user_id AND p.org_id = e.org_id
+      LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = e.org_id
+      WHERE e.id = $1 AND e.org_id = $3 AND e.criado_por = $2
+      GROUP BY p.id, em.role_na_equipe, em.created_at
       ORDER BY p.nome ASC
     `
-    const membros = await query(sql, [orgId, equipeId])
-    return membros
+    return query(sql, [equipeId, criadoPor, orgId])
   }
 
-  /**
-   * Adiciona uma lista de membros a uma equipe. Aceita um array de IDs
-   * (UUIDs) de perfis e insere cada par (equipe_id, profile_id). Caso
-   * alguma combinação já exista, ela é ignorada via ON CONFLICT DO
-   * NOTHING. O método retorna void.
-   *
-   * @param equipeId Identificador da equipe
-   * @param memberIds Lista de IDs de perfis
-   */
-  static async addMembers(equipeId: string, memberIds: string[]) {
-    if (!memberIds || memberIds.length === 0) return
-    // Constrói um array de valores para inserção. O PostgreSQL permite
-    // inserir múltiplas linhas com syntaxe VALUES. Usamos ON CONFLICT
-    // para evitar duplicidades na chave composta (equipe_id, profile_id).
-    const values: string[] = []
-    const params: any[] = []
-    memberIds.forEach((id, idx) => {
-      values.push(`($1, $${idx + 2})`)
-      params.push(id)
-    })
-    const sql = `
-      INSERT INTO equipes_membros (equipe_id, profile_id)
-      VALUES ${values.join(',')}
-      ON CONFLICT DO NOTHING
-    `
-    await query(sql, [equipeId, ...params])
-  }
-
-  /**
-   * Valida se um usuário pode ser membro de uma equipe do gestor.
-   * Apenas perfis da mesma organização criados pelo gestor são permitidos.
-   */
   static async validateMember(orgId: string, gestorId: string, memberId: string): Promise<boolean> {
-    const sql = `SELECT 1
-                 FROM profiles
-                 WHERE id = $1 AND org_id = $2 AND criado_por = $3 AND ativo = TRUE`;
-    const result = await queryOne(sql, [memberId, orgId, gestorId]);
-    return !!result;
+    const result = await queryOne(
+      `SELECT 1 FROM profiles
+       WHERE id = $1 AND org_id = $2 AND ativo = TRUE AND (id = $3 OR criado_por = $3 OR role IN ('membro','sub_gestor'))`,
+      [memberId, orgId, gestorId]
+    )
+    return !!result
+  }
+
+  static async addMembers(orgId: string, equipeId: string, memberIds: string[], criadoPor: string) {
+    for (const memberId of memberIds) {
+      await query(
+        `INSERT INTO equipes_membros (org_id, equipe_id, user_id, profile_id, role_na_equipe, criado_por, ativo)
+         VALUES ($1,$2,$3,$3,'membro',$4,TRUE)
+         ON CONFLICT (equipe_id, user_id) DO UPDATE SET ativo = TRUE`,
+        [orgId, equipeId, memberId, criadoPor]
+      )
+    }
+  }
+
+  static async removeMember(orgId: string, criadoPor: string, equipeId: string, userId: string) {
+    return queryOne(
+      `UPDATE equipes_membros em
+       SET ativo = FALSE
+       FROM equipes e
+       WHERE em.equipe_id = e.id
+         AND em.user_id = $1
+         AND em.equipe_id = $2
+         AND em.org_id = $3
+         AND e.criado_por = $4
+       RETURNING em.user_id`,
+      [userId, equipeId, orgId, criadoPor]
+    )
   }
 }

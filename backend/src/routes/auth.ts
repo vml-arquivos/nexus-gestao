@@ -296,39 +296,130 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response): Prom
   }
 })
 
-// ── CONVIDAR MEMBRO ───────────────────────────────────────────────────────────
-// POST /api/auth/invite  (somente gestor)
-// Body: { email, nome, senha }  — gestor cria conta para o membro da sua org
+
+// ── CONVITE POR LINK ─────────────────────────────────────────────────────────
+// POST /api/auth/invite
+// Body: { nome?, email?, role?, cargo? }
 router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (req.user!.role !== 'gestor') {
-      res.status(403).json({ error: 'Apenas gestores podem convidar membros.' })
+    if (req.user!.role !== 'gestor' && req.user!.role !== 'sub_gestor') {
+      res.status(403).json({ error: 'Apenas gestores ou subgestores podem convidar usuários.' })
       return
     }
 
-    const { nome, email, senha } = req.body
-    if (!nome || !email || !senha) {
-      res.status(400).json({ error: 'Nome, e-mail e senha são obrigatórios.' })
+    const role = req.body.role === 'sub_gestor' ? 'sub_gestor' : 'membro'
+    if (req.user!.role === 'sub_gestor' && role !== 'membro') {
+      res.status(403).json({ error: 'Subgestor só pode convidar membros.' })
       return
     }
 
-    const existing = await queryOne('SELECT id FROM profiles WHERE email = $1', [email.toLowerCase()])
-    if (existing) {
+    const email = req.body.email ? String(req.body.email).toLowerCase().trim() : null
+    const nome = req.body.nome ? String(req.body.nome).trim() : null
+    const cargo = req.body.cargo || null
+    if (email) {
+      const existing = await queryOne('SELECT id FROM profiles WHERE email = $1', [email])
+      if (existing) {
+        res.status(409).json({ error: 'E-mail já cadastrado.' })
+        return
+      }
+    }
+
+    const token = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '')
+    const convite = await queryOne(
+      `INSERT INTO convites (org_id, criado_por, nome, email, role, cargo, token, usado, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,FALSE,NOW() + INTERVAL '7 days')
+       RETURNING id, org_id, nome, email, role, cargo, token, expires_at, created_at`,
+      [req.user!.orgId, req.user!.userId, nome, email, role, cargo, token]
+    )
+    const base = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
+    const link = `${base.replace(/\/$/, '')}/convite/${token}`
+    res.status(201).json({ convite, link })
+  } catch (err) {
+    console.error('[AUTH] Erro no convite:', err)
+    res.status(500).json({ error: 'Erro interno do servidor.' })
+  }
+})
+
+// GET /api/auth/invite/:token — dados públicos do convite
+router.get('/invite/:token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const convite = await queryOne(
+      `SELECT c.id, c.nome, c.email, c.role, c.cargo, c.expires_at, c.usado, o.nome AS org_nome
+       FROM convites c
+       JOIN organizacoes o ON o.id = c.org_id
+       WHERE c.token = $1`,
+      [req.params.token]
+    )
+    if (!convite || (convite as any).usado || new Date((convite as any).expires_at) < new Date()) {
+      res.status(404).json({ error: 'Convite inválido ou expirado.' })
+      return
+    }
+    res.json({ convite })
+  } catch (err) {
+    console.error('[AUTH] Erro ao consultar convite:', err)
+    res.status(500).json({ error: 'Erro interno do servidor.' })
+  }
+})
+
+// POST /api/auth/accept-invite
+// Body: { token, nome?, email?, senha }
+router.post('/accept-invite', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, senha } = req.body
+    const nomeBody = req.body.nome ? String(req.body.nome).trim() : null
+    const emailBody = req.body.email ? String(req.body.email).toLowerCase().trim() : null
+    if (!token || !senha || String(senha).length < 6) {
+      res.status(400).json({ error: 'Token e senha com pelo menos 6 caracteres são obrigatórios.' })
+      return
+    }
+
+    const convite = await queryOne<any>(
+      `SELECT * FROM convites WHERE token = $1`,
+      [token]
+    )
+    if (!convite || convite.usado || new Date(convite.expires_at) < new Date()) {
+      res.status(404).json({ error: 'Convite inválido ou expirado.' })
+      return
+    }
+
+    const nome = nomeBody || convite.nome
+    const email = emailBody || convite.email
+    if (!nome || !email) {
+      res.status(400).json({ error: 'Nome e e-mail são obrigatórios para aceitar o convite.' })
+      return
+    }
+
+    const exists = await queryOne('SELECT id FROM profiles WHERE email = $1', [email])
+    if (exists) {
       res.status(409).json({ error: 'E-mail já cadastrado.' })
       return
     }
 
-    const senhaHash = await bcrypt.hash(senha, 12)
-    const newUser = await queryOne<{ id: string; nome: string; email: string; role: string }>(
-      `INSERT INTO profiles (org_id, nome, email, senha_hash, role)
-       VALUES ($1, $2, $3, $4, 'membro')
-       RETURNING id, nome, email, role`,
-      [req.user!.orgId, nome.trim(), email.toLowerCase().trim(), senhaHash]
+    const senhaHash = await bcrypt.hash(String(senha), 12)
+    const user = await queryOne<any>(
+      `INSERT INTO profiles (org_id, nome, email, senha_hash, role, cargo, criado_por, ativo, primeiro_acesso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,FALSE)
+       RETURNING id, org_id, nome, email, role, cargo, ativo, primeiro_acesso`,
+      [convite.org_id, nome, email, senhaHash, convite.role || 'membro', convite.cargo || null, convite.criado_por]
     )
+    await query('UPDATE convites SET usado = TRUE WHERE id = $1', [convite.id])
 
-    res.status(201).json({ user: newUser })
+    const payload: JwtPayload = {
+      userId: user.id,
+      orgId: user.org_id || '',
+      role: user.role as 'gestor' | 'sub_gestor' | 'membro',
+      nome: user.nome,
+      email: user.email,
+    }
+    const { accessToken, refreshToken } = generateTokens(payload)
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+      [user.id, refreshToken]
+    )
+    res.status(201).json({ user: { id: user.id, nome: user.nome, email: user.email, role: user.role, orgId: user.org_id }, accessToken, refreshToken })
   } catch (err) {
-    console.error('[AUTH] Erro no convite:', err)
+    console.error('[AUTH] Erro ao aceitar convite:', err)
     res.status(500).json({ error: 'Erro interno do servidor.' })
   }
 })

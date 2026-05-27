@@ -87,6 +87,8 @@ export interface MembroEquipe {
   avatar_url?: string
   tarefas_pendentes: number
   tarefas_concluidas: number
+  tarefas_nao_concluidas?: number
+  tarefas_devolvidas?: number
   criado_por?: string
   criado_por_nome?: string
   created_at: string
@@ -342,8 +344,18 @@ export const auth = {
     clearTokens()
   },
 
-  async invite(payload: { nome: string; email: string; senha: string }): Promise<{ user: UserProfile }> {
+  async invite(payload: { nome?: string; email?: string; role?: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
     return apiJson('/auth/invite', { method: 'POST', body: JSON.stringify(payload) })
+  },
+
+  async getInvite(token: string): Promise<{ convite: any }> {
+    return apiJson(`/auth/invite/${token}`)
+  },
+
+  async acceptInvite(payload: { token: string; nome?: string; email?: string; senha: string }) {
+    const data = await apiJson<{ user: UserProfile; accessToken: string; refreshToken: string }>('/auth/accept-invite', { method: 'POST', body: JSON.stringify(payload) })
+    setTokens(data.accessToken, data.refreshToken)
+    return data
   },
 }
 
@@ -579,6 +591,17 @@ export const teamsApi = {
   async addMembers(id: string, members: string[]): Promise<void> {
     await apiJson(`/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ members }) })
   },
+  async detail(id: string): Promise<Equipe> {
+    const data = await apiJson<{ equipe: Equipe }>(`/teams/${id}`)
+    return data.equipe
+  },
+  async update(id: string, payload: { nome?: string; descricao?: string }): Promise<Equipe> {
+    const data = await apiJson<{ equipe: Equipe }>(`/teams/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return data.equipe
+  },
+  async removeMember(id: string, userId: string): Promise<void> {
+    await apiJson(`/teams/${id}/members/${userId}`, { method: 'DELETE' })
+  },
 }
 
 // ── USUÁRIOS ───────────────────────────────────────────────────────────────
@@ -597,8 +620,8 @@ export const usersApi = {
    * Cria um novo usuário. Role pode ser 'sub_gestor' ou 'membro'.
    * Retorna o usuário criado e a senha provisória (caso tenha sido gerada no servidor).
    */
-  async create(payload: { nome: string; email: string; role: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ user: UserProfile; senha: string }> {
-    const data = await apiJson<{ user: UserProfile; senha: string }>('/users', { method: 'POST', body: JSON.stringify(payload) })
+  async create(payload: { nome: string; email: string; role: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ user: UserProfile; senha: string; senha_provisoria?: string }> {
+    const data = await apiJson<{ user: UserProfile; senha: string; senha_provisoria?: string }>('/users', { method: 'POST', body: JSON.stringify(payload) })
     return data
   },
 
@@ -609,6 +632,14 @@ export const usersApi = {
 
   async remove(id: string): Promise<void> {
     await apiJson(`/users/${id}`, { method: 'DELETE' })
+  },
+
+  async resetPassword(id: string): Promise<{ user: UserProfile; senha: string; senha_provisoria: string }> {
+    return apiJson(`/users/${id}/reset-password`, { method: 'POST' })
+  },
+
+  async invite(payload: { nome?: string; email?: string; role?: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
+    return apiJson('/users/invite', { method: 'POST', body: JSON.stringify(payload) })
   },
 
   // Lista apenas os comandados diretos do sub_gestor autenticado

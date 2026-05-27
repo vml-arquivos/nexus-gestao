@@ -27,12 +27,20 @@ export default function AceitarConvite() {
 
   useEffect(() => {
     if (!token) { setErro('Token inválido.'); setLoading(false); return }
-    fetch(`/api/convites/${token}/verificar`)
+    fetch(`/api/auth/invite/${token}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) { setErro(data.error); return }
-        setInfo(data)
-        if (data.email) setEmail(data.email)
+        const convite = data.convite || data
+        setInfo({
+          valido: true,
+          email: convite.email || null,
+          role: convite.role || 'membro',
+          cargo: convite.cargo || null,
+          org_nome: convite.org_nome || 'Nexus Gestão',
+        })
+        if (convite.email) setEmail(convite.email)
+        if (convite.nome) setNome(convite.nome)
       })
       .catch(() => setErro('Erro ao verificar convite.'))
       .finally(() => setLoading(false))
@@ -46,10 +54,10 @@ export default function AceitarConvite() {
     if (senha !== confirmar) { setErro('As senhas não coincidem.'); return }
     setErro(''); setEnviando(true)
     try {
-      const res = await fetch(`/api/convites/${token}/aceitar`, {
+      const res = await fetch(`/api/auth/accept-invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nome.trim(), email: email.trim(), senha }),
+        body: JSON.stringify({ token, nome: nome.trim(), email: email.trim(), senha }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Erro ao criar conta.')

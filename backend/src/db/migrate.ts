@@ -291,6 +291,38 @@ DO $$ BEGIN
 END$$;
 CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
 
+
+
+-- ── ETAPA 3: USUÁRIOS, CONVITES E EQUIPES (MIGRAÇÃO IDEMPOTENTE) ───────────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS primeiro_acesso BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS convite_token TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS convite_expira_em TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_profiles_ativo ON profiles(ativo);
+CREATE INDEX IF NOT EXISTS idx_profiles_convite_token ON profiles(convite_token) WHERE convite_token IS NOT NULL;
+
+ALTER TABLE equipes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_equipes_org_criado_por ON equipes(org_id, criado_por);
+
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS id UUID DEFAULT gen_random_uuid();
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS user_id UUID;
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS role_na_equipe TEXT DEFAULT 'membro';
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS criado_por UUID;
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;
+ALTER TABLE equipes_membros ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE;
+UPDATE equipes_membros em SET org_id = e.org_id FROM equipes e WHERE em.equipe_id = e.id AND em.org_id IS NULL;
+UPDATE equipes_membros SET user_id = profile_id WHERE user_id IS NULL AND profile_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_equipes_membros_equipe_user ON equipes_membros(equipe_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_equipes_membros_org ON equipes_membros(org_id);
+CREATE INDEX IF NOT EXISTS idx_equipes_membros_user ON equipes_membros(user_id);
+CREATE INDEX IF NOT EXISTS idx_equipes_membros_equipe ON equipes_membros(equipe_id);
+
+ALTER TABLE convites ADD COLUMN IF NOT EXISTS nome TEXT;
+ALTER TABLE convites ADD COLUMN IF NOT EXISTS usado BOOLEAN DEFAULT FALSE;
+ALTER TABLE convites ADD COLUMN IF NOT EXISTS cargo TEXT;
+CREATE INDEX IF NOT EXISTS idx_convites_usado ON convites(usado);
+
 -- ── NOTIFICAÇÕES ─────────────────────────────────────────────────────────────
 -- Armazena todas as notificações do sistema (tarefas, financeiro, agenda, etc.)
 CREATE TABLE IF NOT EXISTS notificacoes (

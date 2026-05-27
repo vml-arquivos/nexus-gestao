@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Plus, X, Users, Check } from 'lucide-react'
-import { teamsApi, equipeApi, type Equipe, type MembroEquipe } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { Plus, Users, X, Trash2, Edit2, UserPlus } from 'lucide-react'
+import { equipeApi, teamsApi, type Equipe, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
-// Util simples para exibir toasts. Centraliza brevemente mensagens de
-// feedback na parte inferior da tela. Aceita tipos 'success' ou 'error'.
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
   el.textContent = msg
@@ -13,226 +11,77 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
   setTimeout(() => el.remove(), 3000)
 }
 
-// ── Modal de criação de equipe ─────────────────────────────────────────────
-function CreateTeamModal({ onSave, onClose }: {
-  onSave: (equipe: Equipe) => void
-  onClose: () => void
-}) {
-  const [nome, setNome]       = useState('')
-  const [descricao, setDesc]  = useState('')
-  const [saving, setSaving]   = useState(false)
-
-  async function handleSave() {
-    if (!nome.trim()) { toast('Nome é obrigatório', 'error'); return }
+function TeamModal({ team, onClose, onSaved }: { team?: Equipe | null; onClose: () => void; onSaved: (t: Equipe) => void }) {
+  const [nome, setNome] = useState(team?.nome || '')
+  const [descricao, setDescricao] = useState(team?.descricao || '')
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    if (!nome.trim()) { toast('Nome é obrigatório.', 'error'); return }
     setSaving(true)
     try {
-      const equipe = await teamsApi.create({ nome: nome.trim(), descricao: descricao || undefined })
-      onSave(equipe)
-      toast('Equipe criada!')
-      onClose()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao criar equipe', 'error')
-    } finally {
-      setSaving(false)
-    }
+      const saved = team ? await teamsApi.update(team.id, { nome, descricao }) : await teamsApi.create({ nome, descricao })
+      onSaved(saved); onClose(); toast(team ? 'Equipe atualizada.' : 'Equipe criada.')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao salvar equipe.', 'error') }
+    finally { setSaving(false) }
   }
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Nova Equipe</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="form-group">
-            <label className="form-label">Nome *</label>
-            <input className="form-input" placeholder="Nome da equipe" value={nome} onChange={e => setNome(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Descrição</label>
-            <textarea className="form-input" rows={2} placeholder="Opcional" value={descricao} onChange={e => setDesc(e.target.value)} style={{ resize: 'vertical' }} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ flex: 2 }}>
-            {saving ? 'Criando...' : (<><Check size={14} /> Criar</>)}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return <div className="modal-backdrop" onClick={e=>e.currentTarget===e.target && onClose()}><div className="modal-card" style={{ width:'min(100%,520px)' }}>
+    <div style={{ display:'flex', justifyContent:'space-between', gap:12, marginBottom:16 }}><h2 style={{ fontFamily:'var(--font-heading)' }}>{team ? 'Editar equipe' : 'Nova equipe'}</h2><button className="btn btn-ghost" onClick={onClose}><X size={16}/></button></div>
+    <label className="form-group"><span className="form-label">Nome</span><input className="form-input" value={nome} onChange={e=>setNome(e.target.value)} /></label>
+    <label className="form-group"><span className="form-label">Descrição</span><textarea className="form-input" rows={3} value={descricao} onChange={e=>setDescricao(e.target.value)} /></label>
+    <div style={{ display:'flex', gap:10, marginTop:16 }}><button className="btn btn-ghost" onClick={onClose} style={{ flex:1 }}>Cancelar</button><button className="btn btn-primary" onClick={save} disabled={saving} style={{ flex:2 }}>{saving ? 'Salvando...' : 'Salvar'}</button></div>
+  </div></div>
 }
 
-// ── Modal para adicionar membros à equipe ──────────────────────────────────
-function AddMembersModal({ equipe, onAdded, onClose }: {
-  equipe: Equipe
-  onAdded: () => void
-  onClose: () => void
-}) {
-  const [members, setMembers] = useState<MembroEquipe[]>([])
-  const [selected, setSelected] = useState<string[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [saving, setSaving]     = useState(false)
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      try {
-        const ms = await equipeApi.membros()
-        setMembers(ms)
-      } catch (e) {
-        toast('Erro ao carregar membros', 'error')
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
-
-  function toggle(id: string) {
-    setSelected(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
-  }
-
-  async function handleAdd() {
-    if (selected.length === 0) { toast('Selecione ao menos um membro', 'error'); return }
-    setSaving(true)
-    try {
-      await teamsApi.addMembers(equipe.id, selected)
-      toast('Membros adicionados!')
-      onAdded()
-      onClose()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao adicionar membros', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Adicionar membros</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
-        </div>
-        {loading ? (
-          <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 40 }}>Carregando...</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {members.map(m => (
-              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, background: selected.includes(m.id) ? 'var(--bg3)' : 'transparent', cursor: 'pointer' }}>
-                <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggle(m.id)} />
-                <span style={{ flex: 1 }}>{m.nome}</span>
-                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{m.role === 'gestor' ? 'Gestor' : 'Membro'}</span>
-              </label>
-            ))}
-            {members.length === 0 && <div style={{ color: 'var(--text3)', fontSize: 13 }}>Nenhum membro disponível</div>}
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleAdd} disabled={saving || selected.length === 0} style={{ flex: 2 }}>
-            {saving ? 'Adicionando...' : (<><Check size={14} /> Adicionar</>)}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Página principal de Equipes ────────────────────────────────────────────
-export default function Equipes() {
-  const { user } = useAuth()
-  const isGestor = user?.role === 'gestor'
-  const [teams, setTeams]     = useState<Equipe[]>([])
+function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void }) {
+  const [membros, setMembros] = useState<MembroEquipe[]>([])
+  const [todos, setTodos] = useState<MembroEquipe[]>([])
+  const [selected, setSelected] = useState<string>('')
   const [loading, setLoading] = useState(true)
-  const [createOpen, setCreateOpen] = useState(false)
-  const [addOpen, setAddOpen]       = useState(false)
-  const [selectedTeam, setSelectedTeam] = useState<Equipe | null>(null)
 
-  async function loadTeams() {
+  async function load() {
     setLoading(true)
     try {
-      const ts = await teamsApi.list()
-      setTeams(ts)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao carregar equipes', 'error')
-    } finally {
-      setLoading(false)
-    }
+      const [ms, disponiveis] = await Promise.all([teamsApi.members(equipe.id), equipeApi.membros()])
+      setMembros(ms)
+      setTodos(disponiveis.filter(m => m.role !== 'gestor'))
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar membros.', 'error') }
+    finally { setLoading(false) }
+  }
+  useEffect(()=>{ load() }, [equipe.id])
+
+  async function add() {
+    if (!selected) return
+    try { await teamsApi.addMembers(equipe.id, [selected]); setSelected(''); await load(); toast('Membro adicionado.') }
+    catch(e){ toast(e instanceof Error ? e.message : 'Erro ao adicionar.', 'error') }
+  }
+  async function remove(userId: string) {
+    try { await teamsApi.removeMember(equipe.id, userId); await load(); toast('Membro removido.') }
+    catch(e){ toast(e instanceof Error ? e.message : 'Erro ao remover.', 'error') }
   }
 
-  useEffect(() => { loadTeams() }, [])
+  return <div className="modal-backdrop" onClick={e=>e.currentTarget===e.target && onClose()}><div className="modal-card" style={{ width:'min(100%,680px)' }}>
+    <div style={{ display:'flex', justifyContent:'space-between', gap:12, marginBottom:16 }}><div><h2 style={{ fontFamily:'var(--font-heading)' }}>{equipe.nome}</h2><p style={{ color:'var(--text3)', fontSize:13 }}>Membros da equipe</p></div><button className="btn btn-ghost" onClick={onClose}><X size={16}/></button></div>
+    <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, marginBottom:16 }}><select className="form-input" value={selected} onChange={e=>setSelected(e.target.value)}><option value="">Selecionar membro existente</option>{todos.map(m=><option key={m.id} value={m.id}>{m.nome} — {m.email}</option>)}</select><button className="btn btn-primary" onClick={add} disabled={!selected}><UserPlus size={16}/> Adicionar</button></div>
+    {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:10 }}>{membros.map(m=><div key={m.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'center', padding:12, border:'1px solid var(--border)', borderRadius:12, background:'var(--bg3)' }}><div><b>{m.nome}</b><div style={{ fontSize:12, color:'var(--text3)' }}>{m.email} · {m.role}</div></div><button className="btn btn-ghost" onClick={()=>remove(m.id)}><Trash2 size={15}/></button></div>)}{membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro nesta equipe.</div>}</div>}
+  </div></div>
+}
 
-  function handleCreated(equipe: Equipe) {
-    setTeams(t => [...t, { ...equipe, members_count: 0 }])
-  }
+export default function Equipes() {
+  const { user } = useAuth()
+  const [teams, setTeams] = useState<Equipe[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState<Equipe | null | undefined>(undefined)
+  const [membersTeam, setMembersTeam] = useState<Equipe | null>(null)
+  const isGestor = user?.role === 'gestor'
 
-  function openAddMembers(team: Equipe) {
-    setSelectedTeam(team)
-    setAddOpen(true)
-  }
+  async function loadTeams() { setLoading(true); try { setTeams(await teamsApi.list()) } catch(e){ toast(e instanceof Error ? e.message : 'Erro ao carregar equipes.', 'error') } finally { setLoading(false) } }
+  useEffect(()=>{ if (isGestor) loadTeams() }, [isGestor])
+  if (!isGestor) return <div className="page-container"><h1>Acesso restrito</h1><p>Somente gestores gerenciam equipes.</p></div>
 
-  async function onMembersAdded() {
-    // Após adicionar membros, recarrega o contador de membros
-    await loadTeams()
-  }
-
-  return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Equipes</h1>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie grupos de trabalho</p>
-        </div>
-        {isGestor && (
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Plus size={16} /> Nova equipe
-          </button>
-        )}
-      </div>
-      {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}>Carregando...</div>
-      ) : teams.length === 0 ? (
-        <div style={{ color: 'var(--text3)', fontSize: 14, padding: 40, textAlign: 'center' }}>
-          Nenhuma equipe cadastrada.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {teams.map(team => (
-            <div key={team.id} style={{ padding: 16, borderRadius: 14, background: 'var(--bg2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(108,59,255,0.3)' }}>
-                  <Users size={18} color="#fff" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{team.nome}</div>
-                  {team.descricao && <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.descricao}</div>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ fontSize: 13, color: 'var(--text3)', minWidth: 60, textAlign: 'right' }}>{team.members_count || 0} membro{(team.members_count || 0) !== 1 ? 's' : ''}</div>
-                {isGestor && (
-                  <button className="btn btn-secondary" onClick={() => openAddMembers(team)} style={{ padding: '6px 10px', fontSize: 12 }}>
-                    Adicionar
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {createOpen && <CreateTeamModal onSave={handleCreated} onClose={() => setCreateOpen(false)} />}
-      {addOpen && selectedTeam && <AddMembersModal equipe={selectedTeam} onAdded={onMembersAdded} onClose={() => setAddOpen(false)} />}
-    </div>
-  )
+  return <div className="page-container" style={{ maxWidth:920 }}>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Equipes</h1><p style={{ color:'var(--text3)' }}>Crie equipes e vincule membros existentes.</p></div><button className="btn btn-primary" onClick={()=>setModal(null)}><Plus size={16}/> Nova equipe</button></div>
+    {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>{teams.map(t=><div key={t.id} style={{ padding:16, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:18 }}><div style={{ display:'flex', gap:12, alignItems:'center' }}><div style={{ width:40, height:40, borderRadius:12, background:'var(--grad-primary)', display:'grid', placeItems:'center' }}><Users size={20} color="#fff"/></div><div style={{ minWidth:0 }}><b>{t.nome}</b><div style={{ color:'var(--text3)', fontSize:13 }}>{t.members_count || 0} membro(s)</div></div></div>{t.descricao && <p style={{ color:'var(--text3)', fontSize:13 }}>{t.descricao}</p>}<div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}><button className="btn btn-secondary" onClick={()=>setMembersTeam(t)}><Users size={15}/> Membros</button><button className="btn btn-ghost" onClick={()=>setModal(t)}><Edit2 size={15}/> Editar</button></div></div>)}{teams.length===0 && <div style={{ color:'var(--text3)' }}>Nenhuma equipe cadastrada.</div>}</div>}
+    {modal !== undefined && <TeamModal team={modal} onClose={()=>setModal(undefined)} onSaved={(saved)=>{ setTeams(ts=> modal ? ts.map(t=>t.id===saved.id?saved:t) : [...ts,saved]) }} />}
+    {membersTeam && <MembersModal equipe={membersTeam} onClose={()=>{ setMembersTeam(null); loadTeams() }} />}
+  </div>
 }

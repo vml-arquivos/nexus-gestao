@@ -1,27 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
-import {
-  UserPlus, Loader, Mail, Shield, ShieldOff,
-  Trash2, Eye, EyeOff, X, Check, Crown, User
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Copy, Eye, EyeOff, KeyRound, Link as LinkIcon, Loader, Power, PowerOff, UserPlus, X } from 'lucide-react'
+import { usersApi, type UserProfile } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { apiJson } from '../lib/api'
 
-// ── Tipos ─────────────────────────────────────────────────────────────────────
-interface UsuarioPerfil {
-  id: string
-  nome: string
-  email: string
-  role: 'gestor' | 'sub_gestor' | 'membro'
-  ativo: boolean
-  cargo?: string
-  avatar_url?: string
-  criado_por_nome?: string
-  created_at: string
-  tarefas_pendentes?: number
-  tarefas_concluidas?: number
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
   el.textContent = msg
@@ -30,305 +11,129 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
   setTimeout(() => el.remove(), 3000)
 }
 
-function Av({ nome, size = 38 }: { nome: string; size?: number }) {
-  const i = nome.split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase()
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: size * 0.28,
-      background: 'linear-gradient(135deg,#6C3BFF,#06B6D4)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.36, fontWeight: 800, color: '#fff',
-      fontFamily: 'var(--font-heading)', flexShrink: 0,
-    }}>{i}</div>
-  )
+function gerarSenha() {
+  return Math.random().toString(36).slice(-6) + 'A1'
 }
 
-// ── Modal: convidar novo usuário ──────────────────────────────────────────────
-function ModalConvidar({ onSave, onClose }: {
-  onSave: (u: UsuarioPerfil) => void
-  onClose: () => void
-}) {
-  const [nome, setNome]       = useState('')
-  const [email, setEmail]     = useState('')
-  const [senha, setSenha]     = useState('')
-  const [showSenha, setShowSenha] = useState(false)
-  const [loading, setLoading] = useState(false)
+function copy(text: string) {
+  navigator.clipboard?.writeText(text)
+  toast('Copiado!')
+}
 
-  async function handleSave() {
-    if (!nome.trim() || !email.trim() || !senha.trim()) {
-      toast('Preencha todos os campos', 'error'); return
-    }
-    if (senha.length < 6) {
-      toast('Senha deve ter pelo menos 6 caracteres', 'error'); return
-    }
-    setLoading(true)
+function ModalUsuario({ onClose, onCreated }: { onClose: () => void; onCreated: (u: UserProfile) => void }) {
+  const [nome, setNome] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'membro' | 'sub_gestor'>('membro')
+  const [senha, setSenha] = useState('')
+  const [show, setShow] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [lastSenha, setLastSenha] = useState('')
+  const [lastLink, setLastLink] = useState('')
+
+  async function criar() {
+    if (!nome.trim() || !email.trim()) { toast('Nome e e-mail são obrigatórios.', 'error'); return }
+    setSaving(true)
     try {
-      const data = await apiJson<{ usuario: UsuarioPerfil }>('/auth/invite', {
-        method: 'POST',
-        body: JSON.stringify({ nome: nome.trim(), email: email.trim().toLowerCase(), senha }),
-      })
-      onSave(data.usuario)
-      toast(`✅ ${data.usuario.nome} adicionado com sucesso!`)
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Erro ao criar usuário', 'error')
-    } finally { setLoading(false) }
+      const res = await usersApi.create({ nome: nome.trim(), email: email.trim().toLowerCase(), role, senha: senha || undefined })
+      onCreated(res.user)
+      setLastSenha(res.senha || res.senha_provisoria || '')
+      toast('Usuário criado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao criar usuário.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function gerarConvite() {
+    if (!email.trim()) { toast('Informe o e-mail para gerar convite.', 'error'); return }
+    setSaving(true)
+    try {
+      const res = await usersApi.invite({ nome: nome.trim() || undefined, email: email.trim().toLowerCase(), role })
+      setLastLink(res.link)
+      toast('Link de convite criado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao gerar convite.', 'error')
+    } finally { setSaving(false) }
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 200 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '28px 24px 28px', maxHeight: 'calc(100dvh - 40px)', overflowY: 'auto', width: '100%', maxWidth: 480, boxShadow: '0 -8px 40px rgba(0,0,0,0.4)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div className="modal-backdrop" onClick={e => e.currentTarget === e.target && onClose()}>
+      <div className="modal-card" style={{ width: 'min(100%, 520px)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:18 }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>
-              <UserPlus size={16} style={{ display: 'inline', marginRight: 8, color: 'var(--primary-light)' }} />
-              Novo Usuário
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
-              O usuário terá acesso ao sistema com papel de membro
-            </div>
+            <h2 style={{ fontFamily:'var(--font-heading)', fontSize:20, fontWeight:900 }}>Novo usuário</h2>
+            <p style={{ fontSize:13, color:'var(--text3)', marginTop:4 }}>Crie acesso com senha provisória ou gere link de convite.</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
+          <button className="btn btn-ghost" onClick={onClose} style={{ padding:8 }}><X size={18}/></button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="form-group">
-            <label className="form-label">Nome completo *</label>
-            <input className="form-input" placeholder="Ex: João Silva" value={nome} onChange={e => setNome(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">E-mail *</label>
-            <input className="form-input" type="email" placeholder="joao@empresa.com" value={email} onChange={e => setEmail(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Senha de acesso *</label>
-            <div style={{ position: 'relative' }}>
-              <input
-                className="form-input"
-                type={showSenha ? 'text' : 'password'}
-                placeholder="Mínimo 6 caracteres"
-                value={senha}
-                onChange={e => setSenha(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSave()}
-                style={{ paddingRight: 44 }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowSenha(!showSenha)}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}
-              >
-                {showSenha ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ padding: '10px 12px', background: 'rgba(108,59,255,0.08)', borderRadius: 8, borderLeft: '3px solid var(--primary-light)', fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
-            💡 O usuário poderá acessar o sistema com este e-mail e senha. Compartilhe as credenciais com ele com segurança.
-          </div>
+        <div className="form-grid" style={{ display:'grid', gap:12 }}>
+          <label className="form-group"><span className="form-label">Nome</span><input className="form-input" value={nome} onChange={e=>setNome(e.target.value)} /></label>
+          <label className="form-group"><span className="form-label">E-mail</span><input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} /></label>
+          <label className="form-group"><span className="form-label">Permissão</span><select className="form-input" value={role} onChange={e=>setRole(e.target.value as any)}><option value="membro">Membro</option><option value="sub_gestor">Subgestor</option></select></label>
+          <label className="form-group"><span className="form-label">Senha provisória opcional</span><div style={{ position:'relative' }}><input className="form-input" type={show ? 'text':'password'} value={senha} onChange={e=>setSenha(e.target.value)} style={{ paddingRight:76 }} /><button type="button" onClick={()=>setShow(s=>!s)} style={{ position:'absolute', right:42, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--text3)' }}>{show?<EyeOff size={16}/>:<Eye size={16}/>}</button><button type="button" onClick={()=>setSenha(gerarSenha())} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--primary)' }} title="Gerar senha"><KeyRound size={16}/></button></div></label>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={loading} style={{ flex: 2, gap: 8 }}>
-            {loading
-              ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Criando…</>
-              : <><UserPlus size={15} /> Criar Usuário</>
-            }
-          </button>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:18 }}>
+          <button className="btn btn-primary" onClick={criar} disabled={saving}>{saving ? <Loader size={16} className="spin"/> : <UserPlus size={16}/>} Criar usuário</button>
+          <button className="btn btn-secondary" onClick={gerarConvite} disabled={saving}><LinkIcon size={16}/> Criar convite</button>
         </div>
+
+        {lastSenha && <div style={{ marginTop:14, padding:12, background:'var(--bg3)', borderRadius:12 }}><b>Senha provisória:</b> <code>{lastSenha}</code> <button className="btn btn-ghost" onClick={()=>copy(lastSenha)} style={{ marginLeft:8, padding:'4px 8px' }}><Copy size={14}/> Copiar</button></div>}
+        {lastLink && <div style={{ marginTop:10, padding:12, background:'var(--bg3)', borderRadius:12, overflowWrap:'anywhere' }}><b>Link de convite:</b> {lastLink}<br/><button className="btn btn-ghost" onClick={()=>copy(lastLink)} style={{ marginTop:8, padding:'4px 8px' }}><Copy size={14}/> Copiar link para WhatsApp</button></div>}
       </div>
     </div>
   )
 }
 
-// ── Página principal ──────────────────────────────────────────────────────────
 export default function Usuarios() {
   const { user: eu } = useAuth()
-  const isGestor = eu?.role === 'gestor'
+  const [usuarios, setUsuarios] = useState<UserProfile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [open, setOpen] = useState(false)
 
-  const [usuarios, setUsuarios] = useState<UsuarioPerfil[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
+  const canManage = eu?.role === 'gestor' || eu?.role === 'sub_gestor'
 
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      // Rota correta: /api/equipe/membros
-      const data = await apiJson<{ membros: UsuarioPerfil[] }>('/equipe/membros')
-      setUsuarios(data.membros)
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Erro ao listar usuários.', 'error')
-    } finally { setLoading(false) }
+    try { setUsuarios(await usersApi.list()) }
+    catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar usuários.', 'error') }
+    finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  async function handleRemover(id: string, nome: string) {
-    if (!confirm(`Remover o acesso de ${nome}? Esta ação não pode ser desfeita.`)) return
+  const grupos = useMemo(() => ({
+    gestores: usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor'),
+    membros: usuarios.filter(u => u.role === 'membro'),
+  }), [usuarios])
+
+  async function resetar(id: string) {
     try {
-      await apiJson(`/auth/users/${id}`, { method: 'DELETE' })
-      setUsuarios(p => p.filter(u => u.id !== id))
-      toast(`${nome} removido do sistema.`)
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Erro ao remover usuário', 'error')
-    }
+      const res = await usersApi.resetPassword(id)
+      toast('Senha provisória gerada.')
+      alert(`Nova senha provisória: ${res.senha || res.senha_provisoria}`)
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao resetar senha.', 'error') }
   }
 
-  function handleCriado(novo: UsuarioPerfil) {
-    setUsuarios(p => [...p, novo])
-    setModalOpen(false)
+  async function alternar(u: UserProfile) {
+    try {
+      const updated = await usersApi.update(u.id, { ativo: !u.ativo })
+      setUsuarios(list => list.map(x => x.id === u.id ? { ...x, ativo: updated.ativo } : x))
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao alterar status.', 'error') }
   }
 
-  const gestores = usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor')
-  const membros  = usuarios.filter(u => u.role === 'membro')
-
-  return (
-    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' as const }}>
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>👥 Usuários</h1>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie acessos e permissões da equipe</p>
-        </div>
-        {isGestor && (
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)} style={{ gap: 6 }}>
-            <UserPlus size={16} /> Novo Usuário
-          </button>
-        )}
-      </div>
-
-      {/* Stats rápidos */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(108,59,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Crown size={18} color="var(--primary-light)" />
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 22, lineHeight: 1 }}>{gestores.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Gestor{gestores.length !== 1 ? 'es' : ''}</div>
-          </div>
-        </div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(6,182,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <User size={18} color="var(--secondary)" />
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 22, lineHeight: 1 }}>{membros.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Membro{membros.length !== 1 ? 's' : ''}</div>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}>
-          <Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando…
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-          {/* Gestores */}
-          {gestores.map(u => (
-            <div key={u.id} style={{
-              background: 'var(--bg2)', border: '1px solid rgba(108,59,255,0.25)',
-              borderRadius: 'var(--radius)', padding: '14px 16px',
-              display: 'flex', alignItems: 'center', gap: 12,
-            }}>
-              <Av nome={u.nome} size={42} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary-light)', background: 'rgba(108,59,255,0.15)', padding: '2px 8px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Crown size={9} /> {u.role === 'gestor' ? 'GESTOR' : 'SUB-GESTOR'}
-                  </span>
-                  {u.id === eu?.id && (
-                    <span style={{ fontSize: 10, color: 'var(--success)', fontWeight: 600 }}>você</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 12, color: 'var(--text3)' }}>
-                  <Mail size={11} /> {u.email}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* Membros */}
-          {membros.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div className="section-title" style={{ marginBottom: 8 }}>Membros da equipe</div>
-              {membros.map(u => (
-                <div key={u.id} style={{
-                  background: 'var(--bg2)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)', padding: '14px 16px',
-                  display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8,
-                }}>
-                  <Av nome={u.nome} size={42} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 700, fontSize: 14 }}>{u.nome}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--secondary)', background: 'rgba(6,182,212,0.12)', padding: '2px 8px', borderRadius: 99 }}>
-                        MEMBRO
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 12, color: 'var(--text3)' }}>
-                      <Mail size={11} /> {u.email}
-                    </div>
-                    {(u.tarefas_pendentes !== undefined) && (
-                      <div style={{ display: 'flex', gap: 12, marginTop: 5, fontSize: 11 }}>
-                        <span style={{ color: '#F59E0B' }}>⏳ {u.tarefas_pendentes} pendente{u.tarefas_pendentes !== 1 ? 's' : ''}</span>
-                        <span style={{ color: '#10B981' }}>✅ {u.tarefas_concluidas} concluída{u.tarefas_concluidas !== 1 ? 's' : ''}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Ações — apenas para gestores e não para si mesmo */}
-                  {isGestor && u.id !== eu?.id && (
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      <button
-                        onClick={() => handleRemover(u.id, u.nome)}
-                        className="btn btn-danger btn-sm btn-icon"
-                        title="Remover usuário"
-                        style={{ width: 32, height: 32 }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Vazio */}
-          {usuarios.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
-              <UserPlus size={48} style={{ marginBottom: 12, opacity: 0.4 }} />
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhum usuário encontrado</div>
-              {isGestor && (
-                <div style={{ fontSize: 13 }}>
-                  Adicione membros à sua equipe clicando em{' '}
-                  <button
-                    onClick={() => setModalOpen(true)}
-                    style={{ background: 'none', border: 'none', color: 'var(--primary-light)', cursor: 'pointer', fontWeight: 600 }}
-                  >
-                    Novo Usuário
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {modalOpen && (
-        <ModalConvidar onSave={handleCriado} onClose={() => setModalOpen(false)} />
-      )}
-
-      {/* Rota de remoção no backend: precisa existir */}
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-      `}</style>
+  function row(u: UserProfile) {
+    return <div key={u.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'center', padding:14, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:16 }}>
+      <div style={{ minWidth:0 }}><div style={{ fontWeight:800 }}>{u.nome}</div><div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis' }}>{u.email}</div><div style={{ marginTop:6, fontSize:12, color:'var(--text3)' }}>{u.role === 'gestor' ? 'Gestor' : u.role === 'sub_gestor' ? 'Subgestor' : 'Membro'} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div></div>
+      {canManage && u.id !== eu?.id && <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button className="btn btn-ghost" onClick={()=>resetar(u.id)} style={{ padding:'8px 10px' }}><KeyRound size={15}/></button><button className="btn btn-ghost" onClick={()=>alternar(u)} style={{ padding:'8px 10px' }}>{u.ativo === false ? <Power size={15}/> : <PowerOff size={15}/>}</button></div>}
     </div>
-  )
+  }
+
+  if (!canManage) return <div className="page-container"><h1>Acesso restrito</h1><p>Você não tem permissão para gerenciar usuários.</p></div>
+
+  return <div className="page-container" style={{ maxWidth:920 }}>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Usuários</h1><p style={{ color:'var(--text3)' }}>Crie membros, gere convites e gerencie acessos.</p></div><button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> Novo usuário</button></div>
+    {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:20 }}><section><h2 style={{ fontSize:16, marginBottom:10 }}>Gestão</h2><div style={{ display:'grid', gap:10 }}>{grupos.gestores.map(row)}</div></section><section><h2 style={{ fontSize:16, marginBottom:10 }}>Membros</h2><div style={{ display:'grid', gap:10 }}>{grupos.membros.map(row)}{grupos.membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro cadastrado.</div>}</div></section></div>}
+    {open && <ModalUsuario onClose={()=>setOpen(false)} onCreated={(u)=>{setUsuarios(v=>[...v,u]);}}/>}
+  </div>
 }

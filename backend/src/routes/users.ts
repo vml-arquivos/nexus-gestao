@@ -1,30 +1,42 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { authMiddleware } from '../middleware/auth'
+import crypto from 'crypto'
+import { authMiddleware, gestorOrSubGestorOnly } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 
 const router = Router()
 router.use(authMiddleware)
 
-// ── LISTAR USUÁRIOS ───────────────────────────────────────────────────────────
+function gerarSenhaProvisoria() {
+  return crypto.randomBytes(6).toString('base64url') + 'A1'
+}
+
+function gerarTokenConvite() {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+function baseUrl(req: Request) {
+  return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
+}
+
+function normalizeRole(role: unknown): 'sub_gestor' | 'membro' {
+  return role === 'sub_gestor' ? 'sub_gestor' : 'membro'
+}
+
 // GET /api/users
-// gestor:     vê todos da organização
-// sub_gestor: vê a si mesmo + seus comandados diretos
-// membro:     vê apenas a si mesmo
+// gestor: todos da organização. sub_gestor: ele + comandados. membro: somente ele.
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-
     let sql = `
-      SELECT p.id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.ativo, p.criado_por,
-             p.created_at,
+      SELECT p.id, p.org_id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.ativo,
+             p.primeiro_acesso, p.criado_por, p.created_at, p.updated_at,
              c.nome AS criado_por_nome
       FROM profiles p
       LEFT JOIN profiles c ON c.id = p.criado_por
-      WHERE p.org_id = $1 AND p.ativo = TRUE
+      WHERE p.org_id = $1
     `
     const params: unknown[] = [orgId]
-
     if (role === 'membro') {
       sql += ' AND p.id = $2'
       params.push(userId)
@@ -32,8 +44,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       sql += ' AND (p.id = $2 OR p.criado_por = $2)'
       params.push(userId)
     }
-
-    sql += ' ORDER BY p.role, p.nome'
+    sql += ' ORDER BY p.ativo DESC, p.role, p.nome'
     const users = await query(sql, params)
     res.json({ users })
   } catch (err) {
@@ -42,104 +53,135 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-// ── CRIAR USUÁRIO ─────────────────────────────────────────────────────────────
 // POST /api/users
-// gestor:     pode criar sub_gestor e membro
-// sub_gestor: pode criar apenas membro (seus comandados)
-router.post('/', async (req: Request, res: Response): Promise<void> => {
+// gestor cria sub_gestor ou membro. sub_gestor cria apenas membro. membro não cria.
+router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
+    const { nome, email, senha, cargo } = req.body
+    const novoRole = normalizeRole(req.body.role)
 
-    if (role === 'membro') {
-      res.status(403).json({ error: 'Membros não podem criar usuários.' })
+    if (role === 'sub_gestor' && novoRole !== 'membro') {
+      res.status(403).json({ error: 'Subgestor só pode criar membros.' })
+      return
+    }
+    if (!nome?.trim() || !email?.trim()) {
+      res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' })
       return
     }
 
-    const { nome, email, role: novoRole, senha, cargo } = req.body
-    if (!nome?.trim() || !email?.trim() || !novoRole) {
-      res.status(400).json({ error: 'Nome, e-mail e role são obrigatórios.' })
-      return
-    }
-
-    // sub_gestor não pode criar outro sub_gestor ou gestor
-    if (role === 'sub_gestor' && (novoRole === 'sub_gestor' || novoRole === 'gestor')) {
-      res.status(403).json({ error: 'Sub-gestor só pode criar membros.' })
-      return
-    }
-
-    const existing = await queryOne('SELECT id FROM profiles WHERE email = $1', [email.toLowerCase().trim()])
-    if (existing) {
+    const normalizedEmail = String(email).toLowerCase().trim()
+    const exists = await queryOne('SELECT id FROM profiles WHERE email = $1', [normalizedEmail])
+    if (exists) {
       res.status(409).json({ error: 'E-mail já cadastrado.' })
       return
     }
 
-    const plainPassword = senha?.trim() || Math.random().toString(36).slice(-8)
-    const senha_hash = await bcrypt.hash(plainPassword, 10)
+    const senhaProvisoria = senha?.trim() || gerarSenhaProvisoria()
+    const senhaHash = await bcrypt.hash(senhaProvisoria, 12)
 
-    const user = await queryOne<{ id: string; nome: string; email: string; role: string; cargo: string }>(
-      `INSERT INTO profiles (org_id, nome, email, senha_hash, role, cargo, criado_por)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, nome, email, role, cargo`,
-      [orgId, nome.trim(), email.toLowerCase().trim(), senha_hash, novoRole, cargo || null, userId]
+    const user = await queryOne(
+      `INSERT INTO profiles (org_id, nome, email, senha_hash, role, cargo, criado_por, ativo, primeiro_acesso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,TRUE)
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [orgId, nome.trim(), normalizedEmail, senhaHash, novoRole, cargo || null, userId]
     )
 
-    res.status(201).json({ user, senha: plainPassword })
-  } catch (err: any) {
+    res.status(201).json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
+  } catch (err) {
     console.error('[USERS] Erro ao criar:', err)
-    res.status(400).json({ error: err.message || 'Erro ao criar usuário.' })
+    res.status(500).json({ error: 'Erro ao criar usuário.' })
   }
 })
 
-// ── ATUALIZAR USUÁRIO ─────────────────────────────────────────────────────────
+// POST /api/users/invite
+// Cria convite por link. Opcionalmente pode já criar placeholder inativo se email informado.
+router.post('/invite', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const conviteRole = normalizeRole(req.body.role)
+    const { nome, email, cargo } = req.body
+
+    if (role === 'sub_gestor' && conviteRole !== 'membro') {
+      res.status(403).json({ error: 'Subgestor só pode convidar membros.' })
+      return
+    }
+
+    const token = gerarTokenConvite()
+    const normalizedEmail = email ? String(email).toLowerCase().trim() : null
+    if (normalizedEmail) {
+      const exists = await queryOne('SELECT id FROM profiles WHERE email = $1', [normalizedEmail])
+      if (exists) {
+        res.status(409).json({ error: 'E-mail já cadastrado.' })
+        return
+      }
+    }
+
+    const convite = await queryOne(
+      `INSERT INTO convites (org_id, criado_por, nome, email, role, cargo, token, usado, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,FALSE,NOW() + INTERVAL '7 days')
+       RETURNING id, org_id, nome, email, role, cargo, token, expires_at, created_at`,
+      [orgId, userId, nome?.trim() || null, normalizedEmail, conviteRole, cargo || null, token]
+    )
+    const link = `${baseUrl(req).replace(/\/$/, '')}/convite/${token}`
+    res.status(201).json({ convite, link })
+  } catch (err) {
+    console.error('[USERS] Erro ao gerar convite:', err)
+    res.status(500).json({ error: 'Erro ao gerar convite.' })
+  }
+})
+
 // PATCH /api/users/:id
-// gestor: pode alterar role, cargo, nome de qualquer usuário da org
-// sub_gestor: pode alterar nome e cargo dos seus comandados
-// membro: pode alterar apenas o próprio nome e cargo
-router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
+router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
-    const { nome, cargo, novoRole, ativo } = req.body
+    const { nome, cargo, role: bodyRole, novoRole, ativo } = req.body
+    const requestedRole = bodyRole ?? novoRole
 
-    const target = await queryOne<{ id: string; criado_por: string; role: string }>(
-      'SELECT id, criado_por, role FROM profiles WHERE id = $1 AND org_id = $2',
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
+      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
 
-    // Membro só edita a si mesmo
-    if (role === 'membro' && id !== userId) {
-      res.status(403).json({ error: 'Membros só podem editar o próprio perfil.' }); return
+    if (role === 'sub_gestor') {
+      if (id !== userId && target.criado_por !== userId) {
+        res.status(403).json({ error: 'Subgestor só edita seus comandados.' })
+        return
+      }
+      if (requestedRole && requestedRole !== 'membro') {
+        res.status(403).json({ error: 'Subgestor não pode promover usuários.' })
+        return
+      }
     }
-    // Sub-gestor só edita seus comandados ou a si mesmo
-    if (role === 'sub_gestor' && id !== userId && target.criado_por !== userId) {
-      res.status(403).json({ error: 'Sub-gestor só pode editar seus comandados.' }); return
-    }
-    // Ninguém muda o role do gestor principal
-    if (target.role === 'gestor' && novoRole && novoRole !== 'gestor') {
-      res.status(403).json({ error: 'Não é possível alterar o role do gestor principal.' }); return
+
+    if (target.role === 'gestor' && id !== userId) {
+      res.status(403).json({ error: 'Não é possível alterar outro gestor.' })
+      return
     }
 
     const updates: string[] = []
     const params: unknown[] = []
     let idx = 1
-
-    if (nome !== undefined)    { updates.push(`nome = $${idx++}`);  params.push(nome.trim()) }
-    if (cargo !== undefined)   { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
-    if (novoRole !== undefined && role === 'gestor') {
-      updates.push(`role = $${idx++}`)
-      params.push(novoRole)
+    if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
+    if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
+    if (requestedRole !== undefined && role === 'gestor') {
+      const r = normalizeRole(requestedRole)
+      updates.push(`role = $${idx++}`); params.push(r)
     }
-    if (ativo !== undefined && role === 'gestor') {
-      updates.push(`ativo = $${idx++}`)
-      params.push(ativo)
+    if (ativo !== undefined && role === 'gestor' && id !== userId) {
+      updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
     }
-
-    if (updates.length === 0) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
-
+    if (updates.length === 0) {
+      res.status(400).json({ error: 'Nenhum campo para atualizar.' })
+      return
+    }
     params.push(id, orgId)
     const user = await queryOne(
-      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND org_id = $${idx} RETURNING id, nome, email, role, cargo, ativo`,
+      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = $${idx++} AND org_id = $${idx}
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
       params
     )
     res.json({ user })
@@ -149,43 +191,72 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-// ── DESATIVAR / REMOVER USUÁRIO ───────────────────────────────────────────────
-// DELETE /api/users/:id  (somente gestor)
-router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+// POST /api/users/:id/reset-password
+router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') {
-      res.status(403).json({ error: 'Apenas o gestor pode remover usuários.' }); return
-    }
     const { id } = req.params
-    if (id === userId) {
-      res.status(400).json({ error: 'Você não pode remover a si mesmo.' }); return
-    }
-    const target = await queryOne<{ id: string; role: string }>(
-      'SELECT id, role FROM profiles WHERE id = $1 AND org_id = $2',
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
+      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
-    if (target.role === 'gestor') {
-      res.status(403).json({ error: 'Não é possível remover o gestor principal.' }); return
+    if (id === userId) { res.status(400).json({ error: 'Use a tela de configurações para alterar sua própria senha.' }); return }
+    if (role === 'sub_gestor' && target.criado_por !== userId) {
+      res.status(403).json({ error: 'Subgestor só redefine senha de seus comandados.' })
+      return
     }
-
+    if (target.role === 'gestor') {
+      res.status(403).json({ error: 'Não é possível resetar senha de gestor.' })
+      return
+    }
+    const senhaProvisoria = gerarSenhaProvisoria()
+    const senhaHash = await bcrypt.hash(senhaProvisoria, 12)
+    const user = await queryOne(
+      `UPDATE profiles SET senha_hash = $1, primeiro_acesso = TRUE, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3
+       RETURNING id, org_id, nome, email, role, cargo, ativo, primeiro_acesso`,
+      [senhaHash, id, orgId]
+    )
     await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
-    await query('UPDATE profiles SET ativo = FALSE WHERE id = $1 AND org_id = $2', [id, orgId])
-    res.json({ ok: true })
+    res.json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
   } catch (err) {
-    console.error('[USERS] Erro ao remover:', err)
-    res.status(500).json({ error: 'Erro ao remover usuário.' })
+    console.error('[USERS] Erro ao resetar senha:', err)
+    res.status(500).json({ error: 'Erro ao resetar senha.' })
   }
 })
 
-// ── LISTAR COMANDADOS (para sub_gestor montar equipe) ─────────────────────────
+// DELETE /api/users/:id -> desativa usuário
+router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    if (id === userId) { res.status(400).json({ error: 'Você não pode desativar a si mesmo.' }); return }
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
+      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+    if (target.role === 'gestor') { res.status(403).json({ error: 'Não é possível desativar gestor.' }); return }
+    if (role === 'sub_gestor' && target.criado_por !== userId) {
+      res.status(403).json({ error: 'Subgestor só desativa seus comandados.' })
+      return
+    }
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+    await query('UPDATE profiles SET ativo = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2', [id, orgId])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[USERS] Erro ao desativar:', err)
+    res.status(500).json({ error: 'Erro ao desativar usuário.' })
+  }
+})
+
 // GET /api/users/meus-comandados
 router.get('/meus-comandados', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
     const users = await query(
-      `SELECT id, nome, email, role, cargo, avatar_url, ativo
+      `SELECT id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por
        FROM profiles
        WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE
        ORDER BY nome`,

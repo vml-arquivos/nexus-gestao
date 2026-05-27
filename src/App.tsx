@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Pessoas from './pages/Pessoas'
 import Equipe from './pages/Equipe'
+import Equipes from './pages/Equipes'
 import Tarefas from './pages/Tarefas'
 import MinhasTarefas from './pages/MinhasTarefas'
 import Agenda from './pages/Agenda'
@@ -46,20 +47,20 @@ export default function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index            element={<Dashboard />} />
-        {/* Pessoas: somente gestor ou subgestor acessa geral; membro vê apenas suas pessoas via Pessoas page */}
-        <Route path="pessoas"   element={user?.role === 'membro' ? <Navigate to="/" replace /> : <Pessoas />} />
-        <Route path="pessoas/:id" element={user?.role === 'membro' ? <Navigate to="/" replace /> : <PessoaDetalhe />} />
-        {/* Equipe: apenas gestor ou subgestor visualiza. Membro não acessa */}
+        {/* Pessoas são privadas por usuário; membros também podem usar seus próprios contatos */}
+        <Route path="pessoas"   element={<Pessoas />} />
+        <Route path="pessoas/:id" element={<PessoaDetalhe />} />
+        {/* Equipe/Equipes: apenas gestor ou subgestor visualiza. Membro não acessa */}
         <Route path="equipe"    element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Equipe /> : <Navigate to="/" replace />} />
+        <Route path="equipes"   element={user?.role === 'gestor' ? <Equipes /> : <Navigate to="/" replace />} />
         {/* Tarefas: gestores e subgestores veem todas as suas tarefas criadas, membros acessam MinhasTarefas */}
         <Route path="tarefas"   element={user?.role === 'membro' ? <Navigate to="/minhas-tarefas" replace /> : <Tarefas />} />
         <Route path="minhas-tarefas" element={user?.role === 'membro' ? <MinhasTarefas /> : <Navigate to="/tarefas" replace />} />
         {/* Agenda: cada usuário tem sua agenda pessoal; membros podem acessar sua agenda */}
         <Route path="agenda"    element={<Agenda />} />
-        {/* Financeiro: dados financeiros são privados por usuário; membros só acessam suas entradas, mas atualmente restrito: se membro, redireciona */}
-        <Route path="financeiro" element={user?.role === 'membro' ? <Navigate to="/" replace /> : <Financeiro />} />
-        {/* Documentos: documentos são privados; membros acessam apenas sua lista. No futuro podemos separar, mas por enquanto impedir geral */}
-        <Route path="documentos" element={user?.role === 'membro' ? <Navigate to="/" replace /> : <Documentos />} />
+        {/* Financeiro e documentos são privados por usuário; membros acessam somente seus próprios dados */}
+        <Route path="financeiro" element={<Financeiro />} />
+        <Route path="documentos" element={<Documentos />} />
         {/* Compartilhar: se existir, manter; restrição por função pode ser implementada aqui se necessário */}
         <Route path="compartilhar" element={<Compartilhar />} />
         {/* Relatórios: apenas gestores e subgestores */}
