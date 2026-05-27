@@ -35,15 +35,19 @@ export function generateTokens(payload: JwtPayload): { accessToken: string; refr
   return { accessToken, refreshToken }
 }
 
-// ── MIDDLEWARE: verifica JWT no header Authorization ──────────────────────────
+// ── MIDDLEWARE: verifica JWT no header Authorization ou query param _t (SSE) ──
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // Aceita token via query param _t para EventSource (SSE) que não suporta headers
+  const queryToken = typeof req.query._t === 'string' ? (req.query._t as string) : null
+
+  if (!authHeader?.startsWith('Bearer ') && !queryToken) {
     res.status(401).json({ error: 'Token de autenticação não fornecido.' })
     return
   }
 
-  const token = authHeader.slice(7)
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (queryToken as string)
+
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
     req.user = decoded

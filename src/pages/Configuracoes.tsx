@@ -69,7 +69,7 @@ export default function Configuracoes() {
   const roleColor = user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
 
   return (
-    <div style={{ padding: 20, maxWidth: 540, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>⚙️ Configurações</h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie seu perfil e preferências</p>
@@ -131,9 +131,7 @@ export default function Configuracoes() {
             <Palette size={16} color="#EC4899" />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Aparência</span>
           </div>
-          {/* A alternância de tema claro/escuro usa grade responsiva para que
-             os botões se adaptem à largura disponível sem quebrar o layout */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {([['dark', '🌙 Escuro'], ['light', '☀️ Claro']] as const).map(([k, l]) => (
               <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#6C3BFF' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: theme === k ? '#6C3BFF' : 'var(--text3)' }}>
                 {l}
@@ -170,9 +168,7 @@ export default function Configuracoes() {
             <Info size={16} color="var(--text3)" />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Sobre o Nexus</span>
           </div>
-          {/* As informações sobre a plataforma são exibidas em grade responsiva
-             para acomodar diferentes resoluções de tela */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {[['Versão', '3.0.0'], ['Plataforma', 'PWA'], ['Backend', 'PostgreSQL 17'], ['Deploy', 'Coolify / VPS']].map(([k, v]) => (
               <div key={k} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '8px 12px' }}>
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>{k}</div>

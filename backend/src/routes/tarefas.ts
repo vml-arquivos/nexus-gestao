@@ -1,14 +1,12 @@
 import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware } from '../middleware/auth'
+import { criarNotificacao } from '../lib/notifHelper'
 
 const router = Router()
 router.use(authMiddleware)
 
 // ── LISTAR TAREFAS ────────────────────────────────────────────────────────────
-// gestor:     vê todas da organização
-// sub_gestor: vê as que criou + as atribuídas a ele + as dos seus comandados
-// membro:     vê apenas as atribuídas a ele
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -28,9 +26,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     let idx = 2
 
     if (role === 'membro') {
+      // membros só veem tarefas atribuídas a eles
       sql += ` AND t.responsavel_id = $${idx++}`
       params.push(userId)
     } else if (role === 'sub_gestor') {
+      // sub-gestores veem tarefas que criaram ou de seus comandados diretos
       sql += ` AND (
         t.criado_por = $${idx} OR
         t.responsavel_id = $${idx} OR
@@ -38,6 +38,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       )`
       params.push(userId, orgId)
       idx += 2
+    } else if (role === 'gestor') {
+      // gestores veem somente tarefas que criaram ou onde são responsáveis (tarefas pessoais)
+      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx})`
+      params.push(userId)
+      idx += 1
     }
 
     if (status)     { sql += ` AND t.status = $${idx++}`;     params.push(status) }
@@ -57,8 +62,6 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── CRIAR TAREFA ──────────────────────────────────────────────────────────────
-// gestor e sub_gestor podem criar tarefas.
-// sub_gestor só pode atribuir para si ou seus comandados diretos.
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -95,7 +98,13 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       responsavelNome = resp?.nome ?? null
     }
 
-    const tarefa = await queryOne(
+    // Busca nome do criador para a notificação
+    const criador = await queryOne<{ nome: string }>(
+      'SELECT nome FROM profiles WHERE id = $1', [userId]
+    )
+    const criadorNome = criador?.nome || 'Gestor'
+
+    const tarefa = await queryOne<{ id: string }>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -104,6 +113,20 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
        titulo.trim(), descricao || null, data || null, prazo || null,
        prioridade, JSON.stringify(checklist), obs || null]
     )
+
+    // ── Notifica responsável se for diferente do criador ──────────────────────
+    if (responsavel_id && responsavel_id !== userId) {
+      const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
+      await criarNotificacao({
+        orgId, userId: responsavel_id,
+        tipo: 'nova_tarefa',
+        titulo: '📋 Nova tarefa atribuída a você!',
+        body: `"${titulo.trim()}" por ${criadorNome}${prazoFmt}`,
+        referenciaId: (tarefa as any).id,
+        referenciaTipo: 'tarefa',
+      })
+    }
+
     res.status(201).json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao criar:', err)
@@ -125,8 +148,28 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
       [req.params.id, orgId]
     )
     if (!tarefa) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
-    if (role === 'membro' && tarefa.responsavel_id !== userId) {
-      res.status(403).json({ error: 'Acesso negado.' }); return
+    // Restrição de acesso: membros apenas suas tarefas; gestores/subgestores apenas tarefas permitidas
+    if (role === 'membro') {
+      if (tarefa.responsavel_id !== userId) {
+        res.status(403).json({ error: 'Acesso negado.' }); return
+      }
+    } else if (role === 'sub_gestor') {
+      // sub-gestor: tarefa criada por ele ou responsável ou de seus comandados
+      const isOwner = tarefa.criado_por === userId
+      const isResponsible = tarefa.responsavel_id === userId
+      let isComandado = false
+      if (tarefa.responsavel_id && !isResponsible) {
+        const resp = await queryOne('SELECT id FROM profiles WHERE id = $1 AND criado_por = $2', [tarefa.responsavel_id, userId])
+        isComandado = !!resp
+      }
+      if (!isOwner && !isResponsible && !isComandado) {
+        res.status(403).json({ error: 'Acesso negado.' }); return
+      }
+    } else if (role === 'gestor') {
+      // gestor: somente tarefas criadas por ele ou onde é responsável
+      if (tarefa.criado_por !== userId && tarefa.responsavel_id !== userId) {
+        res.status(403).json({ error: 'Acesso negado.' }); return
+      }
     }
     res.json({ tarefa })
   } catch (err) {
@@ -141,8 +184,11 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
 
-    const existing = await queryOne<{ id: string; responsavel_id: string; criado_por: string; org_id: string }>(
-      'SELECT id, responsavel_id, criado_por, org_id FROM tarefas WHERE id = $1 AND org_id = $2',
+    const existing = await queryOne<{
+      id: string; responsavel_id: string; criado_por: string; org_id: string
+      titulo: string; responsavel_nome: string
+    }>(
+      'SELECT id, responsavel_id, criado_por, org_id, titulo, responsavel_nome FROM tarefas WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
@@ -177,18 +223,56 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         `UPDATE tarefas SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
         params
       )
+
+      // ── Notifica gestor/criador ao responder ──────────────────────────────
+      if (resposta_status && existing.criado_por && existing.criado_por !== userId) {
+        const membro = await queryOne<{ nome: string }>(
+          'SELECT nome FROM profiles WHERE id = $1', [userId]
+        )
+        const membroNome = membro?.nome || 'Membro'
+        if (resposta_status === 'concluida') {
+          await criarNotificacao({
+            orgId, userId: existing.criado_por,
+            tipo: 'tarefa_concluida',
+            titulo: '✅ Tarefa concluída!',
+            body: `${membroNome} concluiu "${existing.titulo}".`,
+            referenciaId: id, referenciaTipo: 'tarefa',
+          })
+        } else {
+          await criarNotificacao({
+            orgId, userId: existing.criado_por,
+            tipo: 'tarefa_nao_concluida',
+            titulo: '❌ Tarefa não concluída',
+            body: `${membroNome} não concluiu "${existing.titulo}". Obs: ${resposta_obs || 'sem observação'}`,
+            referenciaId: id, referenciaTipo: 'tarefa',
+          })
+        }
+      }
+
       res.json({ tarefa })
       return
     }
 
-    // SUB_GESTOR: só tarefas que criou ou de seus comandados
+    // SUB_GESTOR: só tarefas que criou, é responsável ou de seus comandados
     if (role === 'sub_gestor') {
       const isOwner = existing.criado_por === userId
-      const isComandado = existing.responsavel_id
-        ? !!(await queryOne('SELECT id FROM profiles WHERE id = $1 AND criado_por = $2', [existing.responsavel_id, userId]))
-        : false
-      if (!isOwner && !isComandado) {
-        res.status(403).json({ error: 'Você só pode atualizar tarefas que criou ou de seus comandados.' })
+      const isResponsible = existing.responsavel_id === userId
+      let isComandado = false
+      if (existing.responsavel_id && !isResponsible) {
+        isComandado = !!(await queryOne('SELECT id FROM profiles WHERE id = $1 AND criado_por = $2', [existing.responsavel_id, userId]))
+      }
+      if (!isOwner && !isResponsible && !isComandado) {
+        res.status(403).json({ error: 'Você só pode atualizar tarefas que criou, é responsável ou de seus comandados.' })
+        return
+      }
+    }
+
+    // GESTOR: só tarefas que criou ou é responsável
+    if (role === 'gestor') {
+      const isOwner = existing.criado_por === userId
+      const isResponsible = existing.responsavel_id === userId
+      if (!isOwner && !isResponsible) {
+        res.status(403).json({ error: 'Você só pode atualizar tarefas que criou ou que são suas.' })
         return
       }
     }
@@ -202,6 +286,20 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         [responsavel_id, orgId]
       )
       responsavelNome = resp?.nome ?? null
+    }
+
+    // Notifica novo responsável se mudou
+    const novoResponsavel = responsavel_id && responsavel_id !== existing.responsavel_id
+    if (novoResponsavel && responsavel_id !== userId) {
+      const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
+      await criarNotificacao({
+        orgId, userId: responsavel_id,
+        tipo: 'nova_tarefa',
+        titulo: '📋 Nova tarefa atribuída a você!',
+        body: `"${titulo || existing.titulo}" por ${criador?.nome || 'Gestor'}${prazoFmt}`,
+        referenciaId: id, referenciaTipo: 'tarefa',
+      })
     }
 
     const tarefa = await queryOne(
@@ -231,8 +329,6 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── RESPONDER TAREFA ──────────────────────────────────────────────────────────
-// POST /api/tarefas/:id/resposta
-// Body: { resposta_status: 'concluida'|'nao_concluida', resposta_obs?: string }
 router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -244,15 +340,25 @@ router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> 
       return
     }
 
-    const existing = await queryOne<{ id: string; responsavel_id: string }>(
-      'SELECT id, responsavel_id FROM tarefas WHERE id = $1 AND org_id = $2',
+    const existing = await queryOne<{
+      id: string; responsavel_id: string; criado_por: string; titulo: string
+    }>(
+      'SELECT id, responsavel_id, criado_por, titulo FROM tarefas WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
 
-    if (role === 'membro' && existing.responsavel_id !== userId) {
-      res.status(403).json({ error: 'Você só pode responder tarefas atribuídas a você.' })
-      return
+    if (role === 'membro') {
+      if (existing.responsavel_id !== userId) {
+        res.status(403).json({ error: 'Você só pode responder tarefas atribuídas a você.' })
+        return
+      }
+    } else {
+      // gestores e sub-gestores só podem responder tarefas que criaram ou onde são responsáveis
+      if (existing.responsavel_id !== userId && existing.criado_por !== userId) {
+        res.status(403).json({ error: 'Acesso negado.' })
+        return
+      }
     }
 
     const novoStatus = resposta_status === 'concluida' ? 'concluida' : 'pendente'
@@ -268,6 +374,30 @@ router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> 
        RETURNING *`,
       [resposta_status, resposta_obs || null, novoStatus, id, orgId]
     )
+
+    // ── Notifica criador da tarefa ────────────────────────────────────────────
+    if (existing.criado_por && existing.criado_por !== userId) {
+      const membro = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      const membroNome = membro?.nome || 'Membro'
+      if (resposta_status === 'concluida') {
+        await criarNotificacao({
+          orgId, userId: existing.criado_por,
+          tipo: 'tarefa_concluida',
+          titulo: '✅ Tarefa concluída!',
+          body: `${membroNome} concluiu "${existing.titulo}" com sucesso.`,
+          referenciaId: id, referenciaTipo: 'tarefa',
+        })
+      } else {
+        await criarNotificacao({
+          orgId, userId: existing.criado_por,
+          tipo: 'tarefa_nao_concluida',
+          titulo: '❌ Tarefa não concluída',
+          body: `${membroNome} não concluiu "${existing.titulo}". Obs: ${resposta_obs || 'sem observação'}`,
+          referenciaId: id, referenciaTipo: 'tarefa',
+        })
+      }
+    }
+
     res.json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao responder:', err)
@@ -282,13 +412,20 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     if (role === 'membro') {
       res.status(403).json({ error: 'Membros não podem excluir tarefas.' }); return
     }
-    const existing = await queryOne<{ criado_por: string }>(
-      'SELECT criado_por FROM tarefas WHERE id = $1 AND org_id = $2',
+    const existing = await queryOne<{ criado_por: string; responsavel_id: string }>(
+      'SELECT criado_por, responsavel_id FROM tarefas WHERE id = $1 AND org_id = $2',
       [req.params.id, orgId]
     )
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    // sub-gestor: excluir somente tarefas criadas por ele
     if (role === 'sub_gestor' && existing.criado_por !== userId) {
       res.status(403).json({ error: 'Sub-gestor só pode excluir tarefas que criou.' }); return
+    }
+    // gestor: excluir somente tarefas que criou ou é responsável
+    if (role === 'gestor') {
+      if (existing.criado_por !== userId && existing.responsavel_id !== userId) {
+        res.status(403).json({ error: 'Você só pode excluir tarefas que criou ou que são suas.' }); return
+      }
     }
     await query('DELETE FROM tarefas WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
     res.json({ ok: true })
@@ -310,6 +447,9 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
       params.push(userId)
     } else if (role === 'sub_gestor') {
       filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1))`
+      params.push(userId)
+    } else if (role === 'gestor') {
+      filter += ' AND (criado_por = $2 OR responsavel_id = $2)'
       params.push(userId)
     }
 

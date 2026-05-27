@@ -15,8 +15,11 @@ import agendaRoutes     from './routes/agenda'
 import pagamentosRoutes from './routes/pagamentos'
 import uploadsRoutes    from './routes/uploads'
 import documentosRoutes from './routes/documentos'
-import teamsRoutes from './routes/teams'
-import usersRoutes from './routes/users'
+import teamsRoutes      from './routes/teams'
+import usersRoutes      from './routes/users'
+import convitesRoutes       from './routes/convites'
+import notificacoesRoutes  from './routes/notificacoes'
+import { iniciarJobsNotificacao } from './lib/notifHelper'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '3001', 10)
@@ -98,6 +101,8 @@ app.use('/api/uploads',     uploadsRoutes)
 app.use('/api/documentos',  documentosRoutes)
 app.use('/api/teams',       teamsRoutes)
 app.use('/api/users',       usersRoutes)
+app.use('/api/convites',       convitesRoutes)
+app.use('/api/notificacoes',  notificacoesRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
@@ -144,6 +149,8 @@ async function start() {
     console.log(`[SERVER] ✅ Nexus API rodando na porta ${PORT}`)
     console.log(`[SERVER] 🌐 Frontend: ${FRONTEND_URL}`)
     console.log(`[SERVER] 📁 Uploads: ${UPLOADS_DIR}`)
+    // Inicia jobs de notificação após o servidor subir
+    iniciarJobsNotificacao()
   })
 }
 

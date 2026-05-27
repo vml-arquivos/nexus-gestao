@@ -63,10 +63,10 @@ function PessoaModal({ initial, onSave, onClose }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{initial?.id ? 'Editar Contato' : 'Novo Contato'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -84,9 +84,7 @@ function PessoaModal({ initial, onSave, onClose }: {
               ))}
             </select>
           </div>
-          {/* Campos de cargo e telefone usam grade responsiva com largura mínima de 180px
-             para se ajustar em telas menores sem comprometer a legibilidade */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">Cargo</label>
               <input className="form-input" placeholder="Ex: Desenvolvedor" value={cargo} onChange={e => setCargo(e.target.value)} />
@@ -180,10 +178,10 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Convidar membro</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -200,11 +198,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 
         <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: 'var(--bg3)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>Compartilhar convite</div>
-          {/*
-           * Botões para compartilhar convite (WhatsApp, Redes sociais, E-mail, Copiar)
-           * agora usam grade responsiva para acomodar diferentes larguras de tela.
-           */
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <button className="btn btn-secondary" type="button" onClick={compartilharWhatsApp}><MessageCircle size={14} /> WhatsApp</button>
             <button className="btn btn-secondary" type="button" onClick={compartilharNativo}><Share2 size={14} /> Redes sociais</button>
             <button className="btn btn-secondary" type="button" onClick={compartilharEmail}><Mail size={14} /> E-mail</button>
@@ -292,7 +286,7 @@ export default function Pessoas() {
   })
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Contatos</h1>
@@ -376,12 +370,7 @@ export default function Pessoas() {
                       )}
                     </div>
                     {p.obs && <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>{p.obs}</p>}
-                    {/*
-                     * Os botões de ações (Ficha, Pagar, Receber) agora usam uma
-                     * grade responsiva. Isso permite que os botões se adaptem a
-                     * diferentes larguras de tela, empilhando-se quando necessário.
-                     */
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 8, marginTop: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 10 }}>
                       <button
                         type="button"
                         className="btn btn-ghost"

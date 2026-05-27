@@ -1,8 +1,35 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { addSseClient, removeSseClient } from '../lib/notifHelper'
 
 const router = Router()
+
+// ── SSE: conexão em tempo real (sem authMiddleware pois usa token na query) ───
+// GET /api/notificacoes/stream?token=<jwt>
+router.get('/stream', authMiddleware, (req: Request, res: Response): void => {
+  const { userId } = req.user!
+
+  // Cabeçalhos SSE
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.setHeader('X-Accel-Buffering', 'no') // Desativa buffering no nginx
+  res.flushHeaders()
+
+  // Heartbeat a cada 25s para manter a conexão viva
+  const hb = setInterval(() => {
+    try { res.write(': heartbeat\n\n') } catch { /* ignore */ }
+  }, 25_000)
+
+  addSseClient(userId, res)
+
+  req.on('close', () => {
+    clearInterval(hb)
+    removeSseClient(userId, res)
+  })
+})
+
 router.use(authMiddleware)
 
 // GET /api/notificacoes

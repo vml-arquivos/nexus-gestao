@@ -26,7 +26,12 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
     `
     const params: unknown[] = [orgId]
 
-    if (role === 'sub_gestor') {
+    if (role === 'membro') {
+      // Membro vê apenas a si mesmo para não expor dados de outros
+      sql += ' AND p.id = $2'
+      params.push(userId)
+    } else if (role === 'gestor' || role === 'sub_gestor') {
+      // Gestor e sub-gestor veem apenas a si e seus comandados
       sql += ' AND (p.id = $2 OR p.criado_por = $2)'
       params.push(userId)
     }
@@ -44,11 +49,12 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
 // GET /api/equipe/pessoas
 router.get('/pessoas', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { tipo, search } = req.query
-    let sql = 'SELECT * FROM pessoas WHERE org_id = $1'
-    const params: unknown[] = [orgId]
-    let idx = 2
+    // Cada usuário enxerga apenas pessoas vinculadas a ele (user_id)
+    let sql = 'SELECT * FROM pessoas WHERE org_id = $1 AND user_id = $2'
+    const params: unknown[] = [orgId, userId]
+    let idx = 3
     if (tipo)   { sql += ` AND tipo = $${idx++}`;                    params.push(tipo) }
     if (search) { sql += ` AND nome ILIKE $${idx++}`;                params.push(`%${search}%`) }
     sql += ' ORDER BY nome'
@@ -64,7 +70,7 @@ router.get('/pessoas', async (req: Request, res: Response): Promise<void> => {
 // POST /api/equipe/pessoas  (gestor e sub_gestor)
 router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
+    const { orgId, userId, role } = req.user!
     if (role === 'membro') {
       res.status(403).json({ error: 'Membros não podem criar pessoas.' }); return
     }
@@ -74,9 +80,9 @@ router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
       return
     }
     const pessoa = await queryOne(
-      `INSERT INTO pessoas (org_id, nome, tipo, cargo, contato, email, valor, obs)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [orgId, nome.trim(), tipo, cargo || null, contato || null, email || null, valor || null, obs || null]
+      `INSERT INTO pessoas (org_id, user_id, nome, tipo, cargo, contato, email, valor, obs)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [orgId, userId, nome.trim(), tipo, cargo || null, contato || null, email || null, valor || null, obs || null]
     )
     res.status(201).json({ pessoa })
   } catch (err) {
@@ -88,21 +94,19 @@ router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
 // ── ATUALIZAR PESSOA ──────────────────────────────────────────────────────────
 router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (role === 'membro') {
-      res.status(403).json({ error: 'Membros não podem editar pessoas.' }); return
-    }
+    const { orgId, userId } = req.user!
     const { id } = req.params
     const { nome, tipo, cargo, contato, email, valor, obs } = req.body
+    // Atualiza somente registros do próprio usuário
     const pessoa = await queryOne(
       `UPDATE pessoas SET
          nome = COALESCE($1, nome), tipo = COALESCE($2, tipo),
          cargo = COALESCE($3, cargo), contato = COALESCE($4, contato),
          email = COALESCE($5, email), valor = COALESCE($6, valor), obs = COALESCE($7, obs)
-       WHERE id = $8 AND org_id = $9 RETURNING *`,
-      [nome || null, tipo || null, cargo || null, contato || null, email || null, valor || null, obs || null, id, orgId]
+       WHERE id = $8 AND org_id = $9 AND user_id = $10 RETURNING *`,
+      [nome || null, tipo || null, cargo || null, contato || null, email || null, valor || null, obs || null, id, orgId, userId]
     )
-    if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada.' }); return }
+    if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada ou sem permissão.' }); return }
     res.json({ pessoa })
   } catch (err) {
     console.error('[EQUIPE] Erro ao atualizar pessoa:', err)
@@ -113,11 +117,9 @@ router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> 
 // ── EXCLUIR PESSOA ────────────────────────────────────────────────────────────
 router.delete('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (role !== 'gestor') {
-      res.status(403).json({ error: 'Apenas o gestor pode remover pessoas.' }); return
-    }
-    await query('DELETE FROM pessoas WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
+    const { orgId, userId } = req.user!
+    // Remove apenas a pessoa pertencente ao próprio usuário
+    await query('DELETE FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3', [req.params.id, orgId, userId])
     res.json({ ok: true })
   } catch (err) {
     console.error('[EQUIPE] Erro ao excluir pessoa:', err)

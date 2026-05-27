@@ -8,17 +8,17 @@ router.use(authMiddleware)
 // GET /api/documentos
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { pessoa_id, tipo, search } = req.query
 
     let sql = `
       SELECT d.*, p.nome AS pessoa_nome_atual
       FROM documentos d
       LEFT JOIN pessoas p ON p.id = d.pessoa_id
-      WHERE d.org_id = $1
+      WHERE d.org_id = $1 AND d.criado_por = $2
     `
-    const params: unknown[] = [orgId]
-    let idx = 2
+    const params: unknown[] = [orgId, userId]
+    let idx = 3
 
     if (pessoa_id) { sql += ` AND d.pessoa_id = $${idx++}`; params.push(pessoa_id) }
     if (tipo)      { sql += ` AND d.tipo = $${idx++}`;      params.push(tipo) }
@@ -37,13 +37,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // GET /api/documentos/:id
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const doc = await queryOne(
       `SELECT d.*, p.nome AS pessoa_nome_atual
        FROM documentos d
        LEFT JOIN pessoas p ON p.id = d.pessoa_id
-       WHERE d.id = $1 AND d.org_id = $2`,
-      [req.params.id, orgId]
+       WHERE d.id = $1 AND d.org_id = $2 AND d.criado_por = $3`,
+      [req.params.id, orgId, userId]
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
     res.json({ documento: doc })
@@ -56,7 +56,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 // PATCH /api/documentos/:id — atualiza metadados (título, descrição, pessoa_id, etc.)
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { titulo, descricao, tipo, pessoa_id, pagamento_id } = req.body
 
     const sets: string[] = []
@@ -72,10 +72,10 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (sets.length === 0) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
 
     sets.push(`updated_at = NOW()`)
-    params.push(req.params.id, orgId)
+    params.push(req.params.id, orgId, userId)
 
     const doc = await queryOne(
-      `UPDATE documentos SET ${sets.join(', ')} WHERE id = $${idx++} AND org_id = $${idx} RETURNING *`,
+      `UPDATE documentos SET ${sets.join(', ')} WHERE id = $${idx++} AND org_id = $${idx} AND criado_por = $${idx + 1} RETURNING *`,
       params
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
@@ -89,10 +89,10 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 // DELETE /api/documentos/:id
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const deleted = await queryOne(
-      'DELETE FROM documentos WHERE id = $1 AND org_id = $2 RETURNING id',
-      [req.params.id, orgId]
+      'DELETE FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3 RETURNING id',
+      [req.params.id, orgId, userId]
     )
     if (!deleted) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
     res.json({ ok: true })

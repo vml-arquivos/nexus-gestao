@@ -14,17 +14,18 @@ export class TeamRepository {
    *
    * @param orgId Identificador da organização
    */
-  static async list(orgId: string) {
+  static async list(orgId: string, userId: string) {
+    // Lista equipes criadas pelo usuário. Não expõe equipes de outros gestores.
     const sql = `
       SELECT e.id, e.org_id, e.nome, e.descricao, e.criado_por, e.created_at,
              COUNT(em.profile_id) AS members_count
       FROM equipes e
       LEFT JOIN equipes_membros em ON em.equipe_id = e.id
-      WHERE e.org_id = $1
+      WHERE e.org_id = $1 AND e.criado_por = $2
       GROUP BY e.id
       ORDER BY e.nome ASC
     `
-    const result = await query(sql, [orgId])
+    const result = await query(sql, [orgId, userId])
     return result
   }
 
@@ -97,5 +98,17 @@ export class TeamRepository {
       ON CONFLICT DO NOTHING
     `
     await query(sql, [equipeId, ...params])
+  }
+
+  /**
+   * Valida se um usuário pode ser membro de uma equipe do gestor.
+   * Apenas perfis da mesma organização criados pelo gestor são permitidos.
+   */
+  static async validateMember(orgId: string, gestorId: string, memberId: string): Promise<boolean> {
+    const sql = `SELECT 1
+                 FROM profiles
+                 WHERE id = $1 AND org_id = $2 AND criado_por = $3 AND ativo = TRUE`;
+    const result = await queryOne(sql, [memberId, orgId, gestorId]);
+    return !!result;
   }
 }

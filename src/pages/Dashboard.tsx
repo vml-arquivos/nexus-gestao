@@ -88,10 +88,10 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: "20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)", maxWidth: 760, margin: "0 auto", boxSizing: "border-box" as const }}>
       {/* Saudação */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 22 }}>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>
           {saudacao}, {user?.nome?.split(' ')[0]} 👋
         </h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
@@ -101,31 +101,30 @@ export default function Dashboard() {
 
       {/* Alertas */}
       {metrics.vencidos.length > 0 && (
-        <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          <AlertTriangle size={16} color="var(--danger)" />
-          <span><strong style={{ color: 'var(--danger)' }}>{metrics.vencidos.length} pagamento{metrics.vencidos.length > 1 ? 's' : ''}</strong> vencido{metrics.vencidos.length > 1 ? 's' : ''} — verifique o financeiro</span>
-          <Link to="/financeiro" style={{ marginLeft: 'auto', color: 'var(--danger)', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>Ver →</Link>
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <AlertTriangle size={16} color="#EF4444" />
+          <span><strong style={{ color: '#EF4444' }}>{metrics.vencidos.length} pagamento{metrics.vencidos.length > 1 ? 's' : ''}</strong> vencido{metrics.vencidos.length > 1 ? 's' : ''} — verifique o financeiro</span>
+          <Link to="/financeiro" style={{ marginLeft: 'auto', color: '#EF4444', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>Ver →</Link>
         </div>
       )}
 
       {/* Métricas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
           { icon: CheckCircle2, label: 'Tarefas Pendentes', value: metrics.tarefasPendentes, sub: `${metrics.tarefasConcluidas} concluídas`, color: '#6C3BFF', to: '/tarefas' },
           { icon: Calendar,     label: 'Eventos Hoje',      value: metrics.eventosHoje.length, sub: 'compromissos', color: '#06B6D4', to: '/agenda' },
-          { icon: DollarSign,   label: 'Saldo',             value: fmt(metrics.saldo), sub: `Receita: ${fmt(metrics.receita)}`, color: metrics.saldo >= 0 ? 'var(--success)' : 'var(--danger)', to: '/financeiro' },
-          { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: 'var(--warning)', to: '/pessoas' },
+          { icon: DollarSign,   label: 'Saldo',             value: fmt(metrics.saldo), sub: `Receita: ${fmt(metrics.receita)}`, color: metrics.saldo >= 0 ? '#10B981' : '#EF4444', to: '/financeiro' },
+          { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/pessoas' },
         ].map(({ icon: Icon, label, value, sub, color, to }) => (
           <Link key={label} to={to} style={{ textDecoration: 'none' }}>
               <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  {/* A cor de fundo do ícone usa um alfa de 15 (hex) para criar um destaque suave */}
                   <div style={{ width: 32, height: 32, borderRadius: 10, background: color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Icon size={16} color={color} />
                 </div>
-                <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 500 }}>{label}</span>
+                <span style={{ fontSize: 12, color: 'var(--text3)', fontWeight: 600 }}>{label}</span>
               </div>
-              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 24, color }}>{value}</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 24, color }}>{value}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{sub}</div>
             </div>
           </Link>
@@ -136,8 +135,7 @@ export default function Dashboard() {
       {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            {/* Cabeçalho de tarefas urgentes com peso mais leve e cor de perigo do design system */}
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='var(--danger)' /> Tarefas urgentes</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='#EF4444' /> Tarefas urgentes</h2>
             <Link to="/tarefas" style={{ fontSize: 12, color: 'var(--primary-light)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
               Ver todas <ArrowRight size={12} />
             </Link>
@@ -183,20 +181,11 @@ export default function Dashboard() {
       )}
 
       {/* Relatório operacional */}
-      {/*
-        Para melhorar a responsividade dessa seção em telas menores,
-        substituímos o grid fixo de três colunas por um grid
-        responsivo que usa auto-fit e minmax. Desta forma o
-        número de colunas se ajusta automaticamente conforme a
-        largura disponível (por exemplo, 1 ou 2 colunas em telas
-        de celular).  Cada item ainda mantém um tamanho mínimo
-        para não apertar demais o conteúdo.
-      */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><ClipboardList size={15} /> Relatório de hoje</h2>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
           <Link to="/tarefas" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Tarefas do dia</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: '#06B6D4' }}>{metrics.tarefasHoje.length}</div>

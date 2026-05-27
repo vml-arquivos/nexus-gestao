@@ -86,7 +86,7 @@ export default function Relatorios() {
   ]
 
   return (
-    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Relatorios</h1>
@@ -96,13 +96,7 @@ export default function Relatorios() {
       </div>
 
       {/* KPIs */}
-      {/*
-        Adicionamos um grid responsivo para os cartões de KPI. Em vez de fixar
-        sempre três colunas, usamos `auto-fit` com `minmax` para que os
-        cartões se rearranjem conforme a largura da tela. Isso evita
-        quebras de layout em smartphones e tablets.
-      */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
         {kpis.map(k => (
           <div key={k.label} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 12px', textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 18, color: k.color }}>{k.value}</div>
@@ -167,21 +161,9 @@ export default function Relatorios() {
         {stats.tarefasPorPrioridade.length > 0 && (
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Tarefas por Prioridade</div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 10 }}>
               {stats.tarefasPorPrioridade.map(p => (
-                <div
-                  key={p.name}
-                  style={{
-                    flex: '1 1 100px',
-                    textAlign: 'center',
-                    background: p.color + '18',
-                    border: `1px solid ${p.color}30`,
-                    borderRadius: 10,
-                    padding: '12px 8px',
-                    minWidth: 100,
-                    marginBottom: 6,
-                  }}
-                >
+                <div key={p.name} style={{ flex: 1, textAlign: 'center', background: p.color + '18', border: `1px solid ${p.color}30`, borderRadius: 10, padding: '12px 8px' }}>
                   <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22, color: p.color }}>{p.value}</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{p.name}</div>
                 </div>

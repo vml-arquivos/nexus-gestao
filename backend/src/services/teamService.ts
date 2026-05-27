@@ -12,8 +12,9 @@ export class TeamService {
    * Lista todas as equipes da organização do usuário.
    */
   static async listTeams(req: Request) {
-    const { orgId } = req.user!
-    return TeamRepository.list(orgId)
+    const { orgId, userId, role } = req.user!
+    // Apenas equipes criadas pelo usuário
+    return TeamRepository.list(orgId, userId)
   }
 
   /**
@@ -37,9 +38,15 @@ export class TeamService {
    * como parâmetro de rota.
    */
   static async getMembers(req: Request, equipeId: string) {
-    const { orgId, role } = req.user!
+    const { orgId, userId, role } = req.user!
     if (role !== 'gestor') {
       throw new Error('Apenas gestores podem visualizar membros da equipe.')
+    }
+    // Verifica se a equipe pertence ao gestor
+    const teams = await TeamRepository.list(orgId, userId)
+    const exists = teams.some((t: any) => t.id === equipeId)
+    if (!exists) {
+      throw new Error('Equipe não encontrada ou sem permissão.')
     }
     return TeamRepository.members(orgId, equipeId)
   }
@@ -50,10 +57,24 @@ export class TeamService {
    * acontece. Após a operação, não há retorno específico.
    */
   static async addMembers(req: Request, equipeId: string, memberIds: string[]) {
-    const { role } = req.user!
+    const { orgId, userId, role } = req.user!
     if (role !== 'gestor') {
       throw new Error('Apenas gestores podem adicionar membros à equipe.')
     }
-    await TeamRepository.addMembers(equipeId, memberIds)
+    // Verifica se a equipe pertence ao gestor
+    const teams = await TeamRepository.list(orgId, userId)
+    const exists = teams.some((t: any) => t.id === equipeId)
+    if (!exists) {
+      throw new Error('Equipe não encontrada ou sem permissão.')
+    }
+    // Filtra members para pertencerem ao mesmo org e terem sido criados pelo gestor
+    const validMembers: string[] = []
+    for (const m of memberIds) {
+      const r = await TeamRepository.validateMember(orgId, userId, m)
+      if (r) validMembers.push(m)
+    }
+    if (validMembers.length > 0) {
+      await TeamRepository.addMembers(equipeId, validMembers)
+    }
   }
 }

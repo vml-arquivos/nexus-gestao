@@ -54,7 +54,8 @@ export const PaymentRepository = {
   /**
    * Lista pagamentos de uma organização aplicando filtros.
    */
-  async list(orgId: string, filters: PaymentFilter) {
+  async list(orgId: string, userId: string, filters: PaymentFilter) {
+    // Lista apenas pagamentos criados pelo usuário na organização
     let sql = `
       SELECT pg.*, p.nome AS pessoa_nome_atual
       FROM pagamentos pg
@@ -62,9 +63,10 @@ export const PaymentRepository = {
         ON p.id = pg.pessoa_id
        AND p.org_id = pg.org_id
       WHERE pg.org_id = $1
+        AND pg.criado_por = $2
     `
-    const params: unknown[] = [orgId]
-    let idx = 2
+    const params: unknown[] = [orgId, userId]
+    let idx = 3
     if (filters?.tipo) {
       sql += ` AND pg.tipo = $${idx++}`
       params.push(filters.tipo)
@@ -86,7 +88,8 @@ export const PaymentRepository = {
   /**
    * Obtém resumo financeiro para uma organização.
    */
-  async getResumo(orgId: string) {
+  async getResumo(orgId: string, userId: string) {
+    // Resumo financeiro apenas dos pagamentos criados pelo usuário
     const resumo = await queryOne(
       `SELECT
          COALESCE(SUM(valor) FILTER (WHERE tipo='recebimento' AND status='pago'),0)     AS receita_paga,
@@ -95,15 +98,16 @@ export const PaymentRepository = {
          COALESCE(SUM(valor) FILTER (WHERE tipo='pagamento'   AND status='pendente'),0) AS despesa_pendente,
          COALESCE(SUM(valor) FILTER (WHERE status='pendente' AND vencimento < CURRENT_DATE),0) AS total_vencido
        FROM pagamentos
-       WHERE org_id = $1`,
-      [orgId]
+       WHERE org_id = $1 AND criado_por = $2`,
+      [orgId, userId]
     )
     return resumo
   },
   /**
    * Obtém valores agregados por pessoa para uma organização.
    */
-  async getPorPessoa(orgId: string) {
+  async getPorPessoa(orgId: string, userId: string) {
+    // Valores agregados por pessoa apenas dos pagamentos criados pelo usuário
     const rows = await query(
       `SELECT
          pg.pessoa_id,
@@ -120,12 +124,13 @@ export const PaymentRepository = {
          ON p.id = pg.pessoa_id
         AND p.org_id = pg.org_id
        WHERE pg.org_id = $1
+         AND pg.criado_por = $2
          AND (pg.pessoa_id IS NOT NULL OR pg.pessoa_nome IS NOT NULL)
        GROUP BY pg.pessoa_id, p.nome, pg.pessoa_nome
        ORDER BY
          COALESCE(SUM(pg.valor) FILTER (WHERE pg.status = 'pendente'), 0) DESC,
          pessoa_nome ASC`,
-      [orgId]
+      [orgId, userId]
     )
     return rows
   },
@@ -197,7 +202,7 @@ export const PaymentRepository = {
   /**
    * Atualiza pagamento. Retorna registro atualizado.
    */
-  async update(id: string, orgId: string, updates: PaymentUpdateInput) {
+  async update(id: string, orgId: string, userId: string, updates: PaymentUpdateInput) {
     const allowed = [
       'titulo',
       'descricao',
@@ -227,16 +232,16 @@ export const PaymentRepository = {
     if (setParts.length === 0) {
       return null
     }
-    params.push(id, orgId)
-    const sql = `UPDATE pagamentos SET ${setParts.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND org_id = $${idx + 1} RETURNING *`
+    params.push(id, orgId, userId)
+    const sql = `UPDATE pagamentos SET ${setParts.join(', ')}, updated_at = NOW() WHERE id = $${idx} AND org_id = $${idx + 1} AND criado_por = $${idx + 2} RETURNING *`
     const updated = await queryOne(sql, params)
     return updated
   },
   /**
    * Remove pagamento por id e orgId.
    */
-  async remove(id: string, orgId: string) {
-    await query('DELETE FROM pagamentos WHERE id = $1 AND org_id = $2', [id, orgId])
+  async remove(id: string, orgId: string, userId: string) {
+    await query('DELETE FROM pagamentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [id, orgId, userId])
     return { ok: true }
   },
 }

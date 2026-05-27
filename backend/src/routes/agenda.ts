@@ -7,12 +7,12 @@ router.use(authMiddleware)
 
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { mes, ano } = req.query
-    let sql = 'SELECT * FROM agenda WHERE org_id = $1'
-    const params: unknown[] = [orgId]
+    let sql = 'SELECT * FROM agenda WHERE org_id = $1 AND criado_por = $2'
+    const params: unknown[] = [orgId, userId]
     if (mes && ano) {
-      sql += ` AND EXTRACT(MONTH FROM data_inicio) = $2 AND EXTRACT(YEAR FROM data_inicio) = $3`
+      sql += ` AND EXTRACT(MONTH FROM data_inicio) = $${params.length + 1} AND EXTRACT(YEAR FROM data_inicio) = $${params.length + 2}`
       params.push(mes, ano)
     }
     sql += ' ORDER BY data_inicio ASC'
@@ -41,7 +41,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
 router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { titulo, descricao, data_inicio, data_fim, local, tipo, participantes, lembrete_minutos, cor } = req.body
     const evento = await queryOne(
       `UPDATE agenda SET
@@ -50,9 +50,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
          local = COALESCE($5,local), tipo = COALESCE($6,tipo),
          participantes = COALESCE($7,participantes), lembrete_minutos = COALESCE($8,lembrete_minutos),
          cor = COALESCE($9,cor)
-       WHERE id = $10 AND org_id = $11 RETURNING *`,
+       WHERE id = $10 AND org_id = $11 AND criado_por = $12 RETURNING *`,
       [titulo||null, descricao||null, data_inicio||null, data_fim||null, local||null, tipo||null,
-       participantes ? JSON.stringify(participantes) : null, lembrete_minutos||null, cor||null, req.params.id, orgId]
+       participantes ? JSON.stringify(participantes) : null, lembrete_minutos||null, cor||null, req.params.id, orgId, userId]
     )
     if (!evento) { res.status(404).json({ error: 'Evento não encontrado.' }); return }
     res.json({ evento })
@@ -63,8 +63,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
-    await query('DELETE FROM agenda WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
+    const { orgId, userId } = req.user!
+    await query('DELETE FROM agenda WHERE id = $1 AND org_id = $2 AND criado_por = $3', [req.params.id, orgId, userId])
     res.json({ ok: true })
   } catch (err) {
     res.status(500).json({ error: 'Erro ao excluir evento.' })

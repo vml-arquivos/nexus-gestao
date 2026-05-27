@@ -118,17 +118,17 @@ router.post('/', upload.single('file'), async (req: MulterRequest, res: Response
 // GET /api/uploads
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { pessoa_id, pagamento_id, tipo } = req.query
 
     let sql = `
       SELECT d.*, p.nome AS pessoa_nome_atual
       FROM documentos d
       LEFT JOIN pessoas p ON p.id = d.pessoa_id
-      WHERE d.org_id = $1
+      WHERE d.org_id = $1 AND d.criado_por = $2
     `
-    const params: unknown[] = [orgId]
-    let idx = 2
+    const params: unknown[] = [orgId, userId]
+    let idx = 3
 
     if (pessoa_id)    { sql += ` AND d.pessoa_id = $${idx++}`;    params.push(pessoa_id) }
     if (pagamento_id) { sql += ` AND d.pagamento_id = $${idx++}`; params.push(pagamento_id) }
@@ -148,10 +148,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // DELETE /api/uploads/:id
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const doc = await queryOne<{ arquivo_url: string }>(
-      'SELECT arquivo_url FROM documentos WHERE id = $1 AND org_id = $2',
-      [req.params.id, orgId],
+      'SELECT arquivo_url FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3',
+      [req.params.id, orgId, userId],
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
 
@@ -163,7 +163,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    await query('DELETE FROM documentos WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
+    await query('DELETE FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [req.params.id, orgId, userId])
     res.json({ ok: true })
   } catch (err) {
     console.error('[UPLOAD] Erro ao excluir:', err)
@@ -175,24 +175,27 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 // GET /api/uploads/historico/:pessoaId
 router.get('/historico/:pessoaId', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!
+    const { orgId, userId } = req.user!
     const { pessoaId } = req.params
 
-    const [pessoa, documentos, pagamentos, tarefas] = await Promise.all([
-      queryOne('SELECT * FROM pessoas WHERE id = $1 AND org_id = $2', [pessoaId, orgId]),
-      query('SELECT * FROM documentos WHERE pessoa_id = $1 AND org_id = $2 ORDER BY created_at DESC', [pessoaId, orgId]),
-      query('SELECT * FROM pagamentos WHERE pessoa_id = $1 AND org_id = $2 ORDER BY created_at DESC', [pessoaId, orgId]),
+    // Carrega apenas se a pessoa pertence ao usuário
+    const pessoa = await queryOne('SELECT * FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3', [pessoaId, orgId, userId])
+    if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada.' }); return }
+
+    const [documentos, pagamentos, tarefas] = await Promise.all([
+      query('SELECT * FROM documentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),
+      query('SELECT * FROM pagamentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),
       query(
-        `SELECT t.* FROM tarefas t WHERE t.responsavel_id = (
-           SELECT user_id FROM pessoas WHERE id = $1
-         ) AND t.org_id = $2 ORDER BY t.created_at DESC`,
-        [pessoaId, orgId],
+        `SELECT t.* FROM tarefas t
+         WHERE t.responsavel_id = (
+           SELECT user_id FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3
+         ) AND t.org_id = $2
+         ORDER BY t.created_at DESC`,
+        [pessoaId, orgId, userId],
       ),
     ])
 
-    if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada.' }); return }
-
-    const pags = pagamentos as Record<string, unknown>[]
+    const pags = pagamentos as Record<string, any>[]
     const totalDevo       = pags.filter(p => p.tipo === 'pagamento'   && p.status === 'pendente').reduce((a, b) => a + Number(b.valor), 0)
     const totalMeDevem    = pags.filter(p => p.tipo === 'recebimento' && p.status === 'pendente').reduce((a, b) => a + Number(b.valor), 0)
     const totalPago       = pags.filter(p => p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0)
