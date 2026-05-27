@@ -63,6 +63,27 @@ function buildRecurringDates(vencimento: string | undefined, recorrencia: Recorr
   return dates
 }
 
+
+function normalizeDateValue(value: unknown): string | null {
+  if (!value) return null
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  if (typeof value === 'string') return value.slice(0, 10)
+  const parsed = new Date(value as any)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString().slice(0, 10)
+}
+
+function compareNullableDates(a: unknown, b: unknown): number {
+  const dateA = normalizeDateValue(a)
+  const dateB = normalizeDateValue(b)
+
+  if (!dateA && !dateB) return 0
+  if (!dateA) return 1
+  if (!dateB) return -1
+
+  return dateA.localeCompare(dateB)
+}
+
 // ── GET /api/pagamentos ──────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -201,14 +222,15 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
           g.valor_pendente += valor
           g.parcelas_pendentes++
           // Próxima parcela pendente
-          if (row.vencimento) {
-            if (!g.proxima_parcela || row.vencimento < g.proxima_parcela) {
-              g.proxima_parcela = row.vencimento
+          const vencimento = normalizeDateValue(row.vencimento)
+          if (vencimento) {
+            if (!g.proxima_parcela || vencimento < g.proxima_parcela) {
+              g.proxima_parcela = vencimento
             }
-            if (!g.ultima_parcela || row.vencimento > g.ultima_parcela) {
-              g.ultima_parcela = row.vencimento
+            if (!g.ultima_parcela || vencimento > g.ultima_parcela) {
+              g.ultima_parcela = vencimento
             }
-            if (row.vencimento < hoje) g.vencido = true
+            if (vencimento < hoje) g.vencido = true
           }
         }
       }
@@ -220,13 +242,13 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       ...g,
       parcelas: g.parcelas.sort((a: any, b: any) =>
         (a.num_parcela || 0) - (b.num_parcela || 0) ||
-        (a.vencimento || '').localeCompare(b.vencimento || '')
+        compareNullableDates(a.vencimento, b.vencimento)
       ),
     }))
 
     grupos.sort((a, b) => {
       if (a.vencido !== b.vencido) return a.vencido ? -1 : 1
-      return (a.proxima_parcela || '9999').localeCompare(b.proxima_parcela || '9999')
+      return compareNullableDates(a.proxima_parcela, b.proxima_parcela)
     })
 
     res.json({ grupos })
