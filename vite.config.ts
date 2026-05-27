@@ -10,112 +10,101 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-
-      // ── Apenas os assets que EXISTEM de facto no /public ──────────────────
-      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
-
+      includeAssets: ['icon-192.png', 'icon-512.png', 'favicon.svg'],
       manifest: {
         name: 'Nexus — Gestão Inteligente',
         short_name: 'Nexus',
-        description: 'Gestão de equipe, tarefas, agenda, financeiro e documentos',
+        description: 'Gestão de equipe, tarefas, agenda, financeiro e documentos em um só lugar',
         theme_color: '#0F0A1E',
         background_color: '#0F0A1E',
+        // standalone = sem barra de navegador — ESSENCIAL para parecer app nativo
         display: 'standalone',
+        // Bloqueia em retrato (igual app mobile nativo)
         orientation: 'portrait-primary',
         start_url: '/',
         scope: '/',
         lang: 'pt-BR',
+        categories: ['productivity', 'finance', 'business'],
+        // Cor da barra de status iOS/Android
         id: '/nexus-gestao',
         icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          {
+            src: 'icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          },
         ],
         shortcuts: [
           { name: 'Nova Tarefa',    url: '/?action=task',    icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
           { name: 'Novo Pagamento', url: '/?action=payment', icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
           { name: 'Novo Arquivo',   url: '/?action=upload',  icons: [{ src: 'icon-192.png', sizes: '192x192' }] },
         ],
+        // Cor dos screenshots / screenshots para install prompt
         screenshots: [],
       },
-
       workbox: {
-        // ── Apenas arquivos que o build gera de facto ─────────────────────
-        globPatterns: ['**/*.{js,css,html,png,svg}'],
-
-        // ── CRÍTICO: exclui SSE e rotas de API do cache do SW ─────────────
-        // O SW nunca deve interceptar EventSource nem chamadas de API
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [
-          /^\/api\//,       // todas as APIs
-          /\/stream/,       // SSE streams
-          /\/uploads\//,    // uploads dinâmicos
-        ],
-
-        // ── Exclui do precache o que não existe ───────────────────────────
-        globIgnores: [
-          '**/icons.svg',   // não está no manifest — evita 404 no precache
-          '**/*.map',
-        ],
-
+        navigateFallbackDenylist: [/^\/api\//],
+        // Pré-cache tudo para funcionamento offline
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
-
         runtimeCaching: [
-          // ── API: NetworkFirst (tenta rede, fallback cache) ───────────────
           {
-            // NUNCA cacheia /stream — é SSE
-            urlPattern: ({ url }: { url: URL }) =>
-              url.pathname.startsWith('/api/') &&
-              !url.pathname.includes('/stream'),
-            handler: 'NetworkFirst' as const,
+            urlPattern: /^https:\/\/nexus\.permupay\.com\.br\/api\/.*/i,
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'nexus-api-cache',
-              networkTimeoutSeconds: 8,
+              networkTimeoutSeconds: 10,
               expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
-              // Só cacheia respostas válidas
-              cacheableResponse: { statuses: [200] },
             },
           },
-          // ── Uploads: CacheFirst ──────────────────────────────────────────
           {
-            urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/uploads/'),
-            handler: 'CacheFirst' as const,
+            urlPattern: /^https:\/\/nexus\.permupay\.com\.br\/uploads\/.*/i,
+            handler: 'CacheFirst',
             options: {
               cacheName: 'nexus-uploads-cache',
-              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 30 },
-              cacheableResponse: { statuses: [200] },
+              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
-          // ── Google Fonts ─────────────────────────────────────────────────
           {
+            // Cache fontes Google — essencial para offline
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'StaleWhileRevalidate' as const,
-            options: { cacheName: 'google-fonts-css' },
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'google-fonts-stylesheets',
+            },
           },
           {
             urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
-            handler: 'CacheFirst' as const,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'google-fonts-files',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 },
-              cacheableResponse: { statuses: [200] },
+              cacheName: 'google-fonts-webfonts',
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
             },
           },
         ],
       },
-
-      devOptions: { enabled: false },
+      // Gera SW customizado
+      devOptions: {
+        enabled: false,
+      },
     }),
   ],
-
   server: {
     proxy: {
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
       '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
     },
   },
-
   build: {
     outDir: 'dist',
     sourcemap: false,
@@ -123,10 +112,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          if (id.includes('node_modules/react') ||
-              id.includes('node_modules/react-dom') ||
-              id.includes('node_modules/react-router-dom')) return 'vendor'
-          if (id.includes('node_modules/lucide-react')) return 'icons'
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router-dom')) {
+            return 'vendor'
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons'
+          }
         },
       },
     },
