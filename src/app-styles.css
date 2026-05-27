@@ -18,19 +18,21 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * Ajuste de altura responsiva:
+ * Utilizamos min-height: 100dvh para preencher a altura da viewport
+ * e fallback de 100% para compatibilidade com navegadores antigos.
+ */
 html {
   overscroll-behavior: none;
   height: 100%;
-  height: 100dvh;
+  min-height: 100dvh;
   font-size: 16px;
 }
 
-/* ===== RESET ===== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html { overscroll-behavior: none; height: 100%; height: 100dvh; }
 body {
   height: 100%;
-  height: 100dvh;
+  min-height: 100dvh;
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
@@ -44,11 +46,10 @@ body {
   touch-action: pan-x pan-y;
   transition: background var(--transition-slow), color var(--transition-slow);
 }
-#root { height: 100%; height: 100dvh; overflow: hidden; }
 
 #root {
   height: 100%;
-  height: 100dvh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
