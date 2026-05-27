@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Instala TODAS as dependências (dev necessário para compilar TS)
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci 2>/dev/null || npm install
 
 # Compila TypeScript (gera dist/)
 COPY . .
@@ -24,7 +24,7 @@ WORKDIR /app
 
 # Apenas dependências de produção
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --no-audit --no-fund
+RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
 # Copia build compilado (inclui dist/db/migrate.js e dist/index.js)
 COPY --from=builder /app/dist ./dist

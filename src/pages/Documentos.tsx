@@ -70,15 +70,18 @@ function UploadModal({ pessoas, pagamentos, onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>📎 Enviar Arquivo</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         {!file ? (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            {/* A grade de seleção de fonte do documento (Câmera ou Galeria) usa
+               `auto-fit` e `minmax` para garantir que cada opção tenha pelo
+               menos 180px e possa se empilhar em telas estreitas sem quebrar o layout. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
               <button onClick={() => cameraInputRef.current?.click()} style={{ padding: '20px 16px', background: 'var(--bg3)', border: '1.5px dashed var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text2)' }}>
                 <Camera size={28} color="#6C3BFF" /><span style={{ fontSize: 13, fontWeight: 600 }}>Câmera</span><span style={{ fontSize: 11, color: 'var(--text3)' }}>Tirar foto</span>
               </button>
@@ -140,8 +143,8 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
   function fmt(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{loading ? 'Carregando…' : `📋 ${historico?.pessoa.nome}`}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -150,7 +153,12 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--text3)' }} /></div>
         ) : historico ? (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+            {/*
+             * A grade de resumo de "Eu devo" e "Me devem" agora é responsiva.
+             * Utilizamos `auto-fit` para que os cartões se ajustem ao espaço
+             * disponível, empilhando-se verticalmente quando necessário.
+             */
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
               <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius-sm)', padding: '10px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>💸 Eu devo</div>
                 <div style={{ fontWeight: 900, fontSize: 18, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(historico.resumo.totalDevo)}</div>
@@ -261,7 +269,7 @@ export default function Documentos() {
   })
 
   return (
-    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>📎 Documentos</h1>

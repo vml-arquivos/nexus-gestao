@@ -35,17 +35,11 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
--- Adiciona colunas em bancos já existentes (idempotente)
+-- Adiciona coluna cargo em bancos já existentes (idempotente)
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cargo TEXT;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS criado_por UUID REFERENCES profiles(id);
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE;
-ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
-ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('gestor','sub_gestor','membro'));
 
-CREATE INDEX IF NOT EXISTS idx_profiles_org        ON profiles(org_id);
-CREATE INDEX IF NOT EXISTS idx_profiles_email      ON profiles(email);
-CREATE INDEX IF NOT EXISTS idx_profiles_criado_por ON profiles(criado_por);
+CREATE INDEX IF NOT EXISTS idx_profiles_org   ON profiles(org_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 
 -- ── PESSOAS / EQUIPE ─────────────────────────────────────────
 -- tipo: funcionario, prestador, credor, devedor, cliente
@@ -175,11 +169,6 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   recorrencia      TEXT NOT NULL DEFAULT 'nenhum' CHECK (recorrencia IN ('nenhum','semanal','quinzenal','mensal','anual')),
   -- Data de término da recorrência. Se nula, considera recorrência indefinida.
   recorrencia_fim  DATE,
-  -- Agrupamento de parcelas: todas as parcelas de um mesmo financiamento/parcelamento
-  -- recebem o mesmo grupo_id. NULL = lançamento avulso.
-  grupo_id         UUID,
-  num_parcelas     INT,
-  num_parcela      INT,
   created_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   updated_at       TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
@@ -257,100 +246,6 @@ CREATE TABLE IF NOT EXISTS equipes_membros (
   PRIMARY KEY (equipe_id, profile_id)
 );
 
--- ── CONVITES (link de acesso para novos membros) ─────────────────────────────
-CREATE TABLE IF NOT EXISTS convites (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id     UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-  criado_por UUID NOT NULL REFERENCES profiles(id),
-  email      TEXT,
-  role       TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('sub_gestor','membro')),
-  cargo      TEXT,
-  token      TEXT NOT NULL UNIQUE,
-  usado      BOOLEAN DEFAULT FALSE,
-  expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '7 days'),
-  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_convites_token ON convites(token);
-CREATE INDEX IF NOT EXISTS idx_convites_org   ON convites(org_id);
-
--- ── MIGRAÇÕES IDEMPOTENTES (colunas adicionadas após criação inicial) ────────────
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='grupo_id') THEN
-    ALTER TABLE pagamentos ADD COLUMN grupo_id UUID;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='num_parcelas') THEN
-    ALTER TABLE pagamentos ADD COLUMN num_parcelas INT;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='pagamentos' AND column_name='num_parcela') THEN
-    ALTER TABLE pagamentos ADD COLUMN num_parcela INT;
-  END IF;
-END$$;
-CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
-
--- ── NOTIFICAÇÕES ─────────────────────────────────────────────────────────────
--- Armazena todas as notificações do sistema (tarefas, financeiro, agenda, etc.)
-CREATE TABLE IF NOT EXISTS notificacoes (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  tipo            TEXT NOT NULL DEFAULT 'info'
-                    CHECK (tipo IN (
-                      'tarefa_nova', 'tarefa_concluida', 'tarefa_nao_concluida',
-                      'tarefa_vencida', 'lembrete_diario', 'financeiro_vencimento',
-                      'agenda_lembrete', 'aniversario', 'info', 'aviso', 'erro'
-                    )),
-  titulo          TEXT NOT NULL,
-  body            TEXT,
-  referencia_id   UUID,
-  referencia_tipo TEXT CHECK (referencia_tipo IN ('tarefa','pagamento','agenda','pessoa') OR referencia_tipo IS NULL),
-  lida            BOOLEAN DEFAULT FALSE NOT NULL,
-  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_notif_user ON notificacoes(user_id, lida, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notif_org  ON notificacoes(org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_notif_ref  ON notificacoes(referencia_id) WHERE referencia_id IS NOT NULL;
-
--- ── HISTÓRICO DE TAREFAS ─────────────────────────────────────────────────────
--- Auditoria de todas as ações sobre tarefas
-CREATE TABLE IF NOT EXISTS tarefa_historico (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tarefa_id     UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
-  org_id        UUID NOT NULL,
-  usuario_id    UUID NOT NULL REFERENCES profiles(id),
-  usuario_nome  TEXT NOT NULL DEFAULT '',
-  acao          TEXT NOT NULL CHECK (acao IN (
-                  'criada','atualizada','concluida','nao_concluida',
-                  'reaberta','excluida','comentario'
-                )),
-  dados         JSONB,
-  created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_th_tarefa  ON tarefa_historico(tarefa_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_th_org     ON tarefa_historico(org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_th_usuario ON tarefa_historico(usuario_id);
-
--- ── LEMBRETES PERSONALIZADOS ───────────────────────────────────────────────
--- Lembretes criados pelo gestor ou membro, vinculados a qualquer entidade
-CREATE TABLE IF NOT EXISTS lembretes (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-  criado_por      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  destinatario_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  titulo          TEXT NOT NULL,
-  body            TEXT,
-  data_lembrete   TIMESTAMPTZ NOT NULL,
-  recorrencia     TEXT NOT NULL DEFAULT 'nenhum'
-                    CHECK (recorrencia IN ('nenhum','diario','semanal','mensal','anual')),
-  referencia_id   UUID,
-  referencia_tipo TEXT CHECK (referencia_tipo IN ('tarefa','pagamento','agenda','pessoa') OR referencia_tipo IS NULL),
-  enviado         BOOLEAN DEFAULT FALSE NOT NULL,
-  ativo           BOOLEAN DEFAULT TRUE  NOT NULL,
-  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_lembretes_data ON lembretes(data_lembrete) WHERE enviado = FALSE AND ativo = TRUE;
-CREATE INDEX IF NOT EXISTS idx_lembretes_org  ON lembretes(org_id);
-CREATE INDEX IF NOT EXISTS idx_lembretes_dest ON lembretes(destinatario_id);
-
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================
@@ -373,4 +268,3 @@ async function migrate() {
 }
 
 migrate()
-

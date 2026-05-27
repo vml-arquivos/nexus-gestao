@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -24,8 +24,10 @@ import {
   ChevronUp,
   Eye,
 } from 'lucide-react'
-import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
+import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
+import FinancialPersonCard from '../features/finance/components/FinancialPersonCard'
+import { groupFinancialRecords } from '../features/finance/utils/groupFinancialRecords'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -35,10 +37,16 @@ type FinanceiroLocationState = {
   novoLancamento?: Partial<Pagamento>
 } | null
 
+/**
+ * Mostra uma notificação temporária na tela. Substituímos as cores
+ * hexadecimais por tokens do design system, garantindo consistência
+ * com o tema e permitindo ajustes em um único local. As mensagens de
+ * sucesso usam var(--success) e as de erro usam var(--danger).
+ */
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
   el.textContent = msg
-  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? '#EF4444' : '#10B981'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);`
+  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? 'var(--danger)' : 'var(--success)'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,0.3);`
   document.body.appendChild(el)
   setTimeout(() => el.remove(), 3000)
 }
@@ -258,139 +266,6 @@ function statusChip(g: GrupoFinanceiro) {
   return 'Pendente'
 }
 
-// ── Card de grupo (uma dívida/crédito = um card) ─────────────────────────────
-function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
-  g: GrupoFinanceiro
-  onGerenciar: () => void
-  onEdit: (p: Pagamento) => void
-  onDelete: (id: string) => void
-  onMarkPaid: (p: Pagamento) => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const isGrupo = g.itens.length > 1
-  const chip = statusChip(g)
-  const chipColor = chip === 'Vencido' ? '#EF4444' : chip === 'Pago' ? '#10B981' : chip === 'Cancelado' ? 'var(--text3)' : '#F59E0B'
-  const chipBg = chip === 'Vencido' ? 'rgba(239,68,68,0.12)' : chip === 'Pago' ? 'rgba(16,185,129,0.12)' : chip === 'Cancelado' ? 'var(--bg3)' : 'rgba(245,158,11,0.12)'
-  const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
-  const sinal = g.tipo === 'recebimento' ? '+' : '-'
-
-  return (
-    <div style={{ background: 'var(--bg2)', border: `1px solid ${g.isVencido ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-      {/* Cabeçalho do card */}
-      <div style={{ padding: '14px 16px', cursor: isGrupo ? 'pointer' : 'default' }} onClick={() => isGrupo && setExpanded(e => !e)}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{g.titulo}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: chipColor, background: chipBg, borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>{chip}</span>
-              {isGrupo && (
-                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>
-                  {g.itens.filter(p => p.status === 'pago').length}/{g.itens.length} parcelas
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
-              {g.pessoaNome && g.pessoaNome !== 'Sem pessoa' && (
-                <span style={{ fontSize: 12, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <User size={11} /> {g.pessoaNome}
-                </span>
-              )}
-              {g.categoria && (
-                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{g.categoria}</span>
-              )}
-              {g.proximoVencimento && (
-                <span style={{ fontSize: 12, color: g.isVencido ? '#EF4444' : 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <CalendarDays size={11} /> {g.isVencido ? 'Venceu ' : 'Vence '}{fmtDate(g.proximoVencimento)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16, color: valorColor, fontFamily: 'var(--font-heading)' }}>
-              {sinal}{fmt(isGrupo ? g.pendente : g.total)}
-            </div>
-            {isGrupo && g.pago > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(g.pago)}</div>
-            )}
-          </div>
-        </div>
-
-        {/* Barra de progresso para grupos */}
-        {isGrupo && g.total > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (g.pago / g.total) * 100)}%`, background: '#10B981', borderRadius: 999, transition: 'width 0.3s' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>
-              <span>Total: {fmt(g.total)}</span>
-              <span>{Math.round((g.pago / g.total) * 100)}% pago</span>
-            </div>
-          </div>
-        )}
-
-        {/* Botões de ação para lançamento único */}
-        {!isGrupo && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            {g.principal.status === 'pendente' && (
-              <button
-                onClick={e => { e.stopPropagation(); onMarkPaid(g.principal) }}
-                style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-              >
-                <Check size={13} /> Marcar pago
-              </button>
-            )}
-            <button onClick={e => { e.stopPropagation(); onEdit(g.principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
-            <button onClick={e => { e.stopPropagation(); onDelete(g.principal.id) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
-          </div>
-        )}
-
-        {/* Botões de ação para grupo */}
-        {isGrupo && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button
-              onClick={e => { e.stopPropagation(); onGerenciar() }}
-              style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,0.12)', color: '#6366F1', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-            >
-              <WalletCards size={13} /> Gerenciar dívida
-            </button>
-            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
-              {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Lista de parcelas expandida */}
-      {isGrupo && expanded && (
-        <div style={{ borderTop: '1px solid var(--border)' }}>
-          {[...g.itens].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '')).map((p, i) => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < g.itens.length - 1 ? '1px solid var(--border)' : 'none', background: p.status === 'pago' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
-                  {i + 1}ª parcela
-                  {p.status === 'pago' && <span style={{ marginLeft: 6, fontSize: 11, color: '#10B981' }}>Paga</span>}
-                  {p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0,10)}T00:00:00`) < new Date() && (
-                    <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>Vencida</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDate(p.vencimento)}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: p.status === 'pago' ? '#10B981' : valorColor }}>{fmt(Number(p.valor))}</span>
-                {p.status === 'pendente' && (
-                  <button onClick={() => onMarkPaid(p)} style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                    <Check size={11} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
   parcelas  : Pagamento[]
   tipo      : 'pagamento' | 'recebimento'
@@ -502,10 +377,10 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 520, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 520, maxHeight: '92dvh', overflowY: 'auto' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 17, margin: 0 }}>Gerenciar dívida</h2>
@@ -514,15 +389,15 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
         <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 18 }}>{ref?.titulo}{ref?.pessoa_nome ? ` · ${ref.pessoa_nome}` : ''}</div>
 
         {/* Resumo */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 18 }}>
           {([
             { label: 'Total original', value: saldo.totalOriginal, color: 'var(--text1)', bg: 'var(--bg3)' },
-            { label: 'Já pago',        value: saldo.totalPago,     color: '#10B981',      bg: 'rgba(16,185,129,0.1)' },
-            { label: 'Saldo restante', value: saldo.totalPendente, color: '#EF4444',      bg: 'rgba(239,68,68,0.1)'  },
+            { label: 'Já pago',        value: saldo.totalPago,     color: 'var(--success)', bg: 'rgba(16,185,129,0.1)' },
+            { label: 'Saldo restante', value: saldo.totalPendente, color: 'var(--danger)',  bg: 'rgba(248,113,113,0.1)'  },
           ] as const).map(({ label, value, color, bg }) => (
             <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
-              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
-              <div style={{ fontWeight: 800, fontSize: 14, color, fontFamily: 'var(--font-heading)' }}>{fmt(value)}</div>
+              <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 500, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontWeight: 700, fontSize: 14, color, fontFamily: 'var(--font-heading)' }}>{fmt(value)}</div>
             </div>
           ))}
         </div>
@@ -531,8 +406,26 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
         </div>
 
         {/* Abas modo */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-          <button type="button" onClick={() => setModo('abatimento')} style={{ padding: '12px', borderRadius: 'var(--radius)', border: `2px solid ${modo === 'abatimento' ? '#10B981' : 'var(--border)'}`, background: modo === 'abatimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: modo === 'abatimento' ? '#10B981' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setModo('abatimento')}
+            /* Botão de abatimento: usa tokens success para manter consistência */
+            style={{
+              padding: '12px',
+              borderRadius: 'var(--radius)',
+              border: `2px solid ${modo === 'abatimento' ? 'var(--success)' : 'var(--border)'}`,
+              background: modo === 'abatimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
+              color: modo === 'abatimento' ? 'var(--success)' : 'var(--text2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
             <TrendingDown size={15} /> Pagar / Abater
           </button>
           <button type="button" onClick={() => setModo('acrescimo')} style={{ padding: '12px', borderRadius: 'var(--radius)', border: `2px solid ${modo === 'acrescimo' ? '#F59E0B' : 'var(--border)'}`, background: modo === 'acrescimo' ? 'rgba(245,158,11,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: modo === 'acrescimo' ? '#F59E0B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -541,7 +434,7 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? 'repeat(auto-fit, minmax(150px, 1fr))' : '1fr', gap: 10 }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">{modo === 'abatimento' ? 'Valor pago (R$)' : 'Valor a acrescentar (R$)'}</label>
               <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
@@ -566,7 +459,7 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
 
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Como aplicar?</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
               <button type="button" className={`btn ${acao === 'recalcular' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAcao('recalcular')} style={{ fontSize: 12 }}>
                 Recalcular todas
               </button>
@@ -581,7 +474,27 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
 
           {/* Prévia do recálculo */}
           {valorNum > 0 && saldo.numPendentes > 0 && (
-            <div style={{ borderRadius: 10, border: `1px solid ${quitado ? 'rgba(16,185,129,0.4)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.4)' : 'rgba(99,102,241,0.3)'}`, background: quitado ? 'rgba(16,185,129,0.07)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.07)' : 'rgba(99,102,241,0.07)', padding: '12px 14px' }}>
+            <div
+              style={{
+                borderRadius: 10,
+                // Ajustamos as cores de contorno e fundo para usar tons
+                // compatíveis com o design system. Quando quitado usa o
+                // verde success, quando acréscimo utiliza a nova cor de
+                // warning (#FBBF24) e quando nenhum dos dois usa a cor
+                // primária (#6C3BFF) com transparência.
+                border: `1px solid ${quitado
+                  ? 'rgba(16,185,129,0.4)'
+                  : modo === 'acrescimo'
+                  ? 'rgba(251,191,36,0.4)'
+                  : 'rgba(108,59,255,0.3)'}`,
+                background: quitado
+                  ? 'rgba(16,185,129,0.07)'
+                  : modo === 'acrescimo'
+                  ? 'rgba(251,191,36,0.07)'
+                  : 'rgba(108,59,255,0.07)',
+                padding: '12px 14px',
+              }}
+            >
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 8 }}>
                 {quitado ? 'Dívida quitada integralmente' : 'Recálculo das parcelas restantes'}
               </div>
@@ -589,7 +502,13 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
                   {[
                     { label: 'Saldo atual',                                       value: saldo.totalPendente, sign: '',  color: 'var(--text1)' },
-                    { label: modo === 'abatimento' ? '− Pagamento' : '+ Acréscimo', value: valorNum,            sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
+                    {
+                      label: modo === 'abatimento' ? '− Pagamento' : '+ Acréscimo',
+                      value: valorNum,
+                      sign: modo === 'abatimento' ? '−' : '+',
+                      // Usa tokens de cor para abatimentos (success) e acréscimos (warning)
+                      color: modo === 'abatimento' ? 'var(--success)' : 'var(--warning)',
+                    },
                   ].map(({ label, value, sign, color }) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text3)' }}>{label}</span>
@@ -622,8 +541,9 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
             disabled={saving || !valorNum}
             style={{
               flex: 2,
-              background  : quitado ? '#10B981' : modo === 'acrescimo' ? '#F59E0B' : undefined,
-              borderColor : quitado ? '#10B981' : modo === 'acrescimo' ? '#F59E0B' : undefined,
+              // Aplica cores semânticas a botões de confirmação: success para quitar, warning para acréscimo.
+              background: quitado ? 'var(--success)' : modo === 'acrescimo' ? 'var(--warning)' : undefined,
+              borderColor: quitado ? 'var(--success)' : modo === 'acrescimo' ? 'var(--warning)' : undefined,
             }}
           >
             {saving
@@ -734,18 +654,68 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 580, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 580, maxHeight: '92dvh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
-          <button type="button" onClick={() => setTipo('pagamento')} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${tipo === 'pagamento' ? '#EF4444' : 'var(--border)'}`, background: tipo === 'pagamento' ? 'rgba(239,68,68,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: tipo === 'pagamento' ? '#EF4444' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        {/* A grade dos botões "Eu pago"/"Me pagam" foi convertida para um layout
+           responsivo usando `auto-fit` com `minmax`, permitindo que os botões
+           se ajustem automaticamente à largura disponível e se empilhem em
+           dispositivos estreitos sem quebrar o layout. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8, marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => setTipo('pagamento')}
+            /*
+             * Botão "Eu pago" (tipo pagamento)
+             * Substituímos cores hexadecimais por tokens do design system
+             * para manter consistência com os novos temas. A borda usa
+             * var(--danger) quando ativo e var(--border) quando inativo;
+             * a cor de fundo usa uma transparência do danger; o texto
+             * também utiliza var(--danger) quando selecionado.
+             */
+            style={{
+              padding: '12px 16px',
+              borderRadius: 'var(--radius)',
+              border: `2px solid ${tipo === 'pagamento' ? 'var(--danger)' : 'var(--border)'}`,
+              background: tipo === 'pagamento' ? 'rgba(248,113,113,0.1)' : 'var(--bg3)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 14,
+              color: tipo === 'pagamento' ? 'var(--danger)' : 'var(--text2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
             <WalletCards size={16} /> Eu pago
           </button>
-          <button type="button" onClick={() => setTipo('recebimento')} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${tipo === 'recebimento' ? '#10B981' : 'var(--border)'}`, background: tipo === 'recebimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: tipo === 'recebimento' ? '#10B981' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => setTipo('recebimento')}
+            /*
+             * Botão "Me pagam" (tipo recebimento)
+             * Utiliza tokens do design system para verde (success).
+             */
+            style={{
+              padding: '12px 16px',
+              borderRadius: 'var(--radius)',
+              border: `2px solid ${tipo === 'recebimento' ? 'var(--success)' : 'var(--border)'}`,
+              background: tipo === 'recebimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 14,
+              color: tipo === 'recebimento' ? 'var(--success)' : 'var(--text2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+            }}
+          >
             <CircleDollarSign size={16} /> Me pagam
           </button>
         </div>
@@ -759,7 +729,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {/* A grade dos campos de valor e status utiliza `repeat(auto-fit, minmax(150px, 1fr))`,
+             permitindo que os campos se reorganizem automaticamente em telas menores
+             sem comprometer a legibilidade. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">{scheduleMode === 'parcelado' ? 'Valor total da dívida (R$) *' : 'Valor (R$) *'}</label>
               <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
@@ -802,7 +775,11 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
 
           <div className="form-group">
             <label className="form-label">Como lançar?</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {/* Os botões que alternam o modo de lançamento (Único, Recorrente,
+               Datas e Parcelado) utilizam uma grade responsiva com `auto-fit` e
+               `minmax`, evitando que os quatro botões fiquem apertados em telas
+               estreitas. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
               <button type="button" onClick={() => setScheduleMode('unico')} className={`btn ${scheduleMode === 'unico' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><CalendarDays size={14} /> Único</button>
               <button type="button" onClick={() => setScheduleMode('recorrente')} className={`btn ${scheduleMode === 'recorrente' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><Repeat size={14} /> Recorrente</button>
               <button type="button" onClick={() => setScheduleMode('personalizado')} className={`btn ${scheduleMode === 'personalizado' ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: 12 }}><ListPlus size={14} /> Datas</button>
@@ -821,7 +798,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
 
           {scheduleMode === 'parcelado' && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {/* As configurações do parcelamento (número de parcelas e intervalo)
+                 utilizam uma grade responsiva para melhor adaptação em telas menores,
+                 garantindo largura mínima de 150px por coluna. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                 <div className="form-group">
                   <label className="form-label">Nº de parcelas</label>
                   <input
@@ -843,7 +823,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {/* Para os campos de juros e forma de pagamento, utilizamos uma grade
+                 responsiva, substituindo a grade fixa para otimizar o espaço em
+                 telas pequenas. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                 <div className="form-group">
                   <label className="form-label">Juros (% ao mês)</label>
                   <input
@@ -882,7 +865,8 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           )}
 
           {scheduleMode === 'recorrente' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+              {/* Recorrência: grade responsiva em vez de duas colunas fixas */}
               <div className="form-group">
                 <label className="form-label">Recorrência</label>
                 <select className="form-input" value={recorrencia} onChange={e => setRecorrencia(e.target.value)}>
@@ -939,151 +923,67 @@ function PessoaCard({ r, onClick, onAddPagamento, onAddRecebimento }: {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.pessoa_nome}</div>
-            <div style={{ fontSize: 11, color: saldo > 0 ? '#10B981' : saldo < 0 ? '#EF4444' : 'var(--text3)', fontWeight: 600 }}>
+            <div
+              style={{
+                fontSize: 11,
+                // Usa tokens para saldos: positivo = success, negativo = danger
+                color: saldo > 0 ? 'var(--success)' : saldo < 0 ? 'var(--danger)' : 'var(--text3)',
+                fontWeight: 600,
+              }}
+            >
               {saldo > 0 ? `Saldo: +${fmt(saldo)}` : saldo < 0 ? `Saldo: ${fmt(saldo)}` : 'Quitado'}
             </div>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <div style={{ background: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+        {/* Cartões de resumo "Eu devo" e "Me devem" usam grid responsiva com auto-fit */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+          <div
+            style={{
+              // Fundo do card "Eu devo" ajustado para tom de danger mais suave (#F87171)
+              background: 'rgba(248,113,113,0.08)',
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}><WalletCards size={12} /> Eu devo</div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: r.devo_pendente > 0 ? '#EF4444' : 'var(--text3)', fontFamily: 'var(--font-heading)' }}>{fmt(r.devo_pendente)}</div>
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: 15,
+                color: r.devo_pendente > 0 ? 'var(--danger)' : 'var(--text3)',
+                fontFamily: 'var(--font-heading)',
+              }}
+            >
+              {fmt(r.devo_pendente)}
+            </div>
           </div>
-          <div style={{ background: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+          <div
+            style={{
+              // Fundo do card "Me devem" ajustado para tom de success
+              background: 'rgba(16,185,129,0.08)',
+              borderRadius: 8,
+              padding: '8px 10px',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}><CircleDollarSign size={12} /> Me devem</div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: r.me_devem_pendente > 0 ? '#10B981' : 'var(--text3)', fontFamily: 'var(--font-heading)' }}>{fmt(r.me_devem_pendente)}</div>
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: 15,
+                color: r.me_devem_pendente > 0 ? 'var(--success)' : 'var(--text3)',
+                fontFamily: 'var(--font-heading)',
+              }}
+            >
+              {fmt(r.me_devem_pendente)}
+            </div>
           </div>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+      {/* Botões de ação (Add pagamento e Add recebimento) usam grade responsiva */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginTop: 10 }}>
         <button className="btn btn-ghost" onClick={onAddPagamento} style={{ fontSize: 12 }}><WalletCards size={13} /> Add pagamento</button>
         <button className="btn btn-ghost" onClick={onAddRecebimento} style={{ fontSize: 12 }}><CircleDollarSign size={13} /> Add recebimento</button>
       </div>
-    </div>
-  )
-}
-
-// ── Card usando GrupoPagamento do backend ─────────────────────────────────────
-function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
-  g: GrupoPagamento
-  onEdit: (p: Pagamento) => void
-  onDelete: (id: string) => void
-  onMarkPaid: (p: Pagamento) => void
-  onGerenciar: (g: GrupoPagamento) => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const isGrupo = g.is_grupo
-  const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
-  const sinal = g.tipo === 'recebimento' ? '+' : '-'
-  const chip = g.vencido ? 'Vencido' : g.valor_pendente === 0 ? 'Pago' : 'Pendente'
-  const chipColor = chip === 'Vencido' ? '#EF4444' : chip === 'Pago' ? '#10B981' : '#F59E0B'
-  const chipBg = chip === 'Vencido' ? 'rgba(239,68,68,0.12)' : chip === 'Pago' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'
-  const principal = g.parcelas[0]
-
-  return (
-    <div style={{ background: 'var(--bg2)', border: `1px solid ${g.vencido ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 16px', cursor: isGrupo ? 'pointer' : 'default' }} onClick={() => isGrupo && setExpanded(e => !e)}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{g.titulo}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: chipColor, background: chipBg, borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>{chip}</span>
-              {isGrupo && (
-                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px', flexShrink: 0 }}>
-                  {g.parcelas_pagas}/{g.num_parcelas} parcelas
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
-              {g.pessoa_nome && (
-                <span style={{ fontSize: 12, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <User size={11} /> {g.pessoa_nome}
-                </span>
-              )}
-              {g.categoria && <span style={{ fontSize: 12, color: 'var(--text3)' }}>{g.categoria}</span>}
-              {g.proxima_parcela && (
-                <span style={{ fontSize: 12, color: g.vencido ? '#EF4444' : 'var(--text3)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <CalendarDays size={11} /> {g.vencido ? 'Venceu ' : 'Vence '}{fmtDate(g.proxima_parcela)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16, color: valorColor, fontFamily: 'var(--font-heading)' }}>
-              {sinal}{fmt(isGrupo ? g.valor_pendente : g.valor_total)}
-            </div>
-            {isGrupo && g.valor_pago > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(g.valor_pago)}</div>
-            )}
-          </div>
-        </div>
-
-        {/* Barra de progresso */}
-        {isGrupo && g.valor_total > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (g.valor_pago / g.valor_total) * 100)}%`, background: '#10B981', borderRadius: 999, transition: 'width 0.3s' }} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>
-              <span>Total: {fmt(g.valor_total)}</span>
-              <span>{Math.round((g.valor_pago / g.valor_total) * 100)}% pago</span>
-            </div>
-          </div>
-        )}
-
-        {/* Ações para lançamento único */}
-        {!isGrupo && principal && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            {principal.status === 'pendente' && (
-              <button onClick={e => { e.stopPropagation(); onMarkPaid(principal) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                <Check size={13} /> Marcar pago
-              </button>
-            )}
-            <button onClick={e => { e.stopPropagation(); onEdit(principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
-            <button onClick={e => { e.stopPropagation(); onDelete(principal.id) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
-          </div>
-        )}
-
-        {/* Ações para grupo */}
-        {isGrupo && (
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={e => { e.stopPropagation(); onGerenciar(g) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,0.12)', color: '#6366F1', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-              <WalletCards size={13} /> Gerenciar dívida
-            </button>
-            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
-              {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Parcelas expandidas */}
-      {isGrupo && expanded && (
-        <div style={{ borderTop: '1px solid var(--border)' }}>
-          {g.parcelas.map((p, i) => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < g.parcelas.length - 1 ? '1px solid var(--border)' : 'none', background: p.status === 'pago' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
-                  {i + 1}ª parcela
-                  {p.status === 'pago' && <span style={{ marginLeft: 6, fontSize: 11, color: '#10B981' }}>Paga</span>}
-                  {p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0,10)}T00:00:00`) < new Date() && (
-                    <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>Vencida</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDate(p.vencimento)}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: p.status === 'pago' ? '#10B981' : valorColor }}>{fmt(Number(p.valor))}</span>
-                {p.status === 'pendente' && (
-                  <button onClick={() => onMarkPaid(p)} style={{ padding: '4px 8px', borderRadius: 6, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                    <Check size={11} />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -1092,7 +992,7 @@ export default function Financeiro() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const [grupos, setGrupos] = useState<GrupoPagamento[]>([])
+  const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [resumo, setResumo] = useState<ResumoFinanceiro | null>(null)
   const [porPessoa, setPorPessoa] = useState<ResumoPorPessoa[]>([])
@@ -1102,6 +1002,7 @@ export default function Financeiro() {
   const [editPag, setEditPag] = useState<Pagamento | null>(null)
   const [prefill, setPrefill] = useState<Partial<Pagamento> | null>(null)
   const [tab, setTab] = useState<'lista' | 'pessoas'>('lista')
+  const [filtroTipo, setFiltroTipo] = useState('todos')
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [search, setSearch] = useState('')
   const [pessoaFiltro, setPessoaFiltro] = useState<ResumoPorPessoa | null>(null)
@@ -1109,13 +1010,13 @@ export default function Financeiro() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [gs, ps, res, pp] = await Promise.all([
-        pagamentosApi.grupos(),
+      const [pags, ps, res, pp] = await Promise.all([
+        pagamentosApi.list(),
         equipeApi.pessoas(),
         pagamentosApi.resumo(),
         pagamentosApi.porPessoa(),
       ])
-      setGrupos(gs)
+      setPagamentos(pags)
       setPessoas(ps)
       setResumo(res)
       setPorPessoa(pp)
@@ -1151,7 +1052,8 @@ export default function Financeiro() {
 
   async function handleMarcarPago(p: Pagamento) {
     try {
-      await pagamentosApi.update(p.id, { status: 'pago', pago_em: new Date().toISOString().slice(0, 10) })
+      const updated = await pagamentosApi.update(p.id, { status: 'pago', pago_em: new Date().toISOString().slice(0, 10) })
+      setPagamentos(prev => prev.map(x => x.id === updated.id ? updated : x))
       toast('Marcado como pago!')
       load()
     } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
@@ -1159,62 +1061,62 @@ export default function Financeiro() {
 
   async function handleDelete(id: string) {
     if (!confirm('Excluir este lançamento?')) return
-    try { await pagamentosApi.remove(id); load(); toast('Excluído') }
+    try { await pagamentosApi.remove(id); setPagamentos(p => p.filter(x => x.id !== id)); load(); toast('Excluído') }
     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }
 
-  // Filtragem sobre os grupos retornados pelo backend
-  const filtrarGrupos = (tipo: 'pagamento' | 'recebimento') => {
-    return grupos.filter(g => {
-      if (g.tipo !== tipo) return false
-      if (filtroStatus !== 'todos') {
-        if (filtroStatus === 'pago' && g.valor_pendente > 0) return false
-        if (filtroStatus === 'pendente' && g.valor_pendente === 0) return false
-      }
-      if (pessoaFiltro && g.pessoa_id !== pessoaFiltro.pessoa_id) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return (g.titulo || '').toLowerCase().includes(q) || (g.pessoa_nome || '').toLowerCase().includes(q) || (g.categoria || '').toLowerCase().includes(q)
-      }
-      return true
-    })
-  }
+  const filtrados = pagamentos.filter(p => {
+    if (filtroTipo !== 'todos' && p.tipo !== filtroTipo) return false
+    if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false
+    if (pessoaFiltro && p.pessoa_id !== pessoaFiltro.pessoa_id) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return (p.titulo || '').toLowerCase().includes(q) || (p.pessoa_nome || '').toLowerCase().includes(q) || (p.categoria || '').toLowerCase().includes(q)
+    }
+    return true
+  })
 
-  const gruposPagar = filtrarGrupos('pagamento')
-  const gruposReceber = filtrarGrupos('recebimento')
-  const vencidos = grupos.filter(g => g.vencido)
+  const gruposFinanceiros = agruparLancamentosFinanceiros(filtrados)
+
+  // Agrupa lançamentos por pessoa/empresa/responsável para exibir cards consolidados
+  const groupedByPerson = useMemo(() => groupFinancialRecords(filtrados), [filtrados])
+
+  const vencidos = pagamentos.filter(p => p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0, 10)}T00:00:00`) < new Date())
 
   return (
-    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
+    <div style={{ padding: 20, maxWidth: 720, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 22 }}>Financeiro</h1>
+          {/* O título agora usa peso 600 em vez de 700 para suavizar a hierarquia visual */}
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 22 }}>Financeiro</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Pagamentos, recebimentos, recorrências e datas personalizadas</p>
         </div>
         <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
       </div>
 
       {resumo && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
+          {/* Card A receber */}
           <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A receber</span></div>
-            <div style={{ fontWeight: 700, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="var(--success)" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A receber</span></div>
+            <div style={{ fontWeight: 600, fontSize: 20, color: 'var(--success)', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
           </div>
-          <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A pagar</span></div>
-            <div style={{ fontWeight: 700, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
+          {/* Card A pagar */}
+          <div style={{ background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="var(--danger)" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A pagar</span></div>
+            <div style={{ fontWeight: 600, fontSize: 20, color: 'var(--danger)', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
           </div>
         </div>
       )}
 
       {vencidos.length > 0 && (
-        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <AlertTriangle size={16} color="#F59E0B" style={{ flexShrink: 0 }} />
+        <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <AlertTriangle size={16} color="var(--warning)" style={{ flexShrink: 0 }} />
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: '#F59E0B' }}>{vencidos.length} lançamento{vencidos.length > 1 ? 's' : ''} vencido{vencidos.length > 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor_pendente), 0))}</div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--warning)' }}>{vencidos.length} lançamento{vencidos.length > 1 ? 's' : ''} vencido{vencidos.length > 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor), 0))}</div>
           </div>
         </div>
       )}
@@ -1249,7 +1151,11 @@ export default function Financeiro() {
               <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
               <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-
+            <select className="form-input" style={{ flex: 1, minWidth: 110 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="pagamento">A pagar</option>
+              <option value="recebimento">A receber</option>
+            </select>
             <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
               <option value="todos">Todos status</option>
               <option value="pendente">Pendente</option>
@@ -1268,73 +1174,23 @@ export default function Financeiro() {
 
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando...</div>
+          ) : groupedByPerson.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
+              <WalletCards size={48} style={{ marginBottom: 12 }} />
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Nenhum lançamento</div>
+              <div style={{ fontSize: 13 }}>Registre pagamentos e recebimentos</div>
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-
-              {/* ── SEÇÃO A PAGAR ─────────────────────────────────────── */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <TrendingDown size={16} color="#EF4444" />
-                    <span style={{ fontWeight: 700, fontSize: 15, color: '#EF4444' }}>A Pagar</span>
-                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposPagar.length}</span>
-                  </div>
-                  <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 10px', gap: 4 }} onClick={() => openLancamento({ tipo: 'pagamento' })}>
-                    <Plus size={13} /> Novo
-                  </button>
-                </div>
-                {gruposPagar.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '28px 20px', color: 'var(--text3)', background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px dashed var(--border)' }}>
-                    <div style={{ fontSize: 13 }}>Nenhum pagamento registrado</div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {gruposPagar.map(g => (
-                      <GrupoBetaCard
-                        key={g.grupo_id || g.parcelas[0]?.id}
-                        g={g}
-                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
-                        onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
-                        onDelete={id => handleDelete(id)}
-                        onMarkPaid={p => handleMarcarPago(p)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* ── SEÇÃO A RECEBER ───────────────────────────────────── */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <TrendingUp size={16} color="#10B981" />
-                    <span style={{ fontWeight: 700, fontSize: 15, color: '#10B981' }}>A Receber</span>
-                    <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 999, padding: '2px 8px' }}>{gruposReceber.length}</span>
-                  </div>
-                  <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 10px', gap: 4 }} onClick={() => openLancamento({ tipo: 'recebimento' })}>
-                    <Plus size={13} /> Novo
-                  </button>
-                </div>
-                {gruposReceber.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '28px 20px', color: 'var(--text3)', background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px dashed var(--border)' }}>
-                    <div style={{ fontSize: 13 }}>Nenhum recebimento registrado</div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {gruposReceber.map(g => (
-                      <GrupoBetaCard
-                        key={g.grupo_id || g.parcelas[0]?.id}
-                        g={g}
-                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
-                        onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
-                        onDelete={id => handleDelete(id)}
-                        onMarkPaid={p => handleMarcarPago(p)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {groupedByPerson.map(group => (
+                <FinancialPersonCard
+                  key={group.pessoaId || group.pessoaNome}
+                  group={group}
+                  onMarkPaid={p => handleMarcarPago(p)}
+                  onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
+                  onDelete={p => handleDelete(p.id)}
+                />
+              ))}
             </div>
           )}
         </>
@@ -1344,7 +1200,9 @@ export default function Financeiro() {
         <PagamentoModal
           pessoas={pessoas}
           initial={editPag || prefill || undefined}
-          onSave={_p => {
+          onSave={p => {
+            if (editPag) setPagamentos(prev => prev.map(x => x.id === p.id ? p : x))
+            else setPagamentos(prev => [p, ...prev])
             setModalOpen(false)
             setEditPag(null)
             setPrefill(null)

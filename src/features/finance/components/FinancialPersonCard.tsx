@@ -37,7 +37,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
       {/* Cabeçalho com nome e saldo */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pessoaNome}</div>
+        {/* Nome da pessoa com peso 600 para suavizar a leitura sem perder hierarquia */}
+        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pessoaNome}</div>
           {proximoVencimento && (
             <div style={{ fontSize: 11, color: vencido ? 'var(--warning)' : 'var(--text3)', marginTop: 2 }}>
               {vencido ? 'Vencido:' : 'Próx. venc:'} {fmtDate(proximoVencimento)}
@@ -45,7 +46,8 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
           )}
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontWeight: 700, fontSize: 16, color: saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+        {/* Saldo principal com peso 600; cor baseada no valor (positiva/negativa) */}
+        <div style={{ fontWeight: 600, fontSize: 16, color: saldo >= 0 ? 'var(--success)' : 'var(--danger)' }}>
             {saldo >= 0 ? '+' : '-'}{fmt(Math.abs(saldo))}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text3)' }}>Saldo</div>
@@ -61,12 +63,15 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
         ].map(({ label, value, color }) => (
           <div key={label} style={{ flex: 1, minWidth: 80, background: 'var(--bg3)', borderRadius: 8, padding: '6px 8px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
             <span style={{ fontSize: 9, color: 'var(--text3)', marginBottom: 2 }}>{label}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color }}>{fmt(value)}</span>
+            {/* Valores resumidos usam peso 600 em vez de 700 para suavizar a leitura */}
+            <span style={{ fontSize: 13, fontWeight: 600, color }}>{fmt(value)}</span>
           </div>
         ))}
       </div>
-      {/* Lista de lançamentos */}
-      <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
+      {/* Lista de lançamentos: a altura foi ajustada para 40vh (40% da
+          altura da viewport) para melhorar a adaptação em diferentes
+          tamanhos de tela. */}
+      <div style={{ maxHeight: '40vh', overflowY: 'auto', marginTop: 6 }}>
         {items.map(item => {
           const valor = Number(item.valor || 0)
           const isReceb = item.tipo === 'recebimento'
@@ -75,12 +80,15 @@ export default function FinancialPersonCard({ group, onMarkPaid, onEdit, onDelet
           return (
             <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.titulo}</div>
+                {/* Título do lançamento com peso reduzido de 600 para 500 para evitar destaque excessivo */}
+                <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.titulo}</div>
                 <div style={{ fontSize: 10, color: 'var(--text3)' }}>{fmtDate(item.vencimento || item.created_at)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color }}>{sign}{fmt(valor)}</div>
-                <div style={{ fontSize: 9, fontWeight: 600, color: item.status === 'pago' ? 'var(--success)' : item.status === 'pendente' ? 'var(--warning)' : 'var(--text3)' }}>{item.status === 'pago' ? 'Pago' : item.status === 'pendente' ? 'Pendente' : 'Cancelado'}</div>
+                {/* Valor do lançamento com peso reduzido de 700 para 600 para tornar o visual mais leve */}
+                <div style={{ fontSize: 13, fontWeight: 600, color }}>{sign}{fmt(valor)}</div>
+                {/* Status com peso reduzido de 600 para 500; cores usam apenas tokens do design system */}
+                <div style={{ fontSize: 9, fontWeight: 500, color: item.status === 'pago' ? 'var(--success)' : item.status === 'pendente' ? 'var(--warning)' : 'var(--text3)' }}>{item.status === 'pago' ? 'Pago' : item.status === 'pendente' ? 'Pendente' : 'Cancelado'}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 {item.status === 'pendente' && (

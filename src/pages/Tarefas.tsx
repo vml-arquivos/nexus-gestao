@@ -90,9 +90,9 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
     } finally { setLoading(false) }
   }
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 32px', width: '100%', maxWidth: 540, maxHeight: '90dvh', overflowY: 'auto', animation: 'slideUp 0.22s ease' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{tarefa?.id ? 'Editar Tarefa' : 'Nova Tarefa'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -106,7 +106,9 @@ function TarefaModal({ tarefa, membros, onSave, onClose }: {
             <label className="form-label">Descrição</label>
             <textarea className="form-input" rows={2} placeholder="Detalhes…" value={descricao} onChange={e => setDescricao(e.target.value)} style={{ resize: 'vertical', minHeight: 60 }} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {/* Os campos de prazo e prioridade usam uma grade responsiva: em telas menores
+             cada campo ocupa uma linha, melhorando a experiência em dispositivos móveis */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">Prazo</label>
               <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
@@ -191,9 +193,9 @@ function RespostaModal({ tarefa, onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 460, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '24px 20px 28px', width: '100%', maxWidth: 460, animation: 'slideUp 0.22s ease' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 17 }}>Resposta de Execução</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -473,7 +475,7 @@ export default function Tarefas() {
   ]
 
   return (
-    <div style={{ padding: '0 0 calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
+    <div style={{ padding: '0 0 80px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 12px' }}>
         <div>

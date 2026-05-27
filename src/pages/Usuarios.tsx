@@ -75,9 +75,9 @@ function ModalConvidar({ onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 200 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '20px', padding: '28px 24px 28px', maxHeight: 'calc(100dvh - 40px)', overflowY: 'auto', width: '100%', maxWidth: 480, boxShadow: '0 -8px 40px rgba(0,0,0,0.4)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '20px 20px 0 0', padding: '24px 20px 32px', width: '100%', maxWidth: 480, animation: 'slideUp 0.22s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>
@@ -183,7 +183,7 @@ export default function Usuarios() {
   const membros  = usuarios.filter(u => u.role === 'membro')
 
   return (
-    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 720, margin: '0 auto', boxSizing: 'border-box' as const }}>
+    <div style={{ padding: 20, maxWidth: 700, margin: '0 auto' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -199,7 +199,9 @@ export default function Usuarios() {
       </div>
 
       {/* Stats rápidos */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+      {/* A grade que exibe os contadores de gestores e membros é responsiva:
+         usa `auto-fit` com `minmax` para permitir empilhamento em telas menores */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(108,59,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Crown size={18} color="var(--primary-light)" />
