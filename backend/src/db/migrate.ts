@@ -346,6 +346,19 @@ CREATE INDEX IF NOT EXISTS idx_notif_user ON notificacoes(user_id, lida, created
 CREATE INDEX IF NOT EXISTS idx_notif_org  ON notificacoes(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_ref  ON notificacoes(referencia_id) WHERE referencia_id IS NOT NULL;
 
+-- Ajusta bancos existentes para aceitar os tipos reais criados pelos jobs/fluxo do sistema.
+ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
+ALTER TABLE notificacoes
+  ADD CONSTRAINT notificacoes_tipo_check
+  CHECK (tipo IN (
+    'tarefa_nova', 'tarefa_criada', 'tarefa_atualizada',
+    'tarefa_concluida', 'tarefa_nao_concluida', 'tarefa_devolvida',
+    'tarefa_aprovada', 'tarefa_vencida', 'lembrete_diario',
+    'financeiro_vencimento', 'agenda_lembrete', 'aniversario',
+    'sistema', 'convite', 'equipe', 'info', 'aviso', 'erro'
+  ));
+
+
 -- ── HISTÓRICO DE TAREFAS ─────────────────────────────────────────────────────
 -- Auditoria de todas as ações sobre tarefas
 CREATE TABLE IF NOT EXISTS tarefa_historico (
