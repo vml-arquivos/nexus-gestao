@@ -106,7 +106,7 @@ function TarefaCard({ tarefa, userId, onStatus, onChecklist, onResponder }: {
 }) {
   const [expanded, setExpanded]   = useState(false)
   const [btnLoad, setBtnLoad]     = useState<string|null>(null)
-  const pri      = PC[tarefa.prioridade]
+  const pri      = (PC as Record<string,any>)[tarefa.prioridade] ?? { label: tarefa.prioridade||"média", color:"#F59E0B", bg:"rgba(245,158,11,0.1)" }
   const sc       = getSC(tarefa.status)
   const Icon     = sc.icon
   const total    = tarefa.checklist?.length || 0
