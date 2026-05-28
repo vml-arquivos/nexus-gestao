@@ -478,22 +478,12 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           : `Acréscimo sobre dívida "${ref?.titulo}"`,
       ].filter(Boolean).join(' | ')
 
-      const movimento = await pagamentosApi.create({
-        titulo     : modo === 'abatimento' ? `Abatimento — ${ref?.titulo}` : `Acréscimo — ${ref?.titulo}`,
-        valor      : valorNum,
-        tipo,
-        status     : modo === 'abatimento' ? 'pago' : 'pendente',
-        vencimento : data || undefined,
-        pago_em    : modo === 'abatimento' ? data : undefined,
-        pessoa_id  : ref?.pessoa_id  || undefined,
-        pessoa_nome: ref?.pessoa_nome || undefined,
-        categoria  : ref?.categoria  || undefined,
-        obs        : obsMovimento,
-        recorrencia: 'nenhum',
-      })
-
+      // IMPORTANTE:
+      // Abatimento/acréscimo NÃO cria novo lançamento financeiro independente.
+      // Ele deve aparecer somente no Histórico/Extrato do registro original.
+      // Antes isso criava um card separado “Abatimento — ...”, poluindo a tela.
       await pagamentosApi.addHistorico({
-        pagamento_id: movimento.id,
+        pagamento_id: ref?.id,
         grupo_id: ref?.grupo_id || null,
         tipo_evento: modo === 'abatimento' ? 'abatimento' : 'acrescimo',
         titulo: modo === 'abatimento' ? 'Abatimento / pagamento registrado' : 'Acréscimo registrado',
@@ -1340,6 +1330,7 @@ export default function Financeiro() {
   const [prefill, setPrefill] = useState<Partial<Pagamento> | null>(null)
   const [tab, setTab] = useState<'lista' | 'pessoas'>('lista')
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroTipo, setFiltroTipo] = useState<'todos' | 'pagamento' | 'recebimento'>('todos')
   const [search, setSearch] = useState('')
   const [pessoaFiltro, setPessoaFiltro] = useState<ResumoPorPessoa | null>(null)
 
@@ -1510,6 +1501,12 @@ export default function Financeiro() {
               <option value="pago">Pago</option>
               <option value="cancelado">Cancelado</option>
             </select>
+
+            <select className="form-input" style={{ flex: 1, minWidth: 130 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as 'todos' | 'pagamento' | 'recebimento')}>
+              <option value="todos">Pagar e receber</option>
+              <option value="pagamento">Somente a pagar</option>
+              <option value="recebimento">Somente a receber</option>
+            </select>
           </div>
 
           {pessoaFiltro && (
@@ -1526,6 +1523,7 @@ export default function Financeiro() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
               {/* ── SEÇÃO A PAGAR ─────────────────────────────────────── */}
+              {filtroTipo !== 'recebimento' && (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1556,8 +1554,10 @@ export default function Financeiro() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* ── SEÇÃO A RECEBER ───────────────────────────────────── */}
+              {filtroTipo !== 'pagamento' && (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1588,6 +1588,7 @@ export default function Financeiro() {
                   </div>
                 )}
               </div>
+              )}
 
             </div>
           )}

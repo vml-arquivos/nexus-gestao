@@ -94,6 +94,27 @@ function normalizeGroupPart(value: unknown): string {
     .trim()
 }
 
+
+function isSystemFinancialMovement(row: any): boolean {
+  const title = normalizeGroupPart(row?.titulo)
+  const obs = normalizeGroupPart(row?.obs)
+  return (
+    title.startsWith('abatimento —') ||
+    title.startsWith('abatimento -') ||
+    title.startsWith('abatimento ') ||
+    title.startsWith('acrescimo —') ||
+    title.startsWith('acrescimo -') ||
+    title.startsWith('acrescimo ') ||
+    title.startsWith('acréscimo —') ||
+    title.startsWith('acréscimo -') ||
+    title.startsWith('acréscimo ') ||
+    obs.includes('abatimento sobre divida') ||
+    obs.includes('abatimento sobre dívida') ||
+    obs.includes('acrescimo sobre divida') ||
+    obs.includes('acréscimo sobre dívida')
+  )
+}
+
 function buildNaturalGroupKey(row: any): string {
   const pessoa = row.pessoa_id || row.pessoa_nome_atual || row.pessoa_nome || 'sem-pessoa'
   const valor = Number(row.valor || 0).toFixed(2)
@@ -246,6 +267,10 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
     }>()
 
     for (const row of rows) {
+      // Movimentos financeiros de histórico (abatimento/acréscimo) não são cards independentes.
+      // Eles aparecem somente no extrato do grupo/dívida correspondente.
+      if (isSystemFinancialMovement(row)) continue
+
       // Registros novos possuem grupo_id. Registros antigos podem não ter.
       // Para eles, agrupamos por chave natural: título + pessoa + tipo + categoria + valor.
       const chave = row.grupo_id ? `grupo:${row.grupo_id}` : buildNaturalGroupKey(row)
