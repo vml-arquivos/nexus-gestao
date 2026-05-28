@@ -560,7 +560,7 @@ export default function Layout() {
             <div className="section-label" style={{ padding: 0, marginBottom: 14 }}>Mais opções</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {NAV.slice(4).map(({ path, icon: Icon, label }) => {
-                if (path === '/usuarios' && user?.role === 'membro') return null
+                if (path === '/usuarios' && !isGestorLike(user?.role)) return null
                 return (
                   <Link
                     key={path}

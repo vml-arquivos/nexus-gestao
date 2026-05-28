@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound, Eye } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
-import { isGestorLike } from '../lib/roles'
 
 // O componente Pessoas unifica todos os tipos de pessoas cadastradas no sistema:
 // membros da equipe, prestadores de serviço, credores, devedores e clientes.
@@ -221,7 +220,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 export default function Pessoas() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const isGestor = isGestorLike(user?.role)
+  const isGestor = user?.role === 'gestor'
 
   const [tab, setTab]               = useState<'pessoas' | 'membros'>('pessoas')
   const [pessoas, setPessoas]       = useState<Pessoa[]>([])

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { roleLabel as getRoleLabel, isAdminOrDev, isGestorLike } from '../lib/roles'
+import { roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
 
@@ -66,8 +66,8 @@ export default function Configuracoes() {
     }
   }
 
-  const roleLabel = (user?.role === 'admin' || user?.role === 'dev') ? `👑 ${getRoleLabel(user?.role)}` : isGestorLike(user?.role) ? `👑 ${getRoleLabel(user?.role)}` : '👤 Membro'
-  const roleColor = isAdminOrDev(user?.role) ? '#DC2626' : isGestorLike(user?.role) ? '#6C3BFF' : '#06B6D4'
+  const labelRole = roleLabel(user?.role)
+  const roleColor = user?.role === 'admin' || user?.role === 'dev' || user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
@@ -83,7 +83,7 @@ export default function Configuracoes() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <User size={16} color="#6C3BFF" />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Meu Perfil</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: roleColor, background: roleColor + '18', padding: '3px 8px', borderRadius: 99 }}>{roleLabel}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: roleColor, background: roleColor + '18', padding: '3px 8px', borderRadius: 99 }}>{labelRole}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="form-group">
