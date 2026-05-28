@@ -208,6 +208,9 @@ export interface GrupoPagamento {
   valor_total: number
   valor_pago: number
   valor_pendente: number
+  valor_mensal?: number
+  parcelas_mes_atual?: number
+  proxima_parcela_valor?: number
   num_parcelas: number
   parcelas_pagas: number
   parcelas_pendentes: number
@@ -234,6 +237,9 @@ export interface ResumoFinanceiro {
   receita_pendente: number
   despesa_paga: number
   despesa_pendente: number
+  receita_mensal?: number
+  despesa_mensal?: number
+  saldo_mensal?: number
   saldo: number
   vencidos_pagar: number
   vencidos_receber: number
@@ -572,6 +578,9 @@ export const pagamentosApi = {
       receita_pendente:  parseFloat(r.receita_pendente  || '0'),
       despesa_paga:      parseFloat(r.despesa_paga      || '0'),
       despesa_pendente:  parseFloat(r.despesa_pendente  || '0'),
+      receita_mensal:    parseFloat(r.receita_mensal    || '0'),
+      despesa_mensal:    parseFloat(r.despesa_mensal    || '0'),
+      saldo_mensal:      parseFloat(r.receita_mensal || '0') - parseFloat(r.despesa_mensal || '0'),
       saldo:             parseFloat(r.receita_paga || '0') - parseFloat(r.despesa_paga || '0'),
       vencidos_pagar:    parseFloat(r.total_vencido     || '0'),
       vencidos_receber:  0,
