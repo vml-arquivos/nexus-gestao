@@ -18,6 +18,7 @@ import documentosRoutes from './routes/documentos'
 import teamsRoutes      from './routes/teams'
 import usersRoutes      from './routes/users'
 import convitesRoutes       from './routes/convites'
+import adminRoutes from './routes/admin'
 import notificacoesRoutes  from './routes/notificacoes'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 
@@ -105,6 +106,7 @@ app.use('/api/teams',       teamsRoutes)
 app.use('/api/users',       usersRoutes)
 app.use('/api/convites',       convitesRoutes)
 app.use('/api/notificacoes',  notificacoesRoutes)
+app.use('/api/admin',         adminRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
