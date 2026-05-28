@@ -71,14 +71,32 @@ function prioridadeCfg(prioridade?: string) {
 }
 
 function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    document.documentElement.classList.add('modal-open')
+    document.body.classList.add('modal-open')
+
+    return () => {
+      document.documentElement.classList.remove('modal-open')
+      document.body.classList.remove('modal-open')
+    }
+  }, [])
+
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ width: 'min(100%, 720px)', maxHeight: 'min(92dvh, 760px)', overflow: 'auto' }}>
+    <div className="modal-overlay" role="presentation" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div
+        className="modal-box tarefa-modal-box"
+        role="dialog"
+        aria-modal="true"
+        data-modal="true"
+        style={{ width: 'min(100%, 720px)' }}
+      >
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="modal-close" onClick={onClose} type="button"><X size={18} /></button>
         </div>
-        {children}
+        <div className="modal-content" data-scroll>
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -183,7 +201,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <label className="form-label">Observação interna</label>
           <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
         </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--bg2)', paddingTop: 10 }}>
+        <div className="modal-actions" data-modal-actions style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--bg2)', paddingTop: 10 }}>
           <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
           <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <Send size={14} />} Salvar</button>
         </div>

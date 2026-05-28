@@ -79,11 +79,47 @@ document.addEventListener('touchend', (e) => {
 document.addEventListener('touchmove', (e) => {
   // Permite scroll nos elementos que precisam
   const target = e.target as Element
-  const scrollable = target.closest('.page-content, .sheet, .sidebar, [data-scroll]')
+  const scrollable = target.closest('.page-content, .page-scroll, .sheet, .sidebar, .modal-overlay, .modal-backdrop, .modal-box, .modal-card, [role="dialog"], [aria-modal="true"], [data-scroll]')
   if (!scrollable) {
     e.preventDefault()
   }
 }, { passive: false })
+
+
+// ═══ CONTROLE GLOBAL DE MODAIS/SHEETS ═══
+// Qualquer tela que abrir modal passa a sinalizar body.modal-open.
+// Isso permite esconder bottom-nav, travar scroll externo e aplicar layout consistente
+// em Chrome, Safari, Edge, Firefox, Android e iOS — não apenas em Safari.
+function syncGlobalModalState() {
+  try {
+    const hasModal = Boolean(document.querySelector([
+      '.modal-overlay',
+      '.modal-backdrop',
+      '.modal-box',
+      '.modal-card',
+      '[role="dialog"]',
+      '[aria-modal="true"]',
+      '[data-modal="true"]',
+      '[data-sheet="true"]',
+    ].join(',')))
+
+    document.body.classList.toggle('modal-open', hasModal)
+    document.documentElement.classList.toggle('modal-open', hasModal)
+  } catch {
+    // silencioso
+  }
+}
+
+window.addEventListener('load', () => {
+  syncGlobalModalState()
+  const observer = new MutationObserver(() => syncGlobalModalState())
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style', 'role', 'aria-modal', 'data-modal', 'data-sheet'],
+  })
+})
 
 // ═══ Esconde splash quando React montar ═══
 const rootEl = document.getElementById('root')!
