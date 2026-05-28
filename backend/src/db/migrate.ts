@@ -414,6 +414,25 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_hist_tarefa ON tarefas_historico(tarefa_i
 CREATE INDEX IF NOT EXISTS idx_tarefas_hist_org ON tarefas_historico(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefas_hist_user ON tarefas_historico(user_id, created_at DESC);
 
+-- Evidências/anexos enviados na execução de tarefas
+CREATE TABLE IF NOT EXISTS tarefa_anexos (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  tarefa_id     UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  enviado_por   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  titulo        TEXT NOT NULL,
+  descricao     TEXT,
+  tipo          TEXT NOT NULL DEFAULT 'evidencia' CHECK (tipo IN ('evidencia','referencia','correcao','outro')),
+  arquivo_url   TEXT NOT NULL,
+  nome_original TEXT,
+  mime_type     TEXT,
+  tamanho       BIGINT,
+  created_at    TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa ON tarefa_anexos(tarefa_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org ON tarefa_anexos(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_enviado_por ON tarefa_anexos(enviado_por, created_at DESC);
+
 -- ── LEMBRETES PERSONALIZADOS ───────────────────────────────────────────────
 -- Lembretes criados pelo gestor ou membro, vinculados a qualquer entidade
 CREATE TABLE IF NOT EXISTS lembretes (

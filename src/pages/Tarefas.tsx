@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, ChangeEvent } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
+  Paperclip, Upload, Download, FileText,
 } from 'lucide-react'
-import { tarefasApi, equipeApi, type Tarefa, type MembroEquipe, type ChecklistItem } from '../lib/api'
+import { tarefasApi, equipeApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 
-type TaskStatus = Tarefa['status']
 type Priority = Tarefa['prioridade']
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -41,6 +41,20 @@ function fmtDate(value?: string) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR')
 }
 
+function fmtDateTime(value?: string) {
+  if (!value) return ''
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR')
+}
+
+function formatSize(bytes?: number) {
+  const n = Number(bytes || 0)
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
 function isOverdue(value?: string, status?: string) {
   if (!value || ['concluida', 'aprovada', 'cancelada'].includes(String(status))) return false
   const d = new Date(String(value).slice(0, 10) + 'T23:59:59')
@@ -58,7 +72,7 @@ function prioridadeCfg(prioridade?: string) {
 function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ width: 'min(100%, 620px)' }}>
+      <div className="modal-box" style={{ width: 'min(100%, 720px)', maxHeight: 'min(92dvh, 760px)', overflow: 'auto' }}>
         <div className="modal-header">
           <div className="modal-title">{title}</div>
           <button className="modal-close" onClick={onClose} type="button"><X size={18} /></button>
@@ -180,7 +194,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: () => void; onSaved: (t: Tarefa) => void }) {
   const [tipo, setTipo] = useState<'concluida' | 'nao_concluida'>('concluida')
   const [obs, setObs] = useState('')
+  const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
+
+  function onFilesChange(e: ChangeEvent<HTMLInputElement>) {
+    setFiles(Array.from(e.target.files || []))
+  }
 
   async function salvar() {
     if (tipo === 'nao_concluida' && !obs.trim()) { toast('Informe o motivo da não conclusão.', 'error'); return }
@@ -190,8 +209,19 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
         ? { status: 'concluida', observacao_conclusao: obs.trim() || undefined, resposta_membro: obs.trim() || undefined }
         : { status: 'nao_concluida', motivo_nao_conclusao: obs.trim(), resposta_membro: obs.trim() }
       )
+
+      if (files.length > 0) {
+        for (const file of files) {
+          await tarefasApi.uploadAnexo(tarefa.id, file, {
+            titulo: file.name || 'Anexo da tarefa',
+            descricao: tipo === 'concluida' ? 'Evidência de conclusão enviada pelo responsável.' : 'Evidência/motivo enviado pelo responsável.',
+            tipo: tipo === 'concluida' ? 'evidencia' : 'correcao',
+          })
+        }
+      }
+
       onSaved(saved)
-      toast('Resposta enviada.')
+      toast(files.length > 0 ? 'Resposta e anexos enviados.' : 'Resposta enviada.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao responder.', 'error')
     } finally { setLoading(false) }
@@ -208,9 +238,17 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
         <label className="form-label">{tipo === 'nao_concluida' ? 'Motivo obrigatório' : 'Observação opcional'}</label>
         <textarea className="form-input" rows={4} value={obs} onChange={e => setObs(e.target.value)} placeholder={tipo === 'nao_concluida' ? 'Explique o motivo...' : 'Observação sobre a conclusão...'} />
       </div>
+      <div className="form-group">
+        <label className="form-label">Anexar evidência da tarefa</label>
+        <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
+          Envie foto, PDF, comprovante, planilha, documento ou vídeo para o gestor verificar o que foi feito.
+        </div>
+        {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
+      </div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
         <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
-        <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">Enviar resposta</button>
+        <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <Upload size={14} />} Enviar resposta</button>
       </div>
     </ModalBase>
   )
@@ -237,7 +275,108 @@ function HistoricoModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => vo
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onHistory }: {
+function AnexosModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void }) {
+  const [anexos, setAnexos] = useState<TarefaAnexo[]>([])
+  const [descricao, setDescricao] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setAnexos(await tarefasApi.anexos(tarefa.id)) }
+    catch { setAnexos([]) }
+    finally { setLoading(false) }
+  }, [tarefa.id])
+
+  useEffect(() => { load() }, [load])
+
+  function onFilesChange(e: ChangeEvent<HTMLInputElement>) {
+    setFiles(Array.from(e.target.files || []))
+  }
+
+  async function enviar() {
+    if (files.length === 0) { toast('Selecione pelo menos um arquivo.', 'error'); return }
+    setSaving(true)
+    try {
+      for (const file of files) {
+        await tarefasApi.uploadAnexo(tarefa.id, file, {
+          titulo: file.name || 'Anexo da tarefa',
+          descricao: descricao.trim() || undefined,
+          tipo: 'evidencia',
+        })
+      }
+      setDescricao('')
+      setFiles([])
+      await load()
+      toast('Anexo enviado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao anexar arquivo.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function apagar(anexo: TarefaAnexo) {
+    if (!confirm('Apagar este anexo da tarefa?')) return
+    try {
+      await tarefasApi.deleteAnexo(tarefa.id, anexo.id)
+      setAnexos(prev => prev.filter(a => a.id !== anexo.id))
+      toast('Anexo apagado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao apagar anexo.', 'error')
+    }
+  }
+
+  return (
+    <ModalBase title="Anexos e evidências da tarefa" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
+          <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)' }}>Envie evidências para o gestor verificar a execução: fotos, PDFs, comprovantes, documentos, planilhas ou vídeos.</div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Selecionar arquivos</label>
+          <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+          {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Descrição do anexo</label>
+          <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex.: foto do serviço finalizado, comprovante, relatório entregue..." />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} Enviar anexo</button>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
+          {loading ? <div style={{ color: 'var(--text3)' }}>Carregando...</div> : anexos.length === 0 ? (
+            <div style={{ color: 'var(--text3)', fontSize: 13, padding: 14, border: '1px dashed var(--border)', borderRadius: 12 }}>Nenhum anexo enviado ainda.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {anexos.map(anexo => (
+                <div key={anexo.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)', display: 'grid', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 800, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {anexo.titulo || anexo.nome_original || 'Anexo'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{anexo.enviado_por_nome || anexo.enviado_por} · {fmtDateTime(anexo.created_at)} {anexo.tamanho ? `· ${formatSize(anexo.tamanho)}` : ''}</div>
+                      {anexo.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>{anexo.descricao}</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <a className="btn btn-secondary" href={anexo.arquivo_url} target="_blank" rel="noopener noreferrer" style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Abrir</a>
+                      <button className="btn btn-ghost" type="button" onClick={() => apagar(anexo)} style={{ padding: '6px 10px', fontSize: 12, color: '#EF4444' }}><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
+function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onHistory, onAnexos }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -248,6 +387,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
   onApprove: (t: Tarefa) => void
   onReturn: (t: Tarefa) => void
   onHistory: (t: Tarefa) => void
+  onAnexos: (t: Tarefa) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const sc = statusCfg(tarefa.status)
@@ -277,6 +417,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
         </div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button title="Anexos" onClick={() => onAnexos(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Paperclip size={15} /></button>
           <button title="Histórico" onClick={() => onHistory(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><History size={15} /></button>
           {isGestor && <button title="Editar" onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Edit3 size={15} /></button>}
           <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>
@@ -285,6 +426,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
+        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> Anexos / evidências</button>
         {!isGestor && isMine && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
         {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onResponder(tarefa)} type="button">Concluir / Não concluí</button>}
         {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
@@ -309,6 +451,7 @@ export default function Tarefas() {
   const [edit, setEdit] = useState<Tarefa | null>(null)
   const [responder, setResponder] = useState<Tarefa | null>(null)
   const [historico, setHistorico] = useState<Tarefa | null>(null)
+  const [anexos, setAnexos] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
@@ -366,7 +509,7 @@ export default function Tarefas() {
   }
 
   async function approve(t: Tarefa) {
-    if (!confirm('Aprovar esta tarefa?')) return
+    if (!confirm('Aprovar esta tarefa? Verifique os anexos/evidências antes de aprovar.')) return
     try { updateSaved(await tarefasApi.aprovar(t.id)); toast('Tarefa aprovada.') }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao aprovar.', 'error') }
   }
@@ -429,6 +572,7 @@ export default function Tarefas() {
               onApprove={approve}
               onReturn={devolver}
               onHistory={setHistorico}
+              onAnexos={setAnexos}
             />
           ))}
         </div>
@@ -437,6 +581,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
+      {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} />}
     </div>
   )
 }

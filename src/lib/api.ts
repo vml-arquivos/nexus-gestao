@@ -73,6 +73,22 @@ export interface Tarefa {
   updated_at?: string
 }
 
+export interface TarefaAnexo {
+  id: string
+  org_id: string
+  tarefa_id: string
+  enviado_por: string
+  enviado_por_nome?: string
+  titulo: string
+  descricao?: string
+  tipo: 'evidencia' | 'referencia' | 'correcao' | 'outro'
+  arquivo_url: string
+  nome_original?: string
+  mime_type?: string
+  tamanho?: number
+  created_at: string
+}
+
 export interface Pessoa {
   id: string
   org_id: string
@@ -425,6 +441,31 @@ export const tarefasApi = {
 
   async dashboard(): Promise<any> {
     return apiJson('/tarefas/dashboard')
+  },
+
+  async anexos(id: string): Promise<TarefaAnexo[]> {
+    const data = await apiJson<{ anexos: TarefaAnexo[] }>(`/tarefas/${id}/anexos`)
+    return data.anexos || []
+  },
+
+  async uploadAnexo(id: string, file: File, payload?: { titulo?: string; descricao?: string; tipo?: 'evidencia' | 'referencia' | 'correcao' | 'outro' }): Promise<TarefaAnexo> {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('titulo', payload?.titulo || file.name || 'Anexo da tarefa')
+    if (payload?.descricao) form.append('descricao', payload.descricao)
+    form.append('tipo', payload?.tipo || 'evidencia')
+
+    const res = await apiFetch(`/tarefas/${id}/anexos`, { method: 'POST', body: form })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    const data = await res.json() as { anexo: TarefaAnexo }
+    return data.anexo
+  },
+
+  async deleteAnexo(id: string, anexoId: string): Promise<void> {
+    await apiJson(`/tarefas/${id}/anexos/${anexoId}`, { method: 'DELETE' })
   },
 
   // Resposta de execução: compatibilidade com componentes antigos
