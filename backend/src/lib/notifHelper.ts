@@ -3,7 +3,7 @@
  * Helpers para criar notificações no banco e disparar via SSE para usuários conectados.
  */
 import { Response } from 'express'
-import { query } from '../db/pool'
+import { query, queryOne } from '../db/pool'
 
 // ── SSE: mapa de conexões ativas ─────────────────────────────────────────────
 // Chave: userId  →  lista de respostas SSE abertas (multi-tab)
@@ -29,6 +29,38 @@ function pushSse(userId: string, event: string, data: unknown) {
   for (const res of list) {
     try { res.write(payload) } catch { /* cliente desconectado */ }
   }
+}
+
+function nomeSeguro(nome?: string | null, fallback = 'Usuário') {
+  const clean = String(nome || '').trim()
+  return clean || fallback
+}
+
+function alvoFinanceiro(pessoaNome?: string | null, titulo?: string | null) {
+  const pessoa = String(pessoaNome || '').trim()
+  if (pessoa) return pessoa
+  return String(titulo || '').trim() || 'sem pessoa vinculada'
+}
+
+function valorBRL(valor: string | number | null | undefined) {
+  const n = typeof valor === 'number' ? valor : Number(valor || 0)
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function dataHoraBR(value?: string | Date | null) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+async function nomeUsuario(userId?: string | null) {
+  if (!userId) return 'Usuário'
+  const row = await queryOne<{ nome: string }>(
+    'SELECT nome FROM profiles WHERE id = $1',
+    [userId]
+  ).catch(() => null)
+  return nomeSeguro(row?.nome)
 }
 
 // ── Criar notificação no banco e disparar SSE ─────────────────────────────────
@@ -66,12 +98,15 @@ async function jobVencimentos() {
     // Busca tarefas que venceram hoje e ainda não foram notificadas (pendente)
     const tarefas = await query<{
       id: string; org_id: string; responsavel_id: string; criado_por: string
-      titulo: string; prazo: string; responsavel_nome: string
+      titulo: string; prazo: string; responsavel_nome: string; criador_nome: string
     }>(
       `SELECT t.id, t.org_id, t.responsavel_id, t.criado_por,
-              t.titulo, t.prazo, COALESCE(p.nome,'') AS responsavel_nome
+              t.titulo, t.prazo,
+              COALESCE(p.nome,'') AS responsavel_nome,
+              COALESCE(c.nome,'') AS criador_nome
        FROM tarefas t
        LEFT JOIN profiles p ON p.id = t.responsavel_id
+       LEFT JOIN profiles c ON c.id = t.criado_por
        WHERE t.status = 'pendente'
          AND t.prazo IS NOT NULL
          AND t.prazo::date = CURRENT_DATE
@@ -89,8 +124,8 @@ async function jobVencimentos() {
         await criarNotificacao({
           orgId: t.org_id, userId: t.responsavel_id,
           tipo: 'tarefa_vencida',
-          titulo: '⚠️ Tarefa vence hoje!',
-          body: `A tarefa "${t.titulo}" vence hoje e ainda está pendente.`,
+          titulo: `⚠️ ${nomeSeguro(t.responsavel_nome, 'Você')}: tarefa vence hoje`,
+          body: `"${t.titulo}" vence hoje${t.criador_nome ? ` — enviada por ${t.criador_nome}` : ''}.`,
           referenciaId: t.id, referenciaTipo: 'tarefa',
         })
       }
@@ -99,8 +134,8 @@ async function jobVencimentos() {
         await criarNotificacao({
           orgId: t.org_id, userId: t.criado_por,
           tipo: 'tarefa_vencida',
-          titulo: '⚠️ Tarefa vence hoje!',
-          body: `A tarefa "${t.titulo}" (${t.responsavel_nome || 'sem responsável'}) vence hoje e ainda está pendente.`,
+          titulo: `⚠️ ${nomeSeguro(t.responsavel_nome)} tem tarefa vencendo hoje`,
+          body: `"${t.titulo}" vence hoje e ainda está pendente.`,
           referenciaId: t.id, referenciaTipo: 'tarefa',
         })
       }
@@ -117,10 +152,11 @@ async function jobLembreteDiario() {
   try {
     // Para cada usuário com tarefas pendentes para hoje, envia lembrete
     const resumos = await query<{
-      responsavel_id: string; org_id: string; count: string
+      responsavel_id: string; org_id: string; count: string; responsavel_nome: string
     }>(
-      `SELECT t.responsavel_id, t.org_id, COUNT(*) AS count
+      `SELECT t.responsavel_id, t.org_id, COUNT(*) AS count, COALESCE(p.nome,'') AS responsavel_nome
        FROM tarefas t
+       LEFT JOIN profiles p ON p.id = t.responsavel_id
        WHERE t.status = 'pendente'
          AND t.prazo IS NOT NULL
          AND t.prazo::date = CURRENT_DATE
@@ -131,7 +167,7 @@ async function jobLembreteDiario() {
              AND n.tipo = 'lembrete_diario'
              AND n.created_at::date = CURRENT_DATE
          )
-       GROUP BY t.responsavel_id, t.org_id`,
+       GROUP BY t.responsavel_id, t.org_id, p.nome`,
       []
     )
     for (const r of resumos) {
@@ -139,8 +175,8 @@ async function jobLembreteDiario() {
       await criarNotificacao({
         orgId: r.org_id, userId: r.responsavel_id,
         tipo: 'lembrete_diario',
-        titulo: `📋 Você tem ${n} tarefa${n > 1 ? 's' : ''} para hoje`,
-        body: `Acesse a lista de tarefas para ver o que precisa ser feito hoje.`,
+        titulo: `📋 ${nomeSeguro(r.responsavel_nome, 'Você')}: ${n} tarefa${n > 1 ? 's' : ''} para hoje`,
+        body: `Acesse suas tarefas para ver o que precisa ser feito hoje.`,
       })
     }
     if (resumos.length > 0) {
@@ -157,13 +193,17 @@ async function jobLembretes() {
     const agora = new Date().toISOString()
     const pendentes = await query<{
       id: string; org_id: string; destinatario_id: string; criado_por: string
-      titulo: string; body: string; referencia_id: string; referencia_tipo: string
+      titulo: string; body: string; referencia_id: string; referencia_tipo: string; criador_nome: string; destinatario_nome: string
     }>(
       `SELECT l.id, l.org_id,
               COALESCE(l.destinatario_id, l.criado_por) AS destinatario_id,
               l.criado_por, l.titulo, l.body,
-              l.referencia_id, l.referencia_tipo
+              l.referencia_id, l.referencia_tipo,
+              COALESCE(c.nome,'') AS criador_nome,
+              COALESCE(d.nome,'') AS destinatario_nome
        FROM lembretes l
+       LEFT JOIN profiles c ON c.id = l.criado_por
+       LEFT JOIN profiles d ON d.id = COALESCE(l.destinatario_id, l.criado_por)
        WHERE l.ativo = TRUE
          AND l.enviado = FALSE
          AND l.data_lembrete <= $1`,
@@ -174,8 +214,12 @@ async function jobLembretes() {
         orgId: l.org_id,
         userId: l.destinatario_id,
         tipo: 'info',
-        titulo: l.titulo,
-        body: l.body || undefined,
+        titulo: l.criado_por && l.criado_por !== l.destinatario_id
+          ? `🔔 ${nomeSeguro(l.criador_nome)} enviou um lembrete`
+          : l.titulo,
+        body: l.criado_por && l.criado_por !== l.destinatario_id
+          ? `${l.titulo}${l.body ? ` — ${l.body}` : ''}`
+          : (l.body || undefined),
         referenciaId: l.referencia_id || undefined,
         referenciaTipo: l.referencia_tipo || undefined,
       })
@@ -196,18 +240,21 @@ async function jobLembretes() {
 // ── Job: vencimentos financeiros ─────────────────────────────────────────────
 async function jobFinanceiroVencimento() {
   try {
-    // Pagamentos que vencem amanhã e ainda não foram notificados hoje
+    // Pagamentos/recebimentos que vencem hoje ou amanhã, sempre identificando pessoa/empresa.
     const pagamentos = await query<{
-      id: string; org_id: string; criado_por: string; titulo: string
-      pessoa_nome: string; valor: string; vencimento: string
+      id: string; org_id: string; criado_por: string; titulo: string; tipo: string
+      pessoa_nome: string; valor: string; vencimento: string; dias: string
     }>(
-      `SELECT p.id, p.org_id, p.criado_por, p.titulo,
-              COALESCE(p.pessoa_nome,'') AS pessoa_nome,
-              p.valor::text, p.vencimento::text
+      `SELECT p.id, p.org_id, p.criado_por, p.titulo, p.tipo,
+              COALESCE(NULLIF(TRIM(p.pessoa_nome), ''), NULLIF(TRIM(pe.nome), ''), '') AS pessoa_nome,
+              p.valor::text,
+              p.vencimento::text,
+              (p.vencimento::date - CURRENT_DATE)::text AS dias
        FROM pagamentos p
+       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
        WHERE p.status = 'pendente'
          AND p.vencimento IS NOT NULL
-         AND p.vencimento::date = CURRENT_DATE + INTERVAL '1 day'
+         AND p.vencimento::date IN (CURRENT_DATE, CURRENT_DATE + INTERVAL '1 day')
          AND NOT EXISTS (
            SELECT 1 FROM notificacoes n
            WHERE n.referencia_id = p.id
@@ -217,13 +264,16 @@ async function jobFinanceiroVencimento() {
       []
     )
     for (const p of pagamentos) {
-      const valor = parseFloat(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      const ehHoje = String(p.dias) === '0'
+      const quando = ehHoje ? 'hoje' : 'amanhã'
+      const direcao = p.tipo === 'recebimento' ? 'recebimento de' : 'pagamento para'
+      const pessoa = alvoFinanceiro(p.pessoa_nome, p.titulo)
       await criarNotificacao({
         orgId: p.org_id,
         userId: p.criado_por,
         tipo: 'financeiro_vencimento',
-        titulo: `💰 Vencimento amanhã: ${p.titulo}`,
-        body: `${p.pessoa_nome ? p.pessoa_nome + ' — ' : ''}${valor} vence amanhã.`,
+        titulo: `💰 Vence ${quando}: ${direcao} ${pessoa}`,
+        body: `${p.titulo} — ${valorBRL(p.valor)} vence ${quando}.`,
         referenciaId: p.id,
         referenciaTipo: 'pagamento',
       })
@@ -243,9 +293,9 @@ async function jobAgendaLembrete() {
     const em15min = new Date(agora.getTime() + 16 * 60 * 1000).toISOString()
     const eventos = await query<{
       id: string; org_id: string; criado_por: string; titulo: string
-      data_inicio: string; lembrete_minutos: number
+      data_inicio: string; lembrete_minutos: number; local: string | null; participantes: unknown
     }>(
-      `SELECT a.id, a.org_id, a.criado_por, a.titulo, a.data_inicio, a.lembrete_minutos
+      `SELECT a.id, a.org_id, a.criado_por, a.titulo, a.data_inicio, a.lembrete_minutos, a.local, a.participantes
        FROM agenda a
        WHERE a.lembrete_enviado = FALSE
          AND a.data_inicio > NOW()
@@ -262,8 +312,8 @@ async function jobAgendaLembrete() {
         orgId: e.org_id,
         userId: e.criado_por,
         tipo: 'agenda_lembrete',
-        titulo: `📅 Em breve: ${e.titulo}`,
-        body: `Compromisso em ${e.lembrete_minutos} minuto(s).`,
+        titulo: `📅 Lembrete: ${e.titulo}`,
+        body: `${dataHoraBR(e.data_inicio)}${e.local ? ` — local: ${e.local}` : ''}${Array.isArray(e.participantes) && e.participantes.length ? ` — participantes: ${e.participantes.join(', ')}` : ''}`,
         referenciaId: e.id,
         referenciaTipo: 'agenda',
       })
