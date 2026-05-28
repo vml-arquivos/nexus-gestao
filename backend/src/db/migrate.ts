@@ -100,7 +100,7 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em     TIMESTAMPTZ;
 -- Workflow completo gestor -> membro -> aprovação/devolução (idempotente)
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
 ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check
-  CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','aprovada','cancelada'));
+  CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','reenviada','aprovada','cancelada'));
 
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
@@ -114,6 +114,7 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profil
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em TIMESTAMPTZ;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reenviada_em TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_tarefas_org         ON tarefas(org_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel ON tarefas(responsavel_id);
@@ -121,6 +122,24 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_status      ON tarefas(status);
 CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
+
+
+-- Checklist estruturado por item, mantendo compatibilidade com tarefas.checklist JSONB.
+CREATE TABLE IF NOT EXISTS tarefa_checklist (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tarefa_id  UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  org_id      UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  criado_por  UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  texto       TEXT NOT NULL,
+  feito       BOOLEAN NOT NULL DEFAULT FALSE,
+  ordem       INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tarefa_checklist_tarefa ON tarefa_checklist(tarefa_id);
+CREATE INDEX IF NOT EXISTS idx_tarefa_checklist_org ON tarefa_checklist(org_id);
+CREATE INDEX IF NOT EXISTS idx_tarefa_checklist_criado_por ON tarefa_checklist(criado_por);
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -143,6 +162,11 @@ CREATE TRIGGER pessoas_updated_at
 DROP TRIGGER IF EXISTS profiles_updated_at ON profiles;
 CREATE TRIGGER profiles_updated_at
   BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS tarefa_checklist_updated_at ON tarefa_checklist;
+CREATE TRIGGER tarefa_checklist_updated_at
+  BEFORE UPDATE ON tarefa_checklist
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ── AGENDA ───────────────────────────────────────────────────

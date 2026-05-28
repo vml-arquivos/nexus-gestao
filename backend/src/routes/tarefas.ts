@@ -51,19 +51,52 @@ interface MulterTaskRequest extends Request {
   file?: Express.Multer.File
 }
 
-const VALID_STATUS = ['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'devolvida', 'aprovada', 'cancelada'] as const
+const VALID_STATUS = ['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'devolvida', 'reenviada', 'aprovada', 'cancelada'] as const
 type TaskStatus = typeof VALID_STATUS[number]
 
 function isValidStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (VALID_STATUS as readonly string[]).includes(v)
 }
 
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean }> {
+  const raw = (() => {
+    if (Array.isArray(value)) return value
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value)
+        return Array.isArray(parsed) ? parsed : []
+      } catch { return [] }
+    }
+    return []
+  })()
+
+  return raw
+    .map((item: any) => {
+      if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
+      return {
+        id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
+        texto: String(item?.texto || item?.label || item?.title || '').trim(),
+        feito: !!item?.feito,
+      }
+    })
+    .filter(item => item.texto)
+}
+
 function normalizeChecklist(value: unknown) {
-  if (Array.isArray(value)) return JSON.stringify(value)
-  if (typeof value === 'string') {
-    try { JSON.parse(value); return value } catch { return '[]' }
+  return JSON.stringify(parseChecklistItems(value))
+}
+
+async function syncChecklistTable(input: { orgId: string; tarefaId: string; userId: string; checklist: unknown }) {
+  const items = parseChecklistItems(input.checklist)
+  await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [input.tarefaId, input.orgId])
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    await query(
+      `INSERT INTO tarefa_checklist (id, tarefa_id, org_id, criado_por, texto, feito, ordem)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [item.id || uuidv4(), input.tarefaId, input.orgId, input.userId, item.texto, !!item.feito, i]
+    )
   }
-  return '[]'
 }
 
 async function addHistorico(input: {
@@ -294,6 +327,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, normalizeChecklist(checklist), obs || null]
     )
 
+    await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist })
     await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'criada', statusNovo: 'pendente', observacao: obs || null })
 
     if (responsavelId && responsavelId !== userId) {
@@ -499,6 +533,55 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
   }
 })
 
+// ── REENVIAR CORREÇÃO APÓS DEVOLUÇÃO ────────────────────────────────────────
+router.patch('/:id/reenviar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const { observacao } = req.body || {}
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    if (existing.responsavel_id !== userId && existing.criado_por !== userId) {
+      res.status(403).json({ error: 'Você só pode reenviar tarefas atribuídas ou criadas por você.' }); return
+    }
+    if (existing.status !== 'devolvida') {
+      res.status(400).json({ error: 'Somente tarefas devolvidas podem ser reenviadas.' }); return
+    }
+
+    const tarefa = await queryOne<any>(
+      `UPDATE tarefas SET
+         status = 'reenviada',
+         status_gestor = 'aguardando',
+         resposta_membro = COALESCE($1, resposta_membro),
+         observacao_conclusao = COALESCE($1, observacao_conclusao),
+         reenviada_em = NOW(),
+         updated_at = NOW()
+       WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [String(observacao || '').trim() || null, req.params.id, orgId]
+    )
+
+    await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'reenviada', statusAnterior: existing.status, statusNovo: 'reenviada', observacao: String(observacao || '').trim() || null })
+
+    if (existing.criado_por && existing.criado_por !== userId) {
+      const autor = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      await criarNotificacao({
+        orgId,
+        userId: existing.criado_por,
+        tipo: 'tarefa_reenviada',
+        titulo: `${autor?.nome || 'Membro'} reenviou a tarefa`,
+        body: `"${existing.titulo}" foi reenviada para conferência.`,
+        referenciaId: req.params.id,
+        referenciaTipo: 'tarefa',
+      }).catch(() => {})
+    }
+
+    res.json({ tarefa })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao reenviar:', err)
+    res.status(500).json({ error: 'Erro ao reenviar tarefa.' })
+  }
+})
+
 // ── HISTÓRICO ────────────────────────────────────────────────────────────────
 router.get('/:id/historico', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -695,6 +778,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (!sets.length) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
     params.push(req.params.id, orgId)
     const tarefa = await queryOne<any>(`UPDATE tarefas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND org_id = $${idx} RETURNING *`, params)
+    if ((req.body as any).checklist !== undefined) {
+      await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: (req.body as any).checklist })
+    }
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'atualizada', statusAnterior: existing.status, statusNovo: tarefa.status })
     res.json({ tarefa })
   } catch (err) {

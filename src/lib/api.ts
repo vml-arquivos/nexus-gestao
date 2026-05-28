@@ -53,7 +53,7 @@ export interface Tarefa {
   data?: string
   prazo?: string
   prioridade: 'baixa' | 'media' | 'alta'
-  status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'aprovada' | 'cancelada'
+  status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'reenviada' | 'aprovada' | 'cancelada'
   checklist?: ChecklistItem[]
   obs?: string
   // Resposta de execução do responsável
@@ -68,6 +68,7 @@ export interface Tarefa {
   aprovada_em?: string
   aprovada_por?: string
   devolvida_em?: string
+  reenviada_em?: string
   data_inicio?: string
   data_conclusao?: string
   anexos_count?: number | string
@@ -456,6 +457,10 @@ export const tarefasApi = {
     return data.tarefa
   },
 
+  async reenviar(id: string, observacao?: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/reenviar`, { method: 'PATCH', body: JSON.stringify({ observacao }) })
+    return data.tarefa
+  },
 
   async reabrir(id: string, payload: { complemento: string; prazo?: string; prioridade?: Tarefa['prioridade'] }): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/reabrir`, { method: 'PATCH', body: JSON.stringify(payload) })

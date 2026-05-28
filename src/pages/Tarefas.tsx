@@ -19,6 +19,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   concluida:     { label: 'Concluída',     color: '#10B981', bg: 'rgba(16,185,129,.12)', icon: CheckCircle2 },
   nao_concluida: { label: 'Não concluída', color: '#EF4444', bg: 'rgba(239,68,68,.12)', icon: XCircle },
   devolvida:     { label: 'Devolvida',     color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: RotateCcw },
+  reenviada:     { label: 'Reenviada',     color: '#10B981', bg: 'rgba(16,185,129,.12)', icon: RotateCcw },
   aprovada:      { label: 'Aprovada',      color: '#059669', bg: 'rgba(5,150,105,.12)', icon: CheckCircle2 },
   cancelada:     { label: 'Cancelada',     color: '#6B7280', bg: 'rgba(107,114,128,.12)', icon: XCircle },
 }
@@ -583,6 +584,19 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
     } finally { setSaving(false) }
   }
 
+  async function reenviarCorrecao() {
+    setSaving(true)
+    try {
+      if (files.length) await uploadPendentes()
+      const saved = await tarefasApi.reenviar(tarefa.id, obs.trim() || 'Correção reenviada para conferência.')
+      onSaved(saved)
+      toast('Correção reenviada ao gestor.')
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao reenviar correção.', 'error')
+    } finally { setSaving(false) }
+  }
+
   const done = checklist.filter(i => i.feito).length
   const total = checklist.length
   const percent = total ? Math.round((done / total) * 100) : 0
@@ -659,8 +673,9 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
           {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
           {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
           {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
-          {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
+          {!isGestor && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
+          {!isGestor && tarefa.status !== 'devolvida' && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
+          {!isGestor && tarefa.status !== 'devolvida' && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
         </div>
       </div>
     </ModalBase>
