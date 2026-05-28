@@ -10,6 +10,7 @@ import { useAuth } from '../lib/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
 import { NotificacaoToast } from './NotificacaoToast'
+import { isGestorLike, roleLabel } from '../lib/roles'
 
 // ── Rotas de navegação ────────────────────────────────────────────────────────
 const NAV = [
@@ -74,11 +75,11 @@ export default function Layout() {
   const bottomMain = NAV.filter(n => {
     if (!user) return false
     // Membro não vê equipe no bottom nav
-    if (user.role === 'membro' && (n.path === '/equipe' || n.path === '/equipes')) return false
+    if (!isGestorLike(user.role) && (n.path === '/equipe' || n.path === '/equipes')) return false
     return ['/', '/equipe', '/tarefas', '/agenda'].includes(n.path)
   }).map(item => {
     // Se membro, redireciona /tarefas para /minhas-tarefas
-    if (user?.role === 'membro' && item.path === '/tarefas') {
+    if (!isGestorLike(user?.role) && item.path === '/tarefas') {
       return { ...item, path: '/minhas-tarefas', label: 'Tarefas' }
     }
     return item
@@ -147,7 +148,7 @@ export default function Layout() {
           {NAV.map(({ path, icon: Icon, label }) => {
             if (!user) return null
             // Esconde entradas restritas para membros
-            if (user.role === 'membro') {
+            if (!isGestorLike(user.role)) {
               // Membros não podem gerenciar usuários, equipes ou relatórios e tampouco acessam
               // módulos de finanças, pessoas ou documentos de outros usuários. Esses módulos
               // são filtrados no backend pelo criador, mas não devem ser exibidos na navegação.
@@ -210,7 +211,7 @@ export default function Layout() {
                 {user?.nome || 'Usuário'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'capitalize' }}>
-                {user?.role === 'gestor' ? 'Gestor' : user?.role === 'sub_gestor' ? 'Sub-Gestor' : 'Membro'}
+                {roleLabel(user?.role)}
               </div>
             </div>
             <button

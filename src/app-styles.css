@@ -998,3 +998,333 @@ table {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   HOTFIX RESPONSIVO GLOBAL — modais, formulários e bottom-nav
+   Corrige telas de novo usuário, nova tarefa, pessoas, financeiro,
+   agenda e documentos sem alterar a identidade visual.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --mobile-page-extra-bottom: 112px;
+}
+
+html,
+body,
+#root,
+.app-shell,
+.main-content {
+  max-width: 100%;
+  overflow-x: hidden !important;
+}
+
+.main-content {
+  min-width: 0;
+}
+
+.page-scroll {
+  height: 100%;
+  min-height: 0;
+  padding-bottom: calc(var(--bottom-nav-h) + var(--safe-bot) + 34px) !important;
+}
+
+.page-scroll > div,
+.page-container {
+  width: min(100%, var(--page-max)) !important;
+  max-width: min(100%, var(--page-max)) !important;
+  margin-inline: auto !important;
+  padding-inline: clamp(14px, 3.8vw, 28px);
+}
+
+.page-container {
+  padding-top: clamp(16px, 3vw, 28px);
+  padding-bottom: calc(var(--bottom-nav-h) + var(--safe-bot) + 34px) !important;
+}
+
+@media (min-width: 1024px) {
+  .page-scroll {
+    padding-bottom: 28px !important;
+  }
+  .page-container {
+    padding-bottom: 32px !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .topbar {
+    position: sticky;
+    top: 0;
+  }
+
+  .page-scroll {
+    height: calc(100dvh - var(--topbar-h) - var(--safe-top));
+    padding-bottom: calc(var(--bottom-nav-h) + var(--safe-bot) + var(--mobile-page-extra-bottom)) !important;
+  }
+
+  .page-container,
+  .page-scroll > div {
+    padding-inline: clamp(14px, 4vw, 22px) !important;
+    padding-bottom: calc(var(--bottom-nav-h) + var(--safe-bot) + var(--mobile-page-extra-bottom)) !important;
+  }
+}
+
+/* Header de página: evita botão sair da tela no mobile */
+.page-container > div:first-child[style*="justify-content:space-between"],
+.page-container > div:first-child[style*="justify-content: space-between"],
+.page-scroll > div > div:first-child[style*="justify-content:space-between"],
+.page-scroll > div > div:first-child[style*="justify-content: space-between"] {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .page-container > div:first-child[style*="justify-content:space-between"],
+  .page-container > div:first-child[style*="justify-content: space-between"],
+  .page-scroll > div > div:first-child[style*="justify-content:space-between"],
+  .page-scroll > div > div:first-child[style*="justify-content: space-between"] {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .page-container > div:first-child button,
+  .page-scroll > div > div:first-child button {
+    width: 100%;
+    min-height: 46px;
+  }
+}
+
+/* Bottom nav: nunca cobrir conteúdo clicável */
+.bottom-nav {
+  box-shadow: 0 -10px 28px rgba(0,0,0,0.08);
+}
+
+.bottom-nav-item {
+  min-width: 0;
+  max-width: 76px;
+}
+
+.bottom-nav-item span,
+.bottom-nav span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Formulários base */
+input,
+select,
+textarea,
+.form-input,
+.form-select,
+.form-textarea,
+.nexus-input {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 46px;
+  font-size: 16px !important;
+}
+
+textarea,
+.form-textarea,
+textarea.form-input {
+  min-height: 96px;
+  max-height: 42dvh;
+}
+
+.form-group,
+.form-grid,
+.form-row {
+  min-width: 0 !important;
+}
+
+.form-group > div[style*="display: flex"],
+.form-row,
+.filter-row {
+  min-width: 0;
+}
+
+/* Botões responsivos */
+.btn,
+button {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .btn {
+    min-height: 44px;
+    padding-inline: 14px;
+    white-space: normal;
+  }
+
+  .btn.btn-icon,
+  .btn-icon {
+    min-width: 42px;
+    width: 42px;
+    min-height: 42px;
+    padding: 0 !important;
+  }
+}
+
+/* Modal unificado: funciona para modal-backdrop/modal-card, modal-overlay/modal-box
+   e modais antigos com style inline position: fixed; inset: 0 */
+.modal-overlay,
+.modal-backdrop,
+div[style*="position: fixed"][style*="inset: 0"] {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: var(--z-modal) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: max(14px, var(--safe-top)) max(14px, var(--safe-right)) max(14px, var(--safe-bot)) max(14px, var(--safe-left)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-box,
+.modal-card,
+.modal-overlay > div,
+.modal-backdrop > div,
+div[style*="position: fixed"][style*="inset: 0"] > div {
+  width: min(100%, 680px) !important;
+  max-width: min(100%, 680px) !important;
+  max-height: min(92dvh, calc(100dvh - var(--safe-top) - var(--safe-bot) - 28px)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: auto !important;
+  box-sizing: border-box !important;
+}
+
+.modal-box,
+.modal-card {
+  padding: clamp(18px, 3vw, 28px) !important;
+}
+
+.modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg2);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+
+.modal-title,
+.modal-header h2,
+.modal-card h2 {
+  overflow-wrap: anywhere;
+}
+
+/* Em mobile, modal vira sheet seguro e visível, sem cortar botões */
+@media (max-width: 640px) {
+  .modal-overlay,
+  .modal-backdrop,
+  div[style*="position: fixed"][style*="inset: 0"] {
+    align-items: flex-end !important;
+    justify-content: center !important;
+    padding: max(8px, var(--safe-top)) 10px max(10px, var(--safe-bot)) !important;
+  }
+
+  .modal-box,
+  .modal-card,
+  .modal-overlay > div,
+  .modal-backdrop > div,
+  div[style*="position: fixed"][style*="inset: 0"] > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: min(90dvh, calc(100dvh - var(--safe-top) - var(--safe-bot) - 18px)) !important;
+    border-radius: 22px 22px 14px 14px !important;
+    margin: 0 !important;
+    padding: clamp(16px, 4.6vw, 22px) !important;
+  }
+
+  .modal-header {
+    top: -1px;
+    margin-inline: calc(-1 * clamp(16px, 4.6vw, 22px));
+    padding-inline: clamp(16px, 4.6vw, 22px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-box::before {
+    display: block;
+    margin-bottom: 12px;
+  }
+
+  .modal-box [style*="grid-template-columns"],
+  .modal-card [style*="grid-template-columns"],
+  div[style*="position: fixed"][style*="inset: 0"] > div [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .modal-box [style*="display: flex"][style*="gap"],
+  .modal-card [style*="display: flex"][style*="gap"],
+  div[style*="position: fixed"][style*="inset: 0"] > div [style*="display: flex"][style*="gap"] {
+    min-width: 0 !important;
+    flex-wrap: wrap !important;
+  }
+
+  .modal-box [style*="justify-content: flex-end"],
+  .modal-box [style*="justify-content:flex-end"],
+  .modal-card [style*="justify-content: flex-end"],
+  .modal-card [style*="justify-content:flex-end"],
+  div[style*="position: fixed"][style*="inset: 0"] > div [style*="justify-content: flex-end"],
+  div[style*="position: fixed"][style*="inset: 0"] > div [style*="justify-content:flex-end"] {
+    position: sticky !important;
+    bottom: calc(-1 * clamp(16px, 4.6vw, 22px));
+    z-index: 3;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 12px 0 calc(12px + var(--safe-bot)) !important;
+    margin-top: 8px;
+  }
+
+  .modal-box [style*="justify-content: flex-end"] > .btn,
+  .modal-box [style*="justify-content:flex-end"] > .btn,
+  .modal-card [style*="justify-content: flex-end"] > .btn,
+  .modal-card [style*="justify-content:flex-end"] > .btn {
+    flex: 1 1 140px !important;
+  }
+}
+
+/* Modais/formulários específicos mais longos */
+@media (max-width: 640px) {
+  .modal-box .grid-2,
+  .modal-card .grid-2,
+  .modal-box .grid-3,
+  .modal-card .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .modal-box code,
+  .modal-card code {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Cards e listas: evitar corte de conteúdo em mobile */
+.card,
+.nexus-card,
+.page-scroll [style*="border-radius"] {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .card,
+  .nexus-card,
+  .page-scroll [style*="border-radius"] {
+    overflow: visible;
+  }
+
+  .page-scroll [style*="grid-template-columns:1fr auto"],
+  .page-scroll [style*="grid-template-columns: 1fr auto"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  .page-scroll [style*="justify-content:flex-end"],
+  .page-scroll [style*="justify-content: flex-end"] {
+    justify-content: stretch !important;
+  }
+}

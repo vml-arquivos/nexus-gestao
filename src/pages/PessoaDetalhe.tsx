@@ -13,6 +13,7 @@ import {
   type Pessoa, type Tarefa,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { isGestorLike } from '../lib/roles'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -833,7 +834,7 @@ export default function PessoaDetalhe() {
       {tab === 'tarefas' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {/* botão para criar nova tarefa, apenas para gestores */}
-          {user?.role === 'gestor' && (
+          {isGestorLike(user?.role) && (
             <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setModalNovaTarefa(true)}>
               <Plus size={13} /> Nova tarefa
             </button>

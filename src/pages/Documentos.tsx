@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search, Camera } from 'lucide-react'
 import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { isGestorLike } from '../lib/roles'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -224,7 +225,7 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
 
 export default function Documentos() {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor'
+  const isGestor = isGestorLike(user?.role)
   const [documentos, setDocumentos]   = useState<Documento[]>([])
   const [pessoas, setPessoas]         = useState<Pessoa[]>([])
   const [pagamentos, setPagamentos]   = useState<Pagamento[]>([])

@@ -5,6 +5,7 @@ import RecentFinancialRecords from '../features/dashboard/components/RecentFinan
 import UpcomingTasks from '../features/dashboard/components/UpcomingTasks'
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { isGestorLike, roleLabel } from '../lib/roles'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -44,7 +45,7 @@ export default function Dashboard() {
           tarefasApi.list(),
           agendaApi.list(),
           pagamentosApi.list(),
-          user?.role === 'gestor' ? equipeApi.membros() : Promise.resolve([]),
+          isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
         ])
         setTarefas(t)
         setAgenda(a)
@@ -95,7 +96,7 @@ export default function Dashboard() {
           {saudacao}, {user?.nome?.split(' ')[0]} 👋
         </h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-          {user?.role === 'gestor' ? 'Gestor' : 'Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+          {roleLabel(user?.role)} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
         </p>
       </div>
 

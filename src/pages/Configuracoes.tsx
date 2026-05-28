@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
+import { roleLabel as getRoleLabel, isAdminOrDev, isGestorLike } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
 
@@ -65,8 +66,8 @@ export default function Configuracoes() {
     }
   }
 
-  const roleLabel = user?.role === 'gestor' ? '👑 Gestor' : user?.role === 'sub_gestor' ? '👑 Sub‑gestor' : '👤 Membro'
-  const roleColor = user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
+  const roleLabel = (user?.role === 'admin' || user?.role === 'dev') ? `👑 ${getRoleLabel(user?.role)}` : isGestorLike(user?.role) ? `👑 ${getRoleLabel(user?.role)}` : '👤 Membro'
+  const roleColor = isAdminOrDev(user?.role) ? '#DC2626' : isGestorLike(user?.role) ? '#6C3BFF' : '#06B6D4'
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
