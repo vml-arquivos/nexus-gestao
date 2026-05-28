@@ -41,7 +41,7 @@ export const PaymentService = {
   /**
    * Remove um pagamento. Necessita orgId e userId para filtrar.
    */
-  async deletePayment(id: string, orgId: string, userId: string) {
-    return PaymentRepository.remove(id, orgId, userId)
+  async deletePayment(id: string, orgId: string, userId: string, canDeleteAny = false) {
+    return PaymentRepository.remove(id, orgId, userId, canDeleteAny)
   },
 }

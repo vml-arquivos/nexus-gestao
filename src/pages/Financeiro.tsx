@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
+import { useAuth } from '../lib/AuthContext'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -406,6 +407,7 @@ function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
             <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
               {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
             </button>
+
           </div>
         )}
       </div>
@@ -1221,12 +1223,14 @@ function normalizarGruposFinanceiros(input: GrupoPagamento[]): GrupoPagamento[] 
   })
 }
 
-function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
+function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGerenciar, canDeleteFinanceiro }: {
   g: GrupoPagamento
   onEdit: (p: Pagamento) => void
   onDelete: (id: string) => void
+  onDeleteGrupo: (g: GrupoPagamento) => void
   onMarkPaid: (p: Pagamento) => void
   onGerenciar: (g: GrupoPagamento) => void
+  canDeleteFinanceiro: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const isGrupo = Boolean(g.is_grupo || g.parcelas.length > 1)
@@ -1297,7 +1301,15 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
               </button>
             )}
             <button onClick={e => { e.stopPropagation(); onEdit(principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
-            <button onClick={e => { e.stopPropagation(); onDelete(principal.id) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
+            {canDeleteFinanceiro && (
+              <button
+                title="Apagar registro financeiro (admin/dev)"
+                onClick={e => { e.stopPropagation(); onDelete(principal.id) }}
+                style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
         )}
 
@@ -1310,6 +1322,15 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
             <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
               {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
             </button>
+            {canDeleteFinanceiro && (
+              <button
+                title="Apagar registro financeiro completo (admin/dev)"
+                onClick={e => { e.stopPropagation(); onDeleteGrupo(g) }}
+                style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1352,6 +1373,8 @@ function GrupoBetaCard({ g, onEdit, onDelete, onMarkPaid, onGerenciar }: {
 export default function Financeiro() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const canDeleteFinanceiro = user?.role === 'admin' || user?.role === 'dev'
 
   const [grupos, setGrupos] = useState<GrupoPagamento[]>([])
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
@@ -1437,9 +1460,33 @@ export default function Financeiro() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Excluir este lançamento?')) return
-    try { await pagamentosApi.remove(id); load(); toast('Excluído') }
+    if (!canDeleteFinanceiro) {
+      toast('Apenas admin ou dev podem apagar registros financeiros.', 'error')
+      return
+    }
+    if (!confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return
+    try { await pagamentosApi.remove(id); load(); toast('Registro financeiro apagado') }
     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+
+  async function handleDeleteGrupo(g: GrupoPagamento) {
+    if (!canDeleteFinanceiro) {
+      toast('Apenas admin ou dev podem apagar registros financeiros.', 'error')
+      return
+    }
+    const total = g.parcelas?.length || 0
+    if (!confirm(`Apagar definitivamente este registro financeiro completo${total > 1 ? ` com ${total} parcelas` : ''}? Esta ação não pode ser desfeita.`)) return
+    try {
+      if (g.grupo_id) {
+        await pagamentosApi.removeGrupo(g.grupo_id)
+      } else {
+        await Promise.all((g.parcelas || []).map(p => pagamentosApi.remove(p.id)))
+      }
+      load()
+      toast('Registro financeiro apagado')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro', 'error')
+    }
   }
 
   // Filtragem sobre os grupos retornados pelo backend
@@ -1582,6 +1629,8 @@ export default function Financeiro() {
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
+                        onDeleteGrupo={g => handleDeleteGrupo(g)}
+                        canDeleteFinanceiro={canDeleteFinanceiro}
                         onMarkPaid={p => handleMarcarPago(p)}
                       />
                     ))}
@@ -1616,6 +1665,8 @@ export default function Financeiro() {
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
+                        onDeleteGrupo={g => handleDeleteGrupo(g)}
+                        canDeleteFinanceiro={canDeleteFinanceiro}
                         onMarkPaid={p => handleMarcarPago(p)}
                       />
                     ))}

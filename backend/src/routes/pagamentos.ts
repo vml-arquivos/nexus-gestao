@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, isAdminOrDev } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { PaymentService } from '../services/paymentService'
 import { randomUUID } from 'crypto'
@@ -624,8 +624,12 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 // ── DELETE /api/pagamentos/:id ───────────────────────────────────────────────
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId } = req.user!
-    await PaymentService.deletePayment(req.params.id, orgId, userId)
+    const { orgId, userId, role } = req.user!
+    if (!isAdminOrDev(role)) {
+      res.status(403).json({ error: 'Apenas admin ou dev podem apagar registros financeiros.' })
+      return
+    }
+    await PaymentService.deletePayment(req.params.id, orgId, userId, true)
     res.json({ ok: true })
   } catch (err) {
     console.error('[PAG] Erro ao excluir:', err)
@@ -637,8 +641,12 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 // Remove todas as parcelas de um grupo (cancela a dívida inteira)
 router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId } = req.user!
-    await query('DELETE FROM pagamentos WHERE grupo_id=$1 AND org_id=$2 AND criado_por = $3', [req.params.grupo_id, orgId, userId])
+    const { orgId, role } = req.user!
+    if (!isAdminOrDev(role)) {
+      res.status(403).json({ error: 'Apenas admin ou dev podem apagar grupos financeiros.' })
+      return
+    }
+    await query('DELETE FROM pagamentos WHERE grupo_id=$1 AND org_id=$2', [req.params.grupo_id, orgId])
     res.json({ ok: true })
   } catch (err) {
     console.error('[PAG] Erro ao excluir grupo:', err)

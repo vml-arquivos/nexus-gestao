@@ -26,7 +26,7 @@ export interface UserProfile {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'sub_gestor' | 'membro'
+  role: 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
   cargo?: string
   orgId: string
   org_nome?: string
@@ -110,7 +110,7 @@ export interface MembroEquipe {
   id: string
   nome: string
   email: string
-  role: 'gestor' | 'sub_gestor' | 'membro'
+  role: 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
   cargo?: string
   avatar_url?: string
   tarefas_pendentes: number
@@ -372,7 +372,7 @@ export const auth = {
     return data
   },
 
-  async register(payload: { nome: string; email: string; senha: string; role: 'gestor' | 'membro'; orgNome?: string }) {
+  async register(payload: { nome: string; email: string; senha: string; role: 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'; orgNome?: string }) {
     const data = await apiJson<{ user: UserProfile; accessToken: string; refreshToken: string }>(
       '/auth/register', { method: 'POST', body: JSON.stringify(payload) }
     )

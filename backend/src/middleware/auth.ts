@@ -9,7 +9,7 @@ const JWT_REFRESH_SECRET     = process.env.JWT_REFRESH_SECRET     || 'nexus-refr
 const JWT_EXPIRES_IN         = process.env.JWT_EXPIRES_IN         || '15m'
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d'
 
-export type UserRole = 'gestor' | 'sub_gestor' | 'membro'
+export type UserRole = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
 
 export interface JwtPayload {
   userId: string
@@ -75,7 +75,13 @@ function requireRoles(roles: UserRole[], message: string) {
   }
 }
 
-export const gestorOnly = requireRoles(['gestor'], 'Acesso restrito a gestores.')
-export const gestorOrSubGestorOnly = requireRoles(['gestor','sub_gestor'], 'Acesso restrito a gestores ou subgestores.')
-export const canManageTeam = requireRoles(['gestor'], 'Acesso restrito para gerenciar equipes.')
-export const canDelegateTask = requireRoles(['gestor','sub_gestor'], 'Acesso restrito para delegar tarefas.')
+export const gestorOnly = requireRoles(['admin','dev','gestor'], 'Acesso restrito a gestores.')
+export const gestorOrSubGestorOnly = requireRoles(['admin','dev','gestor','sub_gestor'], 'Acesso restrito a gestores ou subgestores.')
+export const canManageTeam = requireRoles(['admin','dev','gestor'], 'Acesso restrito para gerenciar equipes.')
+export const canDelegateTask = requireRoles(['admin','dev','gestor','sub_gestor'], 'Acesso restrito para delegar tarefas.')
+
+export function isAdminOrDev(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev'
+}
+
+export const adminOrDevOnly = requireRoles(['admin','dev'], 'Acesso restrito ao administrador ou desenvolvedor.')

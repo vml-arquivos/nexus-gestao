@@ -240,8 +240,12 @@ export const PaymentRepository = {
   /**
    * Remove pagamento por id e orgId.
    */
-  async remove(id: string, orgId: string, userId: string) {
-    await query('DELETE FROM pagamentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [id, orgId, userId])
+  async remove(id: string, orgId: string, userId: string, canDeleteAny = false) {
+    if (canDeleteAny) {
+      await query('DELETE FROM pagamentos WHERE id = $1 AND org_id = $2', [id, orgId])
+    } else {
+      await query('DELETE FROM pagamentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [id, orgId, userId])
+    }
     return { ok: true }
   },
 }

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   email        TEXT NOT NULL UNIQUE,
   senha_hash   TEXT NOT NULL,
   -- Permissão do usuário dentro da organização. Pode ser 'gestor', 'sub_gestor' ou 'membro'.
-  role         TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('gestor','sub_gestor','membro')),
+  role         TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('admin','dev','gestor','sub_gestor','membro')),
   -- Cargo descritivo (ex: Gerente de Vendas, Financeiro, Diretor)
   cargo        TEXT,
   -- Identifica o criador deste perfil. Útil para sub-gestores ou membros.
@@ -41,7 +41,7 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS criado_por UUID REFERENCES profile
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE;
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
-ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('gestor','sub_gestor','membro'));
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN ('admin','dev','gestor','sub_gestor','membro'));
 
 CREATE INDEX IF NOT EXISTS idx_profiles_org        ON profiles(org_id);
 CREATE INDEX IF NOT EXISTS idx_profiles_email      ON profiles(email);
