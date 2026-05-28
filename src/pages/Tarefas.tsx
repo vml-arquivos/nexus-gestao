@@ -151,7 +151,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   return (
     <ModalBase title={tarefa?.id ? 'Editar tarefa' : 'Nova tarefa'} onClose={onClose}>
-      <div style={{ display: 'grid', gap: 12 }}>
+      <div className="nexus-task-form">
         <div className="form-group">
           <label className="form-label">Título *</label>
           <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="O que precisa ser feito?" />
@@ -185,7 +185,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         <div className="form-group">
           <label className="form-label">Checklist</label>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="nexus-checklist-input-row">
             <input className="form-input" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }} placeholder="Adicionar item" />
             <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /></button>
           </div>
@@ -201,7 +201,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <label className="form-label">Observação interna</label>
           <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
         </div>
-        <div className="modal-actions" data-modal-actions style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--bg2)', paddingTop: 10 }}>
+        <div className="modal-actions nexus-modal-actions" data-modal-actions>
           <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
           <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <Send size={14} />} Salvar</button>
         </div>

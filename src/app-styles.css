@@ -1505,3 +1505,240 @@ body:has([aria-modal="true"]) .bottom-nav {
     padding-right: 16px !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   HOTFIX GLOBAL — MODAIS / FORMS RESPONSIVOS SEM QUEBRAR FILHOS
+   Corrige regressões em mobile onde regras genéricas atingiam divs internas.
+   ═══════════════════════════════════════════════════════════════ */
+html.modal-open,
+body.modal-open {
+  overflow: hidden !important;
+  height: 100% !important;
+  overscroll-behavior: none !important;
+}
+
+body.modal-open .bottom-nav {
+  transform: translateY(120%) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Só o container do modal recebe dimensão de sheet. Filhos internos ficam normais. */
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483000 !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)) !important;
+  overflow: hidden !important;
+}
+
+.modal-box {
+  width: min(100%, 720px) !important;
+  max-width: min(100%, 720px) !important;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 18px) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border-radius: 26px 26px 0 0 !important;
+  padding: 18px 18px 0 !important;
+}
+
+@supports (height: 100svh) {
+  .modal-box {
+    max-height: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 18px) !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .modal-overlay {
+    align-items: center !important;
+    padding: 24px !important;
+  }
+  .modal-box {
+    border-radius: var(--radius-xl) !important;
+    max-height: min(90dvh, 820px) !important;
+    padding: 24px 24px 0 !important;
+  }
+}
+
+/* Reset explícito dos filhos que eram capturados por seletores globais antigos. */
+.modal-box > .modal-header,
+.modal-box > .modal-content,
+.modal-box > .modal-actions,
+.modal-box > .modal-footer {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.modal-header {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  margin: 0 !important;
+  padding: 0 0 14px !important;
+  border-bottom: 1px solid var(--border) !important;
+  overflow: visible !important;
+}
+
+.modal-title {
+  min-width: 0 !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: none !important;
+  font-size: clamp(1.25rem, 5vw, 1.85rem) !important;
+  line-height: 1.15 !important;
+}
+
+.modal-close {
+  flex: 0 0 48px !important;
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+}
+
+.modal-content {
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain !important;
+  padding: 18px 0 calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+.modal-box * {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.modal-box label,
+.modal-box .form-label,
+.modal-box .modal-title,
+.modal-box h1,
+.modal-box h2,
+.modal-box h3,
+.modal-box p,
+.modal-box span {
+  max-width: 100% !important;
+  overflow-wrap: break-word !important;
+  word-break: normal !important;
+  white-space: normal !important;
+}
+
+.modal-box input,
+.modal-box select,
+.modal-box textarea,
+.modal-box .form-input {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 48px !important;
+  font-size: 16px !important;
+}
+
+.modal-box textarea,
+.modal-box textarea.form-input {
+  min-height: 108px !important;
+  max-height: none !important;
+  resize: vertical !important;
+}
+
+.modal-box .grid-2,
+.modal-box .grid-3 {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
+  gap: 12px !important;
+}
+
+@media (max-width: 640px) {
+  .modal-box .grid-2,
+  .modal-box .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.nexus-task-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+  width: 100% !important;
+}
+
+.nexus-task-form .form-group {
+  width: 100% !important;
+}
+
+.nexus-checklist-input-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  align-items: stretch !important;
+  width: 100% !important;
+}
+
+.nexus-checklist-input-row .btn,
+.nexus-checklist-input-row button {
+  width: 52px !important;
+  min-width: 52px !important;
+  flex: 0 0 52px !important;
+}
+
+.nexus-modal-actions,
+.modal-actions[data-modal-actions] {
+  flex: 0 0 auto !important;
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 10 !important;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+  background: var(--bg2) !important;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  border-top: 1px solid var(--border) !important;
+}
+
+.nexus-modal-actions .btn,
+.modal-actions[data-modal-actions] .btn {
+  width: 100% !important;
+  min-height: 50px !important;
+}
+
+@media (max-width: 420px) {
+  .modal-box {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+  .nexus-modal-actions,
+  .modal-actions[data-modal-actions] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Correção global de página no mobile: evita conteúdo atrás do menu inferior. */
+@media (max-width: 1023px) {
+  .page-scroll {
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 28px) !important;
+  }
+  .page-header {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+  .page-title {
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: none !important;
+  }
+}
