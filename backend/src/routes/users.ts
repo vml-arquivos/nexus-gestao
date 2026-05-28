@@ -164,7 +164,7 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
       }
     }
 
-    if (target.role === 'gestor' && id !== userId) {
+    if (target.role === 'gestor' && id !== userId && role !== 'admin' && role !== 'dev') {
       res.status(403).json({ error: 'Não é possível alterar outro gestor.' })
       return
     }
@@ -174,11 +174,11 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
     let idx = 1
     if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
     if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
-    if (requestedRole !== undefined && role === 'gestor') {
+    if (requestedRole !== undefined && (role === 'gestor' || role === 'admin' || role === 'dev')) {
       const r = normalizeRole(requestedRole)
       updates.push(`role = $${idx++}`); params.push(r)
     }
-    if (ativo !== undefined && role === 'gestor' && id !== userId) {
+    if (ativo !== undefined && (role === 'gestor' || role === 'admin' || role === 'dev') && id !== userId) {
       updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
     }
     if (updates.length === 0) {
@@ -214,8 +214,8 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
       res.status(403).json({ error: 'Subgestor só redefine senha de seus comandados.' })
       return
     }
-    if (target.role === 'gestor') {
-      res.status(403).json({ error: 'Não é possível resetar senha de gestor.' })
+    if ((target.role === 'gestor' || target.role === 'admin' || target.role === 'dev') && role !== 'admin' && role !== 'dev') {
+      res.status(403).json({ error: 'Não é possível resetar senha de perfil de gestão.' })
       return
     }
     const senhaProvisoria = gerarSenhaProvisoria()

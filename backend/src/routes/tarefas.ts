@@ -10,6 +10,14 @@ import { criarNotificacao } from '../lib/notifHelper'
 const router = Router()
 router.use(authMiddleware)
 
+function isAdminOrDev(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev'
+}
+
+function isHighAccess(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor' || isAdminOrDev(role)
+}
+
 // ── UPLOADS DE EVIDÊNCIAS DA TAREFA ─────────────────────────────────────────
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads')
 
@@ -93,6 +101,7 @@ async function addHistorico(input: {
 
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
+  if (isAdminOrDev(role)) return true
   if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId
   if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId
   if (role === 'sub_gestor') {
@@ -632,7 +641,7 @@ router.delete('/:id/anexos/:anexoId', async (req: Request, res: Response): Promi
     )
     if (!anexo) { res.status(404).json({ error: 'Anexo não encontrado.' }); return }
 
-    const canDelete = anexo.enviado_por === userId || task.criado_por === userId || role === 'gestor' || role === 'sub_gestor'
+    const canDelete = anexo.enviado_por === userId || task.criado_por === userId || role === 'gestor' || role === 'sub_gestor' || isAdminOrDev(role)
     if (!canDelete) { res.status(403).json({ error: 'Você não tem permissão para excluir este anexo.' }); return }
 
     const filename = String(anexo.arquivo_url || '').split('/uploads/').pop()

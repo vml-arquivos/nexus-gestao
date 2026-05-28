@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
+import { isGestorLike, roleLabel } from '../lib/roles'
 import { useNotificacoes } from '../hooks/useNotificacoes'
 import { NotificacaoToast } from './NotificacaoToast'
 
@@ -210,7 +211,7 @@ export default function Layout() {
                 {user?.nome || 'Usuário'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'capitalize' }}>
-                {user?.role === 'gestor' ? 'Gestor' : user?.role === 'sub_gestor' ? 'Sub-Gestor' : 'Membro'}
+                {roleLabel(user?.role)}
               </div>
             </div>
             <button
