@@ -4,10 +4,11 @@ import {
   CheckCircle2, Clock, Crown, Shield, User, Trash2, Edit3, Check,
   Send, Copy, Share2, Link, RefreshCw,
 } from 'lucide-react'
-import { equipeApi, usersApi, tarefasApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem } from '../lib/api'
+import { equipeApi, usersApi, tarefasApi, teamsApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem, type Equipe as EquipeTipo } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
+import { isGestorLike, isGestorOwner } from '../lib/roles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -289,7 +290,7 @@ function ModalConvite({ onClose }: { onClose: () => void }) {
               <input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => setEmail(e.target.value)} />
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Se informado, o link será pré-vinculado ao e-mail.</span>
             </div>
-            {user?.role === 'gestor' && (
+            {isGestorOwner(user?.role) && (
               <div className="form-group">
                 <label className="form-label">Nível de acesso</label>
                 <select className="form-input" value={role} onChange={e => setRole(e.target.value as 'membro' | 'sub_gestor')}>
@@ -345,6 +346,133 @@ function ModalConvite({ onClose }: { onClose: () => void }) {
             <button className="btn btn-ghost" onClick={() => { setLink(''); setEmail(''); setCargo('') }}>
               <RefreshCw size={14} /> Gerar novo link
             </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ── Modal para adicionar usuário existente a uma equipe ───────────────────────
+function ModalAdicionarMembro({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [equipes, setEquipes] = useState<EquipeTipo[]>([])
+  const [usuarios, setUsuarios] = useState<UserProfile[]>([])
+  const [equipeId, setEquipeId] = useState('')
+  const [userId, setUserId] = useState('')
+  const [roleNaEquipe, setRoleNaEquipe] = useState<'membro' | 'sub_gestor' | 'gestor'>('membro')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [erro, setErro] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    async function carregarBase() {
+      setLoading(true)
+      setErro('')
+      try {
+        const [eqs, usrs] = await Promise.all([teamsApi.list(), usersApi.list()])
+        if (!mounted) return
+        setEquipes(eqs)
+        setUsuarios(usrs.filter(u => u.ativo !== false))
+        if (eqs.length > 0) setEquipeId(eqs[0].id)
+        const primeiroUsuario = usrs.find(u => u.ativo !== false && u.role !== 'admin' && u.role !== 'dev') || usrs.find(u => u.ativo !== false)
+        if (primeiroUsuario) setUserId(primeiroUsuario.id)
+      } catch (e: unknown) {
+        if (!mounted) return
+        setErro(e instanceof Error ? e.message : 'Erro ao carregar equipes e usuários.')
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+    carregarBase()
+    return () => { mounted = false }
+  }, [])
+
+  async function salvar() {
+    if (!equipeId) { toast('Selecione uma equipe.', 'error'); return }
+    if (!userId) { toast('Selecione um usuário.', 'error'); return }
+    setSaving(true)
+    try {
+      await teamsApi.addMembers(equipeId, [{ user_id: userId, role_na_equipe: roleNaEquipe }])
+      toast('Membro adicionado à equipe.')
+      onAdded()
+      onClose()
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao adicionar membro.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 520 }}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">Adicionar membro à equipe</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text3)', marginTop: 2 }}>
+              Escolha um usuário já criado, a equipe e a função/cargo dele.
+            </div>
+          </div>
+          <button className="modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+
+        {loading && <div className="skeleton" style={{ height: 120, borderRadius: 'var(--radius)' }} />}
+
+        {!loading && erro && (
+          <div style={{ background: 'var(--danger-dim)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 'var(--radius)', padding: 14, color: 'var(--danger)' }}>
+            {erro}
+          </div>
+        )}
+
+        {!loading && !erro && equipes.length === 0 && (
+          <div className="empty-state" style={{ padding: 20 }}>
+            <Users size={38} className="empty-state-icon" />
+            <div className="empty-state-title">Nenhuma equipe criada</div>
+            <div className="empty-state-desc">Crie uma equipe em “Equipes” antes de adicionar membros.</div>
+          </div>
+        )}
+
+        {!loading && !erro && equipes.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="form-group">
+              <label className="form-label">Equipe</label>
+              <select className="form-input" value={equipeId} onChange={e => setEquipeId(e.target.value)}>
+                {equipes.map(eq => (
+                  <option key={eq.id} value={eq.id}>{eq.nome}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Usuário</label>
+              <select className="form-input" value={userId} onChange={e => setUserId(e.target.value)}>
+                <option value="">Selecione um usuário</option>
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.id}>{u.nome} — {u.email}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Função na equipe</label>
+              <select className="form-input" value={roleNaEquipe} onChange={e => setRoleNaEquipe(e.target.value as 'membro' | 'sub_gestor' | 'gestor')}>
+                <option value="membro">Membro executor</option>
+                <option value="sub_gestor">Líder / Subgestor</option>
+                <option value="gestor">Gestor da equipe</option>
+              </select>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                Essa função organiza o membro dentro da equipe. O acesso principal do usuário continua controlado em “Usuários”.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onClose}>Cancelar</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={salvar} disabled={saving || !userId || !equipeId}>
+                <Plus size={15} /> {saving ? 'Adicionando…' : 'Adicionar membro'}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -455,13 +583,14 @@ export default function Equipe() {
 
   const [modalTarefa, setModalTarefa]   = useState<MembroEquipe | null>(null)
   const [modalConvite, setModalConvite] = useState(false)
+  const [modalAdicionarMembro, setModalAdicionarMembro] = useState(false)
   const [modalEditar, setModalEditar]   = useState<MembroEquipe | null>(null)
   const [editNome, setEditNome]         = useState('')
   const [editCargo, setEditCargo]       = useState('')
   const [editRole, setEditRole]         = useState('')
   const [editLoading, setEditLoading]   = useState(false)
 
-  const canManage = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const canManage = isGestorLike(user?.role)
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
@@ -495,7 +624,7 @@ export default function Equipe() {
       await usersApi.update(modalEditar.id, {
         nome: editNome,
         cargo: editCargo,
-        novoRole: user?.role === 'gestor' ? editRole : undefined,
+        novoRole: isGestorOwner(user?.role) ? editRole : undefined,
       })
       toast('Perfil atualizado.')
       setModalEditar(null)
@@ -521,9 +650,14 @@ export default function Equipe() {
           <p className="page-subtitle">{membros.length} membro{membros.length !== 1 ? 's' : ''}</p>
         </div>
         {canManage && (
-          <button className="btn btn-primary" onClick={() => setModalConvite(true)}>
-            <Plus size={16} /> Convidar
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary" onClick={() => setModalAdicionarMembro(true)}>
+              <Users size={16} /> Adicionar membro
+            </button>
+            <button className="btn btn-primary" onClick={() => setModalConvite(true)}>
+              <Plus size={16} /> Convidar
+            </button>
+          </div>
         )}
       </div>
 
@@ -636,6 +770,14 @@ export default function Equipe() {
       {/* Modal de convite */}
       {modalConvite && <ModalConvite onClose={() => { setModalConvite(false); carregar() }} />}
 
+      {/* Modal de adicionar membro existente à equipe */}
+      {modalAdicionarMembro && (
+        <ModalAdicionarMembro
+          onClose={() => setModalAdicionarMembro(false)}
+          onAdded={carregar}
+        />
+      )}
+
       {/* Modal de edição */}
       {modalEditar && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setModalEditar(null)}>
@@ -653,7 +795,7 @@ export default function Equipe() {
                 <label className="form-label">Cargo</label>
                 <input className="form-input" placeholder="Ex: Gerente de Vendas" value={editCargo} onChange={e => setEditCargo(e.target.value)} />
               </div>
-              {user?.role === 'gestor' && (
+              {isGestorOwner(user?.role) && (
                 <div className="form-group">
                   <label className="form-label">Nível de acesso</label>
                   <select className="form-input" value={editRole} onChange={e => setEditRole(e.target.value)}>
