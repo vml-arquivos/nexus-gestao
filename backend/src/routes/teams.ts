@@ -67,8 +67,12 @@ router.get('/:id/members', gestorOnly, async (req: Request, res: Response): Prom
 
 router.post('/:id/members', gestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
-    const members = Array.isArray(req.body.members) ? req.body.members : (req.body.user_id ? [req.body.user_id] : [])
-    if (!Array.isArray(members) || members.some((m: unknown) => typeof m !== 'string')) {
+    const members = Array.isArray(req.body.members) ? req.body.members : (req.body.user_id ? [{ user_id: req.body.user_id, role_na_equipe: req.body.role_na_equipe }] : [])
+    if (!Array.isArray(members) || members.some((m: unknown) => {
+      if (typeof m === 'string') return false
+      if (!m || typeof m !== 'object') return true
+      return typeof (m as any).user_id !== 'string'
+    })) {
       res.status(400).json({ error: 'Lista de membros inválida.' })
       return
     }

@@ -27,6 +27,7 @@ export interface UserProfile {
   nome: string
   email: string
   role: 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
+  role_na_equipe?: 'membro' | 'sub_gestor' | 'gestor' | string
   cargo?: string
   orgId: string
   org_nome?: string
@@ -111,6 +112,7 @@ export interface MembroEquipe {
   nome: string
   email: string
   role: 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
+  role_na_equipe?: 'membro' | 'sub_gestor' | 'gestor' | string
   cargo?: string
   avatar_url?: string
   tarefas_pendentes: number
@@ -713,7 +715,7 @@ export const teamsApi = {
     const data = await apiJson<{ membros: MembroEquipe[] }>(`/teams/${id}/members`)
     return data.membros
   },
-  async addMembers(id: string, members: string[]): Promise<void> {
+  async addMembers(id: string, members: Array<string | { user_id: string; role_na_equipe?: 'membro' | 'sub_gestor' | 'gestor' }>): Promise<void> {
     await apiJson(`/teams/${id}/members`, { method: 'POST', body: JSON.stringify({ members }) })
   },
   async detail(id: string): Promise<Equipe> {

@@ -8,7 +8,6 @@ import { equipeApi, usersApi, tarefasApi, type MembroEquipe, type UserProfile, t
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
-import { isAdminOrDev, isGestorLike, isGestorOwner } from '../lib/roles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -290,7 +289,7 @@ function ModalConvite({ onClose }: { onClose: () => void }) {
               <input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => setEmail(e.target.value)} />
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Se informado, o link será pré-vinculado ao e-mail.</span>
             </div>
-            {isGestorOwner(user?.role) && (
+            {user?.role === 'gestor' && (
               <div className="form-group">
                 <label className="form-label">Nível de acesso</label>
                 <select className="form-input" value={role} onChange={e => setRole(e.target.value as 'membro' | 'sub_gestor')}>
@@ -462,7 +461,7 @@ export default function Equipe() {
   const [editRole, setEditRole]         = useState('')
   const [editLoading, setEditLoading]   = useState(false)
 
-  const canManage = isGestorLike(user?.role)
+  const canManage = user?.role === 'gestor' || user?.role === 'sub_gestor'
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
@@ -496,7 +495,7 @@ export default function Equipe() {
       await usersApi.update(modalEditar.id, {
         nome: editNome,
         cargo: editCargo,
-        novoRole: isGestorOwner(user?.role) ? editRole : undefined,
+        novoRole: user?.role === 'gestor' ? editRole : undefined,
       })
       toast('Perfil atualizado.')
       setModalEditar(null)
@@ -509,7 +508,7 @@ export default function Equipe() {
   }
 
   // Separar membros por nível
-  const gestores    = membros.filter(m => ['admin', 'dev', 'gestor'].includes(m.role))
+  const gestores    = membros.filter(m => m.role === 'gestor')
   const subGestores = membros.filter(m => m.role === 'sub_gestor')
   const membrosList = membros.filter(m => m.role === 'membro')
 
@@ -654,7 +653,7 @@ export default function Equipe() {
                 <label className="form-label">Cargo</label>
                 <input className="form-input" placeholder="Ex: Gerente de Vendas" value={editCargo} onChange={e => setEditCargo(e.target.value)} />
               </div>
-              {isGestorOwner(user?.role) && (
+              {user?.role === 'gestor' && (
                 <div className="form-group">
                   <label className="form-label">Nível de acesso</label>
                   <select className="form-input" value={editRole} onChange={e => setEditRole(e.target.value)}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, Users, X, Trash2, Edit2, UserPlus } from 'lucide-react'
 import { equipeApi, teamsApi, type Equipe, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { isGestorLike, isGestorOwner, roleLabel } from '../lib/roles'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -36,6 +37,7 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
   const [membros, setMembros] = useState<MembroEquipe[]>([])
   const [todos, setTodos] = useState<MembroEquipe[]>([])
   const [selected, setSelected] = useState<string>('')
+  const [roleNaEquipe, setRoleNaEquipe] = useState<'membro' | 'sub_gestor' | 'gestor'>('membro')
   const [loading, setLoading] = useState(true)
 
   async function load() {
@@ -43,7 +45,7 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
     try {
       const [ms, disponiveis] = await Promise.all([teamsApi.members(equipe.id), equipeApi.membros()])
       setMembros(ms)
-      setTodos(disponiveis.filter(m => m.role !== 'gestor'))
+      setTodos(disponiveis.filter(m => !['admin','dev'].includes(m.role)))
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar membros.', 'error') }
     finally { setLoading(false) }
   }
@@ -51,7 +53,13 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
 
   async function add() {
     if (!selected) return
-    try { await teamsApi.addMembers(equipe.id, [selected]); setSelected(''); await load(); toast('Membro adicionado.') }
+    try {
+      await teamsApi.addMembers(equipe.id, [{ user_id: selected, role_na_equipe: roleNaEquipe }])
+      setSelected('')
+      setRoleNaEquipe('membro')
+      await load()
+      toast('Membro adicionado.')
+    }
     catch(e){ toast(e instanceof Error ? e.message : 'Erro ao adicionar.', 'error') }
   }
   async function remove(userId: string) {
@@ -61,8 +69,25 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
 
   return <div className="modal-backdrop" onClick={e=>e.currentTarget===e.target && onClose()}><div className="modal-card" style={{ width:'min(100%,680px)' }}>
     <div style={{ display:'flex', justifyContent:'space-between', gap:12, marginBottom:16 }}><div><h2 style={{ fontFamily:'var(--font-heading)' }}>{equipe.nome}</h2><p style={{ color:'var(--text3)', fontSize:13 }}>Membros da equipe</p></div><button className="btn btn-ghost" onClick={onClose}><X size={16}/></button></div>
-    <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:8, marginBottom:16 }}><select className="form-input" value={selected} onChange={e=>setSelected(e.target.value)}><option value="">Selecionar membro existente</option>{todos.map(m=><option key={m.id} value={m.id}>{m.nome} — {m.email}</option>)}</select><button className="btn btn-primary" onClick={add} disabled={!selected}><UserPlus size={16}/> Adicionar</button></div>
-    {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:10 }}>{membros.map(m=><div key={m.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'center', padding:12, border:'1px solid var(--border)', borderRadius:12, background:'var(--bg3)' }}><div><b>{m.nome}</b><div style={{ fontSize:12, color:'var(--text3)' }}>{m.email} · {m.role}</div></div><button className="btn btn-ghost" onClick={()=>remove(m.id)}><Trash2 size={15}/></button></div>)}{membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro nesta equipe.</div>}</div>}
+    <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(170px,220px) auto', gap:8, marginBottom:16, alignItems:'end' }}>
+      <label className="form-group" style={{ margin:0 }}>
+        <span className="form-label">Membro existente</span>
+        <select className="form-input" value={selected} onChange={e=>setSelected(e.target.value)}>
+          <option value="">Selecionar membro existente</option>
+          {todos.map(m=><option key={m.id} value={m.id}>{m.nome} — {m.email} · {roleLabel(m.role)}</option>)}
+        </select>
+      </label>
+      <label className="form-group" style={{ margin:0 }}>
+        <span className="form-label">Cargo na equipe</span>
+        <select className="form-input" value={roleNaEquipe} onChange={e=>setRoleNaEquipe(e.target.value as 'membro' | 'sub_gestor' | 'gestor')}>
+          <option value="membro">Membro executor</option>
+          <option value="sub_gestor">Líder / Subgestor</option>
+          <option value="gestor">Gestor da equipe</option>
+        </select>
+      </label>
+      <button className="btn btn-primary" onClick={add} disabled={!selected}><UserPlus size={16}/> Adicionar</button>
+    </div>
+    {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:10 }}>{membros.map(m=><div key={m.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:10, alignItems:'center', padding:12, border:'1px solid var(--border)', borderRadius:12, background:'var(--bg3)' }}><div><b>{m.nome}</b><div style={{ fontSize:12, color:'var(--text3)' }}>{m.email} · {m.role_na_equipe || roleLabel(m.role)}</div></div><button className="btn btn-ghost" onClick={()=>remove(m.id)}><Trash2 size={15}/></button></div>)}{membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro nesta equipe.</div>}</div>}
   </div></div>
 }
 
@@ -72,11 +97,11 @@ export default function Equipes() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<Equipe | null | undefined>(undefined)
   const [membersTeam, setMembersTeam] = useState<Equipe | null>(null)
-  const isGestor = user?.role === 'gestor'
+  const canManageTeams = isGestorLike(user?.role)
 
   async function loadTeams() { setLoading(true); try { setTeams(await teamsApi.list()) } catch(e){ toast(e instanceof Error ? e.message : 'Erro ao carregar equipes.', 'error') } finally { setLoading(false) } }
-  useEffect(()=>{ if (isGestor) loadTeams() }, [isGestor])
-  if (!isGestor) return <div className="page-container"><h1>Acesso restrito</h1><p>Somente gestores gerenciam equipes.</p></div>
+  useEffect(()=>{ if (canManageTeams) loadTeams() }, [canManageTeams])
+  if (!canManageTeams) return <div className="page-container"><h1>Acesso restrito</h1><p>Somente perfis de gestão gerenciam equipes.</p></div>
 
   return <div className="page-container" style={{ maxWidth:920 }}>
     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Equipes</h1><p style={{ color:'var(--text3)' }}>Crie equipes e vincule membros existentes.</p></div><button className="btn btn-primary" onClick={()=>setModal(null)}><Plus size={16}/> Nova equipe</button></div>
