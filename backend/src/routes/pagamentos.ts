@@ -117,14 +117,14 @@ function isSystemFinancialMovement(row: any): boolean {
 
 function buildNaturalGroupKey(row: any): string {
   const pessoa = row.pessoa_id || row.pessoa_nome_atual || row.pessoa_nome || 'sem-pessoa'
-  const valor = Number(row.valor || 0).toFixed(2)
+  // Chave natural estável: não usa valor da parcela.
+  // O valor pode mudar após abatimento/recalculo, mas a dívida continua sendo a mesma.
   return [
     'natural',
-    normalizeGroupPart(row.titulo),
+    normalizeGroupPart(normalizeBaseTitleForHistory(row.titulo)),
     normalizeGroupPart(row.tipo),
     normalizeGroupPart(row.categoria || 'sem-categoria'),
     normalizeGroupPart(pessoa),
-    valor,
   ].join('|')
 }
 
@@ -136,14 +136,13 @@ function normalizeBaseTitleForHistory(title: unknown): string {
 
 function buildHistoryGroupKey(input: any): string {
   const pessoa = input.pessoa_id || input.pessoa_nome_atual || input.pessoa_nome || 'sem-pessoa'
-  const valor = input.valor_parcela ?? input.valor ?? input.valor_original ?? 0
+  // Mesma regra estável da listagem: não usar valor.
   return [
     'natural',
     normalizeGroupPart(normalizeBaseTitleForHistory(input.titulo)),
     normalizeGroupPart(input.tipo),
     normalizeGroupPart(input.categoria || 'sem-categoria'),
     normalizeGroupPart(pessoa),
-    Number(valor || 0).toFixed(2),
   ].join('|')
 }
 
@@ -244,6 +243,8 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
     ) as any[]
 
     // Agrupa por grupo_id (para parcelados/recorrentes) ou por id (avulsos)
+    const pagamentoIdToKey = new Map<string, string>()
+
     const gruposMap = new Map<string, {
       grupo_id: string | null
       titulo: string
@@ -274,6 +275,7 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       // Registros novos possuem grupo_id. Registros antigos podem não ter.
       // Para eles, agrupamos por chave natural: título + pessoa + tipo + categoria + valor.
       const chave = row.grupo_id ? `grupo:${row.grupo_id}` : buildNaturalGroupKey(row)
+      if (row.id) pagamentoIdToKey.set(String(row.id), chave)
       const isGrupo = !!row.grupo_id
 
       if (!gruposMap.has(chave)) {
@@ -343,6 +345,7 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
     for (const h of histRows) {
       const keys: string[] = []
       if (h.grupo_id) keys.push(`grupo:${h.grupo_id}`)
+      if (h.pagamento_id && pagamentoIdToKey.has(String(h.pagamento_id))) keys.push(pagamentoIdToKey.get(String(h.pagamento_id))!)
       if (h.group_key) keys.push(String(h.group_key))
       for (const key of keys) {
         const g = gruposMap.get(key)
@@ -418,7 +421,24 @@ router.post('/historico', async (req: Request, res: Response): Promise<void> => 
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título do histórico é obrigatório.' }); return }
 
-    const finalGroupKey = group_key || (referencia ? buildHistoryGroupKey(referencia) : null)
+    let finalGroupKey = group_key || (referencia ? buildHistoryGroupKey(referencia) : null)
+    let finalGrupoId = grupo_id || null
+
+    // Se veio pagamento_id, usa o próprio lançamento para calcular a chave estável do grupo.
+    // Isso evita histórico perdido quando o valor da parcela muda após abatimento/recalculo.
+    if (pagamento_id) {
+      const pagRef = await queryOne<any>(
+        `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
+         FROM pagamentos p
+         LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+         WHERE p.id = $1 AND p.org_id = $2 AND p.criado_por = $3`,
+        [pagamento_id, orgId, userId]
+      )
+      if (pagRef) {
+        finalGrupoId = finalGrupoId || pagRef.grupo_id || null
+        finalGroupKey = pagRef.grupo_id ? `grupo:${pagRef.grupo_id}` : buildNaturalGroupKey(pagRef)
+      }
+    }
 
     const row = await queryOne(
       `INSERT INTO pagamentos_historico
@@ -430,7 +450,7 @@ router.post('/historico', async (req: Request, res: Response): Promise<void> => 
         orgId,
         userId,
         pagamento_id || null,
-        grupo_id || null,
+        finalGrupoId || null,
         finalGroupKey || null,
         tipo_evento,
         titulo.trim(),

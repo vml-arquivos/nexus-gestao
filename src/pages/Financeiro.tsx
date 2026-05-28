@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -45,6 +45,16 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 
 function fmt(v: number) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function parseMoneyInput(value: string): number {
+  const normalized = String(value || '').replace(/\./g, '').replace(',', '.')
+  const parsed = Number.parseFloat(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function moneyInputValue(value: string): string {
+  return String(value || '').replace(/[^0-9.,]/g, '')
 }
 
 function fmtDate(d?: string) {
@@ -445,11 +455,13 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const [forma, setForma]   = useState('')
   const [motivo, setMotivo] = useState('')
   const [saving, setSaving] = useState(false)
+  const [historicoLocal, setHistoricoLocal] = useState<HistoricoFinanceiroItem[]>(historico || [])
+  const sugestaoAplicadaRef = useRef<string | null>(null)
 
   const saldo    = calcSaldoGrupo(parcelas)
-  const valorNum = parseFloat(valor) || 0
+  const valorNum = parseMoneyInput(valor)
   const ref      = parcelas[0]
-  const historicoCompleto = [...(historico || []), ...historicoDerivado(parcelas)]
+  const historicoCompleto = [...(historicoLocal || []), ...historicoDerivado(parcelas)]
     .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
 
@@ -460,10 +472,17 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const quitado        = modo === 'abatimento' && valorNum >= saldo.totalPendente
 
   useEffect(() => {
-    if (valor) return
+    setHistoricoLocal(historico || [])
+  }, [historico])
+
+  useEffect(() => {
+    // Preenche sugestão apenas uma vez por dívida. Depois disso o usuário pode apagar e digitar livremente.
+    const chaveAtual = ref?.grupo_id || ref?.id || 'sem-referencia'
+    if (sugestaoAplicadaRef.current === chaveAtual) return
     const sugerido = saldo.pendentes[0]?.valor || (saldo.numPendentes ? saldo.totalPendente / saldo.numPendentes : saldo.totalPendente)
-    if (sugerido > 0) setValor(String(Math.round(Number(sugerido) * 100) / 100))
-  }, [parcelas, saldo.numPendentes, saldo.totalPendente, saldo.pendentes, valor])
+    if (sugerido > 0) setValor(String(Math.round(Number(sugerido) * 100) / 100).replace('.', ','))
+    sugestaoAplicadaRef.current = chaveAtual
+  }, [ref?.grupo_id, ref?.id, saldo.numPendentes, saldo.totalPendente, saldo.pendentes])
 
   async function handleConfirm() {
     if (!valorNum || valorNum <= 0) { toast('Informe um valor válido', 'error'); return }
@@ -482,7 +501,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
       // Abatimento/acréscimo NÃO cria novo lançamento financeiro independente.
       // Ele deve aparecer somente no Histórico/Extrato do registro original.
       // Antes isso criava um card separado “Abatimento — ...”, poluindo a tela.
-      await pagamentosApi.addHistorico({
+      const eventoHistorico = await pagamentosApi.addHistorico({
         pagamento_id: ref?.id,
         grupo_id: ref?.grupo_id || null,
         tipo_evento: modo === 'abatimento' ? 'abatimento' : 'acrescimo',
@@ -502,7 +521,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           valor_parcela: Number(ref?.valor || 0),
         },
         metadata: { acao, modo, parcelas_pendentes: saldo.numPendentes },
-      }).catch(() => {})
+      })
+
+      setHistoricoLocal(prev => [eventoHistorico as HistoricoFinanceiroItem, ...prev])
 
       if (quitado) {
         for (const p of saldo.pendentes) {
@@ -547,8 +568,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             ? `Abatimento registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
             : `Acréscimo registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
       )
+      setValor('')
+      setMotivo('')
       onUpdate()
-      onClose()
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : 'Erro', 'error')
     } finally {
@@ -586,6 +608,37 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           {saldo.numPendentes} parcela{saldo.numPendentes !== 1 ? 's' : ''} pendente{saldo.numPendentes !== 1 ? 's' : ''} · {fmt(saldo.totalPendente / (saldo.numPendentes || 1))} cada
         </div>
 
+        <section style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--bg3)', padding: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Histórico / extrato</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Todos os pagamentos, abatimentos e acréscimos deste registro.</div>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>{historicoCompleto.length} evento(s)</span>
+          </div>
+          {historicoCompleto.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text3)', border: '1px dashed var(--border)', borderRadius: 10, padding: 10 }}>Nenhum movimento registrado ainda.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8, maxHeight: 180, overflowY: 'auto', paddingRight: 4 }}>
+              {historicoCompleto.map((h, i) => (
+                <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, fontSize: 13 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{h.data_evento ? fmtDate(String(h.data_evento)) : fmtDateTime(h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
+                    </div>
+                    {h.valor !== null && h.valor !== undefined && <div style={{ fontWeight: 900, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : '#10B981', whiteSpace: 'nowrap' }}>{h.tipo_evento === 'acrescimo' ? '+' : '-'}{fmt(Number(h.valor))}</div>}
+                  </div>
+                  {h.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, overflowWrap: 'anywhere' }}>{h.descricao}</div>}
+                  {(h.saldo_anterior !== null && h.saldo_anterior !== undefined && h.saldo_posterior !== null && h.saldo_posterior !== undefined) && (
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>Saldo: {fmt(Number(h.saldo_anterior))} → <strong>{fmt(Number(h.saldo_posterior))}</strong></div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* Abas modo */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
           <button type="button" onClick={() => setModo('abatimento')} style={{ padding: '12px', borderRadius: 'var(--radius)', border: `2px solid ${modo === 'abatimento' ? '#10B981' : 'var(--border)'}`, background: modo === 'abatimento' ? 'rgba(16,185,129,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: modo === 'abatimento' ? '#10B981' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -600,7 +653,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">{modo === 'abatimento' ? 'Valor pago (R$)' : 'Valor a acrescentar (R$)'}</label>
-              <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+              <input className="form-input" type="text" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
             </div>
             {modo === 'abatimento' && (
               <div className="form-group" style={{ margin: 0 }}>
@@ -619,6 +672,18 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
               </select>
             </div>
           )}
+
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Observação do movimento</label>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="Ex.: pagamento parcial, desconto negociado, correção do saldo..."
+              value={motivo}
+              onChange={e => setMotivo(e.target.value)}
+              style={{ resize: 'vertical' }}
+            />
+          </div>
 
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Como aplicar?</label>
@@ -669,37 +734,6 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             </div>
           )}
         </div>
-
-        <section style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 14 }}>Histórico / extrato</div>
-              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Linha do tempo dos pagamentos, abatimentos, acréscimos e recalculos desta dívida/crédito.</div>
-            </div>
-            <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{historicoCompleto.length} evento(s)</span>
-          </div>
-          {historicoCompleto.length === 0 ? (
-            <div style={{ fontSize: 13, color: 'var(--text3)', border: '1px dashed var(--border)', borderRadius: 12, padding: 12 }}>Nenhum movimento registrado ainda.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
-              {historicoCompleto.map((h, i) => (
-                <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg3)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, fontSize: 13 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{h.data_evento ? fmtDate(String(h.data_evento)) : fmtDateTime(h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
-                    </div>
-                    {h.valor !== null && h.valor !== undefined && <div style={{ fontWeight: 900, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : '#10B981', whiteSpace: 'nowrap' }}>{h.tipo_evento === 'acrescimo' ? '+' : '-'}{fmt(Number(h.valor))}</div>}
-                  </div>
-                  {h.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, overflowWrap: 'anywhere' }}>{h.descricao}</div>}
-                  {(h.saldo_anterior !== null && h.saldo_anterior !== undefined && h.saldo_posterior !== null && h.saldo_posterior !== undefined) && (
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>Saldo: {fmt(Number(h.saldo_anterior))} → <strong>{fmt(Number(h.saldo_posterior))}</strong></div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
@@ -849,7 +883,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">{scheduleMode === 'parcelado' ? 'Valor total da dívida (R$) *' : 'Valor (R$) *'}</label>
-              <input className="form-input" type="number" step="0.01" min="0.01" placeholder="0,00" value={valor} onChange={e => setValor(e.target.value)} />
+              <input className="form-input" type="text" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
             </div>
             <div className="form-group"><label className="form-label">Status</label>
               <select className="form-input" value={status} onChange={e => setStatus(e.target.value as 'pendente' | 'pago' | 'cancelado')}>
@@ -1381,7 +1415,7 @@ export default function Financeiro() {
     try {
       const hoje = new Date().toISOString().slice(0, 10)
       await pagamentosApi.update(p.id, { status: 'pago', pago_em: hoje })
-      await pagamentosApi.addHistorico({
+      const eventoHistorico = await pagamentosApi.addHistorico({
         pagamento_id: p.id,
         grupo_id: p.grupo_id || null,
         tipo_evento: 'pagamento',
