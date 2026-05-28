@@ -289,7 +289,7 @@ function ModalConvite({ onClose }: { onClose: () => void }) {
               <input className="form-input" type="email" placeholder="email@exemplo.com" value={email} onChange={e => setEmail(e.target.value)} />
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Se informado, o link será pré-vinculado ao e-mail.</span>
             </div>
-            {user?.role === 'gestor' && (
+            {['admin','dev','gestor'].includes(user?.role || '') && (
               <div className="form-group">
                 <label className="form-label">Nível de acesso</label>
                 <select className="form-input" value={role} onChange={e => setRole(e.target.value as 'membro' | 'sub_gestor')}>
@@ -461,7 +461,7 @@ export default function Equipe() {
   const [editRole, setEditRole]         = useState('')
   const [editLoading, setEditLoading]   = useState(false)
 
-  const canManage = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const canManage = ['admin','dev','gestor','sub_gestor'].includes(user?.role || '')
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
@@ -495,7 +495,7 @@ export default function Equipe() {
       await usersApi.update(modalEditar.id, {
         nome: editNome,
         cargo: editCargo,
-        novoRole: user?.role === 'gestor' ? editRole : undefined,
+        novoRole: ['admin','dev','gestor'].includes(user?.role || '') ? editRole : undefined,
       })
       toast('Perfil atualizado.')
       setModalEditar(null)
@@ -653,7 +653,7 @@ export default function Equipe() {
                 <label className="form-label">Cargo</label>
                 <input className="form-input" placeholder="Ex: Gerente de Vendas" value={editCargo} onChange={e => setEditCargo(e.target.value)} />
               </div>
-              {user?.role === 'gestor' && (
+              {['admin','dev','gestor'].includes(user?.role || '') && (
                 <div className="form-group">
                   <label className="form-label">Nível de acesso</label>
                   <select className="form-input" value={editRole} onChange={e => setEditRole(e.target.value)}>

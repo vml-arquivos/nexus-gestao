@@ -91,7 +91,7 @@ export default function Usuarios() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
 
-  const canManage = eu?.role === 'gestor' || eu?.role === 'sub_gestor'
+  const canManage = ['admin','dev','gestor','sub_gestor'].includes(eu?.role || '')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,7 +103,7 @@ export default function Usuarios() {
   useEffect(() => { load() }, [load])
 
   const grupos = useMemo(() => ({
-    gestores: usuarios.filter(u => u.role === 'gestor' || u.role === 'sub_gestor'),
+    gestores: usuarios.filter(u => ['admin','dev','gestor','sub_gestor'].includes(u.role)),
     membros: usuarios.filter(u => u.role === 'membro'),
   }), [usuarios])
 
@@ -124,7 +124,7 @@ export default function Usuarios() {
 
   function row(u: UserProfile) {
     return <div key={u.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'center', padding:14, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:16 }}>
-      <div style={{ minWidth:0 }}><div style={{ fontWeight:800 }}>{u.nome}</div><div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis' }}>{u.email}</div><div style={{ marginTop:6, fontSize:12, color:'var(--text3)' }}>{u.role === 'gestor' ? 'Gestor' : u.role === 'sub_gestor' ? 'Subgestor' : 'Membro'} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div></div>
+      <div style={{ minWidth:0 }}><div style={{ fontWeight:800 }}>{u.nome}</div><div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis' }}>{u.email}</div><div style={{ marginTop:6, fontSize:12, color:'var(--text3)' }}>{u.role === 'admin' ? 'Admin' : u.role === 'dev' ? 'Dev' : u.role === 'gestor' ? 'Gestor' : u.role === 'sub_gestor' ? 'Subgestor' : 'Membro'} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div></div>
       {canManage && u.id !== eu?.id && <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button className="btn btn-ghost" onClick={()=>resetar(u.id)} style={{ padding:'8px 10px' }}><KeyRound size={15}/></button><button className="btn btn-ghost" onClick={()=>alternar(u)} style={{ padding:'8px 10px' }}>{u.ativo === false ? <Power size={15}/> : <PowerOff size={15}/>}</button></div>}
     </div>
   }

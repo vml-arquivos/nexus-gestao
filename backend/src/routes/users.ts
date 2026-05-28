@@ -19,8 +19,11 @@ function baseUrl(req: Request) {
   return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
 }
 
-function normalizeRole(role: unknown): 'sub_gestor' | 'membro' {
-  return role === 'sub_gestor' ? 'sub_gestor' : 'membro'
+function normalizeRole(role: unknown, currentRole?: string): 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro' {
+  const r = String(role || '').trim()
+  if ((currentRole === 'admin' || currentRole === 'dev') && (r === 'admin' || r === 'dev' || r === 'gestor' || r === 'sub_gestor')) return r as any
+  if ((currentRole === 'admin' || currentRole === 'dev' || currentRole === 'gestor') && r === 'sub_gestor') return 'sub_gestor'
+  return 'membro'
 }
 
 // GET /api/users
@@ -59,7 +62,7 @@ router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Pro
   try {
     const { orgId, userId, role } = req.user!
     const { nome, email, senha, cargo } = req.body
-    const novoRole = normalizeRole(req.body.role)
+    const novoRole = normalizeRole(req.body.role, role)
 
     if (role === 'sub_gestor' && novoRole !== 'membro') {
       res.status(403).json({ error: 'Subgestor só pode criar membros.' })
@@ -99,7 +102,7 @@ router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Pro
 router.post('/invite', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-    const conviteRole = normalizeRole(req.body.role)
+    const conviteRole = normalizeRole(req.body.role, role)
     const { nome, email, cargo } = req.body
 
     if (role === 'sub_gestor' && conviteRole !== 'membro') {
@@ -156,7 +159,7 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
       }
     }
 
-    if (target.role === 'gestor' && id !== userId) {
+    if (role === 'gestor' && target.role === 'gestor' && id !== userId) {
       res.status(403).json({ error: 'Não é possível alterar outro gestor.' })
       return
     }
@@ -166,11 +169,11 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
     let idx = 1
     if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
     if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
-    if (requestedRole !== undefined && role === 'gestor') {
-      const r = normalizeRole(requestedRole)
+    if (requestedRole !== undefined && ['admin','dev','gestor'].includes(role)) {
+      const r = normalizeRole(requestedRole, role)
       updates.push(`role = $${idx++}`); params.push(r)
     }
-    if (ativo !== undefined && role === 'gestor' && id !== userId) {
+    if (ativo !== undefined && ['admin','dev','gestor'].includes(role) && id !== userId) {
       updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
     }
     if (updates.length === 0) {
@@ -206,7 +209,7 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
       res.status(403).json({ error: 'Subgestor só redefine senha de seus comandados.' })
       return
     }
-    if (target.role === 'gestor') {
+    if (role === 'gestor' && target.role === 'gestor') {
       res.status(403).json({ error: 'Não é possível resetar senha de gestor.' })
       return
     }
@@ -242,7 +245,7 @@ router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response)
       [id, orgId]
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
-    if (target.role === 'gestor') { res.status(403).json({ error: 'Não é possível apagar outro gestor.' }); return }
+    if (role === 'gestor' && target.role === 'gestor') { res.status(403).json({ error: 'Não é possível apagar outro gestor.' }); return }
     if (role === 'sub_gestor' && target.criado_por !== userId) {
       res.status(403).json({ error: 'Subgestor só apaga seus comandados.' })
       return

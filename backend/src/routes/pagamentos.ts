@@ -470,19 +470,50 @@ router.post('/historico', async (req: Request, res: Response): Promise<void> => 
   }
 })
 
+function isUuidLike(value: unknown): boolean {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
 // ── GET /api/pagamentos/grupo/:grupo_id ──────────────────────────────────────
-// Retorna todas as parcelas de um grupo específico
+// Retorna todas as parcelas de um grupo específico.
+// Aceita tanto grupo_id UUID quanto chave natural encoded (natural|titulo|tipo|categoria|pessoa).
 router.get('/grupo/:grupo_id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
-    const parcelas = await query(
+    const rawGrupoId = decodeURIComponent(String(req.params.grupo_id || ''))
+
+    if (isUuidLike(rawGrupoId)) {
+      const parcelas = await query(
+        `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
+         FROM pagamentos p
+         LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+         WHERE p.org_id = $1 AND p.grupo_id = $2 AND p.criado_por = $3
+         ORDER BY p.num_parcela ASC NULLS LAST, p.vencimento ASC`,
+        [orgId, rawGrupoId, userId]
+      )
+      res.json({ parcelas })
+      return
+    }
+
+    const rows = await query(
       `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
        FROM pagamentos p
        LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
-       WHERE p.org_id = $1 AND p.grupo_id = $2 AND p.criado_por = $3
-       ORDER BY p.num_parcela ASC NULLS LAST, p.vencimento ASC`,
-      [orgId, req.params.grupo_id, userId]
-    )
+       WHERE p.org_id = $1 AND p.criado_por = $2
+       ORDER BY p.vencimento ASC NULLS LAST, p.created_at ASC`,
+      [orgId, userId]
+    ) as any[]
+
+    const parcelas = rows
+      .filter(row => !isSystemFinancialMovement(row))
+      .filter(row => buildNaturalGroupKey(row) === rawGrupoId)
+      .sort((a, b) => {
+        const nA = Number(a.num_parcela || 0)
+        const nB = Number(b.num_parcela || 0)
+        if (nA !== nB) return nA - nB
+        return compareNullableDates(a.vencimento, b.vencimento)
+      })
+
     res.json({ parcelas })
   } catch (err) {
     console.error('[PAG] Erro ao buscar grupo:', err)
@@ -638,7 +669,9 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
 })
 
 // ── DELETE /api/pagamentos/grupo/:grupo_id ───────────────────────────────────
-// Remove todas as parcelas de um grupo (cancela a dívida inteira)
+// Remove todas as parcelas de um grupo (cancela a dívida inteira).
+// Aceita grupo_id UUID e chave natural. Isso evita 500 quando o frontend envia
+// uma chave como natural|financiamento|pagamento|divida|pessoa.
 router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, role } = req.user!
@@ -646,8 +679,55 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
       res.status(403).json({ error: 'Apenas admin ou dev podem apagar grupos financeiros.' })
       return
     }
-    await query('DELETE FROM pagamentos WHERE grupo_id=$1 AND org_id=$2', [req.params.grupo_id, orgId])
-    res.json({ ok: true })
+
+    const rawGrupoId = decodeURIComponent(String(req.params.grupo_id || ''))
+
+    if (isUuidLike(rawGrupoId)) {
+      const deleted = await query(
+        'DELETE FROM pagamentos WHERE grupo_id = $1 AND org_id = $2 RETURNING id',
+        [rawGrupoId, orgId]
+      ) as any[]
+
+      await query(
+        'DELETE FROM pagamentos_historico WHERE org_id = $1 AND grupo_id = $2',
+        [orgId, rawGrupoId]
+      )
+
+      res.json({ ok: true, deletados: deleted.length })
+      return
+    }
+
+    // Chave natural: carrega os registros da organização, calcula a mesma chave
+    // da listagem e remove somente os IDs pertencentes ao card financeiro.
+    const rows = await query(
+      `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
+       FROM pagamentos p
+       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+       WHERE p.org_id = $1`,
+      [orgId]
+    ) as any[]
+
+    const ids = rows
+      .filter(row => !isSystemFinancialMovement(row))
+      .filter(row => buildNaturalGroupKey(row) === rawGrupoId)
+      .map(row => row.id)
+
+    if (ids.length === 0) {
+      res.status(404).json({ error: 'Grupo financeiro não encontrado.' })
+      return
+    }
+
+    const deleted = await query(
+      'DELETE FROM pagamentos WHERE org_id = $1 AND id = ANY($2::uuid[]) RETURNING id',
+      [orgId, ids]
+    ) as any[]
+
+    await query(
+      'DELETE FROM pagamentos_historico WHERE org_id = $1 AND group_key = $2',
+      [orgId, rawGrupoId]
+    )
+
+    res.json({ ok: true, deletados: deleted.length })
   } catch (err) {
     console.error('[PAG] Erro ao excluir grupo:', err)
     res.status(500).json({ error: 'Erro ao excluir grupo.' })

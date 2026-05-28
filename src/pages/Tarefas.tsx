@@ -90,7 +90,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   onSaved: (t: Tarefa) => void
 }) {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const isGestor = ['admin','dev','gestor','sub_gestor'].includes(user?.role || '')
   const [titulo, setTitulo] = useState(tarefa?.titulo || '')
   const [descricao, setDescricao] = useState(tarefa?.descricao || '')
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
@@ -335,7 +335,7 @@ function HistoricoModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => vo
 
 function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: () => void; onChanged?: () => void }) {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const isGestor = ['admin','dev','gestor','sub_gestor'].includes(user?.role || '')
   const [anexos, setAnexos] = useState<TarefaAnexo[]>([])
   const [descricao, setDescricao] = useState('')
   const [files, setFiles] = useState<File[]>([])
@@ -586,7 +586,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
 
 export default function Tarefas() {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const isGestor = ['admin','dev','gestor','sub_gestor'].includes(user?.role || '')
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [membros, setMembros] = useState<MembroEquipe[]>([])
   const [loading, setLoading] = useState(true)

@@ -302,8 +302,8 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response): Prom
 // Body: { nome?, email?, role?, cargo? }
 router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (req.user!.role !== 'gestor' && req.user!.role !== 'sub_gestor') {
-      res.status(403).json({ error: 'Apenas gestores ou subgestores podem convidar usuários.' })
+    if (!['admin','dev','gestor','sub_gestor'].includes(req.user!.role)) {
+      res.status(403).json({ error: 'Apenas admin, dev, gestores ou subgestores podem convidar usuários.' })
       return
     }
 

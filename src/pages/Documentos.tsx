@@ -224,7 +224,7 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
 
 export default function Documentos() {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor'
+  const isGestor = ['admin','dev','gestor'].includes(user?.role || '')
   const [documentos, setDocumentos]   = useState<Documento[]>([])
   const [pessoas, setPessoas]         = useState<Pessoa[]>([])
   const [pagamentos, setPagamentos]   = useState<Pagamento[]>([])

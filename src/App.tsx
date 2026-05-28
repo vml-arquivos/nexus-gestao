@@ -42,6 +42,9 @@ export default function App() {
   const { user, loading } = useAuth()
   if (loading) return <FullScreenLoader />
 
+  const isManager = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user?.role || '')
+  const canManageTeams = ['admin', 'dev', 'gestor'].includes(user?.role || '')
+
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
@@ -51,8 +54,8 @@ export default function App() {
         <Route path="pessoas"   element={<Pessoas />} />
         <Route path="pessoas/:id" element={<PessoaDetalhe />} />
         {/* Equipe/Equipes: apenas gestor ou subgestor visualiza. Membro não acessa */}
-        <Route path="equipe"    element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Equipe /> : <Navigate to="/" replace />} />
-        <Route path="equipes"   element={user?.role === 'gestor' ? <Equipes /> : <Navigate to="/" replace />} />
+        <Route path="equipe"    element={isManager ? <Equipe /> : <Navigate to="/" replace />} />
+        <Route path="equipes"   element={canManageTeams ? <Equipes /> : <Navigate to="/" replace />} />
         {/* Tarefas: gestores e subgestores veem todas as suas tarefas criadas, membros acessam MinhasTarefas */}
         <Route path="tarefas"   element={user?.role === 'membro' ? <Navigate to="/minhas-tarefas" replace /> : <Tarefas />} />
         <Route path="minhas-tarefas" element={user?.role === 'membro' ? <MinhasTarefas /> : <Navigate to="/tarefas" replace />} />
@@ -64,10 +67,10 @@ export default function App() {
         {/* Compartilhar: se existir, manter; restrição por função pode ser implementada aqui se necessário */}
         <Route path="compartilhar" element={<Compartilhar />} />
         {/* Relatórios: apenas gestores e subgestores */}
-        <Route path="relatorios" element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Relatorios /> : <Navigate to="/" replace />} />
+        <Route path="relatorios" element={isManager ? <Relatorios /> : <Navigate to="/" replace />} />
         <Route path="configuracoes" element={<Configuracoes />} />
         {/* Usuários: apenas gestor ou subgestor */}
-        <Route path="usuarios"  element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Usuarios /> : <Navigate to="/" replace />} />
+        <Route path="usuarios"  element={isManager ? <Usuarios /> : <Navigate to="/" replace />} />
       </Route>
 
       {/* Convite público — não requer autenticação */}

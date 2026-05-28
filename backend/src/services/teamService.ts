@@ -9,25 +9,25 @@ export class TeamService {
 
   static async createTeam(req: Request, nome: string, descricao?: string) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem criar equipes.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem criar equipes.')
     return TeamRepository.create(orgId, nome, descricao, userId)
   }
 
   static async getTeam(req: Request, equipeId: string) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem visualizar equipes.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem visualizar equipes.')
     return TeamRepository.detail(orgId, userId, equipeId)
   }
 
   static async updateTeam(req: Request, equipeId: string, data: { nome?: string; descricao?: string | null }) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem editar equipes.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem editar equipes.')
     return TeamRepository.update(orgId, userId, equipeId, data)
   }
 
   static async getMembers(req: Request, equipeId: string) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem visualizar membros da equipe.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem visualizar membros da equipe.')
     const team = await TeamRepository.detail(orgId, userId, equipeId)
     if (!team) throw new Error('Equipe não encontrada ou sem permissão.')
     return TeamRepository.members(orgId, userId, equipeId)
@@ -35,7 +35,7 @@ export class TeamService {
 
   static async addMembers(req: Request, equipeId: string, memberIds: string[]) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem adicionar membros à equipe.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem adicionar membros à equipe.')
     const team = await TeamRepository.detail(orgId, userId, equipeId)
     if (!team) throw new Error('Equipe não encontrada ou sem permissão.')
     const validMembers: string[] = []
@@ -47,7 +47,7 @@ export class TeamService {
 
   static async removeMember(req: Request, equipeId: string, memberId: string) {
     const { orgId, userId, role } = req.user!
-    if (role !== 'gestor') throw new Error('Apenas gestores podem remover membros da equipe.')
+    if (!['admin','dev','gestor'].includes(role)) throw new Error('Apenas admin, dev ou gestores podem remover membros da equipe.')
     return TeamRepository.removeMember(orgId, userId, equipeId, memberId)
   }
 }

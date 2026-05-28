@@ -65,8 +65,8 @@ export default function Configuracoes() {
     }
   }
 
-  const roleLabel = user?.role === 'gestor' ? '👑 Gestor' : user?.role === 'sub_gestor' ? '👑 Sub‑gestor' : '👤 Membro'
-  const roleColor = user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
+  const roleLabel = user?.role === 'admin' ? '🛡️ Admin' : user?.role === 'dev' ? '🧩 Dev' : user?.role === 'gestor' ? '👑 Gestor' : user?.role === 'sub_gestor' ? '👑 Sub‑gestor' : '👤 Membro'
+  const roleColor = user?.role === 'admin' ? '#DC2626' : user?.role === 'dev' ? '#2563EB' : user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>

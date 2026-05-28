@@ -59,6 +59,10 @@ export default function Layout() {
   const [notifOpen, setNotifOpen]     = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
 
+  const isAdminRole = user?.role === 'admin' || user?.role === 'dev'
+  const isManagerRole = isAdminRole || user?.role === 'gestor' || user?.role === 'sub_gestor'
+  const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'dev' ? 'Dev' : user?.role === 'gestor' ? 'Gestor' : user?.role === 'sub_gestor' ? 'Sub-Gestor' : 'Membro'
+
   const initials = user?.nome
     ? user.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
     : 'NX'
@@ -199,7 +203,7 @@ export default function Layout() {
                 {user?.nome || 'Usuário'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'capitalize' }}>
-                {user?.role === 'gestor' ? 'Gestor' : user?.role === 'sub_gestor' ? 'Sub-Gestor' : 'Membro'}
+                {roleLabel}
               </div>
             </div>
             <button
@@ -548,7 +552,7 @@ export default function Layout() {
             <div className="section-label" style={{ padding: 0, marginBottom: 14 }}>Mais opções</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {NAV.slice(4).map(({ path, icon: Icon, label }) => {
-                if (path === '/usuarios' && user?.role === 'membro') return null
+                if (user?.role === 'membro' && ['/usuarios','/equipe','/equipes','/relatorios'].includes(path)) return null
                 return (
                   <Link
                     key={path}

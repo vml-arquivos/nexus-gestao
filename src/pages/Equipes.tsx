@@ -72,7 +72,7 @@ export default function Equipes() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<Equipe | null | undefined>(undefined)
   const [membersTeam, setMembersTeam] = useState<Equipe | null>(null)
-  const isGestor = user?.role === 'gestor'
+  const isGestor = ['admin','dev','gestor'].includes(user?.role || '')
 
   async function loadTeams() { setLoading(true); try { setTeams(await teamsApi.list()) } catch(e){ toast(e instanceof Error ? e.message : 'Erro ao carregar equipes.', 'error') } finally { setLoading(false) } }
   useEffect(()=>{ if (isGestor) loadTeams() }, [isGestor])
