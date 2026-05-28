@@ -73,7 +73,7 @@ export default function Dashboard() {
       { const d = parseDateSafe(p.vencimento); return !!d && d < new Date() }
     })
     const tarefasHoje = tarefas.filter(t => t.status !== 'concluida' && t.prazo?.slice(0, 10) === hoje)
-    const tarefasUrgentes = tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta')
+    const tarefasUrgentes = tarefas.filter(t => !['concluida','aprovada','cancelada'].includes(t.status) && t.prioridade === 'alta')
     const financeirosHoje = pagamentos.filter(p => p.status === 'pendente' && p.vencimento?.slice(0, 10) === hoje)
     return { tarefasPendentes, tarefasConcluidas, totalTarefas, eventosHoje, receita, despesas, saldo, vencidos, tarefasHoje, tarefasUrgentes, financeirosHoje }
   }, [tarefas, agenda, pagamentos, hoje])
@@ -112,10 +112,10 @@ export default function Dashboard() {
       {/* Métricas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { icon: CheckCircle2, label: 'Tarefas Pendentes', value: metrics.tarefasPendentes, sub: `${metrics.tarefasConcluidas} concluídas`, color: '#6C3BFF', to: '/tarefas' },
-          { icon: Calendar,     label: 'Eventos Hoje',      value: metrics.eventosHoje.length, sub: 'compromissos', color: '#06B6D4', to: '/agenda' },
+          { icon: CheckCircle2, label: 'Tarefas Pendentes', value: metrics.tarefasPendentes, sub: `${metrics.tarefasConcluidas} concluídas`, color: 'var(--primary)', to: '/tarefas' },
+          { icon: Calendar,     label: 'Eventos Hoje',      value: metrics.eventosHoje.length, sub: 'compromissos', color: 'var(--text2)', to: '/agenda' },
           { icon: DollarSign,   label: 'Saldo',             value: fmt(metrics.saldo), sub: `Receita: ${fmt(metrics.receita)}`, color: metrics.saldo >= 0 ? '#10B981' : '#EF4444', to: '/financeiro' },
-          { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: '#F59E0B', to: '/pessoas' },
+          { icon: Users,        label: 'Pessoas',           value: membros.length || '—', sub: 'membros ativos', color: 'var(--warning)', to: '/pessoas' },
         ].map(({ icon: Icon, label, value, sub, color, to }) => (
           <Link key={label} to={to} style={{ textDecoration: 'none' }}>
               <div style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', padding: '16px', cursor: 'pointer', transition: 'border-color 0.2s' }}>
@@ -133,7 +133,7 @@ export default function Dashboard() {
       </div>
 
       {/* Tarefas urgentes */}
-      {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').length > 0 && (
+      {tarefas.filter(t => !['concluida','aprovada','cancelada'].includes(t.status) && t.prioridade === 'alta').length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={15} color='#EF4444' /> Tarefas urgentes</h2>
@@ -142,17 +142,19 @@ export default function Dashboard() {
             </Link>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tarefas.filter(t => t.status !== 'concluida' && t.prioridade === 'alta').slice(0, 3).map(t => (
-              <div key={t.id} style={{ background: 'var(--bg2)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo}</div>
-                  {t.prazo && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Prazo: {fmtDate(t.prazo)}</div>}
+            {tarefas.filter(t => !['concluida','aprovada','cancelada'].includes(t.status) && t.prioridade === 'alta').slice(0, 3).map(t => (
+              <Link key={t.id} to={`/tarefas?task=${t.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                <div style={{ background: 'var(--bg2)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.titulo}</div>
+                    {t.prazo && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Prazo: {fmtDate(t.prazo)}</div>}
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', background: 'rgba(245,158,11,0.08)', padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap' }}>
+                    {t.status === 'pendente' ? 'Pendente' : 'Em Progresso'}
+                  </span>
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', background: 'rgba(245,158,11,0.08)', padding: '2px 8px', borderRadius: 99, whiteSpace: 'nowrap' }}>
-                  {t.status === 'pendente' ? 'Pendente' : 'Em Progresso'}
-                </span>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -189,15 +191,15 @@ export default function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
           <Link to="/tarefas" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Tarefas do dia</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#06B6D4' }}>{metrics.tarefasHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text2)' }}>{metrics.tarefasHoje.length}</div>
           </Link>
           <Link to="/financeiro" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos hoje</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#F59E0B' }}>{metrics.financeirosHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--warning)' }}>{metrics.financeirosHoje.length}</div>
           </Link>
           <Link to="/agenda" style={{ textDecoration: 'none', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--text3)' }}>Compromissos</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#7C3AED' }}>{metrics.eventosHoje.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary)' }}>{metrics.eventosHoje.length}</div>
           </Link>
         </div>
       </div>
@@ -232,7 +234,7 @@ export default function Dashboard() {
       <RecentFinancialRecords records={pagamentos} />
 
       {/* Próximas tarefas */}
-      <UpcomingTasks tasks={tarefas} />
+      <UpcomingTasks tasks={tarefas.filter(t => !(t.prioridade === 'alta' && t.status !== 'concluida' && t.status !== 'aprovada'))} />
     </div>
   )
 }

@@ -13,7 +13,7 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab']
 const MESES = ['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 const TIPO_CORES: Record<string, string> = {
-  reuniao: '#6C3BFF', compromisso: '#06B6D4', prazo: '#EF4444', outro: '#F59E0B'
+  reuniao: '#2563EB', compromisso: '#06B6D4', prazo: '#EF4444', outro: '#F59E0B'
 }
 
 function today() { return new Date().toISOString().slice(0, 10) }
@@ -187,7 +187,7 @@ export default function Agenda() {
                 return (
                   <div key={day} onClick={() => setSelectedDate(dateStr)} style={{
                     textAlign: 'center', padding: '6px 2px', fontSize: 13, cursor: 'pointer', borderRadius: 8, position: 'relative',
-                    background: isSelected ? 'var(--primary)' : isToday ? 'rgba(108,59,255,0.15)' : 'transparent',
+                    background: isSelected ? 'var(--primary)' : isToday ? 'rgba(37,99,235,0.15)' : 'transparent',
                     color: isSelected ? '#fff' : isToday ? 'var(--primary-light)' : 'var(--text)',
                     fontWeight: isToday || isSelected ? 700 : 400,
                   }}>

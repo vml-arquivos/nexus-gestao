@@ -10,17 +10,6 @@ import { criarNotificacao } from '../lib/notifHelper'
 const router = Router()
 router.use(authMiddleware)
 
-function nomeSeguro(nome?: string | null, fallback = 'Usuário') {
-  const clean = String(nome || '').trim()
-  return clean || fallback
-}
-
-async function getNomeUsuario(userId?: string | null) {
-  if (!userId) return 'Usuário'
-  const row = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId]).catch(() => null)
-  return nomeSeguro(row?.nome)
-}
-
 // ── UPLOADS DE EVIDÊNCIAS DA TAREFA ─────────────────────────────────────────
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads')
 
@@ -312,8 +301,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       await criarNotificacao({
         orgId, userId: responsavelId,
         tipo: 'nova_tarefa',
-        titulo: `📋 ${nomeSeguro(criador?.nome, 'Gestor')} enviou uma nova tarefa`,
-        body: `"${titulo.trim()}"${prazoFmt}`,
+        titulo: '📋 Nova tarefa atribuída a você!',
+        body: `"${titulo.trim()}" por ${criador?.nome || 'Gestor'}${prazoFmt}`,
         referenciaId: tarefa.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -373,16 +362,12 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
     await addHistorico({ orgId, tarefaId: id, userId, acao: status, statusAnterior, statusNovo: status, observacao: motivo_nao_conclusao || observacao_conclusao || resposta_membro || null })
 
     if (existing.criado_por && existing.criado_por !== userId && status !== 'em_progresso') {
-      const executorNome = await getNomeUsuario(userId)
-      const detalhe = String(motivo_nao_conclusao || observacao_conclusao || resposta_membro || '').trim()
       await criarNotificacao({
         orgId,
         userId: existing.criado_por,
         tipo: status === 'concluida' ? 'tarefa_concluida' : 'tarefa_nao_concluida',
-        titulo: status === 'concluida'
-          ? `✅ ${executorNome} concluiu a tarefa`
-          : `❌ ${executorNome} não concluiu a tarefa`,
-        body: `"${existing.titulo}"${detalhe ? ` — ${detalhe}` : ''}`,
+        titulo: status === 'concluida' ? '✅ Tarefa concluída!' : '❌ Tarefa não concluída',
+        body: status === 'concluida' ? `A tarefa "${existing.titulo}" foi concluída.` : `A tarefa "${existing.titulo}" não foi concluída.`,
         referenciaId: id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -412,7 +397,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
     )
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'aprovada', statusAnterior: existing.status, statusNovo: 'aprovada' })
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
-      await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_aprovada', titulo: `✅ ${await getNomeUsuario(userId)} aprovou a tarefa`, body: `"${existing.titulo}" foi aprovada.`, referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
+      await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_aprovada', titulo: '✅ Tarefa aprovada', body: `"${existing.titulo}" foi aprovada.`, referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
     res.json({ tarefa })
   } catch (err) {
@@ -440,7 +425,7 @@ router.patch('/:id/devolver', async (req: Request, res: Response): Promise<void>
     )
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'devolvida', statusAnterior: existing.status, statusNovo: 'devolvida', observacao: String(ressalva_gestor).trim() })
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
-      await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_devolvida', titulo: `↩️ ${await getNomeUsuario(userId)} devolveu a tarefa`, body: `"${existing.titulo}" — ${String(ressalva_gestor).trim()}`, referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
+      await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_devolvida', titulo: '↩️ Tarefa devolvida', body: String(ressalva_gestor).trim(), referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
     res.json({ tarefa })
   } catch (err) {
@@ -500,8 +485,8 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
         orgId,
         userId: existing.responsavel_id,
         tipo: 'tarefa_atualizada',
-        titulo: `➕ ${await getNomeUsuario(userId)} solicitou complemento`,
-        body: `"${updated?.titulo || existing.titulo}" — ${complemento.trim()}`,
+        titulo: 'Complemento solicitado em tarefa',
+        body: updated?.titulo || existing.titulo,
         referenciaId: req.params.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -617,8 +602,8 @@ router.post('/:id/anexos', evidenceUpload.single('file'), async (req: MulterTask
         orgId,
         userId: task.criado_por,
         tipo: 'tarefa_atualizada',
-        titulo: `📎 ${await getNomeUsuario(userId)} enviou anexo`,
-        body: `Arquivo anexado na tarefa "${task.titulo}".`,
+        titulo: '📎 Anexo enviado na tarefa',
+        body: `Foi anexado um arquivo na tarefa "${task.titulo}".`,
         referenciaId: req.params.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})

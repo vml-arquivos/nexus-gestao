@@ -24,7 +24,7 @@ function fmtDate(d: string) {
 
 const TIPO_CONFIG = {
   comprovante: { label: 'Comprovante', color: '#10B981', emoji: '🧾' },
-  contrato:    { label: 'Contrato',    color: '#6C3BFF', emoji: '📄' },
+  contrato:    { label: 'Contrato',    color: '#2563EB', emoji: '📄' },
   nota_fiscal: { label: 'Nota Fiscal', color: '#F59E0B', emoji: '🗒️' },
   recibo:      { label: 'Recibo',      color: '#06B6D4', emoji: '📋' },
   foto:        { label: 'Foto',        color: '#EC4899', emoji: '📷' },
@@ -80,7 +80,7 @@ function UploadModal({ pessoas, pagamentos, onSave, onClose }: {
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
               <button onClick={() => cameraInputRef.current?.click()} style={{ padding: '20px 16px', background: 'var(--bg3)', border: '1.5px dashed var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text2)' }}>
-                <Camera size={28} color="#6C3BFF" /><span style={{ fontSize: 13, fontWeight: 600 }}>Câmera</span><span style={{ fontSize: 11, color: 'var(--text3)' }}>Tirar foto</span>
+                <Camera size={28} color="#2563EB" /><span style={{ fontSize: 13, fontWeight: 600 }}>Câmera</span><span style={{ fontSize: 11, color: 'var(--text3)' }}>Tirar foto</span>
               </button>
               <button onClick={() => fileInputRef.current?.click()} style={{ padding: '20px 16px', background: 'var(--bg3)', border: '1.5px dashed var(--border)', borderRadius: 'var(--radius)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: 'var(--text2)' }}>
                 <Upload size={28} color="#06B6D4" /><span style={{ fontSize: 13, fontWeight: 600 }}>Galeria / Arquivo</span><span style={{ fontSize: 11, color: 'var(--text3)' }}>PDF, imagem, doc…</span>
@@ -97,7 +97,7 @@ function UploadModal({ pessoas, pagamentos, onSave, onClose }: {
               </div>
             ) : (
               <div style={{ background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <FileText size={24} color="#6C3BFF" />
+                <FileText size={24} color="#2563EB" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>{fmtSize(file.size)}</div>

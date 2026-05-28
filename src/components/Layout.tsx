@@ -452,7 +452,7 @@ export default function Layout() {
                 const actions: { path: string; label: string; color: string }[] = []
                 if (user) {
                   // Todos podem criar tarefas pessoais
-                  actions.push({ path: user.role === 'membro' ? '/tarefas' : '/tarefas', label: 'Tarefa', color: '#7C3AED' })
+                  actions.push({ path: user.role === 'membro' ? '/tarefas' : '/tarefas', label: 'Tarefa', color: '#2563EB' })
                   // Agenda: todos têm agenda pessoal
                   actions.push({ path: '/agenda', label: 'Evento', color: '#0891B2' })
                   // Financeiro: apenas gestores e subgestores

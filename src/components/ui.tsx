@@ -19,8 +19,8 @@ export function MicBtn({ onResult, className = '' }: { onResult: (t: string) => 
 
 // ── AVATAR ────────────────────────────────────────────────
 const AVATAR_COLORS = [
-  '#6C3BFF','#06B6D4','#10B981','#F59E0B','#EF4444',
-  '#8B5CF6','#EC4899','#14B8A6','#F97316','#3B82F6',
+  '#2563EB','#06B6D4','#10B981','#F59E0B','#EF4444',
+  '#3B82F6','#EC4899','#14B8A6','#F97316','#3B82F6',
 ]
 
 export function Avatar({ name, size = 40, url }: { name: string; size?: number; url?: string }) {

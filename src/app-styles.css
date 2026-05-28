@@ -203,7 +203,7 @@ a:hover { text-decoration: underline; }
 
 .btn-primary {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-on-primary);
 }
 .btn-primary:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .btn-primary:active:not(:disabled) { transform: translateY(0); }
@@ -1506,239 +1506,45 @@ body:has([aria-modal="true"]) .bottom-nav {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   HOTFIX GLOBAL — MODAIS / FORMS RESPONSIVOS SEM QUEBRAR FILHOS
-   Corrige regressões em mobile onde regras genéricas atingiam divs internas.
-   ═══════════════════════════════════════════════════════════════ */
-html.modal-open,
-body.modal-open {
-  overflow: hidden !important;
-  height: 100% !important;
-  overscroll-behavior: none !important;
+/* ── Hotfix UX tarefas + paleta profissional ───────────────────── */
+.task-card { transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.task-card:hover { border-color: var(--primary) !important; box-shadow: var(--shadow-sm); }
+.task-progress-line { height: 6px; border-radius: 999px; background: var(--bg3); overflow: hidden; margin-top: 10px; }
+.task-progress-line > span { display: block; height: 100%; border-radius: inherit; background: var(--success); transition: width .2s ease; }
+.task-detail-modal { display: grid; gap: 14px; min-width: 0; }
+.task-detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border: 1px solid var(--border); background: var(--bg3); border-radius: 16px; padding: 14px; }
+.task-detail-hero h2 { margin: 0 0 8px; font-size: clamp(18px, 3vw, 24px); line-height: 1.18; overflow-wrap: anywhere; }
+.task-detail-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; color: var(--text3); font-size: 12px; font-weight: 700; }
+.task-detail-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.task-detail-section { border: 1px solid var(--border); background: var(--bg2); border-radius: 16px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.task-detail-section h3 { margin: 0; font-size: 14px; font-weight: 900; color: var(--text); }
+.task-detail-section p { margin: 0; color: var(--text2); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-detail-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.task-detail-section-head strong { color: var(--success); font-size: 12px; }
+.task-checklist-run { display: grid; gap: 8px; }
+.task-check-item { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); background: var(--bg3); border-radius: 12px; padding: 10px 12px; cursor: pointer; color: var(--text2); line-height: 1.4; }
+.task-check-item input { width: 20px; height: 20px; margin: 0; accent-color: var(--success); flex-shrink: 0; }
+.task-check-item span { min-width: 0; overflow-wrap: anywhere; }
+.task-check-item.done { border-color: rgba(16,185,129,.45); background: var(--success-dim); color: var(--text); }
+.task-check-item.done span { text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: var(--success); }
+.pending-files { display: grid; gap: 6px; margin: 8px 0; }
+.pending-files span { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); overflow-wrap: anywhere; }
+.warning-box { border-color: rgba(239,68,68,.35); background: var(--danger-dim); }
+.task-detail-actions { position: sticky; bottom: 0; z-index: 2; background: linear-gradient(to top, var(--bg2) 75%, transparent); padding-top: 12px; }
+@media (max-width: 720px) {
+  .task-detail-hero { flex-direction: column; }
+  .task-detail-hero .btn { width: 100%; justify-content: center; }
+  .task-detail-actions { display: grid !important; grid-template-columns: 1fr; }
+  .task-detail-actions .btn { width: 100%; }
 }
 
-body.modal-open .bottom-nav {
-  transform: translateY(120%) !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
 
-/* Só o container do modal recebe dimensão de sheet. Filhos internos ficam normais. */
-.modal-overlay {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 2147483000 !important;
-  display: flex !important;
-  align-items: flex-end !important;
-  justify-content: center !important;
-  padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)) !important;
-  overflow: hidden !important;
-}
-
-.modal-box {
-  width: min(100%, 720px) !important;
-  max-width: min(100%, 720px) !important;
-  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 18px) !important;
-  height: auto !important;
-  min-height: 0 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow: hidden !important;
-  border-radius: 26px 26px 0 0 !important;
-  padding: 18px 18px 0 !important;
-}
-
-@supports (height: 100svh) {
-  .modal-box {
-    max-height: calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 18px) !important;
-  }
-}
-
-@media (min-width: 768px) {
-  .modal-overlay {
-    align-items: center !important;
-    padding: 24px !important;
-  }
-  .modal-box {
-    border-radius: var(--radius-xl) !important;
-    max-height: min(90dvh, 820px) !important;
-    padding: 24px 24px 0 !important;
-  }
-}
-
-/* Reset explícito dos filhos que eram capturados por seletores globais antigos. */
-.modal-box > .modal-header,
-.modal-box > .modal-content,
-.modal-box > .modal-actions,
-.modal-box > .modal-footer {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-  border-radius: 0 !important;
-  box-sizing: border-box !important;
-}
-
-.modal-header {
-  flex: 0 0 auto !important;
-  display: flex !important;
-  align-items: flex-start !important;
-  justify-content: space-between !important;
-  gap: 14px !important;
-  margin: 0 !important;
-  padding: 0 0 14px !important;
-  border-bottom: 1px solid var(--border) !important;
-  overflow: visible !important;
-}
-
-.modal-title {
-  min-width: 0 !important;
-  overflow-wrap: normal !important;
-  word-break: normal !important;
-  hyphens: none !important;
-  font-size: clamp(1.25rem, 5vw, 1.85rem) !important;
-  line-height: 1.15 !important;
-}
-
-.modal-close {
-  flex: 0 0 48px !important;
-  width: 48px !important;
-  height: 48px !important;
-  min-width: 48px !important;
-  min-height: 48px !important;
-}
-
-.modal-content {
-  flex: 1 1 auto !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior: contain !important;
-  padding: 18px 0 calc(18px + env(safe-area-inset-bottom, 0px)) !important;
-}
-
-.modal-box * {
-  min-width: 0 !important;
-  box-sizing: border-box !important;
-}
-
-.modal-box label,
-.modal-box .form-label,
-.modal-box .modal-title,
-.modal-box h1,
-.modal-box h2,
-.modal-box h3,
-.modal-box p,
-.modal-box span {
-  max-width: 100% !important;
-  overflow-wrap: break-word !important;
-  word-break: normal !important;
-  white-space: normal !important;
-}
-
-.modal-box input,
-.modal-box select,
-.modal-box textarea,
-.modal-box .form-input {
-  width: 100% !important;
-  max-width: 100% !important;
-  min-width: 0 !important;
-  min-height: 48px !important;
-  font-size: 16px !important;
-}
-
-.modal-box textarea,
-.modal-box textarea.form-input {
-  min-height: 108px !important;
-  max-height: none !important;
-  resize: vertical !important;
-}
-
-.modal-box .grid-2,
-.modal-box .grid-3 {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)) !important;
-  gap: 12px !important;
-}
-
-@media (max-width: 640px) {
-  .modal-box .grid-2,
-  .modal-box .grid-3 {
-    grid-template-columns: 1fr !important;
-  }
-}
-
-.nexus-task-form {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 14px !important;
-  width: 100% !important;
-}
-
-.nexus-task-form .form-group {
-  width: 100% !important;
-}
-
-.nexus-checklist-input-row {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
-  gap: 8px !important;
-  align-items: stretch !important;
-  width: 100% !important;
-}
-
-.nexus-checklist-input-row .btn,
-.nexus-checklist-input-row button {
-  width: 52px !important;
-  min-width: 52px !important;
-  flex: 0 0 52px !important;
-}
-
-.nexus-modal-actions,
-.modal-actions[data-modal-actions] {
-  flex: 0 0 auto !important;
-  position: sticky !important;
-  bottom: 0 !important;
-  z-index: 10 !important;
-  display: grid !important;
-  grid-template-columns: 1fr 1fr !important;
-  gap: 10px !important;
-  background: var(--bg2) !important;
-  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)) !important;
-  border-top: 1px solid var(--border) !important;
-}
-
-.nexus-modal-actions .btn,
-.modal-actions[data-modal-actions] .btn {
-  width: 100% !important;
-  min-height: 50px !important;
-}
-
-@media (max-width: 420px) {
-  .modal-box {
-    padding-left: 14px !important;
-    padding-right: 14px !important;
-  }
-  .nexus-modal-actions,
-  .modal-actions[data-modal-actions] {
-    grid-template-columns: 1fr !important;
-  }
-}
-
-/* Correção global de página no mobile: evita conteúdo atrás do menu inferior. */
-@media (max-width: 1023px) {
-  .page-scroll {
-    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 28px) !important;
-  }
-  .page-header {
-    align-items: flex-start !important;
-    flex-wrap: wrap !important;
-  }
-  .page-title {
-    overflow-wrap: normal !important;
-    word-break: normal !important;
-    hyphens: none !important;
-  }
-}
+/* ── Ajuste visual definitivo: base preto/branco, sem roxo poluído ── */
+.nav-item.active, .bottom-nav-item.active { color: var(--primary); }
+[data-theme="dark"] .nav-item.active { background: rgba(255,255,255,0.10); color: #FFFFFF; }
+[data-theme="dark"] .bottom-nav-item.active { color: #FFFFFF; }
+[data-theme="dark"] .btn-primary { background: #FFFFFF; color: #020617; border: 1px solid rgba(255,255,255,.18); }
+[data-theme="dark"] .btn-primary:hover:not(:disabled) { background: #E5E7EB; }
+[data-theme="dark"] .btn-secondary { background: #111827; color: #F8FAFC; border-color: rgba(255,255,255,.18); }
+[data-theme="dark"] .form-input { background: #0B1220; border-color: rgba(255,255,255,.16); color: #F8FAFC; }
+[data-theme="dark"] .modal-box, [data-theme="dark"] .modal-content { color: #F8FAFC; }

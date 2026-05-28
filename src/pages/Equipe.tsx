@@ -36,7 +36,7 @@ const ROLE_CONFIG = {
   admin:      { label: 'Admin',      icon: Crown,  color: '#DC2626', bg: 'rgba(220,38,38,0.12)' },
   dev:        { label: 'Dev',        icon: Shield, color: '#2563EB', bg: 'rgba(37,99,235,0.12)' },
   gestor:     { label: 'Gestor',     icon: Crown,  color: '#F59E0B', bg: 'rgba(245,158,11,0.12)' },
-  sub_gestor: { label: 'Gerente',    icon: Shield, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' },
+  sub_gestor: { label: 'Gerente',    icon: Shield, color: '#3B82F6', bg: 'rgba(59,130,246,0.12)' },
   membro:     { label: 'Membro',     icon: User,   color: '#06B6D4', bg: 'rgba(6,182,212,0.12)'  },
 }
 

@@ -3,7 +3,7 @@ import { BarChart3, Download, Loader } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { tarefasApi, pagamentosApi, equipeApi, type Tarefa, type Pagamento, type Pessoa } from '../lib/api'
 
-const COLORS = ['#6C3BFF', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+const COLORS = ['#2563EB', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#3B82F6']
 
 function fmtCurrency(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 
@@ -77,7 +77,7 @@ export default function Relatorios() {
   )
 
   const kpis = [
-    { label: 'Total Tarefas',  value: String(tarefas.length),               color: '#6C3BFF' },
+    { label: 'Total Tarefas',  value: String(tarefas.length),               color: '#2563EB' },
     { label: 'Concluidas',     value: String(tarefas.filter(t => t.status === 'concluida').length), color: '#10B981' },
     { label: 'Receitas',       value: fmtCurrency(stats.totalReceitas),      color: '#06B6D4' },
     { label: 'Despesas',       value: fmtCurrency(stats.totalDespesas),      color: '#EF4444' },
@@ -112,7 +112,7 @@ export default function Relatorios() {
         {stats.tarefasPorStatus.length > 0 && (
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
             <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <BarChart3 size={16} color="#6C3BFF" /> Tarefas por Status
+              <BarChart3 size={16} color="#2563EB" /> Tarefas por Status
             </div>
             <ResponsiveContainer width="100%" height={180}>
               <PieChart>

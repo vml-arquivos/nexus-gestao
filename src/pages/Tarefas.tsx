@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode, ChangeEvent } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
@@ -14,10 +15,10 @@ type Priority = Tarefa['prioridade']
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   pendente:      { label: 'Pendente',      color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: Clock },
-  em_progresso:  { label: 'Em progresso',  color: '#06B6D4', bg: 'rgba(6,182,212,.12)', icon: AlertCircle },
+  em_progresso:  { label: 'Em progresso',  color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: AlertCircle },
   concluida:     { label: 'Concluída',     color: '#10B981', bg: 'rgba(16,185,129,.12)', icon: CheckCircle2 },
   nao_concluida: { label: 'Não concluída', color: '#EF4444', bg: 'rgba(239,68,68,.12)', icon: XCircle },
-  devolvida:     { label: 'Devolvida',     color: '#8B5CF6', bg: 'rgba(139,92,246,.12)', icon: RotateCcw },
+  devolvida:     { label: 'Devolvida',     color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: RotateCcw },
   aprovada:      { label: 'Aprovada',      color: '#059669', bg: 'rgba(5,150,105,.12)', icon: CheckCircle2 },
   cancelada:     { label: 'Cancelada',     color: '#6B7280', bg: 'rgba(107,114,128,.12)', icon: XCircle },
 }
@@ -151,7 +152,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   return (
     <ModalBase title={tarefa?.id ? 'Editar tarefa' : 'Nova tarefa'} onClose={onClose}>
-      <div className="nexus-task-form">
+      <div style={{ display: 'grid', gap: 12 }}>
         <div className="form-group">
           <label className="form-label">Título *</label>
           <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="O que precisa ser feito?" />
@@ -185,7 +186,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         <div className="form-group">
           <label className="form-label">Checklist</label>
-          <div className="nexus-checklist-input-row">
+          <div style={{ display: 'flex', gap: 8 }}>
             <input className="form-input" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }} placeholder="Adicionar item" />
             <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /></button>
           </div>
@@ -201,7 +202,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <label className="form-label">Observação interna</label>
           <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
         </div>
-        <div className="modal-actions nexus-modal-actions" data-modal-actions>
+        <div className="modal-actions" data-modal-actions style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--bg2)', paddingTop: 10 }}>
           <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
           <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <Send size={14} />} Salvar</button>
         </div>
@@ -454,14 +455,14 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   }
 
   return (
-    <ModalBase title={isGestor ? 'Evidências recebidas da tarefa' : 'Anexar evidências da tarefa'} onClose={onClose}>
+    <ModalBase title={isGestor ? 'Evidências recebidas da tarefa' : 'Evidências anexadas à tarefa'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
           <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
           <div style={{ fontSize: 12, color: 'var(--text3)' }}>
             {isGestor
               ? 'Confira aqui os arquivos enviados pelo membro antes de aprovar ou devolver a tarefa.'
-              : 'Envie evidências para o gestor verificar a execução: fotos, PDFs, comprovantes, documentos, planilhas ou vídeos.'}
+              : 'Aqui ficam os arquivos já enviados. Para anexar e concluir tudo de uma vez, abra a tarefa completa e use Enviar conclusão.'}
           </div>
         </div>
 
@@ -489,7 +490,9 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           </>
         ) : (
           <>
-            {uploadForm}
+            <div style={{ color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12, fontSize: 13 }}>
+              Para enviar novas evidências, abra a tarefa completa, selecione os arquivos e clique em <strong>Enviar conclusão</strong>. Assim os anexos e a resposta seguem juntos para o gestor.
+            </div>
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
               {renderLista(anexos, 'Nenhum anexo enviado ainda.')}
@@ -501,10 +504,174 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
+
+function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
+  tarefa: Tarefa
+  isGestor: boolean
+  onClose: () => void
+  onSaved: (t: Tarefa) => void
+  onAnexos: (t: Tarefa) => void
+  onResponder: (t: Tarefa) => void
+  onApprove: (t: Tarefa) => void
+  onReturn: (t: Tarefa) => void
+  onComplemento: (t: Tarefa) => void
+}) {
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(Array.isArray(tarefa.checklist) ? tarefa.checklist : [])
+  const [obs, setObs] = useState(tarefa.observacao_conclusao || tarefa.resposta_membro || '')
+  const [motivo, setMotivo] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [saving, setSaving] = useState(false)
+  const anexosCount = Number((tarefa as any).anexos_count || 0)
+
+  async function persistChecklist(next: ChecklistItem[]) {
+    setChecklist(next)
+    try {
+      const saved = await tarefasApi.update(tarefa.id, { checklist: next })
+      onSaved(saved)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao salvar checklist.', 'error')
+    }
+  }
+
+  function toggleCheck(id: string) {
+    const next = checklist.map(item => item.id === id ? { ...item, feito: !item.feito } : item)
+    persistChecklist(next)
+  }
+
+  async function uploadPendentes() {
+    for (const file of files) {
+      await tarefasApi.uploadAnexo(tarefa.id, file, {
+        titulo: file.name || 'Evidência da tarefa',
+        descricao: obs.trim() || motivo.trim() || undefined,
+        tipo: 'evidencia',
+      })
+    }
+  }
+
+  async function concluir() {
+    setSaving(true)
+    try {
+      if (files.length) await uploadPendentes()
+      const saved = await tarefasApi.updateStatus(tarefa.id, {
+        status: 'concluida',
+        observacao_conclusao: obs.trim() || undefined,
+        resposta_membro: obs.trim() || undefined,
+      })
+      onSaved(saved)
+      toast('Tarefa enviada para conferência.')
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao concluir tarefa.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function naoConcluir() {
+    if (!motivo.trim()) { toast('Informe o motivo para não concluir.', 'error'); return }
+    setSaving(true)
+    try {
+      if (files.length) await uploadPendentes()
+      const saved = await tarefasApi.updateStatus(tarefa.id, {
+        status: 'nao_concluida',
+        motivo_nao_conclusao: motivo.trim(),
+        resposta_membro: motivo.trim(),
+      })
+      onSaved(saved)
+      toast('Retorno enviado ao gestor.')
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao enviar retorno.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  const done = checklist.filter(i => i.feito).length
+  const total = checklist.length
+  const percent = total ? Math.round((done / total) * 100) : 0
+
+  return (
+    <ModalBase title="Detalhes da tarefa" onClose={onClose}>
+      <div className="task-detail-modal">
+        <section className="task-detail-hero">
+          <div>
+            <h2>{tarefa.titulo}</h2>
+            <div className="task-detail-meta">
+              {tarefa.prazo && <span><Calendar size={14} /> Prazo: {fmtDate(tarefa.prazo)}</span>}
+              <span style={{ color: prioridadeCfg(tarefa.prioridade).color }}>{prioridadeCfg(tarefa.prioridade).label}</span>
+              <span>{statusCfg(tarefa.status).label}</span>
+            </div>
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Evidências {anexosCount ? `(${anexosCount})` : ''}</button>
+        </section>
+
+        {tarefa.descricao && (
+          <section className="task-detail-section">
+            <h3>Descrição do que precisa ser feito</h3>
+            <p>{tarefa.descricao}</p>
+          </section>
+        )}
+
+        {tarefa.obs && (
+          <section className="task-detail-section">
+            <h3>Observações internas</h3>
+            <p>{tarefa.obs}</p>
+          </section>
+        )}
+
+        <section className="task-detail-section">
+          <div className="task-detail-section-head">
+            <h3>Checklist de execução</h3>
+            <strong>{done}/{total} feitos · {percent}%</strong>
+          </div>
+          {total > 0 ? (
+            <div className="task-checklist-run">
+              {checklist.map(item => (
+                <label key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>
+                  <input type="checkbox" checked={!!item.feito} disabled={isGestor || saving} onChange={() => toggleCheck(item.id)} />
+                  <span>{item.texto}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">Esta tarefa não possui checklist.</p>
+          )}
+        </section>
+
+        {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && (
+          <section className="task-detail-section">
+            <h3>Evidências para anexar antes de concluir</h3>
+            <input className="form-input" type="file" multiple onChange={e => setFiles(Array.from(e.target.files || []))} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+            {files.length > 0 && <div className="pending-files">{files.map((f, i) => <span key={`${f.name}-${i}`}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</span>)}</div>}
+            <label className="form-label">Observação de conclusão</label>
+            <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex.: executei os itens marcados e anexei os comprovantes..." />
+            <label className="form-label">Motivo caso não tenha concluído</label>
+            <textarea className="form-input" rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Obrigatório somente se clicar em Não concluí." />
+          </section>
+        )}
+
+        {tarefa.ressalva_gestor && (
+          <section className="task-detail-section warning-box">
+            <h3>Ressalva do gestor</h3>
+            <p>{tarefa.ressalva_gestor}</p>
+          </section>
+        )}
+
+        <div className="modal-actions task-detail-actions" data-modal-actions>
+          <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
+          {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
+          {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
+          {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
+          {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
+          {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
+function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
+  onOpen: (t: Tarefa) => void
   onEdit: (t: Tarefa) => void
   onDelete: (id: string) => void
   onStart: (t: Tarefa) => void
@@ -527,7 +694,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
 
   return (
-    <article style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+    <article className="task-card" onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', cursor: 'pointer' }}>
       <div style={{ display: 'flex', gap: 12, padding: 14, alignItems: 'flex-start' }}>
         <Icon size={18} color={sc.color} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -541,7 +708,9 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
             {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
             {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist</span>}
           </div>
-          {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: '#8B5CF6', background: 'rgba(139,92,246,.10)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
+          {tarefa.descricao && <div style={{ marginTop: 8, color: 'var(--text2)', fontSize: 13, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{tarefa.descricao}</div>}
+          {checkTotal > 0 && <div className="task-progress-line"><span style={{ width: `${Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100))}%` }} /></div>}
+          {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: 'var(--info)', background: 'var(--info-dim)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
           {isGestor && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
             <button
@@ -586,9 +755,10 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
         <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver evidências' : 'Anexar evidência'}</button>
         {!isGestor && isMine && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-        {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onResponder(tarefa)} type="button">Concluir / Não concluí</button>}
+        {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
         {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
         {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
         {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
@@ -605,6 +775,8 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
 
 export default function Tarefas() {
   const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const isGestor = isGestorLike(user?.role)
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [membros, setMembros] = useState<MembroEquipe[]>([])
@@ -614,6 +786,7 @@ export default function Tarefas() {
   const [responder, setResponder] = useState<Tarefa | null>(null)
   const [historico, setHistorico] = useState<Tarefa | null>(null)
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
+  const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
@@ -635,6 +808,12 @@ export default function Tarefas() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
+    const id = new URLSearchParams(location.search).get('task')
+    if (!id || tarefas.length === 0) return
+    const found = tarefas.find(t => t.id === id)
+    if (found) setDetalhe(found)
+  }, [location.search, tarefas])
+  useEffect(() => {
     const h = () => { setEdit(null); setModalOpen(true) }
     window.addEventListener('nexus:open-new', h)
     return () => window.removeEventListener('nexus:open-new', h)
@@ -651,10 +830,10 @@ export default function Tarefas() {
   const stats = [
     ['Total', tarefas.length, 'var(--text)'],
     ['Pendentes', tarefas.filter(t => t.status === 'pendente').length, '#F59E0B'],
-    ['Em progresso', tarefas.filter(t => t.status === 'em_progresso').length, '#06B6D4'],
+    ['Em progresso', tarefas.filter(t => t.status === 'em_progresso').length, '#F59E0B'],
     ['Concluídas', tarefas.filter(t => t.status === 'concluida').length, '#10B981'],
     ['Não concluídas', tarefas.filter(t => t.status === 'nao_concluida').length, '#EF4444'],
-    ['Devolvidas', tarefas.filter(t => t.status === 'devolvida').length, '#8B5CF6'],
+    ['Devolvidas', tarefas.filter(t => t.status === 'devolvida').length, '#F59E0B'],
     ['Aprovadas', tarefas.filter(t => t.status === 'aprovada').length, '#059669'],
   ]
 
@@ -728,10 +907,11 @@ export default function Tarefas() {
         <div style={{ display: 'grid', gap: 10 }}>
           {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Nenhuma tarefa encontrada.</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
+              onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}
               onStart={startTask}
-              onResponder={setResponder}
+              onResponder={setDetalhe}
               onApprove={approve}
               onReturn={devolver}
               onComplemento={setComplemento}
@@ -745,6 +925,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} isGestor={isGestor} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
   )

@@ -67,7 +67,7 @@ export default function Configuracoes() {
   }
 
   const labelRole = roleLabel(user?.role)
-  const roleColor = user?.role === 'admin' || user?.role === 'dev' || user?.role === 'gestor' ? '#6C3BFF' : user?.role === 'sub_gestor' ? '#8B5CF6' : '#06B6D4'
+  const roleColor = user?.role === 'admin' || user?.role === 'dev' || user?.role === 'gestor' ? '#2563EB' : user?.role === 'sub_gestor' ? '#3B82F6' : '#06B6D4'
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
@@ -81,7 +81,7 @@ export default function Configuracoes() {
         {/* Perfil */}
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <User size={16} color="#6C3BFF" />
+            <User size={16} color="#2563EB" />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Meu Perfil</span>
             <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: roleColor, background: roleColor + '18', padding: '3px 8px', borderRadius: 99 }}>{labelRole}</span>
           </div>
@@ -134,7 +134,7 @@ export default function Configuracoes() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {([['dark', '🌙 Escuro'], ['light', '☀️ Claro']] as const).map(([k, l]) => (
-              <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#6C3BFF' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: theme === k ? '#6C3BFF' : 'var(--text3)' }}>
+              <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#2563EB' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: theme === k ? '#2563EB' : 'var(--text3)' }}>
                 {l}
               </button>
             ))}

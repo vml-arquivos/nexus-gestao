@@ -123,7 +123,7 @@ const STATUS_STYLE: Record<string, { label: string; bg: string; color: string }>
   pago:     { label: 'Pago',     bg: 'rgba(16,185,129,.15)', color: '#10B981' },
   pendente: { label: 'Pendente', bg: 'rgba(245,158,11,.12)', color: '#F59E0B' },
   vencido:  { label: 'Vencido',  bg: 'rgba(239,68,68,.15)',  color: '#EF4444' },
-  parcial:  { label: 'Parcial',  bg: 'rgba(108,59,255,.15)', color: '#B99FFF' },
+  parcial:  { label: 'Parcial',  bg: 'rgba(37,99,235,.15)', color: '#60A5FA' },
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -669,7 +669,7 @@ export default function PessoaDetalhe() {
   ].sort((a, b) => (b.data || '').localeCompare(a.data || ''))
 
   const TIPO_LABEL: Record<string, string> = { funcionario: 'Funcionário', prestador: 'Prestador', credor: 'Credor', devedor: 'Devedor', cliente: 'Cliente' }
-  const TIPO_COR:   Record<string, string> = { funcionario: '#7C3AED', prestador: '#06B6D4', credor: '#EF4444', devedor: '#F59E0B', cliente: '#10B981' }
+  const TIPO_COR:   Record<string, string> = { funcionario: '#2563EB', prestador: '#06B6D4', credor: '#EF4444', devedor: '#F59E0B', cliente: '#10B981' }
 
   return (
     <div style={{ padding: '16px 16px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)', maxWidth: 800, margin: '0 auto', boxSizing: 'border-box' as const }}>

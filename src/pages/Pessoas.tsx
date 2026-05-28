@@ -18,7 +18,7 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 }
 
 const TIPO_CONFIG = {
-  funcionario: { label: 'Funcionário', color: '#7C3AED', icon: Briefcase },
+  funcionario: { label: 'Funcionário', color: '#2563EB', icon: Briefcase },
   prestador:   { label: 'Prestador',   color: '#06B6D4', icon: Wrench },
   credor:      { label: 'Credor',      color: '#EF4444', icon: WalletCards },
   devedor:     { label: 'Devedor',     color: '#F59E0B', icon: CircleDollarSign },
@@ -420,7 +420,7 @@ export default function Pessoas() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{m.nome}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: m.role === 'gestor' ? '#6C3BFF' : '#06B6D4', background: m.role === 'gestor' ? 'rgba(108,59,255,0.12)' : 'rgba(6,182,212,0.12)', padding: '2px 7px', borderRadius: 99 }}>{m.role === 'gestor' ? 'Gestor' : 'Membro'}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: m.role === 'gestor' ? '#2563EB' : '#06B6D4', background: m.role === 'gestor' ? 'rgba(37,99,235,0.12)' : 'rgba(6,182,212,0.12)', padding: '2px 7px', borderRadius: 99 }}>{m.role === 'gestor' ? 'Gestor' : 'Membro'}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><Mail size={10} /> {m.email}</span>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import type { Tarefa } from '../../../lib/api'
 import { AlertTriangle, Calendar } from 'lucide-react'
 
@@ -27,7 +28,7 @@ export default function UpcomingTasks({ tasks }: Props) {
       <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Próximas tarefas</h2>
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
         {futuras.map(t => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+          <Link key={t.id} to={`/tarefas?task=${t.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)', textDecoration: 'none', color: 'inherit' }}>
             <div style={{ width: 24, height: 24, borderRadius: 8, background: t.prioridade === 'alta' ? 'rgba(239,68,68,0.15)' : 'var(--bg3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {t.prioridade === 'alta' ? <AlertTriangle size={14} color='var(--danger)' /> : <Calendar size={14} color='var(--primary)' />}
             </div>
@@ -38,7 +39,7 @@ export default function UpcomingTasks({ tasks }: Props) {
             <span style={{ fontSize: 10, fontWeight: 600, color: t.prioridade === 'alta' ? 'var(--danger)' : 'var(--text3)', background: t.prioridade === 'alta' ? 'rgba(239,68,68,0.15)' : 'var(--bg3)', padding: '2px 6px', borderRadius: 99 }}>
               {t.prioridade === 'alta' ? 'Urgente' : t.prioridade === 'media' ? 'Média' : 'Baixa'}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
