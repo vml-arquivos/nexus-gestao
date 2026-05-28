@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Copy, Eye, EyeOff, KeyRound, Link as LinkIcon, Loader, Power, PowerOff, UserPlus, X } from 'lucide-react'
+import { Copy, Eye, EyeOff, KeyRound, Link as LinkIcon, Loader, Power, PowerOff, Trash2, UserPlus, X } from 'lucide-react'
 import { usersApi, type UserProfile } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 
@@ -91,7 +91,8 @@ export default function Usuarios() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
 
-  const canManage = ['admin','dev','gestor','sub_gestor'].includes(eu?.role || '')
+  const canManage = eu?.role === 'admin' || eu?.role === 'dev' || eu?.role === 'gestor' || eu?.role === 'sub_gestor'
+  const canDeleteUsers = eu?.role === 'admin' || eu?.role === 'dev'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,7 +104,7 @@ export default function Usuarios() {
   useEffect(() => { load() }, [load])
 
   const grupos = useMemo(() => ({
-    gestores: usuarios.filter(u => ['admin','dev','gestor','sub_gestor'].includes(u.role)),
+    gestores: usuarios.filter(u => u.role === 'admin' || u.role === 'dev' || u.role === 'gestor' || u.role === 'sub_gestor'),
     membros: usuarios.filter(u => u.role === 'membro'),
   }), [usuarios])
 
@@ -122,10 +123,44 @@ export default function Usuarios() {
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao alterar status.', 'error') }
   }
 
+  function roleLabel(role: UserProfile['role']) {
+    if (role === 'admin') return 'Admin'
+    if (role === 'dev') return 'Dev'
+    if (role === 'gestor') return 'Gestor'
+    if (role === 'sub_gestor') return 'Subgestor'
+    return 'Membro'
+  }
+
+  async function apagar(u: UserProfile) {
+    if (!canDeleteUsers) {
+      toast('Apenas admin ou dev podem apagar usuários.', 'error')
+      return
+    }
+    if (u.id === eu?.id) {
+      toast('Você não pode apagar seu próprio usuário.', 'error')
+      return
+    }
+    const ok = window.confirm(
+      `Apagar definitivamente o usuário ${u.nome}?\n\nIsso remove o acesso, vínculos de equipe e dados privados vinculados ao usuário. Esta ação não pode ser desfeita.`
+    )
+    if (!ok) return
+    try {
+      await usersApi.remove(u.id)
+      setUsuarios(list => list.filter(x => x.id !== u.id))
+      toast('Usuário apagado com sucesso.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao apagar usuário.', 'error')
+    }
+  }
+
   function row(u: UserProfile) {
     return <div key={u.id} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'center', padding:14, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:16 }}>
-      <div style={{ minWidth:0 }}><div style={{ fontWeight:800 }}>{u.nome}</div><div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis' }}>{u.email}</div><div style={{ marginTop:6, fontSize:12, color:'var(--text3)' }}>{u.role === 'admin' ? 'Admin' : u.role === 'dev' ? 'Dev' : u.role === 'gestor' ? 'Gestor' : u.role === 'sub_gestor' ? 'Subgestor' : 'Membro'} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div></div>
-      {canManage && u.id !== eu?.id && <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}><button className="btn btn-ghost" onClick={()=>resetar(u.id)} style={{ padding:'8px 10px' }}><KeyRound size={15}/></button><button className="btn btn-ghost" onClick={()=>alternar(u)} style={{ padding:'8px 10px' }}>{u.ativo === false ? <Power size={15}/> : <PowerOff size={15}/>}</button></div>}
+      <div style={{ minWidth:0 }}><div style={{ fontWeight:800 }}>{u.nome}</div><div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis' }}>{u.email}</div><div style={{ marginTop:6, fontSize:12, color:'var(--text3)' }}>{roleLabel(u.role)} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div></div>
+      {canManage && u.id !== eu?.id && <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+        <button className="btn btn-ghost" title="Resetar senha" onClick={()=>resetar(u.id)} style={{ padding:'8px 10px' }}><KeyRound size={15}/></button>
+        <button className="btn btn-ghost" title={u.ativo === false ? 'Ativar usuário' : 'Desativar usuário'} onClick={()=>alternar(u)} style={{ padding:'8px 10px' }}>{u.ativo === false ? <Power size={15}/> : <PowerOff size={15}/>}</button>
+        {canDeleteUsers && <button className="btn btn-ghost" title="Apagar usuário" onClick={()=>apagar(u)} style={{ padding:'8px 10px', color:'var(--danger, #ef4444)' }}><Trash2 size={15}/></button>}
+      </div>}
     </div>
   }
 

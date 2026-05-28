@@ -19,11 +19,16 @@ function baseUrl(req: Request) {
   return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
 }
 
-function normalizeRole(role: unknown, currentRole?: string): 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro' {
-  const r = String(role || '').trim()
-  if ((currentRole === 'admin' || currentRole === 'dev') && (r === 'admin' || r === 'dev' || r === 'gestor' || r === 'sub_gestor')) return r as any
-  if ((currentRole === 'admin' || currentRole === 'dev' || currentRole === 'gestor') && r === 'sub_gestor') return 'sub_gestor'
-  return 'membro'
+function normalizeRole(role: unknown): 'sub_gestor' | 'membro' {
+  return role === 'sub_gestor' ? 'sub_gestor' : 'membro'
+}
+
+function isAdminOrDev(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev'
+}
+
+function isHighAccess(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor'
 }
 
 // GET /api/users
@@ -62,7 +67,7 @@ router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Pro
   try {
     const { orgId, userId, role } = req.user!
     const { nome, email, senha, cargo } = req.body
-    const novoRole = normalizeRole(req.body.role, role)
+    const novoRole = normalizeRole(req.body.role)
 
     if (role === 'sub_gestor' && novoRole !== 'membro') {
       res.status(403).json({ error: 'Subgestor só pode criar membros.' })
@@ -102,7 +107,7 @@ router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Pro
 router.post('/invite', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-    const conviteRole = normalizeRole(req.body.role, role)
+    const conviteRole = normalizeRole(req.body.role)
     const { nome, email, cargo } = req.body
 
     if (role === 'sub_gestor' && conviteRole !== 'membro') {
@@ -159,7 +164,7 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
       }
     }
 
-    if (role === 'gestor' && target.role === 'gestor' && id !== userId) {
+    if (target.role === 'gestor' && id !== userId) {
       res.status(403).json({ error: 'Não é possível alterar outro gestor.' })
       return
     }
@@ -169,11 +174,11 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
     let idx = 1
     if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
     if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
-    if (requestedRole !== undefined && ['admin','dev','gestor'].includes(role)) {
-      const r = normalizeRole(requestedRole, role)
+    if (requestedRole !== undefined && role === 'gestor') {
+      const r = normalizeRole(requestedRole)
       updates.push(`role = $${idx++}`); params.push(r)
     }
-    if (ativo !== undefined && ['admin','dev','gestor'].includes(role) && id !== userId) {
+    if (ativo !== undefined && role === 'gestor' && id !== userId) {
       updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
     }
     if (updates.length === 0) {
@@ -209,7 +214,7 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
       res.status(403).json({ error: 'Subgestor só redefine senha de seus comandados.' })
       return
     }
-    if (role === 'gestor' && target.role === 'gestor') {
+    if (target.role === 'gestor') {
       res.status(403).json({ error: 'Não é possível resetar senha de gestor.' })
       return
     }
@@ -240,38 +245,71 @@ router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response)
       return
     }
 
-    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
-      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null; email?: string }>(
+      'SELECT id, role, criado_por, email FROM profiles WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
-    if (role === 'gestor' && target.role === 'gestor') { res.status(403).json({ error: 'Não é possível apagar outro gestor.' }); return }
-    if (role === 'sub_gestor' && target.criado_por !== userId) {
-      res.status(403).json({ error: 'Subgestor só apaga seus comandados.' })
-      return
+
+    // Exclusão definitiva de usuários é uma ação sensível.
+    // Admin/dev podem apagar qualquer usuário da própria organização, exceto a si mesmos.
+    // Gestor/subgestor mantêm compatibilidade antiga, mas não podem apagar perfis altos.
+    if (!isAdminOrDev(role)) {
+      if (target.role === 'admin' || target.role === 'dev' || target.role === 'gestor' || target.role === 'sub_gestor') {
+        res.status(403).json({ error: 'Apenas admin ou dev podem apagar este usuário.' })
+        return
+      }
+      if (role === 'sub_gestor' && target.criado_por !== userId) {
+        res.status(403).json({ error: 'Subgestor só apaga seus comandados.' })
+        return
+      }
     }
 
     // Limpeza intencional para permitir apagar usuário sem violar FKs e sem manter dados privados órfãos.
-    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
-    await query('DELETE FROM notificacoes WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
-    await query('DELETE FROM equipes_membros WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
-    await query('UPDATE profiles SET criado_por = NULL WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    // Mantemos tudo dentro de uma transação para evitar exclusão parcial.
+    await query('BEGIN')
+    try {
+      await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+      await query('DELETE FROM notificacoes WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM equipes_membros WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM equipes_membros WHERE profile_id = $1', [id]).catch(() => {})
 
-    // Apaga dados privados do usuário removido.
-    await query('DELETE FROM documentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
-    await query('DELETE FROM pagamentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
-    await query('DELETE FROM agenda WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
-    await query('DELETE FROM pessoas WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      // Histórico e anexos vinculados às tarefas do usuário antes de apagar as tarefas.
+      await query(
+        `DELETE FROM tarefa_anexos
+         WHERE org_id = $1
+           AND tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2))`,
+        [orgId, id]
+      ).catch(() => {})
+      await query(
+        `DELETE FROM tarefas_historico
+         WHERE org_id = $1
+           AND (user_id = $2 OR tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)))`,
+        [orgId, id]
+      ).catch(() => {})
+      await query('DELETE FROM tarefa_historico WHERE org_id = $1 AND usuario_id = $2', [orgId, id]).catch(() => {})
 
-    // Apaga tarefas criadas por ele ou atribuídas a ele. Histórico sai por ON DELETE CASCADE na tabela nova.
-    await query('DELETE FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)', [orgId, id]).catch(() => {})
-    await query('DELETE FROM tarefa_historico WHERE org_id = $1 AND usuario_id = $2', [orgId, id]).catch(() => {})
-    await query('DELETE FROM tarefas_historico WHERE org_id = $1 AND user_id = $2', [orgId, id]).catch(() => {})
+      // Apaga tarefas criadas por ele ou atribuídas a ele.
+      await query('DELETE FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)', [orgId, id]).catch(() => {})
 
-    // Convites criados por ele deixam de apontar para usuário apagado.
-    await query('DELETE FROM convites WHERE org_id = $1 AND criado_por = $2', [orgId, id]).catch(() => {})
+      // Apaga dados privados do usuário removido.
+      await query('DELETE FROM documentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pagamentos_historico WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pagamentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM agenda WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pessoas WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
 
-    await query('DELETE FROM profiles WHERE id = $1 AND org_id = $2', [id, orgId])
+      // Convites criados por ele deixam de apontar para usuário apagado.
+      await query('DELETE FROM convites WHERE org_id = $1 AND criado_por = $2', [orgId, id]).catch(() => {})
+      await query('UPDATE profiles SET criado_por = NULL WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+
+      await query('DELETE FROM profiles WHERE id = $1 AND org_id = $2', [id, orgId])
+      await query('COMMIT')
+    } catch (cleanupErr) {
+      await query('ROLLBACK').catch(() => {})
+      throw cleanupErr
+    }
+
     res.json({ ok: true })
   } catch (err) {
     console.error('[USERS] Erro ao apagar:', err)

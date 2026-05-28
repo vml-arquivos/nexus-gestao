@@ -44,7 +44,7 @@ export default function Dashboard() {
           tarefasApi.list(),
           agendaApi.list(),
           pagamentosApi.list(),
-          ['admin','dev','gestor','sub_gestor'].includes(user?.role || '') ? equipeApi.membros() : Promise.resolve([]),
+          user?.role === 'gestor' ? equipeApi.membros() : Promise.resolve([]),
         ])
         setTarefas(t)
         setAgenda(a)
@@ -95,7 +95,7 @@ export default function Dashboard() {
           {saudacao}, {user?.nome?.split(' ')[0]} 👋
         </h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>
-          {user?.role === 'admin' ? 'Admin' : user?.role === 'dev' ? 'Dev' : user?.role === 'gestor' ? 'Gestor' : user?.role === 'sub_gestor' ? 'Sub-Gestor' : 'Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+          {user?.role === 'gestor' ? 'Gestor' : 'Membro'} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
         </p>
       </div>
 

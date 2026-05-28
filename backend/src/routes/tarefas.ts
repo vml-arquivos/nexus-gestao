@@ -94,7 +94,6 @@ async function addHistorico(input: {
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
   if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId
-  if (role === 'admin' || role === 'dev') return true
   if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId
   if (role === 'sub_gestor') {
     if (task.criado_por === userId || task.responsavel_id === userId) return true

@@ -31,7 +31,7 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
     if (role === 'membro') {
       // Membro vê apenas a si mesmo para não expor dados de outros
       sql += ' AND p.id = $2'
-    } else if (role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor') {
+    } else if (role === 'gestor' || role === 'sub_gestor') {
       // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.
       // Isto corrige o regresso onde membros convidados/adicionados por equipe sumiam quando criado_por estava nulo/diferente.
       sql += ` AND (

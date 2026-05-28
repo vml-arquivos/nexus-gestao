@@ -220,7 +220,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 export default function Pessoas() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const isGestor = ['admin','dev','gestor'].includes(user?.role || '')
+  const isGestor = user?.role === 'gestor'
 
   const [tab, setTab]               = useState<'pessoas' | 'membros'>('pessoas')
   const [pessoas, setPessoas]       = useState<Pessoa[]>([])

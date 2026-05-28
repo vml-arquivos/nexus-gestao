@@ -25,7 +25,7 @@ export const store: AppState = {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
 export function isGestor(): boolean {
-  return ['admin','dev','gestor'].includes(store.user?.role || '')
+  return store.user?.role === 'gestor'
 }
 
 export function getCurrentOrgId(): string | null {
