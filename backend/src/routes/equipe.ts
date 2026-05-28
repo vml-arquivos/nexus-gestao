@@ -1,18 +1,22 @@
-import { Router, Request, Response } from 'express'
-import { query, queryOne } from '../db/pool'
-import { authMiddleware } from '../middleware/auth'
+import { Router, Request, Response } from "express";
+import { query, queryOne } from "../db/pool";
+import { authMiddleware } from "../middleware/auth";
 
-const router = Router()
-router.use(authMiddleware)
+const router = Router();
+router.use(authMiddleware);
+
+function canDeleteOrgRecord(role: string | undefined): boolean {
+  return role === "admin" || role === "dev" || role === "gestor";
+}
 
 // ── LISTAR MEMBROS DA EQUIPE ──────────────────────────────────────────────────
 // GET /api/equipe/membros
 // gestor:     vê todos da organização
 // sub_gestor: vê a si mesmo + seus comandados
 // membro:     vê todos (para saber com quem trabalha)
-router.get('/membros', async (req: Request, res: Response): Promise<void> => {
+router.get("/membros", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!
+    const { orgId, userId, role } = req.user!;
 
     let sql = `
       SELECT
@@ -25,13 +29,13 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
       FROM profiles p
       LEFT JOIN profiles c ON c.id = p.criado_por
       WHERE p.org_id = $1 AND p.ativo = TRUE
-    `
-    const params: unknown[] = [orgId, userId]
+    `;
+    const params: unknown[] = [orgId, userId];
 
-    if (role === 'membro') {
+    if (role === "membro") {
       // Membro vê apenas a si mesmo para não expor dados de outros
-      sql += ' AND p.id = $2'
-    } else if (role === 'gestor' || role === 'sub_gestor') {
+      sql += " AND p.id = $2";
+    } else if (role === "gestor" || role === "sub_gestor") {
       // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.
       // Isto corrige o regresso onde membros convidados/adicionados por equipe sumiam quando criado_por estava nulo/diferente.
       sql += ` AND (
@@ -46,98 +50,142 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
             AND em.user_id = p.id
             AND COALESCE(em.ativo, TRUE) = TRUE
         )
-      )`
+      )`;
     }
 
-    sql += ' ORDER BY p.role, p.nome'
-    const membros = await query(sql, params)
-    res.json({ membros })
+    sql += " ORDER BY p.role, p.nome";
+    const membros = await query(sql, params);
+    res.json({ membros });
   } catch (err) {
-    console.error('[EQUIPE] Erro ao listar membros:', err)
-    res.status(500).json({ error: 'Erro ao buscar membros.' })
+    console.error("[EQUIPE] Erro ao listar membros:", err);
+    res.status(500).json({ error: "Erro ao buscar membros." });
   }
-})
+});
 
 // ── LISTAR PESSOAS ────────────────────────────────────────────────────────────
 // GET /api/equipe/pessoas
-router.get('/pessoas', async (req: Request, res: Response): Promise<void> => {
+router.get("/pessoas", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId } = req.user!
-    const { tipo, search } = req.query
+    const { orgId, userId } = req.user!;
+    const { tipo, search } = req.query;
     // Cada usuário enxerga apenas pessoas vinculadas a ele (user_id)
-    let sql = 'SELECT * FROM pessoas WHERE org_id = $1 AND user_id = $2'
-    const params: unknown[] = [orgId, userId]
-    let idx = 3
-    if (tipo)   { sql += ` AND tipo = $${idx++}`;                    params.push(tipo) }
-    if (search) { sql += ` AND nome ILIKE $${idx++}`;                params.push(`%${search}%`) }
-    sql += ' ORDER BY nome'
-    const pessoas = await query(sql, params)
-    res.json({ pessoas })
+    let sql = "SELECT * FROM pessoas WHERE org_id = $1 AND user_id = $2";
+    const params: unknown[] = [orgId, userId];
+    let idx = 3;
+    if (tipo) {
+      sql += ` AND tipo = $${idx++}`;
+      params.push(tipo);
+    }
+    if (search) {
+      sql += ` AND nome ILIKE $${idx++}`;
+      params.push(`%${search}%`);
+    }
+    sql += " ORDER BY nome";
+    const pessoas = await query(sql, params);
+    res.json({ pessoas });
   } catch (err) {
-    console.error('[EQUIPE] Erro ao listar pessoas:', err)
-    res.status(500).json({ error: 'Erro ao buscar pessoas.' })
+    console.error("[EQUIPE] Erro ao listar pessoas:", err);
+    res.status(500).json({ error: "Erro ao buscar pessoas." });
   }
-})
+});
 
 // ── CRIAR PESSOA ──────────────────────────────────────────────────────────────
 // POST /api/equipe/pessoas  (gestor e sub_gestor)
-router.post('/pessoas', async (req: Request, res: Response): Promise<void> => {
+router.post("/pessoas", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!
-    if (role === 'membro') {
-      res.status(403).json({ error: 'Membros não podem criar pessoas.' }); return
+    const { orgId, userId, role } = req.user!;
+    if (role === "membro") {
+      res.status(403).json({ error: "Membros não podem criar pessoas." });
+      return;
     }
-    const { nome, tipo, cargo, contato, email, valor, obs } = req.body
+    const { nome, tipo, cargo, contato, email, valor, obs } = req.body;
     if (!nome || !tipo) {
-      res.status(400).json({ error: 'Nome e tipo são obrigatórios.' })
-      return
+      res.status(400).json({ error: "Nome e tipo são obrigatórios." });
+      return;
     }
     const pessoa = await queryOne(
       `INSERT INTO pessoas (org_id, user_id, nome, tipo, cargo, contato, email, valor, obs)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [orgId, userId, nome.trim(), tipo, cargo || null, contato || null, email || null, valor || null, obs || null]
-    )
-    res.status(201).json({ pessoa })
+      [
+        orgId,
+        userId,
+        nome.trim(),
+        tipo,
+        cargo || null,
+        contato || null,
+        email || null,
+        valor || null,
+        obs || null,
+      ],
+    );
+    res.status(201).json({ pessoa });
   } catch (err) {
-    console.error('[EQUIPE] Erro ao criar pessoa:', err)
-    res.status(500).json({ error: 'Erro ao criar pessoa.' })
+    console.error("[EQUIPE] Erro ao criar pessoa:", err);
+    res.status(500).json({ error: "Erro ao criar pessoa." });
   }
-})
+});
 
 // ── ATUALIZAR PESSOA ──────────────────────────────────────────────────────────
-router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { orgId, userId } = req.user!
-    const { id } = req.params
-    const { nome, tipo, cargo, contato, email, valor, obs } = req.body
-    // Atualiza somente registros do próprio usuário
-    const pessoa = await queryOne(
-      `UPDATE pessoas SET
+router.patch(
+  "/pessoas/:id",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { orgId, userId } = req.user!;
+      const { id } = req.params;
+      const { nome, tipo, cargo, contato, email, valor, obs } = req.body;
+      // Atualiza somente registros do próprio usuário
+      const pessoa = await queryOne(
+        `UPDATE pessoas SET
          nome = COALESCE($1, nome), tipo = COALESCE($2, tipo),
          cargo = COALESCE($3, cargo), contato = COALESCE($4, contato),
          email = COALESCE($5, email), valor = COALESCE($6, valor), obs = COALESCE($7, obs)
        WHERE id = $8 AND org_id = $9 AND user_id = $10 RETURNING *`,
-      [nome || null, tipo || null, cargo || null, contato || null, email || null, valor || null, obs || null, id, orgId, userId]
-    )
-    if (!pessoa) { res.status(404).json({ error: 'Pessoa não encontrada ou sem permissão.' }); return }
-    res.json({ pessoa })
-  } catch (err) {
-    console.error('[EQUIPE] Erro ao atualizar pessoa:', err)
-    res.status(500).json({ error: 'Erro ao atualizar pessoa.' })
-  }
-})
+        [
+          nome || null,
+          tipo || null,
+          cargo || null,
+          contato || null,
+          email || null,
+          valor || null,
+          obs || null,
+          id,
+          orgId,
+          userId,
+        ],
+      );
+      if (!pessoa) {
+        res
+          .status(404)
+          .json({ error: "Pessoa não encontrada ou sem permissão." });
+        return;
+      }
+      res.json({ pessoa });
+    } catch (err) {
+      console.error("[EQUIPE] Erro ao atualizar pessoa:", err);
+      res.status(500).json({ error: "Erro ao atualizar pessoa." });
+    }
+  },
+);
 
 // ── EXCLUIR PESSOA ────────────────────────────────────────────────────────────
-router.delete('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { orgId, userId } = req.user!
-    // Remove apenas a pessoa pertencente ao próprio usuário
-    await query('DELETE FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3', [req.params.id, orgId, userId])
-    res.json({ ok: true })
-  } catch (err) {
-    console.error('[EQUIPE] Erro ao excluir pessoa:', err)
-    res.status(500).json({ error: 'Erro ao excluir pessoa.' })
-  }
-})
+router.delete(
+  "/pessoas/:id",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { orgId, userId, role } = req.user!;
+      const params = canDeleteOrgRecord(role)
+        ? [req.params.id, orgId]
+        : [req.params.id, orgId, userId];
+      const sql = canDeleteOrgRecord(role)
+        ? "DELETE FROM pessoas WHERE id = $1 AND org_id = $2"
+        : "DELETE FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3";
+      await query(sql, params);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[EQUIPE] Erro ao excluir pessoa:", err);
+      res.status(500).json({ error: "Erro ao excluir pessoa." });
+    }
+  },
+);
 
-export default router
+export default router;

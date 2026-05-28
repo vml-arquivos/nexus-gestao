@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut, Trash2, AlertTriangle, Database } from 'lucide-react'
+import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
@@ -17,11 +17,7 @@ export default function Configuracoes() {
   const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
 
-  const isGestor = ['gestor','admin','dev'].includes(user?.role || '')
   const [nome, setNome]           = useState(user?.nome || '')
-  const [confirmInput, setConfirmInput]   = useState('')
-  const [activeConfirm, setActiveConfirm] = useState<string | null>(null)
-  const [limpando, setLimpando]           = useState<string | null>(null)
   const [email, setEmail]         = useState(user?.email || '')
   const [senhaAtual, setSenhaAtual]   = useState('')
   const [novaSenha, setNovaSenha]     = useState('')
@@ -182,119 +178,6 @@ export default function Configuracoes() {
             ))}
           </div>
         </div>
-
-
-        {/* ── ZONA DE ADMINISTRAÇÃO (só gestor/admin/dev) ────────── */}
-        {isGestor && (
-          <div style={{ background: 'rgba(239,68,68,0.06)', border: '1.5px solid rgba(239,68,68,0.22)', borderRadius: 'var(--radius)', padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <AlertTriangle size={16} color="#EF4444" />
-              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, color: '#EF4444' }}>Zona de Risco</span>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16, lineHeight: 1.6 }}>
-              Ações irreversíveis. Apenas gestores e administradores têm acesso. Cada ação apaga permanentemente os dados da sua organização.
-            </p>
-
-            {/* Botões de limpeza por módulo */}
-            {[
-              { key: 'tarefas',     label: 'Apagar todas as Tarefas',    icon: '✅', rota: '/api/admin/limpar/tarefas'    },
-              { key: 'financeiro',  label: 'Apagar todo o Financeiro',   icon: '💰', rota: '/api/admin/limpar/financeiro'  },
-              { key: 'pessoas',     label: 'Apagar todos os Contatos',   icon: '👥', rota: '/api/admin/limpar/pessoas'     },
-              { key: 'agenda',      label: 'Apagar toda a Agenda',       icon: '📅', rota: '/api/admin/limpar/agenda'      },
-              { key: 'documentos',  label: 'Apagar todos os Documentos', icon: '📄', rota: '/api/admin/limpar/documentos'  },
-              { key: 'usuarios',    label: 'Apagar todos os Usuários',   icon: '👤', rota: '/api/admin/limpar/usuarios'    },
-              { key: 'tudo',        label: '🚨 Apagar TUDO',             icon: '🔥', rota: '/api/admin/limpar/tudo'        },
-            ].map(item => (
-              <div key={item.key} style={{ marginBottom: 10 }}>
-                {activeConfirm !== item.key ? (
-                  <button
-                    onClick={() => { setActiveConfirm(item.key); setConfirmInput('') }}
-                    disabled={limpando !== null}
-                    style={{
-                      width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '11px 16px',
-                      background: item.key === 'tudo' ? 'rgba(239,68,68,0.14)' : 'var(--bg3)',
-                      border: `1px solid ${item.key === 'tudo' ? 'rgba(239,68,68,0.4)' : 'rgba(239,68,68,0.18)'}`,
-                      borderRadius: 10, cursor: limpando ? 'not-allowed' : 'pointer',
-                      color: '#EF4444', fontWeight: 700, fontSize: 13,
-                      fontFamily: 'var(--font-body)',
-                      opacity: limpando ? 0.5 : 1,
-                    }}
-                  >
-                    <Trash2 size={15} />
-                    <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>
-                  </button>
-                ) : (
-                  <div style={{
-                    background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.35)',
-                    borderRadius: 12, padding: '14px 16px',
-                  }}>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: '#EF4444', marginBottom: 10 }}>
-                      ⚠️ {item.label} — esta ação não pode ser desfeita.
-                    </p>
-                    <p style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
-                      Digite <strong style={{ color: 'var(--text)' }}>CONFIRMAR</strong> para prosseguir:
-                    </p>
-                    <input
-                      className="form-input"
-                      placeholder="Digite CONFIRMAR"
-                      value={confirmInput}
-                      onChange={e => setConfirmInput(e.target.value)}
-                      style={{ marginBottom: 12 }}
-                    />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button
-                        onClick={() => setActiveConfirm(null)}
-                        style={{
-                          flex: 1, padding: '9px 0', borderRadius: 9, border: '1px solid var(--border)',
-                          background: 'var(--bg3)', color: 'var(--text2)', fontWeight: 600,
-                          fontSize: 13, cursor: 'pointer', fontFamily: 'var(--font-body)',
-                        }}
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        disabled={confirmInput !== 'CONFIRMAR' || limpando !== null}
-                        onClick={async () => {
-                          if (confirmInput !== 'CONFIRMAR') return
-                          setLimpando(item.key)
-                          setActiveConfirm(null)
-                          try {
-                            const res = await fetch(item.rota, {
-                              method: 'DELETE',
-                              headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
-                            })
-                            const data = await res.json()
-                            if (!res.ok) throw new Error(data.error || 'Erro ao apagar')
-                            toast(data.mensagem || 'Apagado com sucesso!', 'success')
-                          } catch (e: any) {
-                            toast(e.message || 'Erro ao apagar', 'error')
-                          } finally {
-                            setLimpando(null)
-                            setConfirmInput('')
-                          }
-                        }}
-                        style={{
-                          flex: 2, padding: '9px 0', borderRadius: 9,
-                          background: confirmInput === 'CONFIRMAR' ? '#EF4444' : 'rgba(239,68,68,0.3)',
-                          border: 'none', color: '#fff', fontWeight: 800,
-                          fontSize: 13, cursor: confirmInput === 'CONFIRMAR' ? 'pointer' : 'not-allowed',
-                          fontFamily: 'var(--font-body)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                        }}
-                      >
-                        {limpando === item.key
-                          ? <><span style={{ display:'inline-block', animation:'spin 1s linear infinite' }}>⏳</span> Apagando…</>
-                          : <><Trash2 size={14} /> Apagar</>
-                        }
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Sair */}
         <button className="btn btn-danger" style={{ width: '100%', gap: 8 }} onClick={logout}>
