@@ -15,13 +15,53 @@ const initialTheme = savedTheme === 'light' || savedTheme === 'dark'
 document.documentElement.setAttribute('data-theme', initialTheme)
 document.documentElement.style.colorScheme = initialTheme
 
-// ═══ PWA: Service Worker para offline + instalação ═══
-if ('serviceWorker' in navigator) {
+// ═══ RECUPERAÇÃO CONTRA CACHE ANTIGO DE CHUNKS ═══
+// Se o navegador tentar carregar um arquivo /assets/*.js antigo e receber erro,
+// limpamos caches e recarregamos uma única vez. Isso evita tela branca pós-deploy.
+const RELOAD_FLAG = 'nexus-reloaded-after-chunk-error'
+async function clearOldPwaCaches() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(reg => reg.unregister()))
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(key => caches.delete(key)))
+    }
+  } catch (err) {
+    console.warn('[CACHE] Falha ao limpar caches antigos:', err)
+  }
+}
+
+window.addEventListener('error', (event) => {
+  const target = event.target as HTMLElement | null
+  const src = (target as HTMLScriptElement | null)?.src || ''
+  const href = (target as HTMLLinkElement | null)?.href || ''
+  const asset = src || href
+
+  if (asset.includes('/assets/') && !sessionStorage.getItem(RELOAD_FLAG)) {
+    sessionStorage.setItem(RELOAD_FLAG, '1')
+    clearOldPwaCaches().finally(() => window.location.reload())
+  }
+}, true)
+
+window.addEventListener('unhandledrejection', (event) => {
+  const msg = String(event.reason?.message || event.reason || '')
+  if (
+    !sessionStorage.getItem(RELOAD_FLAG) &&
+    (msg.includes('Failed to fetch dynamically imported module') || msg.includes('Importing a module script failed'))
+  ) {
+    sessionStorage.setItem(RELOAD_FLAG, '1')
+    clearOldPwaCaches().finally(() => window.location.reload())
+  }
+})
+
+// Limpeza proativa: remove SW/caches antigos deixados pelo vite-plugin-pwa.
+// Mantemos isso por segurança para todos os usuários que já instalaram/cachearam a versão anterior.
+if ('serviceWorker' in navigator || 'caches' in window) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then(reg => console.info('[PWA] SW registrado:', reg.scope))
-      .catch(err => console.warn('[PWA] Falha SW:', err))
+    clearOldPwaCaches()
   })
 }
 
