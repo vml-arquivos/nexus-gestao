@@ -434,6 +434,71 @@ router.patch('/:id/devolver', async (req: Request, res: Response): Promise<void>
   }
 })
 
+// ── REABRIR / COMPLEMENTAR TAREFA APROVADA ─────────────────────────────────
+router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { complemento, prazo, prioridade } = req.body || {}
+    if (!complemento?.trim()) { res.status(400).json({ error: 'Informe o complemento solicitado.' }); return }
+
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    if (role === 'membro') { res.status(403).json({ error: 'Membro não pode reabrir tarefa.' }); return }
+    if (existing.criado_por !== userId) { res.status(403).json({ error: 'Você só pode complementar tarefas criadas por você.' }); return }
+
+    const carimbo = new Date().toLocaleString('pt-BR')
+    const obsComplemento = `Complemento solicitado em ${carimbo}: ${complemento.trim()}`
+    const novaObs = [existing.obs, obsComplemento].filter(Boolean).join('\n\n')
+
+    const updated = await queryOne(
+      `UPDATE tarefas SET
+         status = 'pendente',
+         status_gestor = 'aguardando',
+         ressalva_gestor = NULL,
+         resposta_membro = NULL,
+         motivo_nao_conclusao = NULL,
+         observacao_conclusao = NULL,
+         data_inicio = NULL,
+         data_conclusao = NULL,
+         prazo = COALESCE($1, prazo),
+         prioridade = COALESCE($2, prioridade),
+         obs = $3,
+         updated_at = NOW()
+       WHERE id = $4 AND org_id = $5
+       RETURNING *`,
+      [prazo || null, prioridade || null, novaObs, req.params.id, orgId]
+    )
+
+    await addHistorico({
+      orgId,
+      tarefaId: req.params.id,
+      userId,
+      acao: 'complemento_solicitado',
+      statusAnterior: existing.status,
+      statusNovo: 'pendente',
+      observacao: complemento.trim(),
+    })
+
+    if (existing.responsavel_id && existing.responsavel_id !== userId) {
+      await criarNotificacao({
+        orgId,
+        userId: existing.responsavel_id,
+        tipo: 'tarefa_atualizada',
+        titulo: 'Complemento solicitado em tarefa',
+        body: updated?.titulo || existing.titulo,
+        referenciaId: req.params.id,
+        referenciaTipo: 'tarefa',
+      }).catch(() => {})
+    }
+
+    res.json({ tarefa: updated })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao reabrir/complementar:', err)
+    res.status(500).json({ error: 'Erro ao reabrir tarefa.' })
+  }
+})
+
 // ── HISTÓRICO ────────────────────────────────────────────────────────────────
 router.get('/:id/historico', async (req: Request, res: Response): Promise<void> => {
   try {

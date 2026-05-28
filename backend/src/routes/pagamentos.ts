@@ -107,6 +107,42 @@ function buildNaturalGroupKey(row: any): string {
   ].join('|')
 }
 
+function normalizeBaseTitleForHistory(title: unknown): string {
+  return String(title || '')
+    .replace(/^(Abatimento|Acréscimo|Acrescimo|Pagamento|Baixa|Recalculo|Recálculo)\s+[—-]\s+/i, '')
+    .trim()
+}
+
+function buildHistoryGroupKey(input: any): string {
+  const pessoa = input.pessoa_id || input.pessoa_nome_atual || input.pessoa_nome || 'sem-pessoa'
+  const valor = input.valor_parcela ?? input.valor ?? input.valor_original ?? 0
+  return [
+    'natural',
+    normalizeGroupPart(normalizeBaseTitleForHistory(input.titulo)),
+    normalizeGroupPart(input.tipo),
+    normalizeGroupPart(input.categoria || 'sem-categoria'),
+    normalizeGroupPart(pessoa),
+    Number(valor || 0).toFixed(2),
+  ].join('|')
+}
+
+function historicoFromParcela(row: any) {
+  if (row.status !== 'pago') return null
+  return {
+    id: `parcela:${row.id}`,
+    pagamento_id: row.id,
+    grupo_id: row.grupo_id || null,
+    group_key: buildNaturalGroupKey(row),
+    tipo_evento: 'pagamento',
+    titulo: row.num_parcela ? `Parcela ${row.num_parcela} paga` : 'Pagamento registrado',
+    descricao: row.obs || null,
+    valor: Number(row.valor || 0),
+    data_evento: normalizeDateValue(row.pago_em || row.vencimento || row.updated_at || row.created_at),
+    forma_pagamento: null,
+    created_at: row.updated_at || row.created_at,
+  }
+}
+
 // ── GET /api/pagamentos ──────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -206,6 +242,7 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       ultima_parcela: string | null
       vencido: boolean
       is_grupo: boolean
+      historico: any[]
     }>()
 
     for (const row of rows) {
@@ -234,11 +271,14 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
           ultima_parcela: null,
           vencido: false,
           is_grupo: isGrupo,
+          historico: [],
         })
       }
 
       const g = gruposMap.get(chave)!
       g.parcelas.push(row)
+      const eventoParcela = historicoFromParcela(row)
+      if (eventoParcela) g.historico.push(eventoParcela)
       const valor = Number(row.valor || 0)
 
       if (row.status !== 'cancelado') {
@@ -265,6 +305,43 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       g.num_parcelas++
     }
 
+    // Carrega movimentos manuais do extrato financeiro e vincula por grupo_id ou chave natural.
+    const histRows = await query(
+      `SELECT h.*, p.nome AS user_nome
+       FROM pagamentos_historico h
+       LEFT JOIN profiles p ON p.id = h.user_id
+       WHERE h.org_id = $1 AND h.user_id = $2
+       ORDER BY h.created_at DESC`,
+      [orgId, userId]
+    ).catch(() => []) as any[]
+
+    for (const h of histRows) {
+      const keys: string[] = []
+      if (h.grupo_id) keys.push(`grupo:${h.grupo_id}`)
+      if (h.group_key) keys.push(String(h.group_key))
+      for (const key of keys) {
+        const g = gruposMap.get(key)
+        if (!g) continue
+        g.historico.push({
+          id: h.id,
+          pagamento_id: h.pagamento_id || null,
+          grupo_id: h.grupo_id || null,
+          group_key: h.group_key || null,
+          tipo_evento: h.tipo_evento,
+          titulo: h.titulo,
+          descricao: h.descricao,
+          valor: h.valor !== null && h.valor !== undefined ? Number(h.valor) : null,
+          data_evento: normalizeDateValue(h.data_evento),
+          forma_pagamento: h.forma_pagamento || null,
+          saldo_anterior: h.saldo_anterior !== null && h.saldo_anterior !== undefined ? Number(h.saldo_anterior) : null,
+          saldo_posterior: h.saldo_posterior !== null && h.saldo_posterior !== undefined ? Number(h.saldo_posterior) : null,
+          user_nome: h.user_nome || null,
+          created_at: h.created_at,
+        })
+        break
+      }
+    }
+
     // Converte para array e ordena: vencidos primeiro, depois por próxima parcela
     const grupos = Array.from(gruposMap.values()).map(g => ({
       ...g,
@@ -272,6 +349,11 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
         (a.num_parcela || 0) - (b.num_parcela || 0) ||
         compareNullableDates(a.vencimento, b.vencimento)
       ),
+      historico: g.historico.sort((a: any, b: any) => {
+        const da = new Date(a.created_at || a.data_evento || 0).getTime()
+        const db = new Date(b.created_at || b.data_evento || 0).getTime()
+        return db - da
+      }),
     }))
 
     grupos.sort((a, b) => {
@@ -286,6 +368,62 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
+
+
+// ── POST /api/pagamentos/historico ───────────────────────────────────────────
+// Registra evento/extrato de uma dívida ou recebimento agrupado.
+router.post('/historico', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const {
+      pagamento_id,
+      grupo_id,
+      group_key,
+      tipo_evento = 'movimento',
+      titulo,
+      descricao,
+      valor,
+      data_evento,
+      forma_pagamento,
+      saldo_anterior,
+      saldo_posterior,
+      metadata,
+      referencia,
+    } = req.body || {}
+
+    if (!titulo?.trim()) { res.status(400).json({ error: 'Título do histórico é obrigatório.' }); return }
+
+    const finalGroupKey = group_key || (referencia ? buildHistoryGroupKey(referencia) : null)
+
+    const row = await queryOne(
+      `INSERT INTO pagamentos_historico
+        (org_id, user_id, pagamento_id, grupo_id, group_key, tipo_evento, titulo, descricao, valor,
+         data_evento, forma_pagamento, saldo_anterior, saldo_posterior, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING *`,
+      [
+        orgId,
+        userId,
+        pagamento_id || null,
+        grupo_id || null,
+        finalGroupKey || null,
+        tipo_evento,
+        titulo.trim(),
+        descricao || null,
+        valor === undefined || valor === '' ? null : Number(valor),
+        data_evento || null,
+        forma_pagamento || null,
+        saldo_anterior === undefined || saldo_anterior === '' ? null : Number(saldo_anterior),
+        saldo_posterior === undefined || saldo_posterior === '' ? null : Number(saldo_posterior),
+        metadata ? JSON.stringify(metadata) : '{}',
+      ]
+    )
+    res.status(201).json({ historico: row })
+  } catch (err) {
+    console.error('[PAG] Erro ao registrar histórico:', err)
+    res.status(500).json({ error: 'Erro ao registrar histórico financeiro.' })
+  }
+})
 
 // ── GET /api/pagamentos/grupo/:grupo_id ──────────────────────────────────────
 // Retorna todas as parcelas de um grupo específico

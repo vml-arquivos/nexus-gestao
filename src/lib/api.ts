@@ -176,6 +176,23 @@ export interface Pagamento {
   updated_at?: string
 }
 
+export interface HistoricoFinanceiro {
+  id: string
+  pagamento_id?: string | null
+  grupo_id?: string | null
+  group_key?: string | null
+  tipo_evento: 'criacao' | 'pagamento' | 'abatimento' | 'acrescimo' | 'recalculo' | 'cancelamento' | 'edicao' | 'movimento'
+  titulo: string
+  descricao?: string | null
+  valor?: number | null
+  data_evento?: string | null
+  forma_pagamento?: string | null
+  saldo_anterior?: number | null
+  saldo_posterior?: number | null
+  user_nome?: string | null
+  created_at: string
+}
+
 /** Card consolidado de uma dívida ou crédito (agrupado por grupo_id ou avulso) */
 export interface GrupoPagamento {
   grupo_id: string | null
@@ -196,6 +213,7 @@ export interface GrupoPagamento {
   ultima_parcela: string | null
   vencido: boolean
   is_grupo: boolean
+  historico?: HistoricoFinanceiro[]
 }
 
 export interface ResumoPorPessoa {
@@ -436,6 +454,12 @@ export const tarefasApi = {
     return data.tarefa
   },
 
+
+  async reabrir(id: string, payload: { complemento: string; prazo?: string; prioridade?: Tarefa['prioridade'] }): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/reabrir`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return data.tarefa
+  },
+
   async historico(id: string): Promise<any[]> {
     const data = await apiJson<{ historico: any[] }>(`/tarefas/${id}/historico`)
     return data.historico
@@ -569,6 +593,28 @@ export const pagamentosApi = {
 
   async remove(id: string): Promise<void> {
     await apiJson(`/pagamentos/${id}`, { method: 'DELETE' })
+  },
+
+  async addHistorico(payload: {
+    pagamento_id?: string
+    grupo_id?: string | null
+    group_key?: string | null
+    tipo_evento?: HistoricoFinanceiro['tipo_evento']
+    titulo: string
+    descricao?: string
+    valor?: number
+    data_evento?: string
+    forma_pagamento?: string
+    saldo_anterior?: number
+    saldo_posterior?: number
+    metadata?: Record<string, unknown>
+    referencia?: Partial<Pagamento> & { valor_parcela?: number; valor_original?: number }
+  }): Promise<HistoricoFinanceiro> {
+    const data = await apiJson<{ historico: HistoricoFinanceiro }>('/pagamentos/historico', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return data.historico
   },
 
   async grupos(): Promise<GrupoPagamento[]> {

@@ -433,6 +433,33 @@ CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa ON tarefa_anexos(tarefa_id, 
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org ON tarefa_anexos(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_enviado_por ON tarefa_anexos(enviado_por, created_at DESC);
 
+
+
+-- Histórico/extrato financeiro por dívida/crédito
+CREATE TABLE IF NOT EXISTS pagamentos_historico (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id       UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  pagamento_id UUID REFERENCES pagamentos(id) ON DELETE SET NULL,
+  grupo_id     UUID,
+  group_key    TEXT,
+  tipo_evento  TEXT NOT NULL DEFAULT 'movimento'
+               CHECK (tipo_evento IN ('criacao','pagamento','abatimento','acrescimo','recalculo','cancelamento','edicao','movimento')),
+  titulo       TEXT NOT NULL,
+  descricao    TEXT,
+  valor        NUMERIC(14,2),
+  data_evento  DATE,
+  forma_pagamento TEXT,
+  saldo_anterior NUMERIC(14,2),
+  saldo_posterior NUMERIC(14,2),
+  metadata     JSONB DEFAULT '{}'::jsonb,
+  created_at   TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_hist_org_user ON pagamentos_historico(org_id, user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_hist_pagamento ON pagamentos_historico(pagamento_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_hist_grupo ON pagamentos_historico(grupo_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pagamentos_hist_group_key ON pagamentos_historico(group_key, created_at DESC);
+
 -- ── LEMBRETES PERSONALIZADOS ───────────────────────────────────────────────
 -- Lembretes criados pelo gestor ou membro, vinculados a qualquer entidade
 CREATE TABLE IF NOT EXISTS lembretes (

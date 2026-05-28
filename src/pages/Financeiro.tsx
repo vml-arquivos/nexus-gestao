@@ -52,6 +52,13 @@ function fmtDate(d?: string) {
   return new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')
 }
 
+function fmtDateTime(d?: string) {
+  if (!d) return '—'
+  const parsed = new Date(d)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString('pt-BR')
+}
+
 const CATEGORIAS = ['Salário', 'Fornecedor', 'Aluguel', 'Serviço', 'Empréstimo', 'Dívida', 'Produto', 'Imposto', 'Outro']
 
 function makeInitialForPessoa(pessoaId: string | null | undefined, pessoaNome: string, tipo: 'pagamento' | 'recebimento'): Partial<Pagamento> {
@@ -184,6 +191,39 @@ function calcSaldoGrupo(parcelas: Pagamento[]) {
     numPendentes  : pendentes.length,
     pendentes     : [...pendentes].sort((a, b) => (a.vencimento || '') < (b.vencimento || '') ? -1 : 1),
   }
+}
+
+
+type HistoricoFinanceiroItem = NonNullable<GrupoPagamento['historico']>[number]
+
+function historicoDerivado(parcelas: Pagamento[]): HistoricoFinanceiroItem[] {
+  const eventos: HistoricoFinanceiroItem[] = []
+  for (const p of parcelas) {
+    if (p.status === 'pago') {
+      eventos.push({
+        id: `parcela-${p.id}`,
+        pagamento_id: p.id,
+        grupo_id: p.grupo_id || null,
+        tipo_evento: 'pagamento',
+        titulo: p.num_parcela ? `Parcela ${p.num_parcela} paga` : 'Pagamento registrado',
+        descricao: p.obs || null,
+        valor: Number(p.valor || 0),
+        data_evento: p.pago_em || p.vencimento || p.updated_at || p.created_at,
+        forma_pagamento: null,
+        created_at: p.updated_at || p.created_at,
+      } as HistoricoFinanceiroItem)
+    }
+  }
+  return eventos.sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
+}
+
+function tituloEventoFinanceiro(tipo: string) {
+  if (tipo === 'abatimento') return 'Abatimento / pagamento'
+  if (tipo === 'acrescimo') return 'Acréscimo de saldo'
+  if (tipo === 'pagamento') return 'Pagamento de parcela'
+  if (tipo === 'recalculo') return 'Recalculo de parcelas'
+  if (tipo === 'cancelamento') return 'Cancelamento'
+  return 'Movimento financeiro'
 }
 
 
@@ -391,9 +431,10 @@ function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
   )
 }
 
-function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
+function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClose }: {
   parcelas  : Pagamento[]
   tipo      : 'pagamento' | 'recebimento'
+  historico?: HistoricoFinanceiroItem[]
   onUpdate  : () => void
   onClose   : () => void
 }) {
@@ -408,6 +449,9 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
   const saldo    = calcSaldoGrupo(parcelas)
   const valorNum = parseFloat(valor) || 0
   const ref      = parcelas[0]
+  const historicoCompleto = [...(historico || []), ...historicoDerivado(parcelas)]
+    .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
+    .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
 
   const novoSaldo      = modo === 'abatimento'
     ? Math.max(0, saldo.totalPendente - valorNum)
@@ -434,7 +478,7 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
           : `Acréscimo sobre dívida "${ref?.titulo}"`,
       ].filter(Boolean).join(' | ')
 
-      await pagamentosApi.create({
+      const movimento = await pagamentosApi.create({
         titulo     : modo === 'abatimento' ? `Abatimento — ${ref?.titulo}` : `Acréscimo — ${ref?.titulo}`,
         valor      : valorNum,
         tipo,
@@ -447,6 +491,28 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
         obs        : obsMovimento,
         recorrencia: 'nenhum',
       })
+
+      await pagamentosApi.addHistorico({
+        pagamento_id: movimento.id,
+        grupo_id: ref?.grupo_id || null,
+        tipo_evento: modo === 'abatimento' ? 'abatimento' : 'acrescimo',
+        titulo: modo === 'abatimento' ? 'Abatimento / pagamento registrado' : 'Acréscimo registrado',
+        descricao: obsMovimento,
+        valor: valorNum,
+        data_evento: data,
+        forma_pagamento: forma || undefined,
+        saldo_anterior: saldo.totalPendente,
+        saldo_posterior: novoSaldo,
+        referencia: {
+          titulo: ref?.titulo,
+          tipo,
+          categoria: ref?.categoria,
+          pessoa_id: ref?.pessoa_id,
+          pessoa_nome: ref?.pessoa_nome || ref?.pessoa_nome_atual,
+          valor_parcela: Number(ref?.valor || 0),
+        },
+        metadata: { acao, modo, parcelas_pendentes: saldo.numPendentes },
+      }).catch(() => {})
 
       if (quitado) {
         for (const p of saldo.pendentes) {
@@ -613,6 +679,37 @@ function GerenciarDividaModal({ parcelas, tipo, onUpdate, onClose }: {
             </div>
           )}
         </div>
+
+        <section style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 14 }}>Histórico / extrato</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Linha do tempo dos pagamentos, abatimentos, acréscimos e recalculos desta dívida/crédito.</div>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text3)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{historicoCompleto.length} evento(s)</span>
+          </div>
+          {historicoCompleto.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text3)', border: '1px dashed var(--border)', borderRadius: 12, padding: 12 }}>Nenhum movimento registrado ainda.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+              {historicoCompleto.map((h, i) => (
+                <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg3)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, fontSize: 13 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{h.data_evento ? fmtDate(String(h.data_evento)) : fmtDateTime(h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
+                    </div>
+                    {h.valor !== null && h.valor !== undefined && <div style={{ fontWeight: 900, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : '#10B981', whiteSpace: 'nowrap' }}>{h.tipo_evento === 'acrescimo' ? '+' : '-'}{fmt(Number(h.valor))}</div>}
+                  </div>
+                  {h.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, overflowWrap: 'anywhere' }}>{h.descricao}</div>}
+                  {(h.saldo_anterior !== null && h.saldo_anterior !== undefined && h.saldo_posterior !== null && h.saldo_posterior !== undefined) && (
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>Saldo: {fmt(Number(h.saldo_anterior))} → <strong>{fmt(Number(h.saldo_posterior))}</strong></div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn btn-ghost" onClick={onClose} style={{ flex: 1 }} disabled={saving}>Cancelar</button>
@@ -1238,7 +1335,7 @@ export default function Financeiro() {
   const [porPessoa, setPorPessoa] = useState<ResumoPorPessoa[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
-  const [gerenciarDivida, setGerenciarDivida] = useState<{ parcelas: Pagamento[]; tipo: 'pagamento' | 'recebimento' } | null>(null)
+  const [gerenciarDivida, setGerenciarDivida] = useState<{ parcelas: Pagamento[]; tipo: 'pagamento' | 'recebimento'; historico?: HistoricoFinanceiroItem[] } | null>(null)
   const [editPag, setEditPag] = useState<Pagamento | null>(null)
   const [prefill, setPrefill] = useState<Partial<Pagamento> | null>(null)
   const [tab, setTab] = useState<'lista' | 'pessoas'>('lista')
@@ -1291,7 +1388,24 @@ export default function Financeiro() {
 
   async function handleMarcarPago(p: Pagamento) {
     try {
-      await pagamentosApi.update(p.id, { status: 'pago', pago_em: new Date().toISOString().slice(0, 10) })
+      const hoje = new Date().toISOString().slice(0, 10)
+      await pagamentosApi.update(p.id, { status: 'pago', pago_em: hoje })
+      await pagamentosApi.addHistorico({
+        pagamento_id: p.id,
+        grupo_id: p.grupo_id || null,
+        tipo_evento: 'pagamento',
+        titulo: p.num_parcela ? `Parcela ${p.num_parcela} marcada como paga` : 'Pagamento marcado como pago',
+        valor: Number(p.valor || 0),
+        data_evento: hoje,
+        referencia: {
+          titulo: p.titulo,
+          tipo: p.tipo,
+          categoria: p.categoria,
+          pessoa_id: p.pessoa_id,
+          pessoa_nome: p.pessoa_nome || p.pessoa_nome_atual,
+          valor_parcela: Number(p.valor || 0),
+        },
+      }).catch(() => {})
       toast('Marcado como pago!')
       load()
     } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
@@ -1433,7 +1547,7 @@ export default function Financeiro() {
                       <GrupoBetaCard
                         key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
-                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
+                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
                         onMarkPaid={p => handleMarcarPago(p)}
@@ -1465,7 +1579,7 @@ export default function Financeiro() {
                       <GrupoBetaCard
                         key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
-                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo })}
+                        onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
                         onMarkPaid={p => handleMarcarPago(p)}
@@ -1498,6 +1612,7 @@ export default function Financeiro() {
         <GerenciarDividaModal
           parcelas={gerenciarDivida.parcelas}
           tipo={gerenciarDivida.tipo}
+          historico={gerenciarDivida.historico || []}
           onUpdate={load}
           onClose={() => setGerenciarDivida(null)}
         />

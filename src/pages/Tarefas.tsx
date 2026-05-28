@@ -254,6 +254,64 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
   )
 }
 
+function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: () => void; onSaved: (t: Tarefa) => void }) {
+  const [complemento, setComplemento] = useState('')
+  const [prazo, setPrazo] = useState('')
+  const [prioridade, setPrioridade] = useState<Priority>(tarefa.prioridade || 'media')
+  const [loading, setLoading] = useState(false)
+
+  async function salvar() {
+    if (!complemento.trim()) { toast('Informe o complemento que o membro deve executar.', 'error'); return }
+    setLoading(true)
+    try {
+      const saved = await tarefasApi.reabrir(tarefa.id, {
+        complemento: complemento.trim(),
+        prazo: prazo || undefined,
+        prioridade,
+      })
+      onSaved(saved)
+      toast('Complemento solicitado. A tarefa voltou para pendente.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao solicitar complemento.', 'error')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <ModalBase title="Solicitar complemento na tarefa" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg3)', padding: 12 }}>
+          <div style={{ fontWeight: 900 }}>{tarefa.titulo}</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
+            Use essa opção para continuar a mesma tarefa sem criar cards soltos. O membro receberá a tarefa novamente como pendente.
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">O que precisa ser feito agora? *</label>
+          <textarea className="form-input" rows={5} value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Ex.: complementar documentação, anexar novo comprovante, refazer uma parte, enviar nova versão..." />
+        </div>
+        <div className="grid-2">
+          <div className="form-group">
+            <label className="form-label">Novo prazo</label>
+            <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Prioridade</label>
+            <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Priority)}>
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
+          <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <RotateCcw size={14} />} Solicitar complemento</button>
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
 function HistoricoModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void }) {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -424,7 +482,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onHistory, onAnexos }: {
+function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -434,6 +492,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
   onResponder: (t: Tarefa) => void
   onApprove: (t: Tarefa) => void
   onReturn: (t: Tarefa) => void
+  onComplemento: (t: Tarefa) => void
   onHistory: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
 }) {
@@ -513,10 +572,12 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
         {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onResponder(tarefa)} type="button">Concluir / Não concluí</button>}
         {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
         {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
       </div>
 
       {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
         {tarefa.descricao && <p style={{ marginTop: 0, color: 'var(--text2)' }}>{tarefa.descricao}</p>}
+        {tarefa.obs && <div style={{ margin: '8px 0', color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, fontSize: 13, whiteSpace: 'pre-wrap' }}><strong>Complementos/observações:</strong><br />{tarefa.obs}</div>}
         {checkTotal > 0 && tarefa.checklist?.map(i => <div key={i.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', fontSize: 13 }}><span>{i.feito ? '✅' : '⬜'}</span>{i.texto}</div>)}
       </div>}
     </article>
@@ -534,6 +595,7 @@ export default function Tarefas() {
   const [responder, setResponder] = useState<Tarefa | null>(null)
   const [historico, setHistorico] = useState<Tarefa | null>(null)
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
+  const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
@@ -653,6 +715,7 @@ export default function Tarefas() {
               onResponder={setResponder}
               onApprove={approve}
               onReturn={devolver}
+              onComplemento={setComplemento}
               onHistory={setHistorico}
               onAnexos={setAnexos}
             />
