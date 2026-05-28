@@ -107,7 +107,7 @@ function UploadModal({ pessoas, pagamentos, onSave, onClose }: {
             )}
           </div>
         )}
-        <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
+        <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
         <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group"><label className="form-label">Título *</label><input className="form-input" placeholder="Ex: Comprovante transferência João" value={titulo} onChange={e => setTitulo(e.target.value)} /></div>

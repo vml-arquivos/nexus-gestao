@@ -1,51 +1,24 @@
-import { Router, Request, Response } from 'express'
-import multer, { FileFilterCallback } from 'multer'
-import path from 'path'
-import fs from 'fs'
+import { Router, Request, Response, NextFunction } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware } from '../middleware/auth'
 import { criarNotificacao } from '../lib/notifHelper'
+import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
 const router = Router()
 router.use(authMiddleware)
 
 // ── UPLOADS DE EVIDÊNCIAS DA TAREFA ─────────────────────────────────────────
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads')
-
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
+const evidenceUpload = createSecureMulterUpload()
+const uploadEvidenceFile = (req: Request, res: Response, next: NextFunction) => {
+  evidenceUpload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      res.status(400).json({ error: uploadErrorMessage(err) })
+      return
+    }
+    next()
+  })
 }
-
-const evidenceStorage = multer.diskStorage({
-  destination: (_req: Request, _file: Express.Multer.File, cb: (err: Error | null, dest: string) => void) => {
-    cb(null, UPLOADS_DIR)
-  },
-  filename: (_req: Request, file: Express.Multer.File, cb: (err: Error | null, name: string) => void) => {
-    const ext = path.extname(file.originalname || '').toLowerCase()
-    cb(null, `${uuidv4()}${ext}`)
-  },
-})
-
-const EVIDENCE_ALLOWED_MIMES = [
-  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'video/mp4', 'video/quicktime',
-]
-
-const evidenceUpload = multer({
-  storage: evidenceStorage,
-  limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024 },
-  fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-    if (EVIDENCE_ALLOWED_MIMES.includes(file.mimetype)) cb(null, true)
-    else cb(new Error(`Tipo de arquivo não permitido: ${file.mimetype}`))
-  },
-})
 
 interface MulterTaskRequest extends Request {
   file?: Express.Multer.File
@@ -632,25 +605,25 @@ router.get('/:id/anexos', async (req: Request, res: Response): Promise<void> => 
 
 // POST /api/tarefas/:id/anexos
 // Usado pelo membro para anexar evidências da execução e pelo gestor para anexar referência/validação.
-router.post('/:id/anexos', evidenceUpload.single('file'), async (req: MulterTaskRequest, res: Response): Promise<void> => {
+router.post('/:id/anexos', uploadEvidenceFile, async (req: MulterTaskRequest, res: Response): Promise<void> => {
   try {
     if (!req.file) { res.status(400).json({ error: 'Nenhum arquivo enviado.' }); return }
 
     const { orgId, userId } = req.user!
     const task = await getTaskForAccess(req.params.id, orgId)
     if (!task) {
-      try { fs.unlinkSync(req.file.path) } catch {}
+      removeUploadByUrl(buildUploadUrl(req.file.filename))
       res.status(404).json({ error: 'Tarefa não encontrada.' })
       return
     }
     if (!(await userCanAccessTask(task, req.user!))) {
-      try { fs.unlinkSync(req.file.path) } catch {}
+      removeUploadByUrl(buildUploadUrl(req.file.filename))
       res.status(403).json({ error: 'Acesso negado.' })
       return
     }
 
     const { titulo, descricao, tipo = 'evidencia' } = req.body
-    const arquivoUrl = `/uploads/${req.file.filename}`
+    const arquivoUrl = buildUploadUrl(req.file.filename)
     const anexo = await queryOne(
       `INSERT INTO tarefa_anexos
          (org_id, tarefa_id, enviado_por, titulo, descricao, tipo, arquivo_url, nome_original, mime_type, tamanho)
@@ -694,8 +667,8 @@ router.post('/:id/anexos', evidenceUpload.single('file'), async (req: MulterTask
 
     res.status(201).json({ anexo })
   } catch (err) {
-    if (req.file) { try { fs.unlinkSync(req.file.path) } catch {} }
-    const msg = err instanceof Error ? err.message : 'Erro ao anexar arquivo.'
+    if (req.file) { removeUploadByUrl(buildUploadUrl(req.file.filename)) }
+    const msg = uploadErrorMessage(err)
     console.error('[TAREFAS] Erro ao anexar:', msg)
     res.status(500).json({ error: msg })
   }
@@ -718,11 +691,7 @@ router.delete('/:id/anexos/:anexoId', async (req: Request, res: Response): Promi
     const canDelete = anexo.enviado_por === userId || task.criado_por === userId || role === 'gestor' || role === 'sub_gestor'
     if (!canDelete) { res.status(403).json({ error: 'Você não tem permissão para excluir este anexo.' }); return }
 
-    const filename = String(anexo.arquivo_url || '').split('/uploads/').pop()
-    if (filename) {
-      const filePath = path.join(UPLOADS_DIR, filename)
-      if (fs.existsSync(filePath)) { try { fs.unlinkSync(filePath) } catch {} }
-    }
+    removeUploadByUrl(anexo.arquivo_url)
 
     await query('DELETE FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2 AND org_id = $3', [req.params.anexoId, req.params.id, orgId])
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'anexo_removido', statusAnterior: task.status, statusNovo: task.status, observacao: anexo.titulo || anexo.nome_original || null })
@@ -829,8 +798,11 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     if (role === 'membro' && existing.criado_por !== userId) { res.status(403).json({ error: 'Membro só exclui tarefas pessoais criadas por ele.' }); return }
     if (role !== 'membro' && existing.criado_por !== userId && existing.responsavel_id !== userId) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    const anexos = await query<{ arquivo_url?: string }>('SELECT arquivo_url FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId])
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'excluida', statusAnterior: existing.status, observacao: existing.titulo })
+    await query('DELETE FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId])
     await query('DELETE FROM tarefas WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
+    for (const anexo of anexos) removeUploadByUrl(anexo.arquivo_url)
     res.json({ ok: true })
   } catch (err) {
     console.error('[TAREFAS] Erro ao excluir:', err)

@@ -1,53 +1,22 @@
-import { Router, Request, Response } from 'express'
-import multer, { FileFilterCallback } from 'multer'
-import path from 'path'
-import fs from 'fs'
-import { v4 as uuidv4 } from 'uuid'
+import { Router, Request, Response, NextFunction } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
 const router = Router()
 router.use(authMiddleware)
 
-// ── CONFIGURAÇÃO DO STORAGE ───────────────────────────────────────────────────
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads')
-
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
-}
-
-const storage = multer.diskStorage({
-  destination: (_req: Request, _file: Express.Multer.File, cb: (err: Error | null, dest: string) => void) => {
-    cb(null, UPLOADS_DIR)
-  },
-  filename: (_req: Request, file: Express.Multer.File, cb: (err: Error | null, name: string) => void) => {
-    const ext = path.extname(file.originalname).toLowerCase()
-    cb(null, `${uuidv4()}${ext}`)
-  },
-})
-
-const ALLOWED_MIMES = [
-  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'video/mp4', 'video/quicktime',
-]
-
-const upload = multer({
-  storage,
-  limits: { fileSize: Number(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024 },
-  fileFilter: (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-    if (ALLOWED_MIMES.includes(file.mimetype)) {
-      cb(null, true)
-    } else {
-      cb(new Error(`Tipo de arquivo não permitido: ${file.mimetype}`))
+// ── CONFIGURAÇÃO DO STORAGE SEGURO ───────────────────────────────────────────
+const upload = createSecureMulterUpload()
+const uploadSingleFile = (req: Request, res: Response, next: NextFunction) => {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      res.status(400).json({ error: uploadErrorMessage(err) })
+      return
     }
-  },
-})
+    next()
+  })
+}
 
 // Extend Request to include Multer file
 interface MulterRequest extends Request {
@@ -56,7 +25,7 @@ interface MulterRequest extends Request {
 
 // ── UPLOAD DE ARQUIVO ─────────────────────────────────────────────────────────
 // POST /api/uploads
-router.post('/', upload.single('file'), async (req: MulterRequest, res: Response): Promise<void> => {
+router.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Promise<void> => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'Nenhum arquivo enviado.' })
@@ -67,7 +36,7 @@ router.post('/', upload.single('file'), async (req: MulterRequest, res: Response
     const { titulo, descricao, tipo = 'outro', pessoa_id, pagamento_id } = req.body
 
     if (!titulo?.trim()) {
-      try { fs.unlinkSync(req.file.path) } catch {}
+      removeUploadByUrl(buildUploadUrl(req.file.filename))
       res.status(400).json({ error: 'Título é obrigatório.' })
       return
     }
@@ -81,8 +50,7 @@ router.post('/', upload.single('file'), async (req: MulterRequest, res: Response
       pessoaNome = pessoa?.nome ?? null
     }
 
-    const BASE_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
-    const arquivo_url = `${BASE_URL}/uploads/${req.file.filename}`
+    const arquivo_url = buildUploadUrl(req.file.filename)
 
     const doc = await queryOne(
       `INSERT INTO documentos
@@ -106,9 +74,9 @@ router.post('/', upload.single('file'), async (req: MulterRequest, res: Response
     res.status(201).json({ documento: doc, arquivo_url })
   } catch (err: unknown) {
     if ((req as MulterRequest).file) {
-      try { fs.unlinkSync((req as MulterRequest).file!.path) } catch {}
+      removeUploadByUrl(buildUploadUrl((req as MulterRequest).file!.filename))
     }
-    const msg = err instanceof Error ? err.message : 'Erro ao fazer upload.'
+    const msg = uploadErrorMessage(err)
     console.error('[UPLOAD] Erro:', msg)
     res.status(500).json({ error: msg })
   }
@@ -155,13 +123,7 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
 
-    const filename = doc.arquivo_url.split('/uploads/').pop()
-    if (filename) {
-      const filePath = path.join(UPLOADS_DIR, filename)
-      if (fs.existsSync(filePath)) {
-        try { fs.unlinkSync(filePath) } catch {}
-      }
-    }
+    removeUploadByUrl(doc.arquivo_url)
 
     await query('DELETE FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [req.params.id, orgId, userId])
     res.json({ ok: true })

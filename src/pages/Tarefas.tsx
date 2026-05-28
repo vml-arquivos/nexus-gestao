@@ -261,9 +261,9 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
       </div>
       <div className="form-group">
         <label className="form-label">Anexar evidência da tarefa</label>
-        <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+        <input className="form-input" type="file" multiple onChange={onFilesChange} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
         <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-          Envie foto, PDF, comprovante, planilha, documento ou vídeo para o gestor verificar o que foi feito.
+          Envie PDF, imagem, planilha, documento, TXT ou CSV para o gestor verificar o que foi feito.
         </div>
         {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
       </div>
@@ -418,7 +418,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
     <div style={{ display: 'grid', gap: 12, border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">Selecionar arquivos</label>
-        <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+        <input className="form-input" type="file" multiple onChange={onFilesChange} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
         {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
       </div>
       <div className="form-group" style={{ margin: 0 }}>
@@ -652,7 +652,7 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
         {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && (
           <section className="task-detail-section">
             <h3>Evidências para anexar antes de concluir</h3>
-            <input className="form-input" type="file" multiple onChange={e => setFiles(Array.from(e.target.files || []))} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+            <input className="form-input" type="file" multiple onChange={e => setFiles(Array.from(e.target.files || []))} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
             {files.length > 0 && <div className="pending-files">{files.map((f, i) => <span key={`${f.name}-${i}`}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</span>)}</div>}
             <label className="form-label">Observação de conclusão</label>
             <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex.: executei os itens marcados e anexei os comprovantes..." />
