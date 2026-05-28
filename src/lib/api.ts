@@ -52,13 +52,23 @@ export interface Tarefa {
   data?: string
   prazo?: string
   prioridade: 'baixa' | 'media' | 'alta'
-  status: 'pendente' | 'em_progresso' | 'concluida' | 'cancelada'
+  status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'aprovada' | 'cancelada'
   checklist?: ChecklistItem[]
   obs?: string
   // Resposta de execução do responsável
   resposta_status?: 'concluida' | 'nao_concluida'
   resposta_obs?: string
   resposta_em?: string
+  resposta_membro?: string
+  motivo_nao_conclusao?: string
+  observacao_conclusao?: string
+  status_gestor?: 'aguardando' | 'aprovada' | 'devolvida'
+  ressalva_gestor?: string
+  aprovada_em?: string
+  aprovada_por?: string
+  devolvida_em?: string
+  data_inicio?: string
+  data_conclusao?: string
   created_at: string
   updated_at?: string
 }
@@ -393,10 +403,36 @@ export const tarefasApi = {
     await apiJson(`/tarefas/${id}`, { method: 'DELETE' })
   },
 
-  // Resposta de execução: membro informa se concluiu ou não + observação
-  async responder(id: string, payload: { resposta_status: 'concluida' | 'nao_concluida'; resposta_obs?: string }): Promise<Tarefa> {
-    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/resposta`, { method: 'POST', body: JSON.stringify(payload) })
+  async updateStatus(id: string, payload: { status: 'em_progresso' | 'concluida' | 'nao_concluida'; motivo_nao_conclusao?: string; observacao_conclusao?: string; resposta_membro?: string }): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) })
     return data.tarefa
+  },
+
+  async aprovar(id: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/aprovar`, { method: 'PATCH' })
+    return data.tarefa
+  },
+
+  async devolver(id: string, ressalva_gestor: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/devolver`, { method: 'PATCH', body: JSON.stringify({ ressalva_gestor }) })
+    return data.tarefa
+  },
+
+  async historico(id: string): Promise<any[]> {
+    const data = await apiJson<{ historico: any[] }>(`/tarefas/${id}/historico`)
+    return data.historico
+  },
+
+  async dashboard(): Promise<any> {
+    return apiJson('/tarefas/dashboard')
+  },
+
+  // Resposta de execução: compatibilidade com componentes antigos
+  async responder(id: string, payload: { resposta_status: 'concluida' | 'nao_concluida'; resposta_obs?: string }): Promise<Tarefa> {
+    if (payload.resposta_status === 'nao_concluida') {
+      return this.updateStatus(id, { status: 'nao_concluida', motivo_nao_conclusao: payload.resposta_obs || '', resposta_membro: payload.resposta_obs || '' })
+    }
+    return this.updateStatus(id, { status: 'concluida', observacao_conclusao: payload.resposta_obs || '', resposta_membro: payload.resposta_obs || '' })
   },
 }
 

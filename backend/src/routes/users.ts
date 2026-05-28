@@ -226,28 +226,53 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
   }
 })
 
-// DELETE /api/users/:id -> desativa usuário
+// DELETE /api/users/:id -> apaga permanentemente usuário e dados privados vinculados
 router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
-    if (id === userId) { res.status(400).json({ error: 'Você não pode desativar a si mesmo.' }); return }
+
+    if (id === userId) {
+      res.status(400).json({ error: 'Você não pode apagar a si mesmo.' })
+      return
+    }
+
     const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
       'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
       [id, orgId]
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
-    if (target.role === 'gestor') { res.status(403).json({ error: 'Não é possível desativar gestor.' }); return }
+    if (target.role === 'gestor') { res.status(403).json({ error: 'Não é possível apagar outro gestor.' }); return }
     if (role === 'sub_gestor' && target.criado_por !== userId) {
-      res.status(403).json({ error: 'Subgestor só desativa seus comandados.' })
+      res.status(403).json({ error: 'Subgestor só apaga seus comandados.' })
       return
     }
+
+    // Limpeza intencional para permitir apagar usuário sem violar FKs e sem manter dados privados órfãos.
     await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
-    await query('UPDATE profiles SET ativo = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2', [id, orgId])
+    await query('DELETE FROM notificacoes WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    await query('DELETE FROM equipes_membros WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    await query('UPDATE profiles SET criado_por = NULL WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+
+    // Apaga dados privados do usuário removido.
+    await query('DELETE FROM documentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    await query('DELETE FROM pagamentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    await query('DELETE FROM agenda WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+    await query('DELETE FROM pessoas WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+
+    // Apaga tarefas criadas por ele ou atribuídas a ele. Histórico sai por ON DELETE CASCADE na tabela nova.
+    await query('DELETE FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)', [orgId, id]).catch(() => {})
+    await query('DELETE FROM tarefa_historico WHERE org_id = $1 AND usuario_id = $2', [orgId, id]).catch(() => {})
+    await query('DELETE FROM tarefas_historico WHERE org_id = $1 AND user_id = $2', [orgId, id]).catch(() => {})
+
+    // Convites criados por ele deixam de apontar para usuário apagado.
+    await query('DELETE FROM convites WHERE org_id = $1 AND criado_por = $2', [orgId, id]).catch(() => {})
+
+    await query('DELETE FROM profiles WHERE id = $1 AND org_id = $2', [id, orgId])
     res.json({ ok: true })
   } catch (err) {
-    console.error('[USERS] Erro ao desativar:', err)
-    res.status(500).json({ error: 'Erro ao desativar usuário.' })
+    console.error('[USERS] Erro ao apagar:', err)
+    res.status(500).json({ error: 'Erro ao apagar usuário.' })
   }
 })
 

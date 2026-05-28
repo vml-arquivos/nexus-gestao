@@ -57,7 +57,7 @@ export class TeamRepository {
              em.role_na_equipe, em.created_at AS membro_desde,
              COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'pendente' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_pendentes,
              COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'concluida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_concluidas,
-             COUNT(DISTINCT t.id) FILTER (WHERE t.resposta_status = 'nao_concluida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_nao_concluidas,
+             COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'nao_concluida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_nao_concluidas,
              COUNT(DISTINCT t.id) FILTER (WHERE t.status = 'devolvida' AND t.responsavel_id = p.id AND t.criado_por = $2) AS tarefas_devolvidas
       FROM equipes e
       JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id AND COALESCE(em.ativo, TRUE) = TRUE

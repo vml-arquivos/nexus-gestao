@@ -20,7 +20,7 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
         c.nome AS criado_por_nome,
         (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status NOT IN ('concluida','cancelada')) AS tarefas_pendentes,
         (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'concluida') AS tarefas_concluidas,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.resposta_status = 'nao_concluida') AS tarefas_nao_concluidas,
+        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'nao_concluida') AS tarefas_nao_concluidas,
         (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'devolvida') AS tarefas_devolvidas
       FROM profiles p
       LEFT JOIN profiles c ON c.id = p.criado_por
@@ -32,8 +32,21 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
       // Membro vê apenas a si mesmo para não expor dados de outros
       sql += ' AND p.id = $2'
     } else if (role === 'gestor' || role === 'sub_gestor') {
-      // Gestor e sub-gestor veem apenas a si e seus comandados
-      sql += ' AND (p.id = $2 OR p.criado_por = $2)'
+      // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.
+      // Isto corrige o regresso onde membros convidados/adicionados por equipe sumiam quando criado_por estava nulo/diferente.
+      sql += ` AND (
+        p.id = $2
+        OR p.criado_por = $2
+        OR EXISTS (
+          SELECT 1
+          FROM equipes e
+          JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id
+          WHERE e.org_id = p.org_id
+            AND e.criado_por = $2
+            AND em.user_id = p.id
+            AND COALESCE(em.ativo, TRUE) = TRUE
+        )
+      )`
     }
 
     sql += ' ORDER BY p.role, p.nome'

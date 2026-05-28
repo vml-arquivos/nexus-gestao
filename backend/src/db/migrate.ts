@@ -97,11 +97,30 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status TEXT CHECK (respost
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs    TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em     TIMESTAMPTZ;
 
+-- Workflow completo gestor -> membro -> aprovação/devolução (idempotente)
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check
+  CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','aprovada','cancelada'));
+
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT 'aguardando';
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_tarefas_org         ON tarefas(org_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel ON tarefas(responsavel_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status      ON tarefas(status);
 CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
+CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
 
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -351,7 +370,7 @@ ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
 ALTER TABLE notificacoes
   ADD CONSTRAINT notificacoes_tipo_check
   CHECK (tipo IN (
-    'tarefa_nova', 'tarefa_criada', 'tarefa_atualizada',
+    'tarefa_nova', 'nova_tarefa', 'tarefa_criada', 'tarefa_atualizada',
     'tarefa_concluida', 'tarefa_nao_concluida', 'tarefa_devolvida',
     'tarefa_aprovada', 'tarefa_vencida', 'lembrete_diario',
     'financeiro_vencimento', 'agenda_lembrete', 'aniversario',
@@ -377,6 +396,23 @@ CREATE TABLE IF NOT EXISTS tarefa_historico (
 CREATE INDEX IF NOT EXISTS idx_th_tarefa  ON tarefa_historico(tarefa_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_th_org     ON tarefa_historico(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_th_usuario ON tarefa_historico(usuario_id);
+
+
+-- Tabela nova padronizada de histórico de tarefas (Etapa 4)
+CREATE TABLE IF NOT EXISTS tarefas_historico (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  tarefa_id       UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  user_id         UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  acao            TEXT NOT NULL,
+  status_anterior TEXT,
+  status_novo     TEXT,
+  observacao      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tarefas_hist_tarefa ON tarefas_historico(tarefa_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefas_hist_org ON tarefas_historico(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefas_hist_user ON tarefas_historico(user_id, created_at DESC);
 
 -- ── LEMBRETES PERSONALIZADOS ───────────────────────────────────────────────
 -- Lembretes criados pelo gestor ou membro, vinculados a qualquer entidade
