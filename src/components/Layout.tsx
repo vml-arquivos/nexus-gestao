@@ -148,7 +148,18 @@ export default function Layout() {
             if (!user) return null
             // Esconde entradas restritas para membros
             if (user.role === 'membro') {
-              if (['/usuarios','/equipe','/equipes','/relatorios'].includes(path)) return null
+              // Membros não podem gerenciar usuários, equipes ou relatórios e tampouco acessam
+              // módulos de finanças, pessoas ou documentos de outros usuários. Esses módulos
+              // são filtrados no backend pelo criador, mas não devem ser exibidos na navegação.
+              if ([
+                '/usuarios',
+                '/equipe',
+                '/equipes',
+                '/relatorios',
+                '/financeiro',
+                '/pessoas',
+                '/documentos',
+              ].includes(path)) return null
             }
             return (
               <Link

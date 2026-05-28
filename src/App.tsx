@@ -51,23 +51,65 @@ export default function App() {
         <Route path="pessoas"   element={<Pessoas />} />
         <Route path="pessoas/:id" element={<PessoaDetalhe />} />
         {/* Equipe/Equipes: apenas gestor ou subgestor visualiza. Membro não acessa */}
-        <Route path="equipe"    element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Equipe /> : <Navigate to="/" replace />} />
-        <Route path="equipes"   element={user?.role === 'gestor' ? <Equipes /> : <Navigate to="/" replace />} />
-        {/* Tarefas: gestores e subgestores veem todas as suas tarefas criadas, membros acessam MinhasTarefas */}
-        <Route path="tarefas"   element={user?.role === 'membro' ? <Navigate to="/minhas-tarefas" replace /> : <Tarefas />} />
-        <Route path="minhas-tarefas" element={user?.role === 'membro' ? <MinhasTarefas /> : <Navigate to="/tarefas" replace />} />
-        {/* Agenda: cada usuário tem sua agenda pessoal; membros podem acessar sua agenda */}
-        <Route path="agenda"    element={<Agenda />} />
-        {/* Financeiro e documentos são privados por usuário; membros acessam somente seus próprios dados */}
+        <Route
+          path="equipe"
+          element={
+            user && ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user.role)
+              ? <Equipe />
+              : <Navigate to="/" replace />
+          }
+        />
+        <Route
+          path="equipes"
+          element={
+            user && ['admin', 'dev', 'gestor'].includes(user.role)
+              ? <Equipes />
+              : <Navigate to="/" replace />
+          }
+        />
+        {/* Tarefas: membros acessam somente suas tarefas pessoais; demais roles acessam gerenciamento completo */}
+        <Route
+          path="tarefas"
+          element={
+            user?.role === 'membro'
+              ? <Navigate to="/minhas-tarefas" replace />
+              : <Tarefas />
+          }
+        />
+        <Route
+          path="minhas-tarefas"
+          element={
+            user?.role === 'membro'
+              ? <MinhasTarefas />
+              : <Navigate to="/tarefas" replace />
+          }
+        />
+        {/* Agenda: cada usuário tem sua agenda pessoal; todos os usuários autenticados acessam a própria agenda */}
+        <Route path="agenda" element={<Agenda />} />
+        {/* Financeiro e documentos: visíveis a todos os usuários autenticados; o backend filtra pelo usuário */}
         <Route path="financeiro" element={<Financeiro />} />
         <Route path="documentos" element={<Documentos />} />
-        {/* Compartilhar: se existir, manter; restrição por função pode ser implementada aqui se necessário */}
+        {/* Compartilhar: recurso público/interno; sem restrição adicional aqui */}
         <Route path="compartilhar" element={<Compartilhar />} />
-        {/* Relatórios: apenas gestores e subgestores */}
-        <Route path="relatorios" element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Relatorios /> : <Navigate to="/" replace />} />
+        {/* Relatórios: permitido para admin, dev, gestor e subgestor */}
+        <Route
+          path="relatorios"
+          element={
+            user && ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user.role)
+              ? <Relatorios />
+              : <Navigate to="/" replace />
+          }
+        />
         <Route path="configuracoes" element={<Configuracoes />} />
-        {/* Usuários: apenas gestor ou subgestor */}
-        <Route path="usuarios"  element={user?.role === 'gestor' || user?.role === 'sub_gestor' ? <Usuarios /> : <Navigate to="/" replace />} />
+        {/* Usuários: permitido para admin, dev, gestor e subgestor */}
+        <Route
+          path="usuarios"
+          element={
+            user && ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user.role)
+              ? <Usuarios />
+              : <Navigate to="/" replace />
+          }
+        />
       </Route>
 
       {/* Convite público — não requer autenticação */}
