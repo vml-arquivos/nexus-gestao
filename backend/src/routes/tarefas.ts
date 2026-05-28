@@ -107,7 +107,9 @@ async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) 
 async function getTaskForAccess(id: string, orgId: string) {
   return queryOne<any>(
     `SELECT t.*, p.nome AS responsavel_nome_perfil, p.cargo AS responsavel_cargo,
-            c.nome AS criado_por_nome
+            c.nome AS criado_por_nome,
+            COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
+            (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
      FROM tarefas t
      LEFT JOIN profiles p ON p.id = t.responsavel_id
      LEFT JOIN profiles c ON c.id = t.criado_por
@@ -221,7 +223,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       SELECT t.*,
              p.nome  AS responsavel_nome_perfil,
              p.cargo AS responsavel_cargo,
-             c.nome  AS criado_por_nome
+             c.nome  AS criado_por_nome,
+             COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
+             (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
       FROM tarefas t
       LEFT JOIN profiles p ON p.id = t.responsavel_id
       LEFT JOIN profiles c ON c.id = t.criado_por

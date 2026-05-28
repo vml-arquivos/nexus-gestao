@@ -275,12 +275,15 @@ function HistoricoModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => vo
   )
 }
 
-function AnexosModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void }) {
+function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: () => void; onChanged?: () => void }) {
+  const { user } = useAuth()
+  const isGestor = user?.role === 'gestor' || user?.role === 'sub_gestor'
   const [anexos, setAnexos] = useState<TarefaAnexo[]>([])
   const [descricao, setDescricao] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [showGestorUpload, setShowGestorUpload] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -303,13 +306,15 @@ function AnexosModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void 
         await tarefasApi.uploadAnexo(tarefa.id, file, {
           titulo: file.name || 'Anexo da tarefa',
           descricao: descricao.trim() || undefined,
-          tipo: 'evidencia',
+          tipo: isGestor ? 'referencia' : 'evidencia',
         })
       }
       setDescricao('')
       setFiles([])
+      setShowGestorUpload(false)
       await load()
-      toast('Anexo enviado.')
+      onChanged?.()
+      toast(isGestor ? 'Anexo do gestor enviado.' : 'Evidência enviada.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao anexar arquivo.', 'error')
     } finally { setSaving(false) }
@@ -320,57 +325,100 @@ function AnexosModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void 
     try {
       await tarefasApi.deleteAnexo(tarefa.id, anexo.id)
       setAnexos(prev => prev.filter(a => a.id !== anexo.id))
+      onChanged?.()
       toast('Anexo apagado.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao apagar anexo.', 'error')
     }
   }
 
+  const anexosDoMembro = anexos.filter(a => a.enviado_por !== tarefa.criado_por)
+  const anexosDoGestor = anexos.filter(a => a.enviado_por === tarefa.criado_por)
+
+  const uploadForm = (
+    <div style={{ display: 'grid', gap: 12, border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label">Selecionar arquivos</label>
+        <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
+        {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label">Descrição do anexo</label>
+        <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={isGestor ? 'Ex.: referência, validação ou orientação para correção...' : 'Ex.: foto do serviço finalizado, comprovante, relatório entregue...'} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} {isGestor ? 'Enviar anexo do gestor' : 'Enviar evidência'}</button>
+      </div>
+    </div>
+  )
+
+  function renderLista(items: TarefaAnexo[], emptyText: string) {
+    if (loading) return <div style={{ color: 'var(--text3)' }}>Carregando...</div>
+    if (items.length === 0) return <div style={{ color: 'var(--text3)', fontSize: 13, padding: 14, border: '1px dashed var(--border)', borderRadius: 12 }}>{emptyText}</div>
+    return (
+      <div style={{ display: 'grid', gap: 8 }}>
+        {items.map(anexo => (
+          <div key={anexo.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)', display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {anexo.titulo || anexo.nome_original || 'Anexo'}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{anexo.enviado_por_nome || anexo.enviado_por} · {fmtDateTime(anexo.created_at)} {anexo.tamanho ? `· ${formatSize(anexo.tamanho)}` : ''}</div>
+                {anexo.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>{anexo.descricao}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <a className="btn btn-secondary" href={anexo.arquivo_url} target="_blank" rel="noopener noreferrer" style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Abrir</a>
+                <button className="btn btn-ghost" type="button" onClick={() => apagar(anexo)} style={{ padding: '6px 10px', fontSize: 12, color: '#EF4444' }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <ModalBase title="Anexos e evidências da tarefa" onClose={onClose}>
+    <ModalBase title={isGestor ? 'Evidências recebidas da tarefa' : 'Anexar evidências da tarefa'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
           <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
-          <div style={{ fontSize: 12, color: 'var(--text3)' }}>Envie evidências para o gestor verificar a execução: fotos, PDFs, comprovantes, documentos, planilhas ou vídeos.</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+            {isGestor
+              ? 'Confira aqui os arquivos enviados pelo membro antes de aprovar ou devolver a tarefa.'
+              : 'Envie evidências para o gestor verificar a execução: fotos, PDFs, comprovantes, documentos, planilhas ou vídeos.'}
+          </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Selecionar arquivos</label>
-          <input className="form-input" type="file" multiple onChange={onFilesChange} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,video/mp4,video/quicktime" />
-          {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
-        </div>
-        <div className="form-group">
-          <label className="form-label">Descrição do anexo</label>
-          <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex.: foto do serviço finalizado, comprovante, relatório entregue..." />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} Enviar anexo</button>
-        </div>
+        {isGestor ? (
+          <>
+            <section style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontWeight: 900 }}>Resultado enviado pelo membro</div>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{anexosDoMembro.length} arquivo(s)</span>
+              </div>
+              {renderLista(anexosDoMembro, 'O membro ainda não enviou nenhuma evidência para esta tarefa.')}
+            </section>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-          <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
-          {loading ? <div style={{ color: 'var(--text3)' }}>Carregando...</div> : anexos.length === 0 ? (
-            <div style={{ color: 'var(--text3)', fontSize: 13, padding: 14, border: '1px dashed var(--border)', borderRadius: 12 }}>Nenhum anexo enviado ainda.</div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {anexos.map(anexo => (
-                <div key={anexo.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)', display: 'grid', gap: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {anexo.titulo || anexo.nome_original || 'Anexo'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{anexo.enviado_por_nome || anexo.enviado_por} · {fmtDateTime(anexo.created_at)} {anexo.tamanho ? `· ${formatSize(anexo.tamanho)}` : ''}</div>
-                      {anexo.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>{anexo.descricao}</div>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <a className="btn btn-secondary" href={anexo.arquivo_url} target="_blank" rel="noopener noreferrer" style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Abrir</a>
-                      <button className="btn btn-ghost" type="button" onClick={() => apagar(anexo)} style={{ padding: '6px 10px', fontSize: 12, color: '#EF4444' }}><Trash2 size={13} /></button>
-                    </div>
-                  </div>
+            <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>Anexos do gestor</div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)' }}>Opcional: use para referência, validação ou devolução.</div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowGestorUpload(v => !v)}><Paperclip size={14} /> {showGestorUpload ? 'Ocultar envio' : 'Adicionar anexo'}</button>
+              </div>
+              {showGestorUpload && uploadForm}
+              {renderLista(anexosDoGestor, 'Nenhum anexo do gestor.')}
+            </section>
+          </>
+        ) : (
+          <>
+            {uploadForm}
+            <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
+              {renderLista(anexos, 'Nenhum anexo enviado ainda.')}
+            </section>
+          </>
+        )}
       </div>
     </ModalBase>
   )
@@ -397,6 +445,8 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
   const checkTotal = tarefa.checklist?.length || 0
   const checkDone = tarefa.checklist?.filter(i => i.feito).length || 0
   const overdue = isOverdue(tarefa.prazo, tarefa.status)
+  const anexosCount = Number((tarefa as any).anexos_count || 0)
+  const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
 
   return (
     <article style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
@@ -415,6 +465,38 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
           </div>
           {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: '#8B5CF6', background: 'rgba(139,92,246,.10)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
+          {isGestor && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
+            <button
+              type="button"
+              onClick={() => onAnexos(tarefa)}
+              style={{
+                marginTop: 8,
+                width: '100%',
+                textAlign: 'left',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                background: anexosCount > 0 ? 'rgba(16,185,129,.10)' : 'var(--bg3)',
+                color: 'var(--text2)',
+                padding: 10,
+                fontSize: 12,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <Paperclip size={14} />
+                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  <strong>{anexosCount > 0 ? 'Evidências recebidas' : 'Nenhuma evidência anexada'}</strong>
+                  {anexosCount > 0 ? ` · ${anexosCount} arquivo(s)` : ' · clique para conferir/anexar referência'}
+                  {ultimaEvidencia ? ` · último envio ${fmtDateTime(ultimaEvidencia)}` : ''}
+                </span>
+              </span>
+              <span style={{ color: '#10B981', fontWeight: 800, whiteSpace: 'nowrap' }}>Verificar</span>
+            </button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button title="Anexos" onClick={() => onAnexos(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Paperclip size={15} /></button>
@@ -426,7 +508,7 @@ function TarefaCard({ tarefa, userId, isGestor, onEdit, onDelete, onStart, onRes
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
-        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> Anexos / evidências</button>
+        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver evidências' : 'Anexar evidência'}</button>
         {!isGestor && isMine && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
         {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onResponder(tarefa)} type="button">Concluir / Não concluí</button>}
         {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
@@ -581,7 +663,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} />}
+      {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
   )
 }

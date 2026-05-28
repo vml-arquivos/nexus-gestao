@@ -69,6 +69,8 @@ export interface Tarefa {
   devolvida_em?: string
   data_inicio?: string
   data_conclusao?: string
+  anexos_count?: number | string
+  ultima_evidencia_em?: string
   created_at: string
   updated_at?: string
 }
