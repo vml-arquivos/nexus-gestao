@@ -144,6 +144,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItem, setNovoItem] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [loading, setLoading] = useState(false)
+  const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
 
   function addItem() {
     if (!novoItem.trim()) return
@@ -215,9 +216,30 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             <input className="form-input" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }} placeholder="Adicionar item" />
             <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /></button>
           </div>
+          {!canMarkChecklistInEdit && checklist.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+              A edição da estrutura do checklist está liberada, mas a marcação dos itens é exclusiva do executor da tarefa.
+            </div>
+          )}
           {checklist.map(item => (
             <div key={item.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, background: 'var(--bg3)', borderRadius: 8, padding: '6px 8px' }}>
-              <button type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))} style={{ width: 18, height: 18, borderRadius: 5, border: '1px solid var(--border)', background: item.feito ? '#10B981' : 'transparent' }} />
+              <button
+                type="button"
+                title={canMarkChecklistInEdit ? 'Marcar item' : 'Somente o executor pode marcar o checklist'}
+                onClick={() => {
+                  if (!canMarkChecklistInEdit) return
+                  setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))
+                }}
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: 5,
+                  border: '1px solid var(--border)',
+                  background: item.feito ? '#10B981' : 'transparent',
+                  cursor: canMarkChecklistInEdit ? 'pointer' : 'not-allowed',
+                  opacity: canMarkChecklistInEdit ? 1 : 0.65,
+                }}
+              />
               <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none' }}>{item.texto}</span>
               <button type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 0, color: '#EF4444' }}><X size={14} /></button>
             </div>

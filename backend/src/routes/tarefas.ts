@@ -65,8 +65,17 @@ function checklistStructureKey(value: unknown) {
     .join('|')
 }
 
-function checklistOnlyChangedDone(before: unknown, after: unknown) {
-  return checklistStructureKey(before) === checklistStructureKey(after)
+function checklistDoneChanged(before: unknown, after: unknown) {
+  const beforeItems = parseChecklistItems(before)
+  const afterItems = parseChecklistItems(after)
+  const beforeByKey = new Map(beforeItems.map(item => [`${item.id || ''}:${item.texto}`, !!item.feito]))
+
+  return afterItems.some(item => {
+    const key = `${item.id || ''}:${item.texto}`
+    const beforeDone = beforeByKey.get(key)
+    if (beforeDone === undefined) return !!item.feito
+    return beforeDone !== !!item.feito
+  })
 }
 
 function isTaskExecutor(task: any, userId: string) {
@@ -742,7 +751,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const isMember = role === 'membro'
     const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs']
 
-    if ((req.body as any).checklist !== undefined && checklistOnlyChangedDone(existing.checklist, (req.body as any).checklist) && !isTaskExecutor(existing, userId)) {
+    if ((req.body as any).checklist !== undefined && checklistDoneChanged(existing.checklist, (req.body as any).checklist) && !isTaskExecutor(existing, userId)) {
       res.status(403).json({ error: 'Apenas o executor da tarefa pode marcar o checklist.' })
       return
     }
