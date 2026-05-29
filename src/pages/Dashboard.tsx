@@ -94,10 +94,20 @@ function isBetweenInclusive(d: Date, start: Date, end: Date) {
   return x >= s && x <= e
 }
 
-function MiniItem({ item }: { item: PainelItem }) {
-  const color = item.tipo === 'financeiro'
+function itemColor(item: PainelItem) {
+  return item.tipo === 'financeiro'
     ? item.financeiroTipo === 'recebimento' ? '#10B981' : '#EF4444'
     : item.tipo === 'agenda' ? 'var(--primary-light)' : item.prioridade === 'alta' ? '#EF4444' : 'var(--text2)'
+}
+
+function tipoLabel(item: PainelItem) {
+  if (item.tipo === 'tarefas') return 'Tarefa'
+  if (item.tipo === 'agenda') return 'Agenda'
+  return item.financeiroTipo === 'recebimento' ? 'Receber' : 'Pagar'
+}
+
+function MiniItem({ item }: { item: PainelItem }) {
+  const color = itemColor(item)
 
   return (
     <Link to={item.to} className="dash-work-item" style={{ textDecoration: 'none' }}>
@@ -111,6 +121,15 @@ function MiniItem({ item }: { item: PainelItem }) {
           {item.subtitulo ? ` · ${item.subtitulo}` : ''}
         </div>
       </div>
+    </Link>
+  )
+}
+
+function CalendarItem({ item }: { item: PainelItem }) {
+  return (
+    <Link to={item.to} className={`dash-calendar-item ${item.tipo}`} title={`${tipoLabel(item)}: ${item.titulo}`} style={{ textDecoration: 'none' }}>
+      <span className="dash-calendar-item-dot" style={{ background: itemColor(item) }} />
+      <span className="dash-calendar-item-title">{item.titulo}</span>
     </Link>
   )
 }
@@ -441,11 +460,17 @@ export default function Dashboard() {
             <div key={cell.key} className={`dash-calendar-cell ${cell.day ? '' : 'muted'} ${cell.key === hojeKey ? 'today' : ''}`}>
               {cell.day && <strong>{cell.day}</strong>}
               {cell.items.length > 0 && (
-                <div className="dash-day-badges">
-                  {cell.items.some(i => i.tipo === 'tarefas') && <span className="task">T {cell.items.filter(i => i.tipo === 'tarefas').length}</span>}
-                  {cell.items.some(i => i.tipo === 'agenda') && <span className="event">A {cell.items.filter(i => i.tipo === 'agenda').length}</span>}
-                  {cell.items.some(i => i.tipo === 'financeiro') && <span className="money">F {cell.items.filter(i => i.tipo === 'financeiro').length}</span>}
-                </div>
+                <>
+                  <div className="dash-day-badges" aria-label="Resumo do dia">
+                    {cell.items.some(i => i.tipo === 'tarefas') && <span className="task">Tarefas {cell.items.filter(i => i.tipo === 'tarefas').length}</span>}
+                    {cell.items.some(i => i.tipo === 'agenda') && <span className="event">Agenda {cell.items.filter(i => i.tipo === 'agenda').length}</span>}
+                    {cell.items.some(i => i.tipo === 'financeiro') && <span className="money">Fin. {cell.items.filter(i => i.tipo === 'financeiro').length}</span>}
+                  </div>
+                  <div className="dash-calendar-items">
+                    {cell.items.slice(0, 3).map(item => <CalendarItem key={item.id} item={item} />)}
+                    {cell.items.length > 3 && <Link to="/tarefas" className="dash-calendar-more">+{cell.items.length - 3} mais</Link>}
+                  </div>
+                </>
               )}
             </div>
           ))}

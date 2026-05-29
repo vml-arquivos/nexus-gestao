@@ -2045,7 +2045,7 @@ body:has([aria-modal="true"]) .bottom-nav {
 }
 
 .dash-calendar-cell {
-  min-height: 82px;
+  min-height: 118px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg1);
@@ -2053,16 +2053,53 @@ body:has([aria-modal="true"]) .bottom-nav {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  overflow: hidden;
 }
 
 .dash-calendar-cell.muted { opacity: .35; }
 .dash-calendar-cell.today { border-color: var(--primary-light); box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-light) 30%, transparent) inset; }
 .dash-calendar-cell strong { color: var(--text1); font-size: 13px; }
 .dash-day-badges { display: flex; flex-wrap: wrap; gap: 4px; }
-.dash-day-badges span { border-radius: 999px; padding: 2px 6px; font-size: 10px; font-weight: 800; }
+.dash-day-badges span { border-radius: 999px; padding: 2px 6px; font-size: 9.5px; font-weight: 800; line-height: 1.2; }
 .dash-day-badges .task { color: var(--text1); background: var(--bg3); }
 .dash-day-badges .event { color: var(--primary-light); background: color-mix(in srgb, var(--primary-light) 12%, transparent); }
 .dash-day-badges .money { color: #10B981; background: rgba(16,185,129,.12); }
+.dash-calendar-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dash-calendar-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--bg2);
+  color: var(--text2);
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+.dash-calendar-item:hover { border-color: var(--primary-light); color: var(--text1); }
+.dash-calendar-item-dot { width: 6px; height: 6px; border-radius: 999px; flex: 0 0 auto; }
+.dash-calendar-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dash-calendar-more {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text3);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.dash-calendar-more:hover { color: var(--primary-light); }
 
 .dash-finance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 0; }
 .dash-finance-grid > div { min-height: 92px; }
@@ -2090,7 +2127,9 @@ body:has([aria-modal="true"]) .bottom-nav {
   .dash-clear-btn { width: 100%; }
   .dash-calendar-grid,
   .dash-calendar-weekdays { gap: 4px; }
-  .dash-calendar-cell { min-height: 66px; border-radius: 11px; padding: 6px; }
+  .dash-calendar-cell { min-height: 88px; border-radius: 11px; padding: 6px; }
+  .dash-day-badges span { font-size: 8.5px; padding: 2px 5px; }
+  .dash-calendar-item { font-size: 9.5px; padding: 3px 5px; }
   .dash-day-badges span { font-size: 9px; padding: 1px 5px; }
 }
 
