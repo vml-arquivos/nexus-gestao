@@ -49,13 +49,36 @@ function fmt(v: number) {
 }
 
 function parseMoneyInput(value: string): number {
-  const normalized = String(value || '').replace(/\./g, '').replace(',', '.')
+  const raw = String(value || '').trim().replace(/\s/g, '').replace(/R\$/gi, '')
+  if (!raw) return 0
+
+  const onlyMoneyChars = raw.replace(/[^0-9.,-]/g, '')
+  const hasComma = onlyMoneyChars.includes(',')
+  const hasDot = onlyMoneyChars.includes('.')
+
+  let normalized = onlyMoneyChars
+
+  if (hasComma) {
+    normalized = onlyMoneyChars.replace(/\./g, '').replace(',', '.')
+  } else if (hasDot) {
+    const parts = onlyMoneyChars.split('.')
+    const last = parts[parts.length - 1] || ''
+    const looksLikeDecimal = parts.length === 2 && last.length > 0 && last.length <= 2
+    normalized = looksLikeDecimal ? onlyMoneyChars : onlyMoneyChars.replace(/\./g, '')
+  }
+
   const parsed = Number.parseFloat(normalized)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
 function moneyInputValue(value: string): string {
   return String(value || '').replace(/[^0-9.,]/g, '')
+}
+
+function moneyInputFromNumber(value: unknown): string {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return ''
+  return num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function toCents(value: number): number {
@@ -764,7 +787,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">{modo === 'abatimento' ? 'Valor pago (R$)' : 'Valor a acrescentar (R$)'}</label>
-              <input className="form-input" type="text" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
+              <input className="form-input" type="text" inputMode="decimal" placeholder="" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
             </div>
             {modo === 'abatimento' && (
               <div className="form-group" style={{ margin: 0 }}>
@@ -882,7 +905,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const isEdit = Boolean(initial?.id)
   const [titulo, setTitulo] = useState(initial?.titulo || '')
   const [descricao, setDescricao] = useState(initial?.descricao || '')
-  const [valor, setValor] = useState(initial?.valor ? String(initial.valor) : '')
+  const [valor, setValor] = useState(initial?.valor ? moneyInputFromNumber(initial.valor) : '')
   const [tipo, setTipo] = useState<'pagamento' | 'recebimento'>(initial?.tipo || 'pagamento')
   const [status, setStatus] = useState<'pendente' | 'pago' | 'cancelado'>(initial?.status || 'pendente')
   const [vencimento, setVencimento] = useState(initial?.vencimento?.slice(0, 10) || '')
@@ -894,8 +917,8 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const [saving, setSaving] = useState(false)
 
   // ── Parcelado ──
-  const [numParcelas, setNumParcelas] = useState(2)
-  const [taxaJuros, setTaxaJuros] = useState('0')
+  const [numParcelas, setNumParcelas] = useState('')
+  const [taxaJuros, setTaxaJuros] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('')
   const [intervaloParc, setIntervaloParc] = useState<'mensal' | 'quinzenal' | 'semanal'>('mensal')
 
@@ -906,13 +929,16 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const [datasPersonalizadas, setDatasPersonalizadas] = useState<string[]>([])
 
   async function handleSave() {
+    const valorNum = parseMoneyInput(valor)
+    const qtdParcelas = Math.floor(Number(numParcelas) || 0)
+
     if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
-    if (!valor || isNaN(parseFloat(valor)) || parseFloat(valor) <= 0) { toast('Valor inválido', 'error'); return }
+    if (!valor || valorNum <= 0) { toast('Valor inválido', 'error'); return }
     if (scheduleMode === 'unico' && !vencimento && !isEdit) { toast('Informe uma data ou escolha datas personalizadas', 'error'); return }
     if (scheduleMode === 'recorrente' && !vencimento && !isEdit) { toast('Informe a primeira data da recorrência', 'error'); return }
     if (scheduleMode === 'personalizado' && datasPersonalizadas.length === 0 && !isEdit) { toast('Adicione pelo menos uma data personalizada', 'error'); return }
     if (scheduleMode === 'parcelado' && !vencimento) { toast('Informe a data da primeira parcela', 'error'); return }
-    if (scheduleMode === 'parcelado' && numParcelas < 2) { toast('Mínimo de 2 parcelas', 'error'); return }
+    if (scheduleMode === 'parcelado' && qtdParcelas < 2) { toast('Informe 2 ou mais parcelas', 'error'); return }
 
     setSaving(true)
     try {
@@ -920,20 +946,20 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
       const primeiraDataPersonalizada = datasPersonalizadas[0]
 
       // Para parcelado: calcula valor da parcela e gera datas
-      let valorFinal = Number(parseMoneyInput(valor).toFixed(2))
+      let valorFinal = Number(valorNum.toFixed(2))
       let datasParcelado: string[] | undefined
       let valoresParcelado: number[] | undefined
       if (scheduleMode === 'parcelado') {
-        const taxa = parseFloat(taxaJuros) || 0
-        valoresParcelado = distribuirParcelasEmCentavos(parseMoneyInput(valor), numParcelas, taxa)
+        const taxa = parseMoneyInput(taxaJuros) || 0
+        valoresParcelado = distribuirParcelasEmCentavos(valorNum, qtdParcelas, taxa)
         valorFinal = valoresParcelado[0] || 0
-        datasParcelado = gerarDatasParcelamento(vencimento, numParcelas, intervaloParc)
+        datasParcelado = gerarDatasParcelamento(vencimento, qtdParcelas, intervaloParc)
       }
 
       const obsComForma = [
         scheduleMode === 'parcelado' ? `grupo_id:grp_${Date.now()}` : '',
         formaPagamento ? `Forma de pagamento: ${formaPagamento}` : '',
-        scheduleMode === 'parcelado' ? `${numParcelas}x de ${fmt(valorFinal)}${parseFloat(taxaJuros) > 0 ? ` (${taxaJuros}% a.m.)` : ''}` : '',
+        scheduleMode === 'parcelado' ? `${qtdParcelas}x de ${fmt(valorFinal)}${parseMoneyInput(taxaJuros) > 0 ? ` (${taxaJuros}% a.m.)` : ''}` : '',
         obs,
       ].filter(Boolean).join(' | ')
 
@@ -997,7 +1023,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">{scheduleMode === 'parcelado' ? 'Valor total da dívida (R$) *' : 'Valor (R$) *'}</label>
-              <input className="form-input" type="text" inputMode="decimal" placeholder="0,00" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
+              <input className="form-input" type="text" inputMode="decimal" placeholder="" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
             </div>
             <div className="form-group"><label className="form-label">Status</label>
               <select className="form-input" value={status} onChange={e => setStatus(e.target.value as 'pendente' | 'pago' | 'cancelado')}>
@@ -1063,8 +1089,9 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                     className="form-input"
                     type="number"
                     min={2}
+                    placeholder=""
                     value={numParcelas}
-                    onChange={e => setNumParcelas(Math.max(2, Math.floor(Number(e.target.value) || 2)))}
+                    onChange={e => setNumParcelas(e.target.value.replace(/\D/g, ''))}
                   />
                 </div>
                 <div className="form-group">
@@ -1085,7 +1112,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                     type="number"
                     min={0}
                     step={0.01}
-                    placeholder="0,00"
+                    placeholder=""
                     value={taxaJuros}
                     onChange={e => setTaxaJuros(e.target.value)}
                   />
@@ -1102,15 +1129,15 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               </div>
 
               <ParcelaPreview
-                total={parseFloat(valor) || 0}
-                n={numParcelas}
-                taxa={parseFloat(taxaJuros) || 0}
+                total={parseMoneyInput(valor)}
+                n={Math.floor(Number(numParcelas) || 0)}
+                taxa={parseMoneyInput(taxaJuros) || 0}
                 intervalo={intervaloParc}
                 primeiraData={vencimento}
               />
 
               <div style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
-                <strong>Como funciona:</strong> O valor digitado acima é o <em>total da dívida</em>. O sistema calcula automaticamente o valor de cada parcela{parseFloat(taxaJuros) > 0 ? ' com juros compostos (Tabela Price)' : ' sem juros'} e cria um lançamento por parcela no financeiro, cada um na sua data correta.
+                <strong>Como funciona:</strong> O valor digitado acima é o <em>total da dívida</em>. O sistema calcula automaticamente o valor de cada parcela{parseMoneyInput(taxaJuros) > 0 ? ' com juros compostos (Tabela Price)' : ' sem juros'} e cria um lançamento por parcela no financeiro, cada um na sua data correta.
               </div>
             </>
           )}
