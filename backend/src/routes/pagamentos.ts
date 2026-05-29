@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { authMiddleware, isAdminOrDev } from '../middleware/auth'
+import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { PaymentService } from '../services/paymentService'
 import { randomUUID } from 'crypto'
@@ -652,31 +652,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-// ── DELETE /api/pagamentos/:id ───────────────────────────────────────────────
-router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { orgId, userId, role } = req.user!
-    if (!isAdminOrDev(role)) {
-      res.status(403).json({ error: 'Apenas admin ou dev podem apagar registros financeiros.' })
-      return
-    }
-    await PaymentService.deletePayment(req.params.id, orgId, userId, true)
-    res.json({ ok: true })
-  } catch (err) {
-    console.error('[PAG] Erro ao excluir:', err)
-    res.status(500).json({ error: 'Erro ao excluir pagamento.' })
-  }
-})
-
 // ── DELETE /api/pagamentos/grupo/:grupo_id ───────────────────────────────────
 // Remove todas as parcelas de um grupo (cancela a dívida inteira).
 // Aceita grupo_id UUID e chave natural. Isso evita 500 quando o frontend envia
 // uma chave como natural|financiamento|pagamento|divida|pessoa.
 router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, role } = req.user!
-    if (!isAdminOrDev(role)) {
-      res.status(403).json({ error: 'Apenas admin ou dev podem apagar grupos financeiros.' })
+    const { orgId, userId, role } = req.user!
+    const canDeleteAny = canDeleteOrgRecords(role)
+    if (!canDeleteAny && role !== 'membro' && role !== 'sub_gestor') {
+      res.status(403).json({ error: 'Você não tem permissão para apagar este grupo financeiro.' })
       return
     }
 
@@ -684,8 +669,10 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
 
     if (isUuidLike(rawGrupoId)) {
       const deleted = await query(
-        'DELETE FROM pagamentos WHERE grupo_id = $1 AND org_id = $2 RETURNING id',
-        [rawGrupoId, orgId]
+        `DELETE FROM pagamentos
+         WHERE grupo_id = $1 AND org_id = $2 AND ($3::boolean = TRUE OR criado_por = $4)
+         RETURNING id`,
+        [rawGrupoId, orgId, canDeleteAny, userId]
       ) as any[]
 
       await query(
@@ -703,8 +690,8 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
       `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
        FROM pagamentos p
        LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
-       WHERE p.org_id = $1`,
-      [orgId]
+       WHERE p.org_id = $1 AND ($2::boolean = TRUE OR p.criado_por = $3)`,
+      [orgId, canDeleteAny, userId]
     ) as any[]
 
     const ids = rows
@@ -718,8 +705,10 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
     }
 
     const deleted = await query(
-      'DELETE FROM pagamentos WHERE org_id = $1 AND id = ANY($2::uuid[]) RETURNING id',
-      [orgId, ids]
+      `DELETE FROM pagamentos
+       WHERE org_id = $1 AND id = ANY($2::uuid[]) AND ($3::boolean = TRUE OR criado_por = $4)
+       RETURNING id`,
+      [orgId, ids, canDeleteAny, userId]
     ) as any[]
 
     await query(
@@ -731,6 +720,27 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
   } catch (err) {
     console.error('[PAG] Erro ao excluir grupo:', err)
     res.status(500).json({ error: 'Erro ao excluir grupo.' })
+  }
+})
+
+
+// ── DELETE /api/pagamentos/:id ───────────────────────────────────────────────
+router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const canDeleteAny = canDeleteOrgRecords(role)
+    const deleted = await query(
+      `DELETE FROM pagamentos
+       WHERE id = $1 AND org_id = $2 AND ($3::boolean = TRUE OR criado_por = $4)
+       RETURNING id`,
+      [req.params.id, orgId, canDeleteAny, userId]
+    ) as any[]
+    if (deleted.length === 0) { res.status(404).json({ error: 'Pagamento não encontrado ou sem permissão.' }); return }
+    await query('DELETE FROM pagamentos_historico WHERE org_id = $1 AND pagamento_id = $2', [orgId, req.params.id]).catch(() => {})
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[PAG] Erro ao excluir:', err)
+    res.status(500).json({ error: 'Erro ao excluir pagamento.' })
   }
 })
 

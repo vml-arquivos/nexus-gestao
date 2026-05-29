@@ -702,7 +702,7 @@ export const documentosApi = {
   },
 
   async remove(id: string): Promise<void> {
-    await apiJson(`/uploads/${id}`, { method: 'DELETE' })
+    await apiJson(`/documentos/${id}`, { method: 'DELETE' })
   },
 }
 

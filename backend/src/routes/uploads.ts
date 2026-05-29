@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
@@ -116,16 +116,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // DELETE /api/uploads/:id
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId } = req.user!
+    const { orgId, userId, role } = req.user!
+    const canDeleteAny = canDeleteOrgRecords(role)
     const doc = await queryOne<{ arquivo_url: string }>(
-      'SELECT arquivo_url FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3',
-      [req.params.id, orgId, userId],
+      `SELECT arquivo_url FROM documentos
+       WHERE id = $1 AND org_id = $2 AND ($3::boolean = TRUE OR criado_por = $4)`,
+      [req.params.id, orgId, canDeleteAny, userId],
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
 
     removeUploadByUrl(doc.arquivo_url)
 
-    await query('DELETE FROM documentos WHERE id = $1 AND org_id = $2 AND criado_por = $3', [req.params.id, orgId, userId])
+    await query(
+      `DELETE FROM documentos
+       WHERE id = $1 AND org_id = $2 AND ($3::boolean = TRUE OR criado_por = $4)`,
+      [req.params.id, orgId, canDeleteAny, userId]
+    )
     res.json({ ok: true })
   } catch (err) {
     console.error('[UPLOAD] Erro ao excluir:', err)

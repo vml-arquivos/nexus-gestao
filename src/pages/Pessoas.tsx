@@ -220,7 +220,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 export default function Pessoas() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const isGestor = user?.role === 'gestor'
+  const canDeleteOwnRecords = !!user
 
   const [tab, setTab]               = useState<'pessoas' | 'membros'>('pessoas')
   const [pessoas, setPessoas]       = useState<Pessoa[]>([])
@@ -294,7 +294,7 @@ export default function Pessoas() {
             Pessoas, clientes, fornecedores e membros
           </p>
         </div>
-        {isGestor && (
+        {canDeleteOwnRecords && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-secondary" onClick={() => setConviteOpen(true)} style={{ gap: 6 }}><UserPlus size={14} /> Convidar</button>
             <button className="btn btn-primary" onClick={() => setModalOpen(true)} style={{ gap: 6 }}><Plus size={16} /> Contato</button>
@@ -362,7 +362,7 @@ export default function Pessoas() {
                           </div>
                         )}
                       </div>
-                      {isGestor && (
+                      {canDeleteOwnRecords && (
                         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                           <button onClick={() => setEditPessoa(p)} style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Edit2 size={13} /></button>
                           <button onClick={() => handleDelete(p.id)} style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>

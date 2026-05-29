@@ -13,6 +13,11 @@ import { nanoid } from '../lib/utils'
 
 type Priority = Tarefa['prioridade']
 
+function canDeleteTarefa(tarefa: Tarefa, userId: string, isGestor: boolean) {
+  if (isGestor) return true
+  return tarefa.criado_por === userId
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
   pendente:      { label: 'Pendente',      color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: Clock },
   em_progresso:  { label: 'Em progresso',  color: '#F59E0B', bg: 'rgba(245,158,11,.12)', icon: AlertCircle },
@@ -771,7 +776,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           <button title="Anexos" onClick={() => onAnexos(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Paperclip size={15} /></button>
           <button title="Histórico" onClick={() => onHistory(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><History size={15} /></button>
           {isGestor && <button title="Editar" onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Edit3 size={15} /></button>}
-          <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>
+          {canDeleteTarefa(tarefa, userId, isGestor) && <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>}
           {(tarefa.descricao || checkTotal > 0) && <button title="Detalhes" onClick={() => setExpanded(v => !v)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><MessageSquare size={15} /></button>}
         </div>
       </div>

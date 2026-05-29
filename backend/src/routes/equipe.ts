@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 
 const router = Router()
 router.use(authMiddleware)
@@ -130,9 +130,15 @@ router.patch('/pessoas/:id', async (req: Request, res: Response): Promise<void> 
 // ── EXCLUIR PESSOA ────────────────────────────────────────────────────────────
 router.delete('/pessoas/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId } = req.user!
-    // Remove apenas a pessoa pertencente ao próprio usuário
-    await query('DELETE FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3', [req.params.id, orgId, userId])
+    const { orgId, userId, role } = req.user!
+    const canDeleteAny = canDeleteOrgRecords(role)
+    const deleted = await query(
+      `DELETE FROM pessoas
+       WHERE id = $1 AND org_id = $2 AND ($3::boolean = TRUE OR user_id = $4)
+       RETURNING id`,
+      [req.params.id, orgId, canDeleteAny, userId]
+    ) as any[]
+    if (deleted.length === 0) { res.status(404).json({ error: 'Pessoa não encontrada ou sem permissão.' }); return }
     res.json({ ok: true })
   } catch (err) {
     console.error('[EQUIPE] Erro ao excluir pessoa:', err)

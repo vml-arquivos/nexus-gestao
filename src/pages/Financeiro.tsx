@@ -1303,7 +1303,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
             <button onClick={e => { e.stopPropagation(); onEdit(principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
             {canDeleteFinanceiro && (
               <button
-                title="Apagar registro financeiro (admin/dev)"
+                title="Apagar registro financeiro"
                 onClick={e => { e.stopPropagation(); onDelete(principal.id) }}
                 style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}
               >
@@ -1324,7 +1324,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
             </button>
             {canDeleteFinanceiro && (
               <button
-                title="Apagar registro financeiro completo (admin/dev)"
+                title="Apagar registro financeiro completo"
                 onClick={e => { e.stopPropagation(); onDeleteGrupo(g) }}
                 style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}
               >
@@ -1374,7 +1374,7 @@ export default function Financeiro() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const canDeleteFinanceiro = user?.role === 'admin' || user?.role === 'dev'
+  const canDeleteFinanceiro = !!user
 
   const [grupos, setGrupos] = useState<GrupoPagamento[]>([])
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
@@ -1461,7 +1461,7 @@ export default function Financeiro() {
 
   async function handleDelete(id: string) {
     if (!canDeleteFinanceiro) {
-      toast('Apenas admin ou dev podem apagar registros financeiros.', 'error')
+      toast('Você não tem permissão para apagar este registro financeiro.', 'error')
       return
     }
     if (!confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return
@@ -1471,7 +1471,7 @@ export default function Financeiro() {
 
   async function handleDeleteGrupo(g: GrupoPagamento) {
     if (!canDeleteFinanceiro) {
-      toast('Apenas admin ou dev podem apagar registros financeiros.', 'error')
+      toast('Você não tem permissão para apagar este registro financeiro.', 'error')
       return
     }
     const total = g.parcelas?.length || 0

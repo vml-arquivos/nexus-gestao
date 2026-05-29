@@ -85,3 +85,8 @@ export function isAdminOrDev(role: string | undefined): boolean {
 }
 
 export const adminOrDevOnly = requireRoles(['admin','dev'], 'Acesso restrito ao administrador ou desenvolvedor.')
+
+
+export function canDeleteOrgRecords(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev' || role === 'gestor'
+}

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { removeUploadByUrl } from '../lib/uploadSecurity'
 
 const router = Router()
 router.use(authMiddleware)
@@ -270,6 +271,17 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response): Promi
       return
     }
 
+    const taskFilesToRemove = await query<{ arquivo_url?: string }>(
+      `SELECT arquivo_url FROM tarefa_anexos
+       WHERE org_id = $1
+         AND tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2))`,
+      [orgId, id]
+    ).catch(() => []) as { arquivo_url?: string }[]
+    const docFilesToRemove = await query<{ arquivo_url?: string }>(
+      'SELECT arquivo_url FROM documentos WHERE criado_por = $1 AND org_id = $2',
+      [id, orgId]
+    ).catch(() => []) as { arquivo_url?: string }[]
+
     // Limpeza intencional para permitir apagar usuário sem violar FKs e sem manter dados privados órfãos.
     // Mantemos tudo dentro de uma transação para evitar exclusão parcial.
     await query('BEGIN')
@@ -310,6 +322,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response): Promi
 
       await query('DELETE FROM profiles WHERE id = $1 AND org_id = $2', [id, orgId])
       await query('COMMIT')
+      for (const file of [...taskFilesToRemove, ...docFilesToRemove]) removeUploadByUrl(file.arquivo_url)
     } catch (cleanupErr) {
       await query('ROLLBACK').catch(() => {})
       throw cleanupErr

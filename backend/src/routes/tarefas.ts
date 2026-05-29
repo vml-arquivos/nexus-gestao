@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { query, queryOne } from '../db/pool'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { criarNotificacao } from '../lib/notifHelper'
 import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
@@ -99,6 +99,7 @@ async function addHistorico(input: {
 
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
+  if (canDeleteOrgRecords(role)) return true
   if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId
   if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId
   if (role === 'sub_gestor') {
@@ -688,7 +689,7 @@ router.delete('/:id/anexos/:anexoId', async (req: Request, res: Response): Promi
     )
     if (!anexo) { res.status(404).json({ error: 'Anexo não encontrado.' }); return }
 
-    const canDelete = anexo.enviado_por === userId || task.criado_por === userId || role === 'gestor' || role === 'sub_gestor'
+    const canDelete = canDeleteOrgRecords(role) || anexo.enviado_por === userId || task.criado_por === userId || role === 'sub_gestor'
     if (!canDelete) { res.status(403).json({ error: 'Você não tem permissão para excluir este anexo.' }); return }
 
     removeUploadByUrl(anexo.arquivo_url)
@@ -796,12 +797,24 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const { orgId, userId, role } = req.user!
     const existing = await getTaskForAccess(req.params.id, orgId)
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    const canDeleteAny = canDeleteOrgRecords(role)
     if (role === 'membro' && existing.criado_por !== userId) { res.status(403).json({ error: 'Membro só exclui tarefas pessoais criadas por ele.' }); return }
-    if (role !== 'membro' && existing.criado_por !== userId && existing.responsavel_id !== userId) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    if (!canDeleteAny && role !== 'membro' && existing.criado_por !== userId && existing.responsavel_id !== userId) { res.status(403).json({ error: 'Acesso negado.' }); return }
+
     const anexos = await query<{ arquivo_url?: string }>('SELECT arquivo_url FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId])
-    await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'excluida', statusAnterior: existing.status, observacao: existing.titulo })
-    await query('DELETE FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId])
-    await query('DELETE FROM tarefas WHERE id = $1 AND org_id = $2', [req.params.id, orgId])
+    await query('BEGIN')
+    try {
+      await query('DELETE FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      await query('DELETE FROM tarefas_historico WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      await query('DELETE FROM tarefa_historico WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      const deleted = await query('DELETE FROM tarefas WHERE id = $1 AND org_id = $2 RETURNING id', [req.params.id, orgId]) as any[]
+      if (deleted.length === 0) throw new Error('Tarefa não encontrada para exclusão.')
+      await query('COMMIT')
+    } catch (cleanupErr) {
+      await query('ROLLBACK').catch(() => {})
+      throw cleanupErr
+    }
     for (const anexo of anexos) removeUploadByUrl(anexo.arquivo_url)
     res.json({ ok: true })
   } catch (err) {

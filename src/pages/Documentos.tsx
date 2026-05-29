@@ -224,7 +224,7 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
 
 export default function Documentos() {
   const { user } = useAuth()
-  const isGestor = user?.role === 'gestor'
+  const canDeleteOwnRecords = !!user
   const [documentos, setDocumentos]   = useState<Documento[]>([])
   const [pessoas, setPessoas]         = useState<Pessoa[]>([])
   const [pagamentos, setPagamentos]   = useState<Pagamento[]>([])
@@ -324,7 +324,7 @@ export default function Documentos() {
                     </div>
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                       <a href={doc.arquivo_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text3)', textDecoration: 'none' }}><ExternalLink size={14} /></a>
-                      {isGestor && <button onClick={() => handleDelete(doc.id)} style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={14} /></button>}
+                      {canDeleteOwnRecords && <button onClick={() => handleDelete(doc.id)} style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={14} /></button>}
                     </div>
                   </div>
                   {doc.descricao && <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 8, lineHeight: 1.5 }}>{doc.descricao}</p>}
