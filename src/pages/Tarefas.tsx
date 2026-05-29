@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import type { ReactNode, ChangeEvent } from 'react'
+import type { ReactNode, DragEvent } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
-  Paperclip, Upload, Download, FileText,
+  Paperclip, Upload, Download, FileText, Copy,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -33,6 +33,77 @@ const PRIORIDADE_CONFIG: Record<string, { label: string; color: string }> = {
   baixa: { label: 'Baixa', color: '#10B981' },
   media: { label: 'Média', color: '#F59E0B' },
   alta: { label: 'Alta', color: '#EF4444' },
+}
+
+const ACCEPTED_EVIDENCE_TYPES = ".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"
+
+function FileDropzone({
+  id,
+  files,
+  onFiles,
+  label = 'Anexar arquivos ou fotos',
+  help = 'PDF, imagem, planilha, documento, TXT ou CSV.',
+}: {
+  id: string
+  files: File[]
+  onFiles: (files: File[]) => void
+  label?: string
+  help?: string
+}) {
+  const [dragActive, setDragActive] = useState(false)
+
+  function appendFiles(list: FileList | File[]) {
+    const next = Array.from(list || [])
+    if (!next.length) return
+    onFiles([...files, ...next])
+  }
+
+  function onDrop(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    appendFiles(e.dataTransfer.files)
+  }
+
+  function onDrag(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true)
+    if (e.type === 'dragleave') setDragActive(false)
+  }
+
+  return (
+    <div className="task-upload-block">
+      <label
+        htmlFor={id}
+        className={dragActive ? 'task-upload-dropzone active' : 'task-upload-dropzone'}
+        onDragEnter={onDrag}
+        onDragOver={onDrag}
+        onDragLeave={onDrag}
+        onDrop={onDrop}
+      >
+        <span className="task-upload-icon"><Upload size={22} /></span>
+        <span className="task-upload-title">{label}</span>
+        <span className="task-upload-subtitle">Clique para anexar arquivos ou fotos, ou arraste para cá</span>
+        <span className="task-upload-help">{help}</span>
+      </label>
+      <input
+        id={id}
+        className="task-upload-input"
+        type="file"
+        multiple
+        onChange={e => { appendFiles(e.target.files || []); e.currentTarget.value = '' }}
+        accept={ACCEPTED_EVIDENCE_TYPES}
+      />
+      {files.length > 0 && (
+        <div className="pending-files">
+          {files.map((f, i) => (
+            <span key={`${f.name}-${f.size}-${i}`}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -264,9 +335,6 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
   const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
 
-  function onFilesChange(e: ChangeEvent<HTMLInputElement>) {
-    setFiles(Array.from(e.target.files || []))
-  }
 
   async function salvar() {
     if (tipo === 'nao_concluida' && !obs.trim()) { toast('Informe o motivo da não conclusão.', 'error'); return }
@@ -307,11 +375,13 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
       </div>
       <div className="form-group">
         <label className="form-label">Anexar evidência da tarefa</label>
-        <input className="form-input" type="file" multiple onChange={onFilesChange} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
-        <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-          Envie PDF, imagem, planilha, documento, TXT ou CSV para o gestor verificar o que foi feito.
-        </div>
-        {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
+        <FileDropzone
+          id={`resposta-evidencias-${tarefa.id}`}
+          files={files}
+          onFiles={setFiles}
+          label="Anexar evidência da tarefa"
+          help="Envie PDF, imagem, planilha, documento, TXT ou CSV para o gestor verificar o que foi feito."
+        />
       </div>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
         <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
@@ -419,9 +489,6 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 
   useEffect(() => { load() }, [load])
 
-  function onFilesChange(e: ChangeEvent<HTMLInputElement>) {
-    setFiles(Array.from(e.target.files || []))
-  }
 
   async function enviar() {
     if (files.length === 0) { toast('Selecione pelo menos um arquivo.', 'error'); return }
@@ -464,8 +531,13 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
     <div style={{ display: 'grid', gap: 12, border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">Selecionar arquivos</label>
-        <input className="form-input" type="file" multiple onChange={onFilesChange} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
-        {files.length > 0 && <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>{files.map((f, i) => <div key={`${f.name}-${i}`} style={{ fontSize: 12, color: 'var(--text2)', display: 'flex', gap: 6, alignItems: 'center' }}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</div>)}</div>}
+        <FileDropzone
+          id={`anexos-tarefa-${tarefa.id}`}
+          files={files}
+          onFiles={setFiles}
+          label={isGestor ? 'Anexar arquivo de referência' : 'Anexar evidência'}
+          help={isGestor ? 'Use PDF, imagem ou documento para referência, validação ou devolução.' : 'Use PDF, foto, comprovante, planilha ou documento da execução.'}
+        />
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">Descrição do anexo</label>
@@ -596,6 +668,37 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
     persistChecklist(next)
   }
 
+  async function copiarChecklist() {
+    if (!checklist.length) {
+      toast('Esta tarefa não possui checklist para copiar.', 'error')
+      return
+    }
+
+    const texto = [
+      `Checklist da tarefa: ${tarefa.titulo}`,
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}`),
+    ].join('\n')
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(texto)
+      } else {
+        const area = document.createElement('textarea')
+        area.value = texto
+        area.style.position = 'fixed'
+        area.style.opacity = '0'
+        document.body.appendChild(area)
+        area.focus()
+        area.select()
+        document.execCommand('copy')
+        area.remove()
+      }
+      toast('Checklist copiado.')
+    } catch {
+      toast('Não foi possível copiar o checklist.', 'error')
+    }
+  }
+
   async function uploadPendentes() {
     for (const file of files) {
       await tarefasApi.uploadAnexo(tarefa.id, file, {
@@ -690,7 +793,14 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
         <section className="task-detail-section">
           <div className="task-detail-section-head">
             <h3>Checklist de execução</h3>
-            <strong>{done}/{total} feitos · {percent}%</strong>
+            <div className="task-checklist-head-actions">
+              {total > 0 && (
+                <button className="btn btn-secondary btn-sm" type="button" onClick={copiarChecklist}>
+                  <Copy size={14} /> Copiar checklist
+                </button>
+              )}
+              <strong>{done}/{total} feitos · {percent}%</strong>
+            </div>
           </div>
           {total > 0 ? (
             <div className="task-checklist-run">
@@ -719,8 +829,13 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
         {canExecuteTask && (
           <section className="task-detail-section">
             <h3>Evidências para anexar antes de concluir</h3>
-            <input className="form-input" type="file" multiple onChange={e => setFiles(Array.from(e.target.files || []))} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
-            {files.length > 0 && <div className="pending-files">{files.map((f, i) => <span key={`${f.name}-${i}`}><Paperclip size={13} /> {f.name} {formatSize(f.size)}</span>)}</div>}
+            <FileDropzone
+              id={`concluir-evidencias-${tarefa.id}`}
+              files={files}
+              onFiles={setFiles}
+              label="Anexar evidências da conclusão"
+              help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução."
+            />
             <label className="form-label">Observação de conclusão</label>
             <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex.: executei os itens marcados e anexei os comprovantes..." />
             <label className="form-label">Motivo caso não tenha concluído</label>

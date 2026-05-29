@@ -1622,3 +1622,94 @@ body:has([aria-modal="true"]) .bottom-nav {
   max-width: 20px !important;
   max-height: 20px !important;
 }
+
+/* Hotfix UX evidências: upload claro com clique e arrastar, sem alterar regra de envio. */
+.task-upload-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.task-upload-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.task-upload-dropzone {
+  width: 100%;
+  min-height: 126px;
+  border: 1.5px dashed var(--border);
+  border-radius: 16px;
+  background: var(--bg3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+  color: var(--text2);
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.task-upload-dropzone:hover,
+.task-upload-dropzone.active {
+  border-color: var(--success);
+  background: rgba(16,185,129,.08);
+  transform: translateY(-1px);
+}
+.task-upload-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--success);
+  background: rgba(16,185,129,.12);
+}
+.task-upload-title {
+  color: var(--text);
+  font-weight: 900;
+  font-size: 14px;
+}
+.task-upload-subtitle {
+  color: var(--text2);
+  font-weight: 700;
+  font-size: 13px;
+}
+.task-upload-help {
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.task-checklist-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.task-checklist-head-actions .btn-sm {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+@media (max-width: 520px) {
+  .task-detail-section-head,
+  .task-checklist-head-actions {
+    align-items: stretch;
+  }
+  .task-checklist-head-actions {
+    width: 100%;
+  }
+  .task-checklist-head-actions .btn-sm {
+    width: 100%;
+    justify-content: center;
+  }
+}
