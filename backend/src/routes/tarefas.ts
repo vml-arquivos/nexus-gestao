@@ -453,7 +453,7 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
     if (role === 'membro') { res.status(403).json({ error: 'Membro não pode reabrir tarefa.' }); return }
-    if (existing.criado_por !== userId) { res.status(403).json({ error: 'Você só pode complementar tarefas criadas por você.' }); return }
+    if (!canDeleteOrgRecords(role) && existing.criado_por !== userId) { res.status(403).json({ error: 'Você só pode complementar tarefas criadas por você.' }); return }
 
     const carimbo = new Date().toLocaleString('pt-BR')
     const obsComplemento = `Complemento solicitado em ${carimbo}: ${complemento.trim()}`
