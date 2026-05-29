@@ -530,8 +530,18 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const [saving, setSaving] = useState(false)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
-  const isCriadorSemResponsavel = !tarefa.responsavel_id && tarefa.criado_por === userId
-  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !['aprovada', 'cancelada'].includes(tarefa.status)
+  const isCriador = tarefa.criado_por === userId
+  const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
+  const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
+
+  // Checklist é parte operacional da tarefa.
+  // Quem pode enxergar/gerir a tarefa na organização precisa conseguir marcar os itens
+  // enquanto ela não estiver finalizada, incluindo admin/gestor/dev em tarefas próprias
+  // ou tarefas sob conferência. Antes o botão aparecia visualmente, mas ficava disabled.
+  const canToggleChecklist = !isTaskFinalizada && (isGestor || isResponsavel || isCriador)
+
+  // Ações de conclusão/devolução continuam restritas ao executor real da tarefa.
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
 
   async function persistChecklist(next: ChecklistItem[]) {
@@ -652,7 +662,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
                   key={item.id}
                   type="button"
                   className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                  disabled={!canExecuteTask || saving}
+                  disabled={!canToggleChecklist || saving}
                   onClick={() => toggleCheck(item.id)}
                   aria-pressed={!!item.feito}
                 >
@@ -663,6 +673,9 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
             </div>
           ) : (
             <p className="muted">Esta tarefa não possui checklist.</p>
+          )}
+          {total > 0 && !canToggleChecklist && (
+            <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado porque a tarefa está finalizada ou você não tem permissão de execução/conferência.</p>
           )}
         </section>
 
@@ -724,8 +737,18 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const overdue = isOverdue(tarefa.prazo, tarefa.status)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
-  const isCriadorSemResponsavel = !tarefa.responsavel_id && tarefa.criado_por === userId
-  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !['aprovada', 'cancelada'].includes(tarefa.status)
+  const isCriador = tarefa.criado_por === userId
+  const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
+  const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
+
+  // Checklist é parte operacional da tarefa.
+  // Quem pode enxergar/gerir a tarefa na organização precisa conseguir marcar os itens
+  // enquanto ela não estiver finalizada, incluindo admin/gestor/dev em tarefas próprias
+  // ou tarefas sob conferência. Antes o botão aparecia visualmente, mas ficava disabled.
+  const canToggleChecklist = !isTaskFinalizada && (isGestor || isResponsavel || isCriador)
+
+  // Ações de conclusão/devolução continuam restritas ao executor real da tarefa.
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
 
