@@ -309,6 +309,91 @@ function statusChip(g: GrupoFinanceiro) {
   return 'Pendente'
 }
 
+
+type PeriodoFinanceiro = {
+  mes: string
+  ano: string
+  grupoKey: string
+}
+
+type ParcelaComGrupo = {
+  pagamento: Pagamento
+  grupo: GrupoPagamento
+  grupoKey: string
+}
+
+function normalizeSearch(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function grupoKey(g: GrupoPagamento): string {
+  return g.grupo_id || buildFinancialNaturalKey(g)
+}
+
+function grupoLabel(g: GrupoPagamento): string {
+  const pessoa = g.pessoa_nome ? ` · ${g.pessoa_nome}` : ''
+  const tipo = g.tipo === 'recebimento' ? 'Receber' : 'Pagar'
+  return `${tipo}: ${g.titulo}${pessoa}`
+}
+
+function dateParts(value?: string | null): { ano: string; mes: string } | null {
+  const d = normalizeDateValue(value)
+  if (!d || d.length < 7) return null
+  return { ano: d.slice(0, 4), mes: d.slice(5, 7) }
+}
+
+function parcelaCompetenciaDate(p: Pagamento): string | null {
+  return normalizeDateValue(p.vencimento || p.pago_em || p.created_at)
+}
+
+function matchesPeriodoPagamento(p: Pagamento, periodo: PeriodoFinanceiro): boolean {
+  const parts = dateParts(parcelaCompetenciaDate(p))
+  if (!parts) return periodo.mes === 'todos' && periodo.ano === 'todos'
+  if (periodo.ano !== 'todos' && parts.ano !== periodo.ano) return false
+  if (periodo.mes !== 'todos' && parts.mes !== periodo.mes) return false
+  return true
+}
+
+function dedupeParcelas(grupos: GrupoPagamento[]): ParcelaComGrupo[] {
+  const seen = new Set<string>()
+  const result: ParcelaComGrupo[] = []
+  for (const g of grupos) {
+    const key = grupoKey(g)
+    for (const p of g.parcelas || []) {
+      if (!p?.id || seen.has(p.id)) continue
+      seen.add(p.id)
+      result.push({ pagamento: p, grupo: g, grupoKey: key })
+    }
+  }
+  return result
+}
+
+function mesNome(mes: string) {
+  if (mes === 'todos') return 'Todos os meses'
+  const nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+  return nomes[Math.max(0, Number(mes) - 1)] || mes
+}
+
+function statusResumoParcela(p: Pagamento) {
+  if (p.status === 'pago') return 'Pago'
+  if (p.status === 'cancelado') return 'Cancelado'
+  const venc = normalizeDateValue(p.vencimento)
+  const hoje = new Date().toISOString().slice(0, 10)
+  return venc && venc < hoje ? 'Vencido' : 'Pendente'
+}
+
+function isPagamentoInSearch(item: ParcelaComGrupo, search: string) {
+  if (!search) return true
+  const q = normalizeSearch(search)
+  const p = item.pagamento
+  return [p.titulo, p.descricao, p.categoria, p.pessoa_nome, p.pessoa_nome_atual, item.grupo.pessoa_nome, item.grupo.titulo, p.obs]
+    .some(v => normalizeSearch(v).includes(q))
+}
+
 // ── Card de grupo (uma dívida/crédito = um card) ─────────────────────────────
 function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
   g: GrupoFinanceiro
@@ -1390,6 +1475,10 @@ export default function Financeiro() {
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'pagamento' | 'recebimento'>('todos')
   const [search, setSearch] = useState('')
   const [pessoaFiltro, setPessoaFiltro] = useState<ResumoPorPessoa | null>(null)
+  const hojeFiltro = new Date()
+  const [filtroMes, setFiltroMes] = useState(String(hojeFiltro.getMonth() + 1).padStart(2, '0'))
+  const [filtroAno, setFiltroAno] = useState(String(hojeFiltro.getFullYear()))
+  const [filtroGrupo, setFiltroGrupo] = useState('todos')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1489,26 +1578,80 @@ export default function Financeiro() {
     }
   }
 
-  // Filtragem sobre os grupos retornados pelo backend
+  const todasParcelas = dedupeParcelas(grupos)
+  const anosDisponiveis = Array.from(new Set(
+    todasParcelas
+      .map(({ pagamento }) => dateParts(parcelaCompetenciaDate(pagamento))?.ano)
+      .filter(Boolean) as string[]
+  )).sort((a, b) => Number(b) - Number(a))
+  if (!anosDisponiveis.includes(filtroAno) && filtroAno !== 'todos') anosDisponiveis.unshift(filtroAno)
+
+  const opcoesDivida = grupos
+    .map(g => ({ key: grupoKey(g), label: grupoLabel(g) }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+
+  const periodoAtual: PeriodoFinanceiro = { mes: filtroMes, ano: filtroAno, grupoKey: filtroGrupo }
+
+  const parcelasFiltradas = todasParcelas.filter(item => {
+    const p = item.pagamento
+    if (filtroTipo !== 'todos' && p.tipo !== filtroTipo) return false
+    if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false
+    if (pessoaFiltro && p.pessoa_id !== pessoaFiltro.pessoa_id) return false
+    if (filtroGrupo !== 'todos' && item.grupoKey !== filtroGrupo) return false
+    if (!matchesPeriodoPagamento(p, periodoAtual)) return false
+    if (!isPagamentoInSearch(item, search)) return false
+    return true
+  })
+
   const filtrarGrupos = (tipo: 'pagamento' | 'recebimento') => {
     return grupos.filter(g => {
       if (g.tipo !== tipo) return false
-      if (filtroStatus !== 'todos') {
-        if (filtroStatus === 'pago' && g.valor_pendente > 0) return false
-        if (filtroStatus === 'pendente' && g.valor_pendente === 0) return false
-      }
+      if (filtroGrupo !== 'todos' && grupoKey(g) !== filtroGrupo) return false
       if (pessoaFiltro && g.pessoa_id !== pessoaFiltro.pessoa_id) return false
       if (search) {
-        const q = search.toLowerCase()
-        return (g.titulo || '').toLowerCase().includes(q) || (g.pessoa_nome || '').toLowerCase().includes(q) || (g.categoria || '').toLowerCase().includes(q)
+        const q = normalizeSearch(search)
+        const matchGrupo = [g.titulo, g.pessoa_nome, g.categoria].some(v => normalizeSearch(v).includes(q))
+        const matchParcela = (g.parcelas || []).some(p => isPagamentoInSearch({ pagamento: p, grupo: g, grupoKey: grupoKey(g) }, search))
+        if (!matchGrupo && !matchParcela) return false
       }
+      const parcelasDoPeriodo = (g.parcelas || []).filter(p => matchesPeriodoPagamento(p, periodoAtual))
+      if (parcelasDoPeriodo.length === 0) return false
+      if (filtroStatus !== 'todos' && !parcelasDoPeriodo.some(p => p.status === filtroStatus)) return false
+      if (filtroTipo !== 'todos' && g.tipo !== filtroTipo) return false
       return true
-    })
+    }).map(g => {
+      const parcelas = (g.parcelas || []).filter(p => matchesPeriodoPagamento(p, periodoAtual))
+      if (filtroStatus !== 'todos') {
+        const statusParcelas = parcelas.filter(p => p.status === filtroStatus)
+        return statusParcelas.length ? normalizarGruposFinanceiros([{ ...g, parcelas: statusParcelas }])[0] : g
+      }
+      return normalizarGruposFinanceiros([{ ...g, parcelas }])[0]
+    }).filter(Boolean)
   }
 
   const gruposPagar = filtrarGrupos('pagamento')
   const gruposReceber = filtrarGrupos('recebimento')
-  const vencidos = grupos.filter(g => g.vencido)
+  const vencidos = parcelasFiltradas.filter(({ pagamento }) => statusResumoParcela(pagamento) === 'Vencido')
+
+  const somaParcelas = (tipo: 'pagamento' | 'recebimento', status?: 'pendente' | 'pago' | 'cancelado') => parcelasFiltradas
+    .filter(({ pagamento }) => pagamento.tipo === tipo && pagamento.status !== 'cancelado' && (!status || pagamento.status === status))
+    .reduce((s, { pagamento }) => s + Number(pagamento.valor || 0), 0)
+
+  const totalEntradasPeriodo = somaParcelas('recebimento')
+  const totalSaidasPeriodo = somaParcelas('pagamento')
+  const recebidoPeriodo = somaParcelas('recebimento', 'pago')
+  const pagoPeriodo = somaParcelas('pagamento', 'pago')
+  const aReceberPeriodo = somaParcelas('recebimento', 'pendente')
+  const aPagarPeriodo = somaParcelas('pagamento', 'pendente')
+  const saldoPrevistoPeriodo = totalEntradasPeriodo - totalSaidasPeriodo
+  const saldoRealizadoPeriodo = recebidoPeriodo - pagoPeriodo
+  const saldoAbertoPeriodo = aReceberPeriodo - aPagarPeriodo
+
+  const extratoPeriodo = [...parcelasFiltradas]
+    .filter(({ pagamento }) => pagamento.status !== 'cancelado')
+    .sort((a, b) => compareNullableDates(b.pagamento.vencimento || b.pagamento.pago_em || b.pagamento.created_at, a.pagamento.vencimento || a.pagamento.pago_em || a.pagamento.created_at))
+
+  const filtroDescricao = `${mesNome(filtroMes)}${filtroAno !== 'todos' ? `/${filtroAno}` : ''}`
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
@@ -1520,19 +1663,47 @@ export default function Financeiro() {
         <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
       </div>
 
-      {resumo && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
-          <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A receber</span></div>
-            <div style={{ fontWeight: 700, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
-          </div>
-          <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A pagar</span></div>
-            <div style={{ fontWeight: 700, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
-          </div>
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
+        <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Entradas do período</span></div>
+          <div style={{ fontWeight: 800, fontSize: 19, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(totalEntradasPeriodo)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(recebidoPeriodo)}</div>
         </div>
+        <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Saídas do período</span></div>
+          <div style={{ fontWeight: 800, fontSize: 19, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(totalSaidasPeriodo)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(pagoPeriodo)}</div>
+        </div>
+        <div style={{ background: saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}`, borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><CircleDollarSign size={14} color={saldoPrevistoPeriodo >= 0 ? '#10B981' : '#EF4444'} /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Saldo previsto</span></div>
+          <div style={{ fontWeight: 800, fontSize: 19, color: saldoPrevistoPeriodo >= 0 ? '#10B981' : '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(saldoPrevistoPeriodo)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{filtroDescricao}</div>
+        </div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><WalletCards size={14} /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Em aberto</span></div>
+          <div style={{ fontWeight: 800, fontSize: 19, color: saldoAbertoPeriodo >= 0 ? '#10B981' : '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(saldoAbertoPeriodo)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>A receber {fmt(aReceberPeriodo)} · A pagar {fmt(aPagarPeriodo)}</div>
+        </div>
+      </section>
+
+      {resumo && (
+        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 20 }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Carteira total a receber</div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Histórico recebido: {fmt(resumo.receita_paga)}</div>
+          </div>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Carteira total a pagar</div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Histórico pago: {fmt(resumo.despesa_paga)}</div>
+          </div>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 14px' }}>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Saldo realizado total</div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: resumo.saldo >= 0 ? '#10B981' : '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.saldo)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>Baseado no que já foi pago/recebido</div>
+          </div>
+        </section>
       )}
 
       {vencidos.length > 0 && (
@@ -1540,7 +1711,7 @@ export default function Financeiro() {
           <AlertTriangle size={16} color="#F59E0B" style={{ flexShrink: 0 }} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 13, color: '#F59E0B' }}>{vencidos.length} lançamento{vencidos.length > 1 ? 's' : ''} vencido{vencidos.length > 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, p) => s + Number(p.valor_pendente), 0))}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Total: {fmt(vencidos.reduce((s, item) => s + Number(item.pagamento.valor || 0), 0))}</div>
           </div>
         </div>
       )}
@@ -1570,25 +1741,58 @@ export default function Financeiro() {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', flex: 2, minWidth: 160 }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
-              <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)} />
+          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Filter size={15} />
+                <strong style={{ fontSize: 14 }}>Filtros dinâmicos</strong>
+                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 999, padding: '2px 8px' }}>{parcelasFiltradas.length} movimento{parcelasFiltradas.length === 1 ? '' : 's'}</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: 12, padding: '6px 10px' }}
+                onClick={() => { setFiltroMes(String(new Date().getMonth() + 1).padStart(2, '0')); setFiltroAno(String(new Date().getFullYear())); setFiltroGrupo('todos'); setFiltroStatus('todos'); setFiltroTipo('todos'); setSearch(''); setPessoaFiltro(null) }}
+              >
+                Limpar filtros
+              </button>
             </div>
 
-            <select className="form-input" style={{ flex: 1, minWidth: 120 }} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
-              <option value="todos">Todos status</option>
-              <option value="pendente">Pendente</option>
-              <option value="pago">Pago</option>
-              <option value="cancelado">Cancelado</option>
-            </select>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 8 }}>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', pointerEvents: 'none' }} />
+                <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar por descrição, pessoa, categoria..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
 
-            <select className="form-input" style={{ flex: 1, minWidth: 130 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as 'todos' | 'pagamento' | 'recebimento')}>
-              <option value="todos">Pagar e receber</option>
-              <option value="pagamento">Somente a pagar</option>
-              <option value="recebimento">Somente a receber</option>
-            </select>
-          </div>
+              <select className="form-input" value={filtroMes} onChange={e => setFiltroMes(e.target.value)}>
+                <option value="todos">Todos meses</option>
+                {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => <option key={m} value={m}>{mesNome(m)}</option>)}
+              </select>
+
+              <select className="form-input" value={filtroAno} onChange={e => setFiltroAno(e.target.value)}>
+                <option value="todos">Todos anos</option>
+                {anosDisponiveis.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+
+              <select className="form-input" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+                <option value="todos">Todos status</option>
+                <option value="pendente">Pendente</option>
+                <option value="pago">Pago</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
+
+              <select className="form-input" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as 'todos' | 'pagamento' | 'recebimento')}>
+                <option value="todos">Entradas e saídas</option>
+                <option value="recebimento">Somente entradas</option>
+                <option value="pagamento">Somente saídas</option>
+              </select>
+
+              <select className="form-input" value={filtroGrupo} onChange={e => setFiltroGrupo(e.target.value)}>
+                <option value="todos">Todas dívidas/contratos</option>
+                {opcoesDivida.map(op => <option key={op.key} value={op.key}>{op.label}</option>)}
+              </select>
+            </div>
+          </section>
 
           {pessoaFiltro && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 12px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
@@ -1597,6 +1801,74 @@ export default function Financeiro() {
               <button onClick={() => setPessoaFiltro(null)} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={14} /></button>
             </div>
           )}
+
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Entradas mensais</div>
+              <div style={{ fontWeight: 900, color: '#10B981', fontSize: 18 }}>{fmt(totalEntradasPeriodo)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Aberto: {fmt(aReceberPeriodo)} · Recebido: {fmt(recebidoPeriodo)}</div>
+            </div>
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Saídas mensais</div>
+              <div style={{ fontWeight: 900, color: '#EF4444', fontSize: 18 }}>{fmt(totalSaidasPeriodo)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Aberto: {fmt(aPagarPeriodo)} · Pago: {fmt(pagoPeriodo)}</div>
+            </div>
+            <div style={{ background: saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)'}`, borderRadius: 'var(--radius)', padding: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Fechamento previsto</div>
+              <div style={{ fontWeight: 900, color: saldoPrevistoPeriodo >= 0 ? '#10B981' : '#EF4444', fontSize: 18 }}>{fmt(saldoPrevistoPeriodo)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{saldoPrevistoPeriodo >= 0 ? 'Mês positivo' : 'Mês negativo'} considerando vencimentos filtrados</div>
+            </div>
+            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Realizado / extrato</div>
+              <div style={{ fontWeight: 900, color: saldoRealizadoPeriodo >= 0 ? '#10B981' : '#EF4444', fontSize: 18 }}>{fmt(saldoRealizadoPeriodo)}</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{extratoPeriodo.length} linha{extratoPeriodo.length === 1 ? '' : 's'} no extrato</div>
+            </div>
+          </section>
+
+          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 15 }}>Histórico / extrato financeiro</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>Entradas e saídas do período selecionado, sem apagar nem esconder os cards originais.</div>
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{filtroDescricao}</span>
+            </div>
+            {extratoPeriodo.length === 0 ? (
+              <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: 14, color: 'var(--text3)', fontSize: 13, textAlign: 'center' }}>Nenhuma entrada ou saída encontrada com os filtros atuais.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+                {extratoPeriodo.slice(0, 60).map(({ pagamento: p, grupo }) => {
+                  const entrada = p.tipo === 'recebimento'
+                  const status = statusResumoParcela(p)
+                  return (
+                    <div key={`extrato-${p.id}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'var(--bg3)' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 900, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>{p.titulo || grupo.titulo}</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, borderRadius: 999, padding: '2px 7px', color: entrada ? '#10B981' : '#EF4444', background: entrada ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' }}>{entrada ? 'Entrada' : 'Saída'}</span>
+                          <span style={{ fontSize: 10, color: status === 'Pago' ? '#10B981' : status === 'Vencido' ? '#EF4444' : 'var(--text3)', fontWeight: 800 }}>{status}</span>
+                        </div>
+                        <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text3)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <span>{fmtDate(p.vencimento)}</span>
+                          {(p.pessoa_nome || p.pessoa_nome_atual || grupo.pessoa_nome) && <span>{p.pessoa_nome || p.pessoa_nome_atual || grupo.pessoa_nome}</span>}
+                          {p.num_parcela && p.num_parcelas && <span>{p.num_parcela}/{p.num_parcelas} parcelas</span>}
+                          {p.categoria && <span>{p.categoria}</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ color: entrada ? '#10B981' : '#EF4444', whiteSpace: 'nowrap' }}>{entrada ? '+' : '-'}{fmt(Number(p.valor || 0))}</strong>
+                        {p.status === 'pendente' && (
+                          <button title="Marcar como pago/recebido" onClick={() => handleMarcarPago(p)} style={{ padding: '6px 8px', borderRadius: 8, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer' }}><Check size={13} /></button>
+                        )}
+                        <button title="Editar" onClick={() => { setPrefill(null); setEditPag(p); setModalOpen(true) }} style={{ padding: '6px 8px', borderRadius: 8, border: 'none', background: 'var(--bg2)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
+                        {canDeleteFinanceiro && <button title="Apagar" onClick={() => handleDelete(p.id)} style={{ padding: '6px 8px', borderRadius: 8, border: 'none', background: 'rgba(239,68,68,0.1)', color: '#EF4444', cursor: 'pointer' }}><Trash2 size={13} /></button>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
 
           {loading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 60, color: 'var(--text3)' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite', marginRight: 10 }} /> Carregando...</div>
