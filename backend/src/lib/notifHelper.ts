@@ -196,18 +196,20 @@ async function jobLembretes() {
 // ── Job: vencimentos financeiros ─────────────────────────────────────────────
 async function jobFinanceiroVencimento() {
   try {
-    // Pagamentos que vencem amanhã e ainda não foram notificados hoje
+    // Pagamentos/recebimentos pendentes notificam 1 dia antes e no próprio dia.
+    // A deduplicação é diária por registro, então o usuário não recebe spam a cada hora.
     const pagamentos = await query<{
       id: string; org_id: string; criado_por: string; titulo: string
-      pessoa_nome: string; valor: string; vencimento: string
+      pessoa_nome: string; valor: string; vencimento: string; tipo: string; dias_para_vencer: string
     }>(
       `SELECT p.id, p.org_id, p.criado_por, p.titulo,
               COALESCE(p.pessoa_nome,'') AS pessoa_nome,
-              p.valor::text, p.vencimento::text
+              p.valor::text, p.vencimento::text, p.tipo,
+              (p.vencimento::date - CURRENT_DATE)::text AS dias_para_vencer
        FROM pagamentos p
        WHERE p.status = 'pendente'
          AND p.vencimento IS NOT NULL
-         AND p.vencimento::date = CURRENT_DATE + INTERVAL '1 day'
+         AND p.vencimento::date IN (CURRENT_DATE, CURRENT_DATE + INTERVAL '1 day')
          AND NOT EXISTS (
            SELECT 1 FROM notificacoes n
            WHERE n.referencia_id = p.id
@@ -218,12 +220,17 @@ async function jobFinanceiroVencimento() {
     )
     for (const p of pagamentos) {
       const valor = parseFloat(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+      const dias = parseInt(p.dias_para_vencer || '0', 10)
+      const isRecebimento = p.tipo === 'recebimento'
+      const acao = isRecebimento ? 'receber' : 'pagar'
       await criarNotificacao({
         orgId: p.org_id,
         userId: p.criado_por,
         tipo: 'financeiro_vencimento',
-        titulo: `💰 Vencimento amanhã: ${p.titulo}`,
-        body: `${p.pessoa_nome ? p.pessoa_nome + ' — ' : ''}${valor} vence amanhã.`,
+        titulo: dias === 0
+          ? `💰 Vence hoje: ${p.titulo}`
+          : `💰 Vencimento amanhã: ${p.titulo}`,
+        body: `${p.pessoa_nome ? p.pessoa_nome + ' — ' : ''}${valor} para ${acao} ${dias === 0 ? 'vence hoje' : 'vence amanhã'}.`,
         referenciaId: p.id,
         referenciaTipo: 'pagamento',
       })

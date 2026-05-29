@@ -489,8 +489,8 @@ function GrupoCard({ g, onGerenciar, onEdit, onDelete, onMarkPaid }: {
             >
               <WalletCards size={13} /> Gerenciar dívida
             </button>
-            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
-              {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
+            <button title="Mostrar parcelas no card" onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
+              {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
 
           </div>
@@ -1308,13 +1308,14 @@ function normalizarGruposFinanceiros(input: GrupoPagamento[]): GrupoPagamento[] 
   })
 }
 
-function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGerenciar, canDeleteFinanceiro }: {
+function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGerenciar, onDetalhes, canDeleteFinanceiro }: {
   g: GrupoPagamento
   onEdit: (p: Pagamento) => void
   onDelete: (id: string) => void
   onDeleteGrupo: (g: GrupoPagamento) => void
   onMarkPaid: (p: Pagamento) => void
   onGerenciar: (g: GrupoPagamento) => void
+  onDetalhes: (g: GrupoPagamento) => void
   canDeleteFinanceiro: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -1385,6 +1386,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
                 <Check size={13} /> Marcar pago
               </button>
             )}
+            <button title="Visualizar detalhes" onClick={e => { e.stopPropagation(); onDetalhes(g) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Eye size={13} /></button>
             <button onClick={e => { e.stopPropagation(); onEdit(principal) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}><Pencil size={13} /></button>
             {canDeleteFinanceiro && (
               <button
@@ -1404,8 +1406,11 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
             <button onClick={e => { e.stopPropagation(); onGerenciar(g) }} style={{ flex: 1, padding: '7px', borderRadius: 8, border: 'none', background: 'rgba(99,102,241,0.12)', color: '#6366F1', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               <WalletCards size={13} /> Gerenciar dívida
             </button>
-            <button onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
-              {expanded ? <ChevronUp size={13} /> : <Eye size={13} />}
+            <button title="Visualizar detalhes" onClick={e => { e.stopPropagation(); onDetalhes(g) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
+              <Eye size={13} />
+            </button>
+            <button title="Mostrar parcelas no card" onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
+              {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
             {canDeleteFinanceiro && (
               <button
@@ -1455,6 +1460,186 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
   )
 }
 
+function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPaid }: {
+  grupo: GrupoPagamento
+  onClose: () => void
+  onGerenciar: (g: GrupoPagamento) => void
+  onEdit: (p: Pagamento) => void
+  onMarkPaid: (p: Pagamento) => void
+}) {
+  const parcelas = [...(grupo.parcelas || [])].sort((a, b) => {
+    const byNum = Number(a.num_parcela || 0) - Number(b.num_parcela || 0)
+    if (byNum !== 0) return byNum
+    return compareNullableDates(a.vencimento, b.vencimento)
+  })
+  const primeira = parcelas[0]
+  const pendentes = parcelas.filter(p => p.status === 'pendente')
+  const pagas = parcelas.filter(p => p.status === 'pago')
+  const canceladas = parcelas.filter(p => p.status === 'cancelado')
+  const proxima = pendentes[0]
+  const valorParcelaBase = parcelas.length ? Number(parcelas[0]?.valor || 0) : Number(grupo.valor_total || 0)
+  const progresso = Number(grupo.valor_total || 0) > 0 ? Math.min(100, Math.round((Number(grupo.valor_pago || 0) / Number(grupo.valor_total || 1)) * 100)) : 0
+  const entrada = grupo.tipo === 'recebimento'
+  const valorColor = entrada ? '#10B981' : '#EF4444'
+  const tituloTipo = entrada ? 'A receber' : 'A pagar'
+  const hoje = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00')
+
+  function diferencaDias(date?: string | null) {
+    const d = normalizeDateValue(date)
+    if (!d) return null
+    const alvo = new Date(`${d}T00:00:00`)
+    return Math.round((alvo.getTime() - hoje.getTime()) / 86400000)
+  }
+
+  function textoAlerta(date?: string | null) {
+    const diff = diferencaDias(date)
+    if (diff === null) return 'Sem vencimento'
+    if (diff < 0) return `Vencido há ${Math.abs(diff)} dia${Math.abs(diff) === 1 ? '' : 's'}`
+    if (diff === 0) return 'Aviso hoje: vence no dia'
+    if (diff === 1) return 'Aviso amanhã: lembrete 1 dia antes'
+    return `Lembrete automático 1 dia antes e no dia (${diff} dias restantes)`
+  }
+
+  const historicoCompleto = [...(grupo.historico || []), ...historicoDerivado(parcelas)]
+    .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
+    .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
+
+  const resumo = [
+    { label: tituloTipo, value: grupo.valor_total, color: valorColor },
+    { label: `Parcelado em`, valueText: `${grupo.num_parcelas || parcelas.length || 1}x`, color: 'var(--text1)' },
+    { label: 'Parcela', value: valorParcelaBase, color: 'var(--text1)' },
+    { label: 'Saldo restante', value: grupo.valor_pendente, color: grupo.valor_pendente > 0 ? '#EF4444' : '#10B981' },
+  ]
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 320 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div style={{ background: 'var(--bg2)', borderRadius: 24, width: '100%', maxWidth: 760, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.55)', border: '1px solid var(--border)' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg2)', borderBottom: '1px solid var(--border)', padding: '18px 20px 14px', display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+              <span style={{ fontSize: 11, fontWeight: 900, color: valorColor, background: entrada ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', borderRadius: 999, padding: '3px 8px' }}>{tituloTipo}</span>
+              <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{pagas.length}/{parcelas.length || 1} parcelas pagas</span>
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 19, margin: 0, lineHeight: 1.2 }}>{grupo.titulo}</h2>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {grupo.pessoa_nome && <span><User size={11} style={{ verticalAlign: -1 }} /> {grupo.pessoa_nome}</span>}
+              {grupo.categoria && <span>{grupo.categoria}</span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', color: 'var(--text2)', borderRadius: 12, cursor: 'pointer', padding: 8 }}><X size={18} /></button>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10, marginBottom: 14 }}>
+            {resumo.map(item => (
+              <div key={item.label} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 13px' }}>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>{item.label}</div>
+                <div style={{ fontWeight: 900, fontSize: 17, color: item.color, fontFamily: 'var(--font-heading)' }}>{item.valueText || fmt(Number(item.value || 0))}</div>
+              </div>
+            ))}
+          </section>
+
+          <section style={{ background: entrada ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${entrada ? 'rgba(16,185,129,0.18)' : 'rgba(239,68,68,0.18)'}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 14 }}>Próximo vencimento e lembretes</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>{textoAlerta(proxima?.vencimento)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>Próxima parcela</div>
+                <div style={{ fontWeight: 900, color: valorColor }}>{proxima ? `${fmt(Number(proxima.valor || 0))} · ${fmtDate(proxima.vencimento)}` : 'Sem pendências'}</div>
+              </div>
+            </div>
+            <div style={{ height: 6, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${progresso}%`, background: '#10B981', borderRadius: 999 }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
+              <span>{progresso}% realizado</span>
+              <span>{pagas.length} pagas · {pendentes.length} pendentes{canceladas.length ? ` · ${canceladas.length} canceladas` : ''}</span>
+            </div>
+          </section>
+
+          {primeira?.descricao && (
+            <section style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Descrição</div>
+              <div style={{ fontSize: 13, color: 'var(--text2)', whiteSpace: 'pre-wrap' }}>{primeira.descricao}</div>
+            </section>
+          )}
+
+          <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, .8fr)', gap: 12 }}>
+            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 14 }}>Vencimentos</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>Parcelas, status e saldo restante.</div>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{parcelas.length || 1} linha(s)</span>
+              </div>
+              <div style={{ display: 'grid', gap: 7, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
+                {(parcelas.length ? parcelas : [primeira]).filter(Boolean).map((p, i) => {
+                  const status = statusResumoParcela(p as Pagamento)
+                  const isPendente = (p as Pagamento).status === 'pendente'
+                  return (
+                    <div key={(p as Pagamento).id || i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg2)', padding: '9px 10px' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: 12 }}>{(p as Pagamento).num_parcela || i + 1}/{(p as Pagamento).num_parcelas || parcelas.length || 1}</strong>
+                          <span style={{ fontSize: 10, fontWeight: 900, color: status === 'Pago' ? '#10B981' : status === 'Vencido' ? '#EF4444' : 'var(--text3)' }}>{status}</span>
+                          <span style={{ fontSize: 10, color: 'var(--text3)' }}>{textoAlerta((p as Pagamento).vencimento)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Vence: {fmtDate((p as Pagamento).vencimento)}{(p as Pagamento).pago_em ? ` · Pago em ${fmtDate((p as Pagamento).pago_em)}` : ''}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <strong style={{ color: (p as Pagamento).status === 'pago' ? '#10B981' : valorColor, whiteSpace: 'nowrap' }}>{fmt(Number((p as Pagamento).valor || 0))}</strong>
+                        {isPendente && <button title="Marcar como pago/recebido" onClick={() => onMarkPaid(p as Pagamento)} style={{ padding: '5px 7px', borderRadius: 8, border: 'none', background: 'rgba(16,185,129,0.12)', color: '#10B981', cursor: 'pointer' }}><Check size={12} /></button>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 14 }}>Histórico</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>Atualizações deste registro.</div>
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{historicoCompleto.length}</span>
+              </div>
+              {historicoCompleto.length === 0 ? (
+                <div style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: 12, color: 'var(--text3)', fontSize: 12 }}>Sem histórico ainda.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
+                  {historicoCompleto.slice(0, 50).map((h, i) => (
+                    <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <strong style={{ fontSize: 12 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</strong>
+                        {h.valor !== null && h.valor !== undefined && <strong style={{ fontSize: 12, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : h.tipo_evento === 'pagamento' || h.tipo_evento === 'abatimento' ? '#10B981' : 'var(--text1)', whiteSpace: 'nowrap' }}>{fmt(Number(h.valor || 0))}</strong>}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>{fmtDate(h.data_evento || h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
+                      {h.descricao && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5, whiteSpace: 'pre-wrap' }}>{h.descricao}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={onClose} style={{ flex: '1 1 120px' }}>Fechar</button>
+            {primeira && <button className="btn btn-ghost" onClick={() => onEdit(primeira)} style={{ flex: '1 1 120px' }}><Pencil size={14} /> Editar</button>}
+            <button className="btn btn-primary" onClick={() => onGerenciar(grupo)} style={{ flex: '2 1 180px' }}><WalletCards size={14} /> Gerenciar histórico / dívida</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Financeiro() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -1468,6 +1653,7 @@ export default function Financeiro() {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [gerenciarDivida, setGerenciarDivida] = useState<{ parcelas: Pagamento[]; tipo: 'pagamento' | 'recebimento'; historico?: HistoricoFinanceiroItem[] } | null>(null)
+  const [detalhesGrupo, setDetalhesGrupo] = useState<GrupoPagamento | null>(null)
   const [editPag, setEditPag] = useState<Pagamento | null>(null)
   const [prefill, setPrefill] = useState<Partial<Pagamento> | null>(null)
   const [tab, setTab] = useState<'lista' | 'pessoas'>('lista')
@@ -1899,6 +2085,7 @@ export default function Financeiro() {
                         key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
+                        onDetalhes={gp => setDetalhesGrupo(gp)}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
                         onDeleteGrupo={g => handleDeleteGrupo(g)}
@@ -1935,6 +2122,7 @@ export default function Financeiro() {
                         key={g.grupo_id || `${g.titulo}-${g.pessoa_nome}-${g.valor_total}`}
                         g={g}
                         onGerenciar={gp => setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })}
+                        onDetalhes={gp => setDetalhesGrupo(gp)}
                         onEdit={p => { setPrefill(null); setEditPag(p); setModalOpen(true) }}
                         onDelete={id => handleDelete(id)}
                         onDeleteGrupo={g => handleDeleteGrupo(g)}
@@ -1963,6 +2151,24 @@ export default function Financeiro() {
             load()
           }}
           onClose={() => { setModalOpen(false); setEditPag(null); setPrefill(null) }}
+        />
+      )}
+
+      {detalhesGrupo && (
+        <FinanceiroDetalhesModal
+          grupo={detalhesGrupo}
+          onClose={() => setDetalhesGrupo(null)}
+          onGerenciar={gp => {
+            setDetalhesGrupo(null)
+            setGerenciarDivida({ parcelas: gp.parcelas, tipo: gp.tipo, historico: gp.historico || [] })
+          }}
+          onEdit={p => {
+            setDetalhesGrupo(null)
+            setPrefill(null)
+            setEditPag(p)
+            setModalOpen(true)
+          }}
+          onMarkPaid={p => handleMarcarPago(p)}
         />
       )}
 
