@@ -58,6 +58,29 @@ function moneyInputValue(value: string): string {
   return String(value || '').replace(/[^0-9.,]/g, '')
 }
 
+function toCents(value: number): number {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100)
+}
+
+function fromCents(cents: number): number {
+  return Number((Math.round(cents) / 100).toFixed(2))
+}
+
+function distribuirParcelasEmCentavos(total: number, n: number, taxaMensal: number): number[] {
+  const safeN = Math.max(1, Math.floor(Number(n) || 1))
+  const taxa = Number(taxaMensal) || 0
+
+  if (taxa <= 0) {
+    const totalCents = toCents(total)
+    const base = Math.trunc(totalCents / safeN)
+    const resto = totalCents - base * safeN
+    return Array.from({ length: safeN }, (_, i) => fromCents(base + (i < resto ? 1 : 0)))
+  }
+
+  const parcelaCents = toCents(calcPMT(total, safeN, taxa))
+  return Array.from({ length: safeN }, () => fromCents(parcelaCents))
+}
+
 function fmtDate(d?: string) {
   if (!d) return '—'
   return new Date(`${d.slice(0, 10)}T00:00:00`).toLocaleDateString('pt-BR')
@@ -149,9 +172,10 @@ function ParcelaPreview({ total, n, taxa, intervalo, primeiraData }: {
 }) {
   const [expanded, setExpanded] = useState(false)
   if (!primeiraData || n < 1 || total <= 0) return null
-  const pmt = calcPMT(total, n, taxa)
+  const valores = distribuirParcelasEmCentavos(total, n, taxa)
+  const pmt = valores[0] || 0
   const datas = gerarDatasParcelamento(primeiraData, n, intervalo)
-  const totalFinal = pmt * n
+  const totalFinal = valores.reduce((sum, item) => sum + item, 0)
   const jurosTotal = totalFinal - total
   const mostrar = expanded ? datas : datas.slice(0, 3)
 
@@ -168,7 +192,7 @@ function ParcelaPreview({ total, n, taxa, intervalo, primeiraData }: {
         {mostrar.map((d, i) => (
           <div key={d} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 14px', borderBottom: i < mostrar.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13 }}>
             <span style={{ color: 'var(--text3)', fontWeight: 500 }}>{i + 1}ª parcela — {fmtDate(d)}</span>
-            <span style={{ fontWeight: 800, color: 'var(--text1)', fontFamily: 'var(--font-heading)' }}>{fmt(pmt)}</span>
+            <span style={{ fontWeight: 800, color: 'var(--text1)', fontFamily: 'var(--font-heading)' }}>{fmt(valores[i] ?? pmt)}</span>
           </div>
         ))}
       </div>
@@ -896,11 +920,13 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
       const primeiraDataPersonalizada = datasPersonalizadas[0]
 
       // Para parcelado: calcula valor da parcela e gera datas
-      let valorFinal = parseFloat(valor)
+      let valorFinal = Number(parseMoneyInput(valor).toFixed(2))
       let datasParcelado: string[] | undefined
+      let valoresParcelado: number[] | undefined
       if (scheduleMode === 'parcelado') {
         const taxa = parseFloat(taxaJuros) || 0
-        valorFinal = calcPMT(parseFloat(valor), numParcelas, taxa)
+        valoresParcelado = distribuirParcelasEmCentavos(parseMoneyInput(valor), numParcelas, taxa)
+        valorFinal = valoresParcelado[0] || 0
         datasParcelado = gerarDatasParcelamento(vencimento, numParcelas, intervaloParc)
       }
 
@@ -915,6 +941,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         titulo: titulo.trim(),
         descricao: descricao || undefined,
         valor: valorFinal,
+        parcelas_valores: scheduleMode === 'parcelado' ? valoresParcelado : undefined,
         tipo,
         status,
         vencimento: scheduleMode === 'personalizado' ? (primeiraDataPersonalizada || undefined) : (vencimento || undefined),
@@ -1036,9 +1063,8 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                     className="form-input"
                     type="number"
                     min={2}
-                    max={360}
                     value={numParcelas}
-                    onChange={e => setNumParcelas(Math.max(2, parseInt(e.target.value) || 2))}
+                    onChange={e => setNumParcelas(Math.max(2, Math.floor(Number(e.target.value) || 2)))}
                   />
                 </div>
                 <div className="form-group">
@@ -1209,15 +1235,12 @@ function normalizeGroupPart(value: unknown): string {
 function buildFinancialNaturalKey(g: GrupoPagamento): string {
   const first = g.parcelas?.[0]
   const pessoa = g.pessoa_id || g.pessoa_nome || first?.pessoa_id || first?.pessoa_nome || first?.pessoa_nome_atual || 'sem-pessoa'
-  const valorUnitario = Number(first?.valor ?? (g.num_parcelas ? Number(g.valor_total || 0) / Number(g.num_parcelas || 1) : g.valor_total || 0)).toFixed(2)
-
   return [
     'natural',
     normalizeGroupPart(g.titulo || first?.titulo),
     normalizeGroupPart(g.tipo || first?.tipo),
     normalizeGroupPart(g.categoria || first?.categoria || 'sem-categoria'),
     normalizeGroupPart(pessoa),
-    valorUnitario,
   ].join('|')
 }
 
@@ -1661,9 +1684,8 @@ export default function Financeiro() {
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'pagamento' | 'recebimento'>('todos')
   const [search, setSearch] = useState('')
   const [pessoaFiltro, setPessoaFiltro] = useState<ResumoPorPessoa | null>(null)
-  const hojeFiltro = new Date()
-  const [filtroMes, setFiltroMes] = useState(String(hojeFiltro.getMonth() + 1).padStart(2, '0'))
-  const [filtroAno, setFiltroAno] = useState(String(hojeFiltro.getFullYear()))
+  const [filtroMes, setFiltroMes] = useState('todos')
+  const [filtroAno, setFiltroAno] = useState('todos')
   const [filtroGrupo, setFiltroGrupo] = useState('todos')
 
   const load = useCallback(async () => {
@@ -1938,7 +1960,7 @@ export default function Financeiro() {
                 type="button"
                 className="btn btn-ghost"
                 style={{ fontSize: 12, padding: '6px 10px' }}
-                onClick={() => { setFiltroMes(String(new Date().getMonth() + 1).padStart(2, '0')); setFiltroAno(String(new Date().getFullYear())); setFiltroGrupo('todos'); setFiltroStatus('todos'); setFiltroTipo('todos'); setSearch(''); setPessoaFiltro(null) }}
+                onClick={() => { setFiltroMes('todos'); setFiltroAno('todos'); setFiltroGrupo('todos'); setFiltroStatus('todos'); setFiltroTipo('todos'); setSearch(''); setPessoaFiltro(null) }}
               >
                 Limpar filtros
               </button>
@@ -1990,19 +2012,19 @@ export default function Financeiro() {
 
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Entradas mensais</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Entradas filtradas</div>
               <div style={{ fontWeight: 900, color: '#10B981', fontSize: 18 }}>{fmt(totalEntradasPeriodo)}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)' }}>Aberto: {fmt(aReceberPeriodo)} · Recebido: {fmt(recebidoPeriodo)}</div>
             </div>
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Saídas mensais</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Saídas filtradas</div>
               <div style={{ fontWeight: 900, color: '#EF4444', fontSize: 18 }}>{fmt(totalSaidasPeriodo)}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)' }}>Aberto: {fmt(aPagarPeriodo)} · Pago: {fmt(pagoPeriodo)}</div>
             </div>
             <div style={{ background: saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${saldoPrevistoPeriodo >= 0 ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)'}`, borderRadius: 'var(--radius)', padding: 12 }}>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Fechamento previsto</div>
               <div style={{ fontWeight: 900, color: saldoPrevistoPeriodo >= 0 ? '#10B981' : '#EF4444', fontSize: 18 }}>{fmt(saldoPrevistoPeriodo)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{saldoPrevistoPeriodo >= 0 ? 'Mês positivo' : 'Mês negativo'} considerando vencimentos filtrados</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>{saldoPrevistoPeriodo >= 0 ? 'Período positivo' : 'Período negativo'} considerando todos os filtros</div>
             </div>
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>Realizado / extrato</div>

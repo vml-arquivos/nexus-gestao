@@ -29,6 +29,20 @@ function normalizeDateList(value: unknown): string[] {
   return out.sort()
 }
 
+function normalizeMoneyList(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    const raw = typeof item === 'string' ? item.replace(/\./g, '').replace(',', '.') : item
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0
+  })
+}
+
+function moneyAt(values: number[], index: number, fallback: number): number {
+  const n = values[index]
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
 function addRecurrenceDate(base: Date, recorrencia: Recorrencia) {
   switch (recorrencia) {
     case 'semanal':    base.setDate(base.getDate() + 7); break
@@ -58,7 +72,6 @@ function buildRecurringDates(vencimento: string | undefined, recorrencia: Recorr
     addRecurrenceDate(current, recorrencia)
     if (current > limitDate) break
     dates.push(current.toISOString().slice(0, 10))
-    if (dates.length >= 120) break
   }
   return dates
 }
@@ -541,6 +554,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       recorrencia = 'nenhum',
       recorrencia_fim,
       datas_personalizadas,
+      parcelas_valores,
     } = req.body
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
@@ -549,6 +563,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (!isRecorrencia(recorrencia)) { res.status(400).json({ error: 'Recorrência inválida.' }); return }
 
     const customDates = normalizeDateList(datas_personalizadas)
+    const customValues = normalizeMoneyList(parcelas_valores)
+    const baseValor = Math.round(parseFloat(String(valor)) * 100) / 100
     const mainVencimento = vencimento || customDates[0] || null
 
     // Calcula todas as datas extras (recorrência ou personalizadas)
@@ -578,7 +594,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
        RETURNING *`,
       [
         orgId, userId, titulo.trim(), descricao || null,
-        parseFloat(String(valor)), tipo, status,
+        moneyAt(customValues, 0, baseValor), tipo, status,
         mainVencimento, pago_em || null,
         pessoa_id || null, pessoa_nome || null,
         categoria || null, comprovante_url || null, obs || null,
@@ -600,7 +616,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          RETURNING id`,
         [
           orgId, userId, titulo.trim(), descricao || null,
-          parseFloat(String(valor)), tipo, status,
+          moneyAt(customValues, i + 1, baseValor), tipo, status,
           allExtraDates[i],
           pessoa_id || null, pessoa_nome || null,
           categoria || null, comprovante_url || null, obs || null,

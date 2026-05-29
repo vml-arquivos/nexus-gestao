@@ -169,6 +169,8 @@ export interface Pagamento {
   recorrencia_fim?: string
   /** Datas avulsas para gerar vários lançamentos na criação. */
   datas_personalizadas?: string[]
+  /** Valores por parcela, na mesma ordem de datas_personalizadas/parcelamento. Usado para fechar centavos com precisão. */
+  parcelas_valores?: number[]
   /** UUID que agrupa parcelas de um mesmo financiamento/parcelamento */
   grupo_id?: string
   /** Total de parcelas do grupo */
