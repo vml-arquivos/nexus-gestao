@@ -138,6 +138,76 @@
     </div>
 
     <div id="root"></div>
+
+    <script>
+      // Recuperação anti-tela-branca após deploy: se o navegador tentar carregar
+      // um chunk JS/CSS antigo que não existe mais, limpamos caches/SW e recarregamos
+      // uma única vez com cache-buster. Não remove sessão nem dados do usuário.
+      (function () {
+        var recoveryKey = 'nexus_asset_recovery_at';
+        var maxAgeMs = 15000;
+
+        function shouldRecover() {
+          try {
+            var last = Number(sessionStorage.getItem(recoveryKey) || '0');
+            return !last || Date.now() - last > maxAgeMs;
+          } catch (_) {
+            return true;
+          }
+        }
+
+        function clearBrowserCaches() {
+          var jobs = [];
+          if ('serviceWorker' in navigator) {
+            jobs.push(
+              navigator.serviceWorker.getRegistrations()
+                .then(function (regs) { return Promise.all(regs.map(function (reg) { return reg.unregister(); })); })
+                .catch(function () {})
+            );
+          }
+          if ('caches' in window) {
+            jobs.push(
+              caches.keys()
+                .then(function (keys) { return Promise.all(keys.map(function (key) { return caches.delete(key); })); })
+                .catch(function () {})
+            );
+          }
+          return Promise.all(jobs);
+        }
+
+        function recover() {
+          if (!shouldRecover()) return;
+          try { sessionStorage.setItem(recoveryKey, String(Date.now())); } catch (_) {}
+          clearBrowserCaches().finally(function () {
+            var url = new URL(window.location.href);
+            url.searchParams.set('_nexus_reload', String(Date.now()));
+            window.location.replace(url.toString());
+          });
+        }
+
+        window.addEventListener('error', function (event) {
+          var target = event && event.target;
+          var assetUrl = target && (target.src || target.href || '');
+          if (assetUrl && assetUrl.indexOf('/assets/') !== -1) recover();
+
+          var message = String((event && event.message) || '');
+          if (message.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+              message.indexOf('Importing a module script failed') !== -1 ||
+              message.indexOf('Loading chunk') !== -1) {
+            recover();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = String((event && event.reason && (event.reason.message || event.reason)) || '');
+          if (reason.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+              reason.indexOf('Importing a module script failed') !== -1 ||
+              reason.indexOf('Loading chunk') !== -1) {
+            recover();
+          }
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
     <script>
       // Esconde splash quando o app React tiver montado

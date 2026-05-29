@@ -59,6 +59,20 @@ function normalizeChecklist(value: unknown) {
   return JSON.stringify(parseChecklistItems(value))
 }
 
+function checklistStructureKey(value: unknown) {
+  return parseChecklistItems(value)
+    .map(item => `${item.id || ''}:${item.texto}`)
+    .join('|')
+}
+
+function checklistOnlyChangedDone(before: unknown, after: unknown) {
+  return checklistStructureKey(before) === checklistStructureKey(after)
+}
+
+function isTaskExecutor(task: any, userId: string) {
+  return task.responsavel_id === userId || (!task.responsavel_id && task.criado_por === userId)
+}
+
 async function syncChecklistTable(input: { orgId: string; tarefaId: string; userId: string; checklist: unknown }) {
   const items = parseChecklistItems(input.checklist)
   await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [input.tarefaId, input.orgId])
@@ -727,6 +741,12 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
     const isMember = role === 'membro'
     const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs']
+
+    if ((req.body as any).checklist !== undefined && checklistOnlyChangedDone(existing.checklist, (req.body as any).checklist) && !isTaskExecutor(existing, userId)) {
+      res.status(403).json({ error: 'Apenas o executor da tarefa pode marcar o checklist.' })
+      return
+    }
+
     const sets: string[] = []
     const params: unknown[] = []
     let idx = 1

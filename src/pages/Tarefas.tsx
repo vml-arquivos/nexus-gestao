@@ -185,9 +185,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="form-group">
             <label className="form-label">Responsável</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Eu mesmo / sem responsável</option>
+              <option value="">Tarefa pessoal / eu mesmo</option>
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Deixe em tarefa pessoal para executar você mesmo. Selecione um membro para transformar em tarefa da equipe.</div>
           </div>
         )}
         <div className="form-group">
@@ -534,14 +535,10 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
 
-  // Checklist é parte operacional da tarefa.
-  // Quem pode enxergar/gerir a tarefa na organização precisa conseguir marcar os itens
-  // enquanto ela não estiver finalizada, incluindo admin/gestor/dev em tarefas próprias
-  // ou tarefas sob conferência. Antes o botão aparecia visualmente, mas ficava disabled.
-  const canToggleChecklist = !isTaskFinalizada && (isGestor || isResponsavel || isCriador)
-
-  // Ações de conclusão/devolução continuam restritas ao executor real da tarefa.
+  // Checklist marcável somente pelo executor real da tarefa.
+  // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
+  const canToggleChecklist = canExecuteTask
   const canReviewTask = isGestor && !canExecuteTask
 
   async function persistChecklist(next: ChecklistItem[]) {
@@ -675,7 +672,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
             <p className="muted">Esta tarefa não possui checklist.</p>
           )}
           {total > 0 && !canToggleChecklist && (
-            <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado porque a tarefa está finalizada ou você não tem permissão de execução/conferência.</p>
+            <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado. Apenas o executor da tarefa pode marcar os itens; gestor/admin/dev apenas conferem, aprovam ou devolvem.</p>
           )}
         </section>
 
@@ -731,7 +728,6 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
   const Icon = sc.icon
-  const isMine = tarefa.responsavel_id === userId || tarefa.criado_por === userId
   const checkTotal = tarefa.checklist?.length || 0
   const checkDone = tarefa.checklist?.filter(i => i.feito).length || 0
   const overdue = isOverdue(tarefa.prazo, tarefa.status)
@@ -741,13 +737,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
 
-  // Checklist é parte operacional da tarefa.
-  // Quem pode enxergar/gerir a tarefa na organização precisa conseguir marcar os itens
-  // enquanto ela não estiver finalizada, incluindo admin/gestor/dev em tarefas próprias
-  // ou tarefas sob conferência. Antes o botão aparecia visualmente, mas ficava disabled.
-  const canToggleChecklist = !isTaskFinalizada && (isGestor || isResponsavel || isCriador)
-
-  // Ações de conclusão/devolução continuam restritas ao executor real da tarefa.
+  // Checklist marcável somente pelo executor real da tarefa.
+  // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
@@ -763,7 +754,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
             <span style={{ fontSize: 11, fontWeight: 800, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
-            {(tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) && <span><User size={12} /> {tarefa.responsavel_nome_perfil || tarefa.responsavel_nome}</span>}
+            <span><User size={12} /> {tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : 'Tarefa pessoal'}</span>
             {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
             {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist</span>}
           </div>
@@ -771,7 +762,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           {checkTotal > 0 && <div className="task-progress-line"><span style={{ width: `${Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100))}%` }} /></div>}
           {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: 'var(--info)', background: 'var(--info-dim)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
-          {isGestor && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
+          {canReviewTask && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
             <button
               type="button"
               onClick={() => onAnexos(tarefa)}
@@ -816,11 +807,11 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
         <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver evidências' : 'Anexar evidência'}</button>
-        {!isGestor && isMine && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-        {!isGestor && isMine && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
-        {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-        {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
+        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
+        {canExecuteTask && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
+        {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+        {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {canReviewTask && tarefa.status === 'aprovada' && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
       </div>
 
       {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
@@ -850,6 +841,7 @@ export default function Tarefas() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
+  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'todas'>('pessoais')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -878,22 +870,41 @@ export default function Tarefas() {
     return () => window.removeEventListener('nexus:open-new', h)
   }, [])
 
-  const filtered = useMemo(() => tarefas.filter(t => {
+  const isPersonalTask = useCallback((t: Tarefa) => {
+    const uid = user?.id || ''
+    return !!uid && (t.responsavel_id === uid || (!t.responsavel_id && t.criado_por === uid))
+  }, [user?.id])
+
+  const isTeamAssignedTask = useCallback((t: Tarefa) => {
+    const uid = user?.id || ''
+    return !!uid && !!t.responsavel_id && t.responsavel_id !== uid
+  }, [user?.id])
+
+  const scoped = useMemo(() => tarefas.filter(t => {
+    if (escopo === 'pessoais') return isPersonalTask(t)
+    if (escopo === 'equipe') return isTeamAssignedTask(t)
+    return true
+  }), [tarefas, escopo, isPersonalTask, isTeamAssignedTask])
+
+  const filtered = useMemo(() => scoped.filter(t => {
     if (status !== 'todos' && t.status !== status) return false
     if (prioridade !== 'todos' && t.prioridade !== prioridade) return false
     const q = search.trim().toLowerCase()
-    if (q && !`${t.titulo} ${t.descricao || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''}`.toLowerCase().includes(q)) return false
+    if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''}`.toLowerCase().includes(q)) return false
     return true
-  }), [tarefas, search, status, prioridade])
+  }), [scoped, search, status, prioridade])
+
+  const pessoalCount = useMemo(() => tarefas.filter(isPersonalTask).length, [tarefas, isPersonalTask])
+  const equipeCount = useMemo(() => tarefas.filter(isTeamAssignedTask).length, [tarefas, isTeamAssignedTask])
 
   const stats = [
-    ['Total', tarefas.length, 'var(--text)'],
-    ['Pendentes', tarefas.filter(t => t.status === 'pendente').length, '#F59E0B'],
-    ['Em progresso', tarefas.filter(t => t.status === 'em_progresso').length, '#F59E0B'],
-    ['Concluídas', tarefas.filter(t => t.status === 'concluida').length, '#10B981'],
-    ['Não concluídas', tarefas.filter(t => t.status === 'nao_concluida').length, '#EF4444'],
-    ['Devolvidas', tarefas.filter(t => t.status === 'devolvida').length, '#F59E0B'],
-    ['Aprovadas', tarefas.filter(t => t.status === 'aprovada').length, '#059669'],
+    ['Total', scoped.length, 'var(--text)'],
+    ['Pendentes', scoped.filter(t => t.status === 'pendente').length, '#F59E0B'],
+    ['Em progresso', scoped.filter(t => t.status === 'em_progresso').length, '#F59E0B'],
+    ['Concluídas', scoped.filter(t => t.status === 'concluida').length, '#10B981'],
+    ['Não concluídas', scoped.filter(t => t.status === 'nao_concluida').length, '#EF4444'],
+    ['Devolvidas', scoped.filter(t => t.status === 'devolvida').length, '#F59E0B'],
+    ['Aprovadas', scoped.filter(t => t.status === 'aprovada').length, '#059669'],
   ]
 
   async function updateSaved(t: Tarefa) {
@@ -932,16 +943,51 @@ export default function Tarefas() {
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px)' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 'clamp(22px, 4vw, 30px)', fontWeight: 900 }}>Tarefas</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{isGestor ? 'Delegadas e pessoais' : 'Minhas tarefas'}</p>
+          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 800 }}>Tarefas</h1>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas atribuídas aos membros da equipe' : 'Todas as tarefas acessíveis'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> Nova tarefa</button>
       </header>
 
+      <section aria-label="Tipo de tarefas" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {[
+          { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas tarefas para executar' },
+          { id: 'equipe', label: 'Tarefas da equipe', count: equipeCount, hint: 'Atribuídas a outras pessoas' },
+          { id: 'todas', label: 'Todas', count: tarefas.length, hint: 'Visão geral' },
+        ].map(tab => {
+          const active = escopo === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'todas')}
+              style={{
+                flex: '1 1 180px',
+                minHeight: 58,
+                textAlign: 'left',
+                border: `1px solid ${active ? '#10B981' : 'var(--border)'}`,
+                background: active ? 'rgba(16,185,129,.10)' : 'var(--bg2)',
+                color: 'var(--text)',
+                borderRadius: 16,
+                padding: '10px 12px',
+                cursor: 'pointer',
+                boxShadow: active ? '0 10px 26px rgba(16,185,129,.10)' : 'none',
+              }}
+            >
+              <span style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                <strong style={{ fontSize: 14, fontWeight: 800 }}>{tab.label}</strong>
+                <span style={{ fontSize: 12, fontWeight: 800, color: active ? '#10B981' : 'var(--text3)' }}>{tab.count}</span>
+              </span>
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--text3)', fontSize: 12 }}>{tab.hint}</span>
+            </button>
+          )
+        })}
+      </section>
+
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 14 }}>
         {stats.map(([label, value, color]) => <div key={String(label)} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-          <div style={{ fontSize: 22, fontWeight: 900, color: String(color) }}>{String(value)}</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 700 }}>{String(label)}</div>
+          <div style={{ fontSize: 21, fontWeight: 800, color: String(color) }}>{String(value)}</div>
+          <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 650 }}>{String(label)}</div>
         </div>)}
       </section>
 
@@ -964,7 +1010,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>Nenhuma tarefa encontrada.</div> : filtered.map(t => (
+          {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa atribuída à equipe encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
