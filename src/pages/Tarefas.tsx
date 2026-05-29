@@ -511,9 +511,10 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 }
 
 
-function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
+function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
   tarefa: Tarefa
   isGestor: boolean
+  userId: string
   onClose: () => void
   onSaved: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
@@ -528,6 +529,10 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
   const [files, setFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
+  const isResponsavel = tarefa.responsavel_id === userId
+  const isCriadorSemResponsavel = !tarefa.responsavel_id && tarefa.criado_por === userId
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !['aprovada', 'cancelada'].includes(tarefa.status)
+  const canReviewTask = isGestor && !canExecuteTask
 
   async function persistChecklist(next: ChecklistItem[]) {
     setChecklist(next)
@@ -647,7 +652,7 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
                   key={item.id}
                   type="button"
                   className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                  disabled={isGestor || saving}
+                  disabled={!canExecuteTask || saving}
                   onClick={() => toggleCheck(item.id)}
                   aria-pressed={!!item.feito}
                 >
@@ -661,7 +666,7 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
           )}
         </section>
 
-        {!isGestor && !['aprovada', 'cancelada'].includes(tarefa.status) && (
+        {canExecuteTask && (
           <section className="task-detail-section">
             <h3>Evidências para anexar antes de concluir</h3>
             <input className="form-input" type="file" multiple onChange={e => setFiles(Array.from(e.target.files || []))} accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" />
@@ -682,12 +687,12 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
 
         <div className="modal-actions task-detail-actions" data-modal-actions>
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
-          {isGestor && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
-          {isGestor && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
-          {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
-          {!isGestor && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
-          {!isGestor && tarefa.status !== 'devolvida' && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {!isGestor && tarefa.status !== 'devolvida' && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
+          {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
+          {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
+          {canReviewTask && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
+          {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
         </div>
       </div>
     </ModalBase>
@@ -718,6 +723,10 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const checkDone = tarefa.checklist?.filter(i => i.feito).length || 0
   const overdue = isOverdue(tarefa.prazo, tarefa.status)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
+  const isResponsavel = tarefa.responsavel_id === userId
+  const isCriadorSemResponsavel = !tarefa.responsavel_id && tarefa.criado_por === userId
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !['aprovada', 'cancelada'].includes(tarefa.status)
+  const canReviewTask = isGestor && !canExecuteTask
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
 
   return (
@@ -952,7 +961,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {detalhe && <TarefaDetalheModal tarefa={detalhe} isGestor={isGestor} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
   )
