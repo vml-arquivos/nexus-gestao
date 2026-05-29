@@ -638,10 +638,17 @@ function TarefaDetalheModal({ tarefa, isGestor, onClose, onSaved, onAnexos, onRe
           {total > 0 ? (
             <div className="task-checklist-run">
               {checklist.map(item => (
-                <label key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>
-                  <input type="checkbox" checked={!!item.feito} disabled={isGestor || saving} onChange={() => toggleCheck(item.id)} />
-                  <span>{item.texto}</span>
-                </label>
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.feito ? 'task-check-item done' : 'task-check-item'}
+                  disabled={isGestor || saving}
+                  onClick={() => toggleCheck(item.id)}
+                  aria-pressed={!!item.feito}
+                >
+                  <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
+                  <span className="task-check-text">{item.texto}</span>
+                </button>
               ))}
             </div>
           ) : (
