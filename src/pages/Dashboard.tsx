@@ -70,6 +70,9 @@ type PainelItem = {
   valor?: number
   financeiroTipo?: Pagamento['tipo']
   subtitulo?: string
+  responsavelNome?: string
+  checklistTotal?: number
+  checklistFeitos?: number
   to: string
 }
 
@@ -106,6 +109,39 @@ function tipoLabel(item: PainelItem) {
   return item.financeiroTipo === 'recebimento' ? 'Receber' : 'Pagar'
 }
 
+function statusLabel(item: PainelItem) {
+  const status = String(item.status || '').toLowerCase()
+  if (item.tipo === 'tarefas') {
+    if (status === 'aprovada') return 'Aprovada'
+    if (status === 'concluida') return 'Concluída'
+    if (status === 'em_progresso') return 'Em progresso'
+    if (status === 'nao_concluida') return 'Não concluída'
+    if (status === 'devolvida') return 'Devolvida'
+    if (status === 'reenviada') return 'Reenviada'
+    if (status === 'cancelada') return 'Cancelada'
+    return 'Em aberto'
+  }
+  if (item.tipo === 'financeiro') {
+    if (status === 'pago') return item.financeiroTipo === 'recebimento' ? 'Recebido' : 'Pago'
+    if (status === 'cancelado') return 'Cancelado'
+    return 'Pendente'
+  }
+  return item.status ? String(item.status).replace(/_/g, ' ') : 'Compromisso'
+}
+
+function statusClass(item: PainelItem) {
+  const status = String(item.status || '').toLowerCase()
+  if (item.tipo === 'tarefas') {
+    if (['aprovada', 'concluida'].includes(status)) return 'done'
+    if (status === 'em_progresso' || status === 'reenviada') return 'progress'
+    if (status === 'devolvida' || status === 'nao_concluida') return 'warn'
+    if (status === 'cancelada') return 'muted'
+    return 'open'
+  }
+  if (item.tipo === 'financeiro') return status === 'pago' ? 'done' : status === 'cancelado' ? 'muted' : 'warn'
+  return 'event'
+}
+
 function MiniItem({ item }: { item: PainelItem }) {
   const color = itemColor(item)
 
@@ -126,10 +162,31 @@ function MiniItem({ item }: { item: PainelItem }) {
 }
 
 function CalendarItem({ item }: { item: PainelItem }) {
+  const meta: string[] = []
+
+  if (item.tipo === 'tarefas') {
+    if (item.responsavelNome) meta.push(item.responsavelNome)
+    if (item.prioridade) meta.push(`Prioridade ${item.prioridade}`)
+    if (item.checklistTotal !== undefined && item.checklistTotal > 0) {
+      meta.push(`${item.checklistFeitos || 0}/${item.checklistTotal} checklist`)
+    }
+  } else if (item.tipo === 'agenda') {
+    if (item.data) meta.push(fmtTime(item.data.toISOString()))
+    if (item.subtitulo) meta.push(item.subtitulo)
+  } else {
+    if (item.valor !== undefined) meta.push(fmt(item.valor))
+    meta.push(item.financeiroTipo === 'recebimento' ? 'A receber' : 'A pagar')
+  }
+
   return (
-    <Link to={item.to} className={`dash-calendar-item ${item.tipo}`} title={`${tipoLabel(item)}: ${item.titulo}`} style={{ textDecoration: 'none' }}>
-      <span className="dash-calendar-item-dot" style={{ background: itemColor(item) }} />
-      <span className="dash-calendar-item-title">{item.titulo}</span>
+    <Link to={item.to} className={`dash-calendar-record ${item.tipo}`} title={`${tipoLabel(item)}: ${item.titulo}`} style={{ textDecoration: 'none' }}>
+      <div className="dash-calendar-record-top">
+        <span className="dash-calendar-item-dot" style={{ background: itemColor(item) }} />
+        <span className="dash-calendar-record-type">{tipoLabel(item)}</span>
+        <span className={`dash-calendar-status ${statusClass(item)}`}>{statusLabel(item)}</span>
+      </div>
+      <div className="dash-calendar-record-title">{item.titulo}</div>
+      {meta.length > 0 && <div className="dash-calendar-record-meta">{meta.join(' · ')}</div>}
     </Link>
   )
 }
@@ -195,6 +252,9 @@ export default function Dashboard() {
       status: t.status,
       prioridade: t.prioridade,
       subtitulo: t.responsavel_nome || t.criado_por_nome || undefined,
+      responsavelNome: t.responsavel_nome || t.criado_por_nome || undefined,
+      checklistTotal: Array.isArray(t.checklist) ? t.checklist.length : 0,
+      checklistFeitos: Array.isArray(t.checklist) ? t.checklist.filter(item => item.feito).length : 0,
       to: `/tarefas?task=${t.id}`,
     }))
 
@@ -448,7 +508,7 @@ export default function Dashboard() {
         <div className="dash-section-head">
           <div>
             <h2><CalendarDays size={18} /> Calendário do mês</h2>
-            <p>Quantidade de itens por dia, respeitando os filtros acima.</p>
+            <p>Tarefas com status, compromissos e financeiro por dia, respeitando os filtros acima.</p>
           </div>
           <Link to="/agenda" className="dash-inline-link">Abrir agenda <ArrowRight size={13} /></Link>
         </div>
@@ -467,8 +527,7 @@ export default function Dashboard() {
                     {cell.items.some(i => i.tipo === 'financeiro') && <span className="money">Fin. {cell.items.filter(i => i.tipo === 'financeiro').length}</span>}
                   </div>
                   <div className="dash-calendar-items">
-                    {cell.items.slice(0, 3).map(item => <CalendarItem key={item.id} item={item} />)}
-                    {cell.items.length > 3 && <Link to="/tarefas" className="dash-calendar-more">+{cell.items.length - 3} mais</Link>}
+                    {cell.items.map(item => <CalendarItem key={item.id} item={item} />)}
                   </div>
                 </>
               )}
