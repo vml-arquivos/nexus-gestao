@@ -2093,3 +2093,277 @@ body:has([aria-modal="true"]) .bottom-nav {
   .dash-calendar-cell { min-height: 66px; border-radius: 11px; padding: 6px; }
   .dash-day-badges span { font-size: 9px; padding: 1px 5px; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   HOTFIX PADRÃO GLOBAL — responsivo e layout unificado do sistema
+   Objetivo: padronizar páginas/telas sem alterar regras de negócio.
+   Abrange desktop, tablet, Android/Chrome e iPhone/Safari.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --nexus-content-max: var(--page-max, 1180px);
+  --nexus-page-x: clamp(14px, 2.2vw, 28px);
+  --nexus-page-y: clamp(14px, 2.2vw, 24px);
+  --nexus-panel-radius: 18px;
+  --nexus-control-h: 46px;
+}
+
+/* Garante aliases para telas que usam tokens antigos/novos. */
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  --bg1: var(--bg);
+  --text1: var(--text);
+}
+
+/* Todas as páginas passam a respeitar largura, safe-area e scroll padrão. */
+.page-scroll {
+  background: var(--bg);
+  scrollbar-gutter: stable;
+}
+
+.page-scroll > div:not(.dash-board-page) {
+  width: min(100%, var(--nexus-content-max));
+  margin-inline: auto;
+  padding-left: var(--nexus-page-x) !important;
+  padding-right: var(--nexus-page-x) !important;
+  box-sizing: border-box !important;
+}
+
+/* Cabeçalhos e textos com peso menor e leitura mais limpa. */
+.page-scroll h1,
+.page-title,
+.dash-hero h1 {
+  font-weight: 800 !important;
+  letter-spacing: -0.035em;
+}
+
+.page-scroll h2,
+.page-scroll h3,
+.modal-title,
+.modal-card h2,
+.modal-box h2 {
+  font-weight: 750 !important;
+  letter-spacing: -0.025em;
+}
+
+.page-scroll p,
+.page-scroll small,
+.page-subtitle {
+  line-height: 1.45;
+}
+
+/* Cards, painéis e blocos com visual consistente do Nexus. */
+.card,
+.nexus-card,
+.task-card,
+.dash-metric-card,
+.dash-command-panel,
+.dash-workspace,
+.dash-calendar-panel,
+.dash-finance-panel,
+.dash-summary-strip > div,
+.dash-finance-grid > div,
+.page-scroll [style*="border: '1px solid var(--border)"],
+.page-scroll [style*='border: "1px solid var(--border)'] {
+  border-radius: var(--nexus-panel-radius);
+}
+
+.card,
+.nexus-card,
+.task-card,
+.modal-card,
+.modal-box,
+.dash-metric-card,
+.dash-command-panel,
+.dash-workspace,
+.dash-calendar-panel,
+.dash-finance-panel {
+  box-shadow: 0 10px 28px rgba(0,0,0,.05);
+}
+
+[data-theme="dark"] .card,
+[data-theme="dark"] .nexus-card,
+[data-theme="dark"] .task-card,
+[data-theme="dark"] .modal-card,
+[data-theme="dark"] .modal-box,
+[data-theme="dark"] .dash-metric-card,
+[data-theme="dark"] .dash-command-panel,
+[data-theme="dark"] .dash-workspace,
+[data-theme="dark"] .dash-calendar-panel,
+[data-theme="dark"] .dash-finance-panel {
+  box-shadow: 0 14px 34px rgba(0,0,0,.32);
+}
+
+/* Formulários e filtros: mesma altura, toque confortável e sem zoom no iOS. */
+.form-input,
+.form-select,
+.form-textarea,
+input,
+select,
+textarea {
+  border-radius: 14px;
+  min-height: var(--nexus-control-h);
+  font-size: 16px;
+}
+
+.btn,
+button.btn,
+a.btn {
+  min-height: 42px;
+  border-radius: 14px;
+}
+
+/* Grids inline comuns viram responsivos sem alterar JSX. */
+.page-scroll [style*="grid-template-columns"],
+.modal-box [style*="grid-template-columns"],
+.modal-card [style*="grid-template-columns"] {
+  min-width: 0;
+}
+
+/* Listas/cards com ações nunca podem cortar texto ou botões. */
+.page-scroll [style*="display: flex"],
+.modal-box [style*="display: flex"],
+.modal-card [style*="display: flex"] {
+  min-width: 0;
+}
+
+.page-scroll button,
+.page-scroll a,
+.modal-box button,
+.modal-card button {
+  max-width: 100%;
+}
+
+/* Tabelas, calendários e kanbans mantêm navegação horizontal quando necessário. */
+.table-wrap,
+.table-responsive,
+.dash-kanban-grid,
+.page-scroll [style*="overflowX: 'auto'"],
+.page-scroll [style*='overflowX: "auto"'] {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* Desktop/tablet: conteúdo mais equilibrado e sem estourar viewport. */
+@media (min-width: 1024px) {
+  .page-scroll > div:not(.dash-board-page) {
+    padding-top: var(--nexus-page-y) !important;
+    padding-bottom: 32px !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1023px) {
+  .page-scroll > div:not(.dash-board-page) {
+    width: min(100%, 900px);
+    padding-top: 18px !important;
+    padding-bottom: calc(var(--bottom-nav-h) + var(--safe-bot) + 28px) !important;
+  }
+
+  .page-header,
+  .dash-hero {
+    align-items: flex-start;
+  }
+}
+
+/* Mobile: padrão sheet/card, filtros empilhados e botões acessíveis. */
+@media (max-width: 640px) {
+  :root { --nexus-page-x: max(12px, env(safe-area-inset-left, 0px)); }
+
+  .topbar {
+    height: calc(52px + var(--safe-top));
+    min-height: calc(52px + var(--safe-top));
+  }
+
+  .page-scroll > div:not(.dash-board-page) {
+    width: 100% !important;
+    padding-top: 14px !important;
+    padding-left: max(12px, env(safe-area-inset-left, 0px)) !important;
+    padding-right: max(12px, env(safe-area-inset-right, 0px)) !important;
+    padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 28px) !important;
+  }
+
+  .page-header {
+    padding: 0 0 12px !important;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-header .btn,
+  .page-header button,
+  .dash-hero-actions > *,
+  .dash-primary-action,
+  .dash-secondary-action {
+    width: 100%;
+  }
+
+  .card,
+  .nexus-card,
+  .task-card {
+    padding: 14px !important;
+  }
+
+  .btn,
+  button.btn,
+  a.btn {
+    min-height: 46px;
+    padding-left: 12px;
+    padding-right: 12px;
+    white-space: normal;
+  }
+
+  /* Qualquer linha de filtros ou ações em flex vira grade simples no mobile. */
+  .filter-row,
+  .form-row,
+  .page-scroll [style*="flex-wrap: wrap"],
+  .page-scroll [style*="display: 'flex'"],
+  .page-scroll [style*='display: "flex"'] {
+    min-width: 0;
+  }
+
+  .page-scroll [style*="grid-template-columns: 1fr 1fr"],
+  .page-scroll [style*="grid-template-columns: repeat(2"],
+  .page-scroll [style*="grid-template-columns: repeat(3"],
+  .page-scroll [style*="grid-template-columns: repeat(4"],
+  .page-scroll [style*="gridTemplateColumns: '1fr 1fr"],
+  .page-scroll [style*='gridTemplateColumns: "1fr 1fr'],
+  .modal-box [style*="grid-template-columns: 1fr 1fr"],
+  .modal-card [style*="grid-template-columns: 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Modais sempre em sheet com área de rolagem real e botões sem corte. */
+  .modal-overlay,
+  .modal-backdrop,
+  [role="dialog"],
+  [aria-modal="true"] {
+    align-items: flex-end !important;
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .modal-box,
+  .modal-card,
+  [role="dialog"] > div,
+  [aria-modal="true"] > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 18px) !important;
+    border-radius: 24px 24px 0 0 !important;
+  }
+
+  .bottom-nav {
+    box-shadow: 0 -10px 30px rgba(0,0,0,.12);
+  }
+}
+
+/* Telas muito estreitas: reduz ruído visual e mantém ações tocáveis. */
+@media (max-width: 380px) {
+  .page-scroll h1,
+  .page-title,
+  .dash-hero h1 { font-size: 22px !important; }
+  .bottom-nav a,
+  .bottom-nav button { padding-inline: 4px !important; }
+  .bottom-nav span { max-width: 42px; }
+  .btn { font-size: 13px; }
+}

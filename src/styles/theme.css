@@ -92,6 +92,13 @@
   --color-surface: var(--bg2);
   --color-text-primary: var(--text);
   --color-text-secondary: var(--text3);
+
+  /* Aliases de layout/paleta usados por telas novas e antigas.
+     Mantém uma única fonte de verdade e evita fallback visual quebrado. */
+  --bg1: var(--bg);
+  --surface: var(--bg2);
+  --surface-soft: var(--bg3);
+  --text1: var(--text);
 }
 
 
