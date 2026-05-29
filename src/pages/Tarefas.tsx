@@ -69,6 +69,24 @@ function isOverdue(value?: string, status?: string) {
   return !Number.isNaN(d.getTime()) && d < new Date()
 }
 
+function taskReferenceDate(tarefa: Tarefa) {
+  return tarefa.prazo || tarefa.data || tarefa.created_at || ''
+}
+
+function getMonthValue(value?: string) {
+  if (!value) return ''
+  const d = new Date(String(value).slice(0, 10) + 'T12:00:00')
+  if (Number.isNaN(d.getTime())) return ''
+  return String(d.getMonth() + 1).padStart(2, '0')
+}
+
+function getYearValue(value?: string) {
+  if (!value) return ''
+  const d = new Date(String(value).slice(0, 10) + 'T12:00:00')
+  if (Number.isNaN(d.getTime())) return ''
+  return String(d.getFullYear())
+}
+
 function statusCfg(status?: string) {
   return STATUS_CONFIG[status || 'pendente'] || STATUS_CONFIG.pendente
 }
@@ -841,6 +859,9 @@ export default function Tarefas() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
+  const [membroFiltro, setMembroFiltro] = useState('todos')
+  const [mesFiltro, setMesFiltro] = useState('todos')
+  const [anoFiltro, setAnoFiltro] = useState('todos')
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'todas'>('pessoais')
 
   const load = useCallback(async () => {
@@ -886,13 +907,38 @@ export default function Tarefas() {
     return true
   }), [tarefas, escopo, isPersonalTask, isTeamAssignedTask])
 
+  const membroOptions = useMemo(() => {
+    const map = new Map<string, { id: string; nome: string; role?: string }>()
+    if (user?.id) map.set(user.id, { id: user.id, nome: user.nome || 'Eu', role: user.role })
+    membros.forEach(m => map.set(m.id, { id: m.id, nome: m.nome, role: m.role_na_equipe || m.role }))
+    tarefas.forEach(t => {
+      if (t.responsavel_id) map.set(t.responsavel_id, { id: t.responsavel_id, nome: t.responsavel_nome_perfil || t.responsavel_nome || 'Responsável' })
+      if (t.criado_por) map.set(t.criado_por, { id: t.criado_por, nome: t.criado_por_nome || 'Criador' })
+    })
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [membros, tarefas, user?.id, user?.nome, user?.role])
+
+  const anoOptions = useMemo(() => {
+    const years = new Set<string>()
+    tarefas.forEach(t => {
+      const year = getYearValue(taskReferenceDate(t))
+      if (year) years.add(year)
+    })
+    years.add(String(new Date().getFullYear()))
+    return Array.from(years).sort((a, b) => Number(b) - Number(a))
+  }, [tarefas])
+
   const filtered = useMemo(() => scoped.filter(t => {
     if (status !== 'todos' && t.status !== status) return false
     if (prioridade !== 'todos' && t.prioridade !== prioridade) return false
+    if (membroFiltro !== 'todos' && t.responsavel_id !== membroFiltro && t.criado_por !== membroFiltro) return false
+    const refDate = taskReferenceDate(t)
+    if (mesFiltro !== 'todos' && getMonthValue(refDate) !== mesFiltro) return false
+    if (anoFiltro !== 'todos' && getYearValue(refDate) !== anoFiltro) return false
     const q = search.trim().toLowerCase()
     if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''}`.toLowerCase().includes(q)) return false
     return true
-  }), [scoped, search, status, prioridade])
+  }), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
 
   const pessoalCount = useMemo(() => tarefas.filter(isPersonalTask).length, [tarefas, isPersonalTask])
   const equipeCount = useMemo(() => tarefas.filter(isTeamAssignedTask).length, [tarefas, isTeamAssignedTask])
@@ -906,6 +952,32 @@ export default function Tarefas() {
     ['Devolvidas', scoped.filter(t => t.status === 'devolvida').length, '#F59E0B'],
     ['Aprovadas', scoped.filter(t => t.status === 'aprovada').length, '#059669'],
   ]
+
+  const dashboardStats = useMemo(() => {
+    const total = filtered.length
+    const done = filtered.filter(t => t.status === 'concluida' || t.status === 'aprovada').length
+    const late = filtered.filter(t => isOverdue(t.prazo, t.status)).length
+    const opened = filtered.filter(t => ['pendente', 'em_progresso', 'devolvida', 'reenviada'].includes(String(t.status))).length
+    const percent = total ? Math.round((done / total) * 100) : 0
+    const statusItems = [
+      { key: 'pendente', label: 'Pendentes', value: filtered.filter(t => t.status === 'pendente').length, color: '#F59E0B' },
+      { key: 'em_progresso', label: 'Em progresso', value: filtered.filter(t => t.status === 'em_progresso').length, color: '#F59E0B' },
+      { key: 'concluida', label: 'Concluídas', value: filtered.filter(t => t.status === 'concluida').length, color: '#10B981' },
+      { key: 'aprovada', label: 'Aprovadas', value: filtered.filter(t => t.status === 'aprovada').length, color: '#059669' },
+      { key: 'devolvida', label: 'Devolvidas', value: filtered.filter(t => t.status === 'devolvida').length, color: '#F59E0B' },
+      { key: 'nao_concluida', label: 'Não concluídas', value: filtered.filter(t => t.status === 'nao_concluida').length, color: '#EF4444' },
+    ]
+    return { total, done, late, opened, percent, statusItems }
+  }, [filtered])
+
+  function limparFiltros() {
+    setSearch('')
+    setStatus('todos')
+    setPrioridade('todos')
+    setMembroFiltro('todos')
+    setMesFiltro('todos')
+    setAnoFiltro('todos')
+  }
 
   async function updateSaved(t: Tarefa) {
     setTarefas(prev => {
@@ -991,21 +1063,83 @@ export default function Tarefas() {
         </div>)}
       </section>
 
-      <section style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px' }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
-          <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa..." />
+      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 14, fontWeight: 750 }}>Filtros dinâmicos</strong>
+          <button className="btn btn-ghost" type="button" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 10px', fontSize: 12 }}>Limpar filtros</button>
         </div>
-        <select className="form-input" style={{ flex: '0 1 180px' }} value={status} onChange={e => setStatus(e.target.value)}>
-          <option value="todos">Todos status</option>
-          {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select className="form-input" style={{ flex: '0 1 160px' }} value={prioridade} onChange={e => setPrioridade(e.target.value)}>
-          <option value="todos">Todas prioridades</option>
-          <option value="baixa">Baixa</option>
-          <option value="media">Média</option>
-          <option value="alta">Alta</option>
-        </select>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
+            <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa, membro..." />
+          </div>
+          <select className="form-input" value={membroFiltro} onChange={e => setMembroFiltro(e.target.value)}>
+            <option value="todos">Todos membros</option>
+            {membroOptions.map(m => <option key={m.id} value={m.id}>{m.nome}{m.id === user?.id ? ' (eu)' : ''}</option>)}
+          </select>
+          <select className="form-input" value={mesFiltro} onChange={e => setMesFiltro(e.target.value)}>
+            <option value="todos">Todos os meses</option>
+            <option value="01">Janeiro</option>
+            <option value="02">Fevereiro</option>
+            <option value="03">Março</option>
+            <option value="04">Abril</option>
+            <option value="05">Maio</option>
+            <option value="06">Junho</option>
+            <option value="07">Julho</option>
+            <option value="08">Agosto</option>
+            <option value="09">Setembro</option>
+            <option value="10">Outubro</option>
+            <option value="11">Novembro</option>
+            <option value="12">Dezembro</option>
+          </select>
+          <select className="form-input" value={anoFiltro} onChange={e => setAnoFiltro(e.target.value)}>
+            <option value="todos">Todos os anos</option>
+            {anoOptions.map(ano => <option key={ano} value={ano}>{ano}</option>)}
+          </select>
+          <select className="form-input" value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="todos">Todos status</option>
+            {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value)}>
+            <option value="todos">Todas prioridades</option>
+            <option value="baixa">Baixa</option>
+            <option value="media">Média</option>
+            <option value="alta">Alta</option>
+          </select>
+        </div>
+      </section>
+
+      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 10 }}>
+          <div>
+            <strong style={{ display: 'block', fontSize: 14, fontWeight: 750 }}>Status das tarefas filtradas</strong>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Conclusão, atrasos e volume considerando os filtros ativos.</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 850, color: dashboardStats.percent >= 70 ? '#10B981' : dashboardStats.percent >= 40 ? '#F59E0B' : '#EF4444' }}>{dashboardStats.percent}%</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 10 }}>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18 }}>{dashboardStats.total}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>tarefas filtradas</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#10B981' }}>{dashboardStats.done}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#F59E0B' }}>{dashboardStats.opened}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>em aberto</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#EF4444' }}>{dashboardStats.late}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>vencidas</div></div>
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {dashboardStats.statusItems.map(item => {
+            const width = dashboardStats.total ? Math.max(3, Math.round((item.value / dashboardStats.total) * 100)) : 0
+            return (
+              <div key={item.key} style={{ display: 'grid', gridTemplateColumns: '105px 1fr 34px', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{item.label}</span>
+                <div style={{ height: 9, borderRadius: 999, background: 'rgba(148,163,184,.16)', overflow: 'hidden' }}>
+                  <div style={{ width: `${width}%`, height: '100%', borderRadius: 999, background: item.color, transition: 'width .2s ease' }} />
+                </div>
+                <strong style={{ fontSize: 12, textAlign: 'right' }}>{item.value}</strong>
+              </div>
+            )
+          })}
+        </div>
       </section>
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
