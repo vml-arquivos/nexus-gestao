@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import { authMiddleware, gestorOrSubGestorOnly } from '../middleware/auth'
+import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 
 const router = Router()
@@ -19,20 +19,38 @@ function baseUrl(req: Request) {
   return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
 }
 
-function normalizeRole(role: unknown): 'sub_gestor' | 'membro' {
-  return role === 'sub_gestor' ? 'sub_gestor' : 'membro'
+type Role = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
+
+function normalizeRole(role: unknown): Role {
+  if (role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor' || role === 'membro') return role
+  return 'membro'
 }
 
-function isAdminOrDev(role: string | undefined): boolean {
-  return role === 'admin' || role === 'dev'
+function isGlobalDeleteRole(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev' || role === 'gestor'
 }
 
-function isHighAccess(role: string | undefined): boolean {
-  return role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor'
+function canCreateRole(currentRole: string | undefined, targetRole: Role): boolean {
+  if (currentRole === 'dev') return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'admin') return ['gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'gestor') return ['sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'sub_gestor') return targetRole === 'membro'
+  // Membro não possui papel abaixo dele; mantemos criação de membro subordinado para cumprir a regra de criar usuários abaixo sem dar acesso global.
+  if (currentRole === 'membro') return targetRole === 'membro'
+  return false
+}
+
+function canManageTarget(currentRole: string | undefined, targetRole: string, isOwnSubordinate = true): boolean {
+  if (currentRole === 'dev') return targetRole !== 'dev'
+  if (currentRole === 'admin') return targetRole !== 'dev' && targetRole !== 'admin'
+  if (currentRole === 'gestor') return targetRole !== 'dev' && targetRole !== 'admin' && isOwnSubordinate
+  if (currentRole === 'sub_gestor') return targetRole === 'membro' && isOwnSubordinate
+  if (currentRole === 'membro') return targetRole === 'membro' && isOwnSubordinate
+  return false
 }
 
 // GET /api/users
-// gestor: todos da organização. sub_gestor: ele + comandados. membro: somente ele.
+// dev/admin/gestor: todos da organização. sub_gestor e membro: ele + usuários criados por ele.
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -45,10 +63,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       WHERE p.org_id = $1
     `
     const params: unknown[] = [orgId]
-    if (role === 'membro') {
-      sql += ' AND p.id = $2'
-      params.push(userId)
-    } else if (role === 'sub_gestor') {
+    if (role === 'membro' || role === 'sub_gestor') {
       sql += ' AND (p.id = $2 OR p.criado_por = $2)'
       params.push(userId)
     }
@@ -62,15 +77,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 })
 
 // POST /api/users
-// gestor cria sub_gestor ou membro. sub_gestor cria apenas membro. membro não cria.
-router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+// todos criam usuários conforme hierarquia: dev até admin; admin até gestor; gestor até sub_gestor; sub_gestor/membro apenas membro.
+router.post('/', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { nome, email, senha, cargo } = req.body
     const novoRole = normalizeRole(req.body.role)
 
-    if (role === 'sub_gestor' && novoRole !== 'membro') {
-      res.status(403).json({ error: 'Subgestor só pode criar membros.' })
+    if (!canCreateRole(role, novoRole)) {
+      res.status(403).json({ error: 'Você só pode criar usuários abaixo do seu nível de acesso.' })
       return
     }
     if (!nome?.trim() || !email?.trim()) {
@@ -104,14 +119,14 @@ router.post('/', gestorOrSubGestorOnly, async (req: Request, res: Response): Pro
 
 // POST /api/users/invite
 // Cria convite por link. Opcionalmente pode já criar placeholder inativo se email informado.
-router.post('/invite', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const conviteRole = normalizeRole(req.body.role)
     const { nome, email, cargo } = req.body
 
-    if (role === 'sub_gestor' && conviteRole !== 'membro') {
-      res.status(403).json({ error: 'Subgestor só pode convidar membros.' })
+    if (!canCreateRole(role, conviteRole)) {
+      res.status(403).json({ error: 'Você só pode convidar usuários abaixo do seu nível de acesso.' })
       return
     }
 
@@ -140,7 +155,7 @@ router.post('/invite', gestorOrSubGestorOnly, async (req: Request, res: Response
 })
 
 // PATCH /api/users/:id
-router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
@@ -153,20 +168,17 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
 
-    if (role === 'sub_gestor') {
-      if (id !== userId && target.criado_por !== userId) {
-        res.status(403).json({ error: 'Subgestor só edita seus comandados.' })
-        return
-      }
-      if (requestedRole && requestedRole !== 'membro') {
-        res.status(403).json({ error: 'Subgestor não pode promover usuários.' })
-        return
-      }
-    }
-
-    if (target.role === 'gestor' && id !== userId) {
-      res.status(403).json({ error: 'Não é possível alterar outro gestor.' })
+    const isOwnSubordinate = id === userId || target.criado_por === userId
+    if (id !== userId && !canManageTarget(role, target.role, isOwnSubordinate)) {
+      res.status(403).json({ error: 'Você não tem permissão para alterar este usuário.' })
       return
+    }
+    if (requestedRole !== undefined) {
+      const nextRole = normalizeRole(requestedRole)
+      if (!canCreateRole(role, nextRole)) {
+        res.status(403).json({ error: 'Você só pode definir permissões abaixo do seu nível de acesso.' })
+        return
+      }
     }
 
     const updates: string[] = []
@@ -174,11 +186,11 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
     let idx = 1
     if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
     if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
-    if (requestedRole !== undefined && role === 'gestor') {
+    if (requestedRole !== undefined) {
       const r = normalizeRole(requestedRole)
       updates.push(`role = $${idx++}`); params.push(r)
     }
-    if (ativo !== undefined && role === 'gestor' && id !== userId) {
+    if (ativo !== undefined && id !== userId) {
       updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
     }
     if (updates.length === 0) {
@@ -200,7 +212,7 @@ router.patch('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response):
 })
 
 // POST /api/users/:id/reset-password
-router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/reset-password', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
@@ -210,12 +222,8 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
     if (id === userId) { res.status(400).json({ error: 'Use a tela de configurações para alterar sua própria senha.' }); return }
-    if (role === 'sub_gestor' && target.criado_por !== userId) {
-      res.status(403).json({ error: 'Subgestor só redefine senha de seus comandados.' })
-      return
-    }
-    if (target.role === 'gestor') {
-      res.status(403).json({ error: 'Não é possível resetar senha de gestor.' })
+    if (!canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para redefinir senha deste usuário.' })
       return
     }
     const senhaProvisoria = gerarSenhaProvisoria()
@@ -235,7 +243,7 @@ router.post('/:id/reset-password', gestorOrSubGestorOnly, async (req: Request, r
 })
 
 // DELETE /api/users/:id -> apaga permanentemente usuário e dados privados vinculados
-router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response): Promise<void> => {
+router.delete('/:id', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { id } = req.params
@@ -251,18 +259,15 @@ router.delete('/:id', gestorOrSubGestorOnly, async (req: Request, res: Response)
     )
     if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
 
-    // Exclusão definitiva de usuários é uma ação sensível.
-    // Admin/dev podem apagar qualquer usuário da própria organização, exceto a si mesmos.
-    // Gestor/subgestor mantêm compatibilidade antiga, mas não podem apagar perfis altos.
-    if (!isAdminOrDev(role)) {
-      if (target.role === 'admin' || target.role === 'dev' || target.role === 'gestor' || target.role === 'sub_gestor') {
-        res.status(403).json({ error: 'Apenas admin ou dev podem apagar este usuário.' })
-        return
-      }
-      if (role === 'sub_gestor' && target.criado_por !== userId) {
-        res.status(403).json({ error: 'Subgestor só apaga seus comandados.' })
-        return
-      }
+    // Admin/dev/gestor têm poder de exclusão dentro da organização.
+    // Subgestor/membro só apagam usuários criados por eles e abaixo do seu nível.
+    if (!isGlobalDeleteRole(role) && !canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para apagar este usuário.' })
+      return
+    }
+    if (role === 'gestor' && (target.role === 'admin' || target.role === 'dev')) {
+      res.status(403).json({ error: 'Gestor não pode apagar admin ou dev.' })
+      return
     }
 
     // Limpeza intencional para permitir apagar usuário sem violar FKs e sem manter dados privados órfãos.

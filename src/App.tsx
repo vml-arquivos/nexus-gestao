@@ -101,15 +101,8 @@ export default function App() {
           }
         />
         <Route path="configuracoes" element={<Configuracoes />} />
-        {/* Usuários: permitido para admin, dev, gestor e subgestor */}
-        <Route
-          path="usuarios"
-          element={
-            user && ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user.role)
-              ? <Usuarios />
-              : <Navigate to="/" replace />
-          }
-        />
+        {/* Usuários: todos acessam; a tela e o backend limitam criação/listagem por hierarquia */}
+        <Route path="usuarios" element={<Usuarios />} />
       </Route>
 
       {/* Convite público — não requer autenticação */}

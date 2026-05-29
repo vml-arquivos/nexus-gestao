@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS convites (
   org_id     UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
   criado_por UUID NOT NULL REFERENCES profiles(id),
   email      TEXT,
-  role       TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('sub_gestor','membro')),
+  role       TEXT NOT NULL DEFAULT 'membro' CHECK (role IN ('admin','gestor','sub_gestor','membro')),
   cargo      TEXT,
   token      TEXT NOT NULL UNIQUE,
   usado      BOOLEAN DEFAULT FALSE,
@@ -340,6 +340,10 @@ CREATE INDEX IF NOT EXISTS idx_equipes_membros_equipe ON equipes_membros(equipe_
 ALTER TABLE convites ADD COLUMN IF NOT EXISTS nome TEXT;
 ALTER TABLE convites ADD COLUMN IF NOT EXISTS usado BOOLEAN DEFAULT FALSE;
 ALTER TABLE convites ADD COLUMN IF NOT EXISTS cargo TEXT;
+ALTER TABLE convites DROP CONSTRAINT IF EXISTS convites_role_check;
+ALTER TABLE convites
+  ADD CONSTRAINT convites_role_check
+  CHECK (role IN ('admin','gestor','sub_gestor','membro'));
 CREATE INDEX IF NOT EXISTS idx_convites_usado ON convites(usado);
 
 -- ── NOTIFICAÇÕES ─────────────────────────────────────────────────────────────

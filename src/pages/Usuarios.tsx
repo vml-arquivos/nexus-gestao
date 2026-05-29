@@ -20,10 +20,39 @@ function copy(text: string) {
   toast('Copiado!')
 }
 
-function ModalUsuario({ onClose, onCreated }: { onClose: () => void; onCreated: (u: UserProfile) => void }) {
+type CriavelRole = 'admin' | 'gestor' | 'sub_gestor' | 'membro'
+
+function roleOptionsFor(currentRole?: string | null): Array<{ value: CriavelRole; label: string }> {
+  if (currentRole === 'dev') {
+    return [
+      { value: 'admin', label: 'Admin' },
+      { value: 'gestor', label: 'Gestor' },
+      { value: 'sub_gestor', label: 'Subgestor' },
+      { value: 'membro', label: 'Membro' },
+    ]
+  }
+  if (currentRole === 'admin') {
+    return [
+      { value: 'gestor', label: 'Gestor' },
+      { value: 'sub_gestor', label: 'Subgestor' },
+      { value: 'membro', label: 'Membro' },
+    ]
+  }
+  if (currentRole === 'gestor') {
+    return [
+      { value: 'sub_gestor', label: 'Subgestor' },
+      { value: 'membro', label: 'Membro' },
+    ]
+  }
+  // subgestor e membro criam apenas membros abaixo deles
+  return [{ value: 'membro', label: 'Membro' }]
+}
+
+function ModalUsuario({ onClose, onCreated, currentRole }: { onClose: () => void; onCreated: (u: UserProfile) => void; currentRole?: string | null }) {
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState<'membro' | 'sub_gestor'>('membro')
+  const roleOptions = roleOptionsFor(currentRole)
+  const [role, setRole] = useState<CriavelRole>(roleOptions[0]?.value || 'membro')
   const [senha, setSenha] = useState('')
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -69,7 +98,7 @@ function ModalUsuario({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <div className="form-grid" style={{ display:'grid', gap:12 }}>
           <label className="form-group"><span className="form-label">Nome</span><input className="form-input" value={nome} onChange={e=>setNome(e.target.value)} /></label>
           <label className="form-group"><span className="form-label">E-mail</span><input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} /></label>
-          <label className="form-group"><span className="form-label">Permissão</span><select className="form-input" value={role} onChange={e=>setRole(e.target.value as any)}><option value="membro">Membro</option><option value="sub_gestor">Subgestor</option></select></label>
+          <label className="form-group"><span className="form-label">Permissão</span><select className="form-input" value={role} onChange={e=>setRole(e.target.value as CriavelRole)}>{roleOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label>
           <label className="form-group"><span className="form-label">Senha provisória opcional</span><div style={{ position:'relative' }}><input className="form-input" type={show ? 'text':'password'} value={senha} onChange={e=>setSenha(e.target.value)} style={{ paddingRight:76 }} /><button type="button" onClick={()=>setShow(s=>!s)} style={{ position:'absolute', right:42, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--text3)' }}>{show?<EyeOff size={16}/>:<Eye size={16}/>}</button><button type="button" onClick={()=>setSenha(gerarSenha())} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--primary)' }} title="Gerar senha"><KeyRound size={16}/></button></div></label>
         </div>
 
@@ -91,8 +120,8 @@ export default function Usuarios() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
 
-  const canManage = eu?.role === 'admin' || eu?.role === 'dev' || eu?.role === 'gestor' || eu?.role === 'sub_gestor'
-  const canDeleteUsers = eu?.role === 'admin' || eu?.role === 'dev'
+  const canManage = !!eu
+  const canDeleteUsers = eu?.role === 'admin' || eu?.role === 'dev' || eu?.role === 'gestor'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -133,7 +162,7 @@ export default function Usuarios() {
 
   async function apagar(u: UserProfile) {
     if (!canDeleteUsers) {
-      toast('Apenas admin ou dev podem apagar usuários.', 'error')
+      toast('Apenas admin, dev ou gestor podem apagar usuários.', 'error')
       return
     }
     if (u.id === eu?.id) {
@@ -167,8 +196,8 @@ export default function Usuarios() {
   if (!canManage) return <div className="page-container"><h1>Acesso restrito</h1><p>Você não tem permissão para gerenciar usuários.</p></div>
 
   return <div className="page-container" style={{ maxWidth:920 }}>
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Usuários</h1><p style={{ color:'var(--text3)' }}>Crie membros, gere convites e gerencie acessos.</p></div><button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> Novo usuário</button></div>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Usuários</h1><p style={{ color:'var(--text3)' }}>Crie usuários abaixo do seu nível, gere convites e gerencie acessos.</p></div><button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> Novo usuário</button></div>
     {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:20 }}><section><h2 style={{ fontSize:16, marginBottom:10 }}>Gestão</h2><div style={{ display:'grid', gap:10 }}>{grupos.gestores.map(row)}</div></section><section><h2 style={{ fontSize:16, marginBottom:10 }}>Membros</h2><div style={{ display:'grid', gap:10 }}>{grupos.membros.map(row)}{grupos.membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro cadastrado.</div>}</div></section></div>}
-    {open && <ModalUsuario onClose={()=>setOpen(false)} onCreated={(u)=>{setUsuarios(v=>[...v,u]);}}/>}
+    {open && <ModalUsuario currentRole={eu?.role} onClose={()=>setOpen(false)} onCreated={(u)=>{setUsuarios(v=>[...v,u]);}}/>}
   </div>
 }

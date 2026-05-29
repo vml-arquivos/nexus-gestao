@@ -6,6 +6,21 @@ import { generateTokens, authMiddleware, JwtPayload } from '../middleware/auth'
 
 const router = Router()
 
+type Role = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
+function normalizeRole(role: unknown): Role {
+  if (role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor' || role === 'membro') return role
+  return 'membro'
+}
+function canCreateRole(currentRole: string | undefined, targetRole: Role): boolean {
+  if (currentRole === 'dev') return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'admin') return ['gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'gestor') return ['sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'sub_gestor') return targetRole === 'membro'
+  if (currentRole === 'membro') return targetRole === 'membro'
+  return false
+}
+
+
 // ── REGISTRO ──────────────────────────────────────────────────────────────────
 // POST /api/auth/register
 // Body: { nome, email, senha, role: 'gestor'|'membro', orgNome? (obrigatório para gestor) }
@@ -70,7 +85,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as any,
       nome: user.nome,
       email: user.email,
     }
@@ -128,7 +143,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as any,
       nome: user.nome,
       email: user.email,
     }
@@ -185,7 +200,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'membro',
+      role: user.role as any,
       nome: user.nome,
       email: user.email,
     }
@@ -302,14 +317,9 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response): Prom
 // Body: { nome?, email?, role?, cargo? }
 router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    if (req.user!.role !== 'gestor' && req.user!.role !== 'sub_gestor') {
-      res.status(403).json({ error: 'Apenas gestores ou subgestores podem convidar usuários.' })
-      return
-    }
-
-    const role = req.body.role === 'sub_gestor' ? 'sub_gestor' : 'membro'
-    if (req.user!.role === 'sub_gestor' && role !== 'membro') {
-      res.status(403).json({ error: 'Subgestor só pode convidar membros.' })
+    const role = normalizeRole(req.body.role)
+    if (!canCreateRole(req.user!.role, role)) {
+      res.status(403).json({ error: 'Você só pode convidar usuários abaixo do seu nível de acesso.' })
       return
     }
 
@@ -407,7 +417,7 @@ router.post('/accept-invite', async (req: Request, res: Response): Promise<void>
     const payload: JwtPayload = {
       userId: user.id,
       orgId: user.org_id || '',
-      role: user.role as 'gestor' | 'sub_gestor' | 'membro',
+      role: user.role as any,
       nome: user.nome,
       email: user.email,
     }

@@ -208,9 +208,6 @@ export interface GrupoPagamento {
   valor_total: number
   valor_pago: number
   valor_pendente: number
-  valor_mensal?: number
-  parcelas_mes_atual?: number
-  proxima_parcela_valor?: number
   num_parcelas: number
   parcelas_pagas: number
   parcelas_pendentes: number
@@ -237,9 +234,6 @@ export interface ResumoFinanceiro {
   receita_pendente: number
   despesa_paga: number
   despesa_pendente: number
-  receita_mensal?: number
-  despesa_mensal?: number
-  saldo_mensal?: number
   saldo: number
   vencidos_pagar: number
   vencidos_receber: number
@@ -398,7 +392,7 @@ export const auth = {
     clearTokens()
   },
 
-  async invite(payload: { nome?: string; email?: string; role?: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
+  async invite(payload: { nome?: string; email?: string; role?: 'admin' | 'gestor' | 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
     return apiJson('/auth/invite', { method: 'POST', body: JSON.stringify(payload) })
   },
 
@@ -578,9 +572,6 @@ export const pagamentosApi = {
       receita_pendente:  parseFloat(r.receita_pendente  || '0'),
       despesa_paga:      parseFloat(r.despesa_paga      || '0'),
       despesa_pendente:  parseFloat(r.despesa_pendente  || '0'),
-      receita_mensal:    parseFloat(r.receita_mensal    || '0'),
-      despesa_mensal:    parseFloat(r.despesa_mensal    || '0'),
-      saldo_mensal:      parseFloat(r.receita_mensal || '0') - parseFloat(r.despesa_mensal || '0'),
       saldo:             parseFloat(r.receita_paga || '0') - parseFloat(r.despesa_paga || '0'),
       vencidos_pagar:    parseFloat(r.total_vencido     || '0'),
       vencidos_receber:  0,
@@ -756,7 +747,7 @@ export const usersApi = {
    * Cria um novo usuário. Role pode ser 'sub_gestor' ou 'membro'.
    * Retorna o usuário criado e a senha provisória (caso tenha sido gerada no servidor).
    */
-  async create(payload: { nome: string; email: string; role: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ user: UserProfile; senha: string; senha_provisoria?: string }> {
+  async create(payload: { nome: string; email: string; role: 'admin' | 'gestor' | 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ user: UserProfile; senha: string; senha_provisoria?: string }> {
     const data = await apiJson<{ user: UserProfile; senha: string; senha_provisoria?: string }>('/users', { method: 'POST', body: JSON.stringify(payload) })
     return data
   },
@@ -774,7 +765,7 @@ export const usersApi = {
     return apiJson(`/users/${id}/reset-password`, { method: 'POST' })
   },
 
-  async invite(payload: { nome?: string; email?: string; role?: 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
+  async invite(payload: { nome?: string; email?: string; role?: 'admin' | 'gestor' | 'sub_gestor' | 'membro'; cargo?: string; senha?: string }): Promise<{ convite: any; link: string }> {
     return apiJson('/users/invite', { method: 'POST', body: JSON.stringify(payload) })
   },
 

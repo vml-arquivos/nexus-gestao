@@ -594,12 +594,11 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
         <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 18 }}>{ref?.titulo}{ref?.pessoa_nome ? ` · ${ref.pessoa_nome}` : ''}</div>
 
         {/* Resumo */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 18 }}>
           {([
             { label: 'Total original', value: saldo.totalOriginal, color: 'var(--text1)', bg: 'var(--bg3)' },
             { label: 'Já pago',        value: saldo.totalPago,     color: '#10B981',      bg: 'rgba(16,185,129,0.1)' },
             { label: 'Saldo restante', value: saldo.totalPendente, color: '#EF4444',      bg: 'rgba(239,68,68,0.1)'  },
-            { label: 'Mensal previsto', value: Number(parcelas.find(p => p.status === 'pendente' && p.vencimento?.slice(0, 7) === new Date().toISOString().slice(0, 7))?.valor || saldo.pendentes[0]?.valor || 0), color: tipo === 'recebimento' ? '#10B981' : '#EF4444', bg: 'var(--bg3)' },
           ] as const).map(({ label, value, color, bg }) => (
             <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
@@ -1290,10 +1289,6 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
               <span>Total: {fmt(g.valor_total)}</span>
               <span>{Math.round((g.valor_pago / g.valor_total) * 100)}% pago</span>
             </div>
-            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 9, padding: '6px 8px' }}>
-              <span style={{ color: 'var(--text3)', fontWeight: 700 }}>Mensal previsto</span>
-              <strong style={{ color: valorColor, fontFamily: 'var(--font-heading)' }}>{fmt(Number(g.valor_mensal || g.proxima_parcela_valor || 0))}</strong>
-            </div>
           </div>
         )}
 
@@ -1513,9 +1508,6 @@ export default function Financeiro() {
 
   const gruposPagar = filtrarGrupos('pagamento')
   const gruposReceber = filtrarGrupos('recebimento')
-  const totalMensalPagar = gruposPagar.reduce((sum, g) => sum + Number(g.valor_mensal || 0), 0)
-  const totalMensalReceber = gruposReceber.reduce((sum, g) => sum + Number(g.valor_mensal || 0), 0)
-  const saldoMensalPrevisto = totalMensalReceber - totalMensalPagar
   const vencidos = grupos.filter(g => g.vencido)
 
   return (
@@ -1529,38 +1521,18 @@ export default function Financeiro() {
       </div>
 
       {resumo && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
-            <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Total a receber</span></div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
-            </div>
-            <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>Total a pagar</span></div>
-              <div style={{ fontWeight: 800, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
-            </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 20 }}>
+          <div style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingUp size={14} color="#10B981" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A receber</span></div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: '#10B981', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.receita_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebido: {fmt(resumo.receita_paga)}</div>
           </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 20 }}>
-            <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.22)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em' }}>Recebimento mensal</div>
-              <div style={{ fontWeight: 900, fontSize: 19, color: '#10B981', fontFamily: 'var(--font-heading)', marginTop: 6 }}>{fmt(totalMensalReceber || resumo.receita_mensal || 0)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Previsão mensal dos recebimentos ativos.</div>
-            </div>
-            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.22)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em' }}>Dívida mensal</div>
-              <div style={{ fontWeight: 900, fontSize: 19, color: '#EF4444', fontFamily: 'var(--font-heading)', marginTop: 6 }}>{fmt(totalMensalPagar || resumo.despesa_mensal || 0)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Compromisso mensal das dívidas ativas.</div>
-            </div>
-            <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
-              <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em' }}>Saldo mensal previsto</div>
-              <div style={{ fontWeight: 900, fontSize: 19, color: saldoMensalPrevisto >= 0 ? '#10B981' : '#EF4444', fontFamily: 'var(--font-heading)', marginTop: 6 }}>{fmt(saldoMensalPrevisto || resumo.saldo_mensal || 0)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Recebimento mensal menos dívida mensal.</div>
-            </div>
+          <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}><TrendingDown size={14} color="#EF4444" /><span style={{ fontSize: 11, color: 'var(--text3)' }}>A pagar</span></div>
+            <div style={{ fontWeight: 700, fontSize: 20, color: '#EF4444', fontFamily: 'var(--font-heading)' }}>{fmt(resumo.despesa_pendente)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(resumo.despesa_paga)}</div>
           </div>
-        </>
+        </div>
       )}
 
       {vencidos.length > 0 && (

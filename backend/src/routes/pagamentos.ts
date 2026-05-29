@@ -187,44 +187,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/resumo', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
-    const resumo: any = await PaymentService.getResumo(orgId, userId)
-
-    // Compromisso mensal previsto: soma das parcelas pendentes do mês atual.
-    // Se um grupo não tiver parcela no mês atual, considera a próxima parcela pendente.
-    const hoje = new Date().toISOString().slice(0, 10)
-    const mesAtual = hoje.slice(0, 7)
-    const rows = await query(
-      `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome) AS pessoa_nome_atual
-       FROM pagamentos p
-       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
-       WHERE p.org_id = $1 AND p.criado_por = $2
-         AND p.status = 'pendente'
-       ORDER BY p.vencimento ASC NULLS LAST, p.created_at ASC`,
-      [orgId, userId]
-    ) as any[]
-
-    const gruposMensais = new Map<string, any[]>()
-    for (const row of rows) {
-      if (isSystemFinancialMovement(row)) continue
-      const key = row.grupo_id ? `grupo:${row.grupo_id}` : buildNaturalGroupKey(row)
-      if (!gruposMensais.has(key)) gruposMensais.set(key, [])
-      gruposMensais.get(key)!.push(row)
-    }
-
-    let receitaMensal = 0
-    let despesaMensal = 0
-    for (const parcelas of gruposMensais.values()) {
-      const ordenadas = parcelas.sort((a, b) => compareNullableDates(a.vencimento, b.vencimento))
-      const doMes = ordenadas.filter((p: any) => normalizeDateValue(p.vencimento)?.slice(0, 7) === mesAtual)
-      const base = doMes.length > 0 ? doMes : ordenadas.slice(0, 1)
-      const valor = base.reduce((sum: number, p: any) => sum + Number(p.valor || 0), 0)
-      const tipo = ordenadas[0]?.tipo
-      if (tipo === 'recebimento') receitaMensal += valor
-      else despesaMensal += valor
-    }
-
-    resumo.receita_mensal = receitaMensal
-    resumo.despesa_mensal = despesaMensal
+    const resumo = await PaymentService.getResumo(orgId, userId)
     res.json({ resumo })
   } catch (err) {
     console.error('[PAG] Erro ao buscar resumo:', err)
@@ -294,9 +257,6 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       valor_total: number
       valor_pago: number
       valor_pendente: number
-      valor_mensal: number
-      parcelas_mes_atual: number
-      proxima_parcela_valor: number
       num_parcelas: number
       parcelas_pagas: number
       parcelas_pendentes: number
@@ -331,9 +291,6 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
           valor_total: 0,
           valor_pago: 0,
           valor_pendente: 0,
-          valor_mensal: 0,
-          parcelas_mes_atual: 0,
-          proxima_parcela_valor: 0,
           num_parcelas: 0,
           parcelas_pagas: 0,
           parcelas_pendentes: 0,
@@ -413,38 +370,19 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // Converte para array, calcula compromisso mensal e ordena.
-    // Regra mensal: soma as parcelas pendentes do mês atual.
-    // Se não houver vencimento no mês atual, usa a próxima parcela pendente como compromisso mensal previsto.
-    const mesAtual = hoje.slice(0, 7)
-    const grupos = Array.from(gruposMap.values()).map(g => {
-      const parcelasOrdenadas = g.parcelas.sort((a: any, b: any) =>
+    // Converte para array e ordena: vencidos primeiro, depois por próxima parcela
+    const grupos = Array.from(gruposMap.values()).map(g => ({
+      ...g,
+      parcelas: g.parcelas.sort((a: any, b: any) =>
         (a.num_parcela || 0) - (b.num_parcela || 0) ||
         compareNullableDates(a.vencimento, b.vencimento)
-      )
-      const pendentesOrdenadas = parcelasOrdenadas
-        .filter((p: any) => p.status === 'pendente')
-        .sort((a: any, b: any) => compareNullableDates(a.vencimento, b.vencimento))
-
-      const parcelasDoMes = pendentesOrdenadas.filter((p: any) => normalizeDateValue(p.vencimento)?.slice(0, 7) === mesAtual)
-      const proxima = pendentesOrdenadas[0] || null
-      const valorMensal = parcelasDoMes.length > 0
-        ? parcelasDoMes.reduce((sum: number, p: any) => sum + Number(p.valor || 0), 0)
-        : (proxima ? Number(proxima.valor || 0) : 0)
-
-      return {
-        ...g,
-        valor_mensal: Number(valorMensal || 0),
-        parcelas_mes_atual: parcelasDoMes.length || (proxima ? 1 : 0),
-        proxima_parcela_valor: proxima ? Number(proxima.valor || 0) : 0,
-        parcelas: parcelasOrdenadas,
-        historico: g.historico.sort((a: any, b: any) => {
-          const da = new Date(a.created_at || a.data_evento || 0).getTime()
-          const db = new Date(b.created_at || b.data_evento || 0).getTime()
-          return db - da
-        }),
-      }
-    })
+      ),
+      historico: g.historico.sort((a: any, b: any) => {
+        const da = new Date(a.created_at || a.data_evento || 0).getTime()
+        const db = new Date(b.created_at || b.data_evento || 0).getTime()
+        return db - da
+      }),
+    }))
 
     grupos.sort((a, b) => {
       if (a.vencido !== b.vencido) return a.vencido ? -1 : 1

@@ -149,17 +149,12 @@ export default function Layout() {
             if (!user) return null
             // Esconde entradas restritas para membros
             if (!isGestorLike(user.role)) {
-              // Membros não podem gerenciar usuários, equipes ou relatórios e tampouco acessam
-              // módulos de finanças, pessoas ou documentos de outros usuários. Esses módulos
-              // são filtrados no backend pelo criador, mas não devem ser exibidos na navegação.
+              // Membros não gerenciam equipes/relatórios, mas acessam usuários abaixo deles
+              // e módulos pessoais de financeiro, pessoas e documentos, filtrados pelo backend.
               if ([
-                '/usuarios',
                 '/equipe',
                 '/equipes',
                 '/relatorios',
-                '/financeiro',
-                '/pessoas',
-                '/documentos',
               ].includes(path)) return null
             }
             return (
@@ -560,7 +555,7 @@ export default function Layout() {
             <div className="section-label" style={{ padding: 0, marginBottom: 14 }}>Mais opções</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
               {NAV.slice(4).map(({ path, icon: Icon, label }) => {
-                if (path === '/usuarios' && !isGestorLike(user?.role)) return null
+                // Usuários fica disponível para todos; permissões são filtradas por hierarquia no backend
                 return (
                   <Link
                     key={path}
