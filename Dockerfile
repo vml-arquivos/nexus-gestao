@@ -1,48 +1,70 @@
 # ============================================================
-# NEXUS GESTÃO — Dockerfile Backend (multi-stage)
-# Stage 1: build TypeScript → JavaScript
-# Stage 2: imagem de produção Node 20 Alpine (~80MB)
-#
-# STARTUP ORDER:
-#   1. node dist/db/migrate.js  → cria/atualiza tabelas (idempotente)
-#   2. node dist/index.js       → inicia o servidor Express
+# NEXUS GESTÃO — Dockerfile Unificado (Coolify)
 # ============================================================
-FROM node:20-alpine AS builder
-WORKDIR /app
 
-# Instala TODAS as dependências (dev necessário para compilar TS)
-COPY package.json package-lock.json* ./
+# ── STAGE 1: Build do Backend ──────────────────────────────
+FROM node:20-alpine AS backend-builder
+
+# Força registry público — evita timeout no registry corporativo
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+    NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
+    NPM_CONFIG_CACHE=/root/.npm
+
+WORKDIR /app/backend
+COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
-
-# Compila TypeScript (gera dist/)
-COPY . .
+COPY backend/ .
 RUN npx tsc --skipLibCheck
 
-# ── Imagem de produção ────────────────────────────────────────────────────────
-FROM node:20-alpine AS production
-WORKDIR /app
+# ── STAGE 2: Build do Frontend ─────────────────────────────
+FROM node:20-alpine AS frontend-builder
 
-# Instala o cliente PostgreSQL (necessário para pg_dump — usado no backup)
-RUN apk add --no-cache postgresql-client
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+    NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
+    NPM_CONFIG_CACHE=/root/.npm
 
-# Apenas dependências de produção
+WORKDIR /app/frontend
 COPY package.json package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+RUN rm -rf backend
+RUN npm run build
+
+# ── STAGE 3: Produção ──────────────────────────────────────
+FROM node:20-alpine AS production
+
+ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
+    NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_CACHE=/root/.npm
+
+RUN apk add --no-cache nginx supervisor wget postgresql-client
+
+# Backend
+WORKDIR /app/backend
+COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --omit=dev --no-audit --no-fund
+COPY --from=backend-builder /app/backend/dist ./dist
 
-# Copia build compilado (inclui dist/db/migrate.js e dist/index.js)
-COPY --from=builder /app/dist ./dist
+# Frontend
+RUN mkdir -p /usr/share/nginx/html
+COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Entrypoint: roda migrate ANTES do servidor
-RUN printf '#!/bin/sh\nset -e\necho "[ENTRYPOINT] Aplicando migrations no PostgreSQL..."\nnode dist/db/migrate.js\necho "[ENTRYPOINT] Migrations OK. Iniciando servidor Nexus..."\nexec node dist/index.js\n' \
-    > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Configurações
+RUN rm -f /etc/nginx/http.d/default.conf
+COPY nginx.unified.conf /etc/nginx/http.d/app.conf
+COPY supervisord.conf /etc/supervisord.conf
 
-# Volume de uploads
-RUN mkdir -p /app/uploads && chown -R node:node /app
+# Entrypoint
+RUN printf '#!/bin/sh\nset -e\nmkdir -p /app/uploads\necho "[STARTUP] Iniciando Nexus..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
-USER node
-EXPOSE 3001
+VOLUME ["/app/uploads"]
+EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
+  CMD wget -qO- http://localhost/health || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]
