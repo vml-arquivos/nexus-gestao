@@ -1,10 +1,11 @@
 # ============================================================
-# NEXUS GESTAO - Dockerfile Unificado (Coolify)
+# NEXUS GESTÃO — Dockerfile Unificado (Coolify)
 # ============================================================
 
-# STAGE 1: Build do Backend
+# ── STAGE 1: Build do Backend ──────────────────────────────
 FROM node:20-alpine AS backend-builder
 
+# Força registry público — evita timeout no registry corporativo
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
@@ -17,7 +18,7 @@ RUN npm ci --no-audit --no-fund
 COPY backend/ .
 RUN npx tsc --skipLibCheck
 
-# STAGE 2: Build do Frontend
+# ── STAGE 2: Build do Frontend ─────────────────────────────
 FROM node:20-alpine AS frontend-builder
 
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
@@ -33,14 +34,14 @@ COPY . .
 RUN rm -rf backend
 RUN npm run build
 
-# STAGE 3: Producao
+# ── STAGE 3: Produção ──────────────────────────────────────
 FROM node:20-alpine AS production
 
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_CACHE=/root/.npm
 
-RUN apk add --no-cache nginx supervisor wget postgresql-client
+RUN apk add --no-cache nginx supervisor wget
 
 # Backend
 WORKDIR /app/backend
@@ -52,7 +53,7 @@ COPY --from=backend-builder /app/backend/dist ./dist
 RUN mkdir -p /usr/share/nginx/html
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Configuracoes
+# Configurações
 RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf

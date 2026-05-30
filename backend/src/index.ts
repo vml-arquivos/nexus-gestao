@@ -19,7 +19,7 @@ import teamsRoutes      from './routes/teams'
 import usersRoutes      from './routes/users'
 import convitesRoutes       from './routes/convites'
 import notificacoesRoutes  from './routes/notificacoes'
-import backupRoutes     from './routes/backup'
+import integracoesRoutes   from './routes/integracoes'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 
 const app = express()
@@ -27,6 +27,9 @@ const app = express()
 app.set('trust proxy', 1)
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://nexus.permupay.com.br'
+const DESTRAVA_FRONTEND_URL = process.env.DESTRAVA_FRONTEND_URL || 'https://destravacredito.com'
+const CORS_EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean)
+const FRAME_ANCESTORS = process.env.NEXUS_ALLOWED_FRAME_ANCESTORS || `'self' ${DESTRAVA_FRONTEND_URL} https://destravacredito.com.br`
 const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
 
 // Garante que o diretório de uploads existe
@@ -38,17 +41,29 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  frameguard: false,
 }))
+
+app.use((_req, res, next) => {
+  // Permite abrir o mesmo Nexus dentro do Destrava via iframe controlado por domínio.
+  // O valor pode ser ajustado em NEXUS_ALLOWED_FRAME_ANCESTORS no Coolify.
+  res.removeHeader('X-Frame-Options')
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRAME_ANCESTORS}`)
+  next()
+})
 
 app.use(cors({
   origin: [
     FRONTEND_URL,
+    DESTRAVA_FRONTEND_URL,
+    'https://destravacredito.com.br',
     'http://localhost:5173',
     'http://localhost:3000',
+    ...CORS_EXTRA_ORIGINS,
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Integration-Secret', 'X-Nexus-Integration-Secret'],
 }))
 
 // Rate limiting global
@@ -62,7 +77,7 @@ app.use(rateLimit({
 
 // Rate limiting mais restrito para auth
 // Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
-// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
+// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
 // página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
 
 
@@ -106,7 +121,7 @@ app.use('/api/teams',       teamsRoutes)
 app.use('/api/users',       usersRoutes)
 app.use('/api/convites',       convitesRoutes)
 app.use('/api/notificacoes',  notificacoesRoutes)
-app.use('/api/admin/backup',  backupRoutes)
+app.use('/api/integracoes',   integracoesRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

@@ -126,6 +126,32 @@ function fmtDateTime(value?: string) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR')
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function checklistItemDate(item: ChecklistItem) {
+  return (item.data || '').slice(0, 10)
+}
+
+function checklistDateLabel(value?: string) {
+  const key = (value || '').slice(0, 10)
+  if (!key) return 'Sem data definida'
+  if (key === todayIso()) return `Hoje · ${fmtDate(key)}`
+  return fmtDate(key)
+}
+
+function checklistMatchesMonthYear(items: ChecklistItem[] | undefined, mes: string, ano: string) {
+  const list = Array.isArray(items) ? items : []
+  return list.some(item => {
+    const data = checklistItemDate(item)
+    if (!data) return false
+    if (mes !== 'todos' && getMonthValue(data) !== mes) return false
+    if (ano !== 'todos' && getYearValue(data) !== ano) return false
+    return true
+  })
+}
+
 function formatSize(bytes?: number) {
   const n = Number(bytes || 0)
   if (!n) return ''
@@ -213,14 +239,24 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [responsavelId, setResponsavelId] = useState(tarefa?.responsavel_id || '')
   const [checklist, setChecklist] = useState<ChecklistItem[]>(Array.isArray(tarefa?.checklist) ? tarefa!.checklist! : [])
   const [novoItem, setNovoItem] = useState('')
+  const [novoItemDescricao, setNovoItemDescricao] = useState('')
+  const [novoItemData, setNovoItemData] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
 
   function addItem() {
     if (!novoItem.trim()) return
-    setChecklist(prev => [...prev, { id: nanoid(), texto: novoItem.trim(), feito: false }])
+    setChecklist(prev => [...prev, {
+      id: nanoid(),
+      texto: novoItem.trim(),
+      descricao: novoItemDescricao.trim() || undefined,
+      data: novoItemData || undefined,
+      feito: false,
+    }])
     setNovoItem('')
+    setNovoItemDescricao('')
+    setNovoItemData('')
   }
 
   async function salvar() {
@@ -283,9 +319,34 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         <div className="form-group">
           <label className="form-label">Checklist</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input className="form-input" value={novoItem} onChange={e => setNovoItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }} placeholder="Adicionar item" />
-            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /></button>
+          <div className="task-checklist-builder">
+            <div className="task-checklist-builder-main">
+              <input
+                className="form-input"
+                value={novoItem}
+                onChange={e => setNovoItem(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
+                placeholder="Adicionar ação do checklist"
+              />
+              <input
+                className="form-input"
+                type="date"
+                value={novoItemData}
+                onChange={e => setNovoItemData(e.target.value)}
+                title="Data desta ação"
+              />
+              <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar</button>
+            </div>
+            <textarea
+              className="form-input"
+              rows={2}
+              value={novoItemDescricao}
+              onChange={e => setNovoItemDescricao(e.target.value)}
+              placeholder="Descrição opcional: explique como executar esta ação, onde buscar informação, padrão esperado, observações..."
+            />
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+              Use a data para dividir a mesma tarefa em ações de dias diferentes, sem precisar criar outra tarefa.
+            </div>
           </div>
           {!canMarkChecklistInEdit && checklist.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
@@ -293,26 +354,48 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
           )}
           {checklist.map(item => (
-            <div key={item.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, background: 'var(--bg3)', borderRadius: 8, padding: '6px 8px' }}>
-              <button
-                type="button"
-                title={canMarkChecklistInEdit ? 'Marcar item' : 'Somente o executor pode marcar o checklist'}
-                onClick={() => {
-                  if (!canMarkChecklistInEdit) return
-                  setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))
-                }}
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: 5,
-                  border: '1px solid var(--border)',
-                  background: item.feito ? '#10B981' : 'transparent',
-                  cursor: canMarkChecklistInEdit ? 'pointer' : 'not-allowed',
-                  opacity: canMarkChecklistInEdit ? 1 : 0.65,
-                }}
+            <div key={item.id} className="task-checklist-edit-card">
+              <div className="task-checklist-edit-row">
+                <button
+                  type="button"
+                  title={canMarkChecklistInEdit ? 'Marcar item' : 'Somente o executor pode marcar o checklist'}
+                  onClick={() => {
+                    if (!canMarkChecklistInEdit) return
+                    setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))
+                  }}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: item.feito ? '#10B981' : 'transparent',
+                    cursor: canMarkChecklistInEdit ? 'pointer' : 'not-allowed',
+                    opacity: canMarkChecklistInEdit ? 1 : 0.65,
+                    flexShrink: 0,
+                  }}
+                />
+                <input
+                  className="form-input"
+                  value={item.texto}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))}
+                  placeholder="Ação do checklist"
+                />
+                <input
+                  className="form-input"
+                  type="date"
+                  value={item.data || ''}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
+                  title="Data desta ação"
+                />
+                <button type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}><X size={14} /></button>
+              </div>
+              <textarea
+                className="form-input"
+                rows={2}
+                value={item.descricao || ''}
+                onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))}
+                placeholder="Descrição/instrução opcional para esta ação"
               />
-              <span style={{ flex: 1, fontSize: 13, textDecoration: item.feito ? 'line-through' : 'none' }}>{item.texto}</span>
-              <button type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 0, color: '#EF4444' }}><X size={14} /></button>
             </div>
           ))}
         </div>
@@ -676,7 +759,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
     const texto = [
       `Checklist da tarefa: ${tarefa.titulo}`,
-      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}`),
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
     ].join('\n')
 
     try {
@@ -760,6 +843,17 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const done = checklist.filter(i => i.feito).length
   const total = checklist.length
   const percent = total ? Math.round((done / total) * 100) : 0
+  const checklistByDate = checklist.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
+    const key = checklistItemDate(item) || 'sem-data'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(item)
+    return acc
+  }, {})
+  const checklistDateKeys = Object.keys(checklistByDate).sort((a, b) => {
+    if (a === 'sem-data') return 1
+    if (b === 'sem-data') return -1
+    return a.localeCompare(b)
+  })
 
   return (
     <ModalBase title="Detalhes da tarefa" onClose={onClose}>
@@ -804,18 +898,28 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           </div>
           {total > 0 ? (
             <div className="task-checklist-run">
-              {checklist.map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                  disabled={!canToggleChecklist || saving}
-                  onClick={() => toggleCheck(item.id)}
-                  aria-pressed={!!item.feito}
-                >
-                  <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
-                  <span className="task-check-text">{item.texto}</span>
-                </button>
+              {checklistDateKeys.map(dateKey => (
+                <div key={dateKey} className="task-checklist-date-group">
+                  <div className="task-checklist-date-title">
+                    <Calendar size={13} /> {checklistDateLabel(dateKey === 'sem-data' ? undefined : dateKey)}
+                  </div>
+                  {checklistByDate[dateKey].map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={item.feito ? 'task-check-item done' : 'task-check-item'}
+                      disabled={!canToggleChecklist || saving}
+                      onClick={() => toggleCheck(item.id)}
+                      aria-pressed={!!item.feito}
+                    >
+                      <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
+                      <span className="task-check-content">
+                        <span className="task-check-text">{item.texto}</span>
+                        {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           ) : (
@@ -1070,8 +1174,11 @@ export default function Tarefas() {
     if (prioridade !== 'todos' && t.prioridade !== prioridade) return false
     if (membroFiltro !== 'todos' && t.responsavel_id !== membroFiltro && t.criado_por !== membroFiltro) return false
     const refDate = taskReferenceDate(t)
-    if (mesFiltro !== 'todos' && getMonthValue(refDate) !== mesFiltro) return false
-    if (anoFiltro !== 'todos' && getYearValue(refDate) !== anoFiltro) return false
+    if ((mesFiltro !== 'todos' || anoFiltro !== 'todos')) {
+      const mainDateMatches = (mesFiltro === 'todos' || getMonthValue(refDate) === mesFiltro) && (anoFiltro === 'todos' || getYearValue(refDate) === anoFiltro)
+      const checklistDateMatches = checklistMatchesMonthYear(t.checklist, mesFiltro, anoFiltro)
+      if (!mainDateMatches && !checklistDateMatches) return false
+    }
     const q = search.trim().toLowerCase()
     if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''}`.toLowerCase().includes(q)) return false
     return true

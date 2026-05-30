@@ -37,7 +37,7 @@ export interface UserProfile {
   ativo?: boolean
 }
 
-export interface ChecklistItem { id: string; texto: string; feito: boolean }
+export interface ChecklistItem { id: string; texto: string; feito: boolean; descricao?: string; data?: string }
 
 export interface Tarefa {
   id: string
@@ -75,6 +75,13 @@ export interface Tarefa {
   ultima_evidencia_em?: string
   created_at: string
   updated_at?: string
+  origem_sistema?: string
+  origem_tipo?: string
+  origem_id?: string
+  origem_nome?: string
+  origem_url?: string
+  origem_payload?: Record<string, unknown>
+  external_key?: string
 }
 
 export interface TarefaAnexo {

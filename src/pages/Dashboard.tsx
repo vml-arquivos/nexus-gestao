@@ -82,6 +82,10 @@ function taskDate(t: Tarefa) {
   return parseDateSafe(t.prazo || t.data || t.created_at)
 }
 
+function checklistActionDate(item: { data?: string }) {
+  return parseDateSafe(item.data)
+}
+
 function paymentDate(p: Pagamento) {
   return parseDateSafe(p.vencimento || p.pago_em || p.created_at)
 }
@@ -244,19 +248,40 @@ export default function Dashboard() {
   }, [tarefas, agenda, pagamentos])
 
   const painelItems = useMemo<PainelItem[]>(() => {
-    const taskItems: PainelItem[] = tarefas.map(t => ({
-      id: `t-${t.id}`,
-      tipo: 'tarefas',
-      titulo: t.titulo,
-      data: taskDate(t),
-      status: t.status,
-      prioridade: t.prioridade,
-      subtitulo: t.responsavel_nome || t.criado_por_nome || undefined,
-      responsavelNome: t.responsavel_nome || t.criado_por_nome || undefined,
-      checklistTotal: Array.isArray(t.checklist) ? t.checklist.length : 0,
-      checklistFeitos: Array.isArray(t.checklist) ? t.checklist.filter(item => item.feito).length : 0,
-      to: `/tarefas?task=${t.id}`,
-    }))
+    const taskItems: PainelItem[] = tarefas.flatMap(t => {
+      const checklist = Array.isArray(t.checklist) ? t.checklist : []
+      const principal: PainelItem = {
+        id: `t-${t.id}`,
+        tipo: 'tarefas',
+        titulo: t.titulo,
+        data: taskDate(t),
+        status: t.status,
+        prioridade: t.prioridade,
+        subtitulo: t.responsavel_nome || t.criado_por_nome || undefined,
+        responsavelNome: t.responsavel_nome || t.criado_por_nome || undefined,
+        checklistTotal: checklist.length,
+        checklistFeitos: checklist.filter(item => item.feito).length,
+        to: `/tarefas?task=${t.id}`,
+      }
+
+      const acoesComData: PainelItem[] = checklist
+        .filter(item => item.data)
+        .map(item => ({
+          id: `tc-${t.id}-${item.id}`,
+          tipo: 'tarefas',
+          titulo: `${t.titulo} · ${item.texto}`,
+          data: checklistActionDate(item),
+          status: item.feito ? 'concluida' : t.status,
+          prioridade: t.prioridade,
+          subtitulo: item.descricao || t.responsavel_nome || t.criado_por_nome || undefined,
+          responsavelNome: t.responsavel_nome || t.criado_por_nome || undefined,
+          checklistTotal: 1,
+          checklistFeitos: item.feito ? 1 : 0,
+          to: `/tarefas?task=${t.id}`,
+        }))
+
+      return [principal, ...acoesComData]
+    })
 
     const agendaItems: PainelItem[] = agenda.map(e => ({
       id: `a-${e.id}`,

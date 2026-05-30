@@ -123,6 +123,39 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
 
+-- Integração externa: permite que o mesmo Nexus receba tarefas vindas do Destrava
+-- sem deixar de funcionar como sistema independente.
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_sistema TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_tipo TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_id TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_nome TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_url TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_payload JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS external_key TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_origem ON tarefas(origem_sistema, origem_tipo, origem_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_external_key ON tarefas(external_key);
+
+CREATE TABLE IF NOT EXISTS nexus_external_links (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id         UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  source_system  TEXT NOT NULL,
+  external_type  TEXT NOT NULL,
+  external_id    TEXT NOT NULL,
+  external_name  TEXT,
+  nexus_type     TEXT NOT NULL,
+  nexus_id       UUID NOT NULL,
+  source_url     TEXT,
+  metadata       JSONB DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at     TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_nexus_external_links_lookup
+  ON nexus_external_links(source_system, external_type, external_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_external_links_nexus
+  ON nexus_external_links(nexus_type, nexus_id);
+
 
 -- Checklist estruturado por item, mantendo compatibilidade com tarefas.checklist JSONB.
 CREATE TABLE IF NOT EXISTS tarefa_checklist (

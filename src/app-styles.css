@@ -2499,3 +2499,78 @@ a.btn {
   .dash-calendar-items { max-height: 150px; }
   .dash-calendar-record { padding: 6px; }
 }
+
+/* Hotfix checklist por ação: descrição + data por item, sem criar nova tarefa. */
+.task-checklist-builder {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  border-radius: 14px;
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.task-checklist-builder-main,
+.task-checklist-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  gap: 8px;
+  align-items: center;
+}
+.task-checklist-edit-row {
+  grid-template-columns: 24px minmax(0, 1fr) 150px 34px;
+}
+.task-checklist-edit-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  border-radius: 12px;
+  padding: 10px;
+}
+.task-checklist-date-group {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  border-radius: 14px;
+  padding: 10px;
+}
+.task-checklist-date-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text3);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+.task-check-content {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.task-check-desc {
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.task-check-item.done .task-check-desc {
+  text-decoration: none;
+}
+@media (max-width: 640px) {
+  .task-checklist-builder-main,
+  .task-checklist-edit-row {
+    grid-template-columns: 1fr;
+  }
+  .task-checklist-edit-row > button:first-child {
+    justify-self: start;
+  }
+  .task-checklist-edit-row > button:last-child {
+    justify-self: end;
+  }
+}

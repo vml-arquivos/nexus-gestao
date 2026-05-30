@@ -31,7 +31,7 @@ function isValidStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (VALID_STATUS as readonly string[]).includes(v)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -46,9 +46,13 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
   return raw
     .map((item: any) => {
       if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
+      const rawDate = String(item?.data || item?.date || item?.prazo || '').slice(0, 10)
+      const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined
       return {
         id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
+        descricao: String(item?.descricao || item?.description || item?.obs || '').trim() || undefined,
+        data: safeDate,
         feito: !!item?.feito,
       }
     })
@@ -61,7 +65,7 @@ function normalizeChecklist(value: unknown) {
 
 function checklistStructureKey(value: unknown) {
   return parseChecklistItems(value)
-    .map(item => `${item.id || ''}:${item.texto}`)
+    .map(item => `${item.id || ''}:${item.texto}:${item.data || ''}:${item.descricao || ''}`)
     .join('|')
 }
 
