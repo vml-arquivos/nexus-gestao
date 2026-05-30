@@ -18,6 +18,7 @@ import Configuracoes from './pages/Configuracoes'
 import PessoaDetalhe from './pages/PessoaDetalhe'
 import Usuarios from './pages/Usuarios'
 import AceitarConvite from './pages/AceitarConvite'
+import Backup from './pages/Backup'
 
 function FullScreenLoader() {
   return (
@@ -103,6 +104,15 @@ export default function App() {
         <Route path="configuracoes" element={<Configuracoes />} />
         {/* Usuários: todos acessam; a tela e o backend limitam criação/listagem por hierarquia */}
         <Route path="usuarios" element={<Usuarios />} />
+        {/* Backup: restrito a admin, dev e gestor */}
+        <Route
+          path="backup"
+          element={
+            user && ['admin', 'dev', 'gestor'].includes(user.role)
+              ? <Backup />
+              : <Navigate to="/" replace />
+          }
+        />
       </Route>
 
       {/* Convite público — não requer autenticação */}
