@@ -3288,3 +3288,22 @@ a.btn svg {
   .task-execution-summary { display: grid; gap: 7px; font-size: 12px; }
   .task-execution-summary span { width: 100%; justify-content: center; white-space: normal; }
 }
+
+.task-team-summary {
+  margin-top: 8px;
+  color: var(--text2);
+  background: rgba(16, 185, 129, .08);
+  border: 1px solid rgba(16, 185, 129, .18);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .task-team-summary {
+    font-size: 11.5px;
+    padding: 8px;
+  }
+}

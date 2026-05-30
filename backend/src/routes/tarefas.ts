@@ -424,6 +424,28 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
     const checklistNormalizado = await normalizeChecklistForOrg(checklist, orgId, userId, role)
 
+    // Proteção contra duplo clique/envio repetido: se a mesma tarefa foi criada
+    // há poucos segundos pelo mesmo usuário, devolve a existente em vez de criar
+    // vários cartões iguais no painel do gestor. Não apaga dados e não altera a API.
+    const duplicate = await queryOne<any>(
+      `SELECT * FROM tarefas
+       WHERE org_id = $1
+         AND criado_por = $2
+         AND COALESCE(responsavel_id::text, '') = COALESCE($3::text, '')
+         AND lower(trim(titulo)) = lower(trim($4))
+         AND COALESCE(descricao, '') = COALESCE($5, '')
+         AND COALESCE(prazo::text, '') = COALESCE($6::text, '')
+         AND COALESCE(escopo, 'pessoal') = $7
+         AND created_at >= NOW() - INTERVAL '12 seconds'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [orgId, userId, responsavelId, titulo.trim(), descricao || '', prazo || '', escopo]
+    )
+    if (duplicate) {
+      res.status(200).json({ tarefa: duplicate })
+      return
+    }
+
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, status, status_gestor)
@@ -493,7 +515,7 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
       const progresso = checklistProgress(existing)
       if (progresso.total > 0 && !progresso.completo) {
         res.status(400).json({
-          error: `A tarefa só pode ser enviada para aprovação depois que todos os checklists forem concluídos (${progresso.feitos}/${progresso.total}).`,
+          error: `A tarefa só pode ser concluída depois que todos os checklists forem concluídos (${progresso.feitos}/${progresso.total}).`,
         })
         return
       }
@@ -582,15 +604,27 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
          WHERE id = $2 AND org_id = $3 RETURNING *`,
         [String(observacao || '').trim() || null, req.params.id, orgId]
       )
+    } else if (['pendente', 'devolvida', 'reenviada'].includes(String(existing.status))) {
+      tarefaAtualizada = await queryOne<any>(
+        `UPDATE tarefas SET
+           status = 'em_progresso',
+           data_inicio = COALESCE(data_inicio, NOW()),
+           resposta_membro = COALESCE($1, resposta_membro),
+           resposta_obs = COALESCE($1, resposta_obs),
+           resposta_em = NOW(),
+           updated_at = NOW()
+         WHERE id = $2 AND org_id = $3 RETURNING *`,
+        [String(observacao || '').trim() || null, req.params.id, orgId]
+      ) || existing
     }
 
     await addHistorico({
       orgId,
       tarefaId: req.params.id,
       userId,
-      acao: geral.completo ? 'checklist_completo' : 'parte_concluida',
+      acao: geral.completo ? 'checklist_completo' : 'parte_enviada',
       statusAnterior: existing.status,
-      statusNovo: geral.completo ? 'concluida' : existing.status,
+      statusNovo: geral.completo ? 'concluida' : tarefaAtualizada.status,
       observacao: String(observacao || '').trim() || `Parte do executor concluída (${minhaParte.feitos || geral.feitos}/${minhaParte.total || geral.total}).`,
     })
 
@@ -600,10 +634,10 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
         orgId,
         userId: existing.criado_por,
         tipo: geral.completo ? 'tarefa_concluida' : 'tarefa_atualizada',
-        titulo: geral.completo ? '✅ Checklist completo para aprovação' : '✅ Parte do checklist concluída',
+        titulo: geral.completo ? '✅ Todas as partes foram concluídas' : '✅ Parte enviada pelo membro',
         body: geral.completo
-          ? `${autor?.nome || 'Executor'} concluiu a última parte de "${existing.titulo}". A tarefa está pronta para conferência.`
-          : `${autor?.nome || 'Executor'} concluiu sua parte em "${existing.titulo}".`,
+          ? `${autor?.nome || 'Executor'} concluiu a última parte de "${existing.titulo}". Visualize a tarefa e as evidências enviadas.`
+          : `${autor?.nome || 'Executor'} executou e enviou sua parte em "${existing.titulo}". Visualize as evidências e aguarde o restante da equipe.`,
         referenciaId: req.params.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})

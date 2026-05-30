@@ -189,12 +189,99 @@ function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
   return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id && item.responsavel_id !== userId)
 }
 
+function taskHasDistributedChecklist(tarefa: Tarefa) {
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id)
+}
+
+function visibleChecklistItems(tarefa: Tarefa, userId: string, isGestor: boolean) {
+  const items = normalizeChecklistItems(tarefa.checklist)
+  if (isGestor) return items
+  const assigned = items.filter(item => isChecklistItemExecutor(item, tarefa, userId))
+  return assigned.length ? assigned : items
+}
+
+function checklistExecutorSummary(tarefa: Tarefa) {
+  const map = new Map<string, { nome: string; total: number; feitos: number }>()
+  normalizeChecklistItems(tarefa.checklist).forEach(item => {
+    const key = item.responsavel_id || tarefa.responsavel_id || tarefa.criado_por || 'sem-responsavel'
+    const nome = checklistExecutorName(item, tarefa)
+    const current = map.get(key) || { nome, total: 0, feitos: 0 }
+    current.total += 1
+    if (item.feito) current.feitos += 1
+    map.set(key, current)
+  })
+  return Array.from(map.values())
+}
+
 function memberMatchesTask(tarefa: Tarefa, memberId: string) {
   return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
 }
 
 function taskScope(tarefa: Tarefa): 'pessoal' | 'equipe' {
   return tarefa.escopo === 'equipe' ? 'equipe' : 'pessoal'
+}
+
+function duplicateTaskVisualKey(tarefa: Tarefa) {
+  // Tarefas de equipe devem aparecer como uma única entidade no painel do gestor.
+  // Quando houver registros legados/repetidos com o mesmo título, descrição e prazo,
+  // agrupamos visualmente sem apagar dados. O responsável principal não entra na chave
+  // de tarefa da equipe, porque a execução pode estar distribuída nos checklists.
+  const escopo = taskScope(tarefa)
+  return [
+    escopo,
+    tarefa.criado_por || '',
+    escopo === 'equipe' ? 'tarefa-equipe-unificada' : (tarefa.responsavel_id || ''),
+    (tarefa.titulo || '').trim().toLowerCase(),
+    (tarefa.descricao || '').trim().toLowerCase(),
+    (tarefa.prazo || '').slice(0, 10),
+    tarefa.prioridade || '',
+  ].join('::')
+}
+
+function mergeChecklistVisual(base: ChecklistItem[] = [], incoming: ChecklistItem[] = []) {
+  const map = new Map<string, ChecklistItem>()
+  ;[...base, ...incoming].forEach(item => {
+    const key = [
+      (item.texto || '').trim().toLowerCase(),
+      (item.data || '').slice(0, 10),
+      (item.descricao || '').trim().toLowerCase(),
+      item.responsavel_id || '',
+    ].join('::')
+    const current = map.get(key)
+    if (!current) {
+      map.set(key, { ...item })
+    } else {
+      map.set(key, {
+        ...current,
+        feito: Boolean(current.feito || item.feito),
+        responsavel_nome: current.responsavel_nome || item.responsavel_nome,
+      })
+    }
+  })
+  return Array.from(map.values())
+}
+
+function consolidateVisualTasks(tasks: Tarefa[]) {
+  const map = new Map<string, Tarefa & { __merged_count?: number }>()
+  tasks.forEach(task => {
+    const key = duplicateTaskVisualKey(task)
+    const current = map.get(key)
+    if (!current) {
+      map.set(key, { ...task, checklist: normalizeChecklistItems(task.checklist), __merged_count: 1 })
+      return
+    }
+    current.checklist = mergeChecklistVisual(current.checklist || [], normalizeChecklistItems(task.checklist))
+    current.anexos_count = Number(current.anexos_count || 0) + Number(task.anexos_count || 0)
+    current.__merged_count = Number(current.__merged_count || 1) + 1
+    const currentUpdated = new Date(current.updated_at || current.created_at || 0).getTime()
+    const taskUpdated = new Date(task.updated_at || task.created_at || 0).getTime()
+    if (taskUpdated > currentUpdated) {
+      current.status = task.status
+      current.status_gestor = task.status_gestor
+      current.updated_at = task.updated_at
+    }
+  })
+  return Array.from(map.values())
 }
 
 function taskHasTeamExecution(tarefa: Tarefa, currentUserId?: string) {
@@ -346,6 +433,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   }
 
   async function salvar() {
+    if (loading) return
     if (!titulo.trim()) { toast('Informe o título da tarefa.', 'error'); return }
     setLoading(true)
     try {
@@ -803,7 +891,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
           <div style={{ fontSize: 12, color: 'var(--text3)' }}>
             {isGestor
-              ? 'Confira aqui os arquivos enviados pelo membro antes de aprovar ou devolver a tarefa.'
+              ? 'Confira aqui os arquivos enviados pelos membros e acompanhe a execução da tarefa.'
               : 'Aqui ficam os arquivos já enviados. Para anexar e concluir tudo de uma vez, abra a tarefa completa e use Enviar conclusão.'}
           </div>
         </div>
@@ -875,11 +963,14 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const hasChecklistForMe = checklist.some(item => isChecklistItemExecutor(item, tarefa, userId))
   const myProgress = checklistProgressForUser({ ...tarefa, checklist }, userId)
   const geralProgress = checklistProgress(checklist)
+  const distributedTask = taskHasDistributedChecklist({ ...tarefa, checklist })
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
   const canToggleChecklist = canExecuteTask && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
   const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
+  const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
+  const executorSummary = checklistExecutorSummary({ ...tarefa, checklist })
 
   async function persistChecklist(next: ChecklistItem[]) {
     setChecklist(next)
@@ -950,20 +1041,23 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
     setSaving(true)
     try {
       if (files.length) await uploadPendentes()
-      if (allChecklistDone) {
-        const saved = await tarefasApi.updateStatus(tarefa.id, {
-          status: 'concluida',
-          observacao_conclusao: obs.trim() || undefined,
-          resposta_membro: obs.trim() || undefined,
-        })
-        onSaved(saved)
-        toast('Checklist completo. Tarefa enviada para conferência do gestor.')
+      if (total > 0) {
+        const result = await tarefasApi.registrarParte(tarefa.id, obs.trim() || undefined)
+        if (result.tarefa) onSaved(result.tarefa)
+        toast(result.completa
+          ? 'Todas as partes foram concluídas. O gestor foi notificado para visualizar a tarefa.'
+          : 'Sua parte foi enviada ao gestor. A tarefa segue aberta até o restante da equipe concluir.'
+        )
         onClose()
         return
       }
-      const result = await tarefasApi.registrarParte(tarefa.id, obs.trim() || undefined)
-      if (result.tarefa) onSaved(result.tarefa)
-      toast('Sua parte foi enviada. A tarefa ficará pendente até todos os checklists serem concluídos.')
+      const saved = await tarefasApi.updateStatus(tarefa.id, {
+        status: 'concluida',
+        observacao_conclusao: obs.trim() || undefined,
+        resposta_membro: obs.trim() || undefined,
+      })
+      onSaved(saved)
+      toast('Tarefa enviada para conferência do gestor.')
       onClose()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao enviar sua parte.', 'error')
@@ -1004,7 +1098,9 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const done = checklist.filter(i => i.feito).length
   const total = checklist.length
   const percent = total ? Math.round((done / total) * 100) : 0
-  const checklistByDate = checklist.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
+  const displayDone = displayChecklist.filter(i => i.feito).length
+  const displayTotal = displayChecklist.length
+  const checklistByDate = displayChecklist.reduce<Record<string, ChecklistItem[]>>((acc, item) => {
     const key = checklistItemDate(item) || 'sem-data'
     if (!acc[key]) acc[key] = []
     acc[key].push(item)
@@ -1054,10 +1150,10 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
                   <Copy size={14} /> Copiar checklist
                 </button>
               )}
-              <strong>{done}/{total} feitos · {percent}%</strong>
+              <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
             </div>
           </div>
-          {total > 0 ? (
+          {displayTotal > 0 ? (
             <div className="task-checklist-run">
               {checklistDateKeys.map(dateKey => (
                 <div key={dateKey} className="task-checklist-date-group">
@@ -1085,13 +1181,14 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
               ))}
             </div>
           ) : (
-            <p className="muted">Esta tarefa não possui checklist.</p>
+            <p className="muted">{isGestor ? 'Esta tarefa não possui checklist.' : 'Nenhuma parte desta tarefa está atribuída a você.'}</p>
           )}
           {total > 0 && (
             <div className="task-execution-summary">
-              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus checklists. A tarefa só vai para aprovação quando todos os checklists estiverem completos.
+              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus checklists e envia sua parte. O gestor é notificado para visualizar as evidências, sem etapa de aprovar/reprovar por checklist.
               {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} checklists.</span>}
               <span>Total da tarefa: {done}/{total} checklists.</span>
+              {isGestor && executorSummary.length > 0 && <span>Execução por membro: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</span>}
             </div>
           )}
           {total > 0 && !canToggleChecklist && (
@@ -1101,12 +1198,12 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         {canExecuteTask && (
           <section className="task-detail-section">
-            <h3>{allChecklistDone ? 'Evidências para enviar ao gestor' : 'Evidências da sua parte'}</h3>
+            <h3>{allChecklistDone ? 'Evidências da conclusão geral' : 'Evidências da sua parte'}</h3>
             <FileDropzone
               id={`concluir-evidencias-${tarefa.id}`}
               files={files}
               onFiles={setFiles}
-              label={allChecklistDone ? 'Anexar evidências da conclusão' : 'Anexar evidências da sua parte'}
+              label={allChecklistDone ? 'Anexar evidências da conclusão geral' : 'Anexar evidências da sua parte'}
               help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução."
             />
             <label className="form-label">Observação de conclusão</label>
@@ -1125,12 +1222,12 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         <div className="modal-actions task-detail-actions" data-modal-actions>
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
-          {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
-          {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
-          {canReviewTask && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
+          {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
+          {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
+          {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving || !myChecklistDone}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar para aprovação' : 'Enviar minha parte'}</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving || !myChecklistDone}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar conclusão da tarefa' : 'Enviar minha parte'}</button>}
         </div>
       </div>
     </ModalBase>
@@ -1156,8 +1253,12 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
   const Icon = sc.icon
-  const checkTotal = tarefa.checklist?.length || 0
-  const checkDone = tarefa.checklist?.filter(i => i.feito).length || 0
+  const distributedTask = taskHasDistributedChecklist(tarefa)
+  const checklistForCard = visibleChecklistItems(tarefa, userId, isGestor)
+  const checkTotal = checklistForCard.length
+  const checkDone = checklistForCard.filter(i => i.feito).length
+  const geralProgress = checklistProgress(tarefa.checklist)
+  const executorSummary = checklistExecutorSummary(tarefa)
   const overdue = isOverdue(tarefa.prazo, tarefa.status)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
@@ -1183,14 +1284,16 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
             <span style={{ fontSize: 11, fontWeight: 800, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
-            <span><User size={12} /> {tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : 'Tarefa pessoal'}</span>
+            <span><User size={12} /> {tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
             {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
-            {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist</span>}
+            {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist{!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}</span>}
           </div>
           {tarefa.descricao && <div style={{ marginTop: 8, color: 'var(--text2)', fontSize: 13, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{tarefa.descricao}</div>}
           {checkTotal > 0 && <div className="task-progress-line"><span style={{ width: `${Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100))}%` }} /></div>}
           {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: 'var(--info)', background: 'var(--info-dim)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
+          {distributedTask && isGestor && executorSummary.length > 0 && <div className="task-team-summary"><strong>Execução da equipe:</strong> {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>}
+          {Number((tarefa as any).__merged_count || 1) > 1 && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--info-dim)', border: '1px solid var(--border)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Tarefa única no painel:</strong> registros repetidos/legados foram agrupados visualmente. Os checklists ficam centralizados neste cartão.</div>}
           {canReviewTask && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
             <button
               type="button"
@@ -1238,15 +1341,15 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver evidências' : 'Anexar evidência'}</button>
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
         {canExecuteTask && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
-        {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-        {canReviewTask && tarefa.status === 'aprovada' && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
+        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
       </div>
 
       {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
         {tarefa.descricao && <p style={{ marginTop: 0, color: 'var(--text2)' }}>{tarefa.descricao}</p>}
         {tarefa.obs && <div style={{ margin: '8px 0', color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, fontSize: 13, whiteSpace: 'pre-wrap' }}><strong>Complementos/observações:</strong><br />{tarefa.obs}</div>}
-        {checkTotal > 0 && tarefa.checklist?.map(i => <div key={i.id} style={{ display: 'grid', gap: 3, padding: '7px 0', fontSize: 13 }}>
+        {checkTotal > 0 && checklistForCard.map(i => <div key={i.id} style={{ display: 'grid', gap: 3, padding: '7px 0', fontSize: 13 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span>{i.feito ? '✅' : '⬜'}</span><strong>{i.texto}</strong></div>
           <div style={{ color: 'var(--text3)', fontSize: 12, paddingLeft: 24 }}>
             {i.data ? `${fmtDate(i.data)} · ` : ''}Executor: {checklistExecutorName(i, tarefa)}
@@ -1308,6 +1411,8 @@ export default function Tarefas() {
     return () => window.removeEventListener('nexus:open-new', h)
   }, [])
 
+  const tarefasVisiveis = useMemo(() => consolidateVisualTasks(tarefas), [tarefas])
+
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
     if (!uid) return false
@@ -1322,17 +1427,17 @@ export default function Tarefas() {
     return taskScope(t) === 'equipe' || (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
   }, [user?.id])
 
-  const scoped = useMemo(() => tarefas.filter(t => {
+  const scoped = useMemo(() => tarefasVisiveis.filter(t => {
     if (escopo === 'pessoais') return isPersonalTask(t)
     if (escopo === 'equipe') return isTeamAssignedTask(t)
     return true
-  }), [tarefas, escopo, isPersonalTask, isTeamAssignedTask])
+  }), [tarefasVisiveis, escopo, isPersonalTask, isTeamAssignedTask])
 
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
     if (user?.id) map.set(user.id, { id: user.id, nome: user.nome || 'Eu', role: user.role })
     membros.forEach(m => map.set(m.id, { id: m.id, nome: m.nome, role: m.role_na_equipe || m.role }))
-    tarefas.forEach(t => {
+    tarefasVisiveis.forEach(t => {
       if (t.responsavel_id) map.set(t.responsavel_id, { id: t.responsavel_id, nome: t.responsavel_nome_perfil || t.responsavel_nome || 'Responsável' })
       if (t.criado_por) map.set(t.criado_por, { id: t.criado_por, nome: t.criado_por_nome || 'Criador' })
       ;(t.checklist || []).forEach(item => {
@@ -1340,17 +1445,17 @@ export default function Tarefas() {
       })
     })
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  }, [membros, tarefas, user?.id, user?.nome, user?.role])
+  }, [membros, tarefasVisiveis, user?.id, user?.nome, user?.role])
 
   const anoOptions = useMemo(() => {
     const years = new Set<string>()
-    tarefas.forEach(t => {
+    tarefasVisiveis.forEach(t => {
       const year = getYearValue(taskReferenceDate(t))
       if (year) years.add(year)
     })
     years.add(String(new Date().getFullYear()))
     return Array.from(years).sort((a, b) => Number(b) - Number(a))
-  }, [tarefas])
+  }, [tarefasVisiveis])
 
   const filtered = useMemo(() => scoped.filter(t => {
     if (status !== 'todos' && t.status !== status) return false
@@ -1367,8 +1472,8 @@ export default function Tarefas() {
     return true
   }), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
 
-  const pessoalCount = useMemo(() => tarefas.filter(isPersonalTask).length, [tarefas, isPersonalTask])
-  const equipeCount = useMemo(() => tarefas.filter(isTeamAssignedTask).length, [tarefas, isTeamAssignedTask])
+  const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
+  const equipeCount = useMemo(() => tarefasVisiveis.filter(isTeamAssignedTask).length, [tarefasVisiveis, isTeamAssignedTask])
 
   const stats = [
     ['Total', scoped.length, 'var(--text)'],
