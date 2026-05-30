@@ -49,6 +49,8 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
   const [recorrencia, setRecorrencia] = useState<'nenhuma' | 'diaria' | 'semanal' | 'mensal'>('nenhuma')
   const [checklist, setChecklist]   = useState<ChecklistItem[]>([])
   const [novoItem, setNovoItem]     = useState('')
+  const [novoItemData, setNovoItemData] = useState('')
+  const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [loading, setLoading]       = useState(false)
   const [enviadas, setEnviadas]     = useState(0)
 
@@ -58,13 +60,21 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
 
   function addItem() {
     if (!novoItem.trim()) return
-    setChecklist(p => [...p, { id: nanoid(), texto: novoItem.trim(), feito: false }])
+    setChecklist(p => [...p, {
+      id: nanoid(),
+      texto: novoItem.trim(),
+      data: novoItemData || undefined,
+      descricao: novoItemDescricao.trim() || undefined,
+      feito: false,
+    }])
     setNovoItem('')
+    setNovoItemData('')
+    setNovoItemDescricao('')
   }
 
   function resetForm() {
     setTitulo(''); setDescricao(''); setPrazo(''); setPrioridade('media')
-    setRecorrencia('nenhuma'); setChecklist([]); setNovoItem('')
+    setRecorrencia('nenhuma'); setChecklist([]); setNovoItem(''); setNovoItemData(''); setNovoItemDescricao('')
   }
 
   async function handleEnviar(fecharApos = false) {
@@ -181,36 +191,80 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
           {/* Checklist */}
           <div className="form-group">
             <label className="form-label">Checklist ({checklist.length} itens)</label>
-            {checklist.map((item, i) => (
-              <div key={item.id} className="checklist-item">
-                <CheckCircle2 size={14} color="var(--success)" />
-                <span style={{ flex: 1, fontSize: 'var(--text-sm)' }}>{item.texto}</span>
+            <div className="task-checklist-builder">
+              <div className="task-checklist-builder-main">
+                <input
+                  className="form-input"
+                  placeholder="Adicionar ação do checklist..."
+                  value={novoItem}
+                  onChange={e => setNovoItem(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
+                  style={{ flex: 1 }}
+                />
+                <input
+                  className="form-input"
+                  type="date"
+                  value={novoItemData}
+                  onChange={e => setNovoItemData(e.target.value)}
+                  title="Data desta ação"
+                />
                 <button
-                  onClick={() => setChecklist(p => p.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}
+                  className={`mic-btn${micItem.listening ? ' listening' : ''}`}
+                  onClick={micItem.toggle}
+                  type="button"
+                  title={micItem.listening ? 'Parar' : 'Ditar item'}
+                  style={{ padding: '0 10px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}
                 >
-                  <X size={12} />
+                  {micItem.listening ? <MicOff size={16} /> : <Mic size={16} />}
                 </button>
+                <button className="btn btn-secondary btn-icon" type="button" onClick={addItem}><Plus size={16} /></button>
+              </div>
+              <textarea
+                className="form-input"
+                rows={2}
+                placeholder="Descrição opcional: explique como executar esta ação, onde buscar informação, padrão esperado, observações..."
+                value={novoItemDescricao}
+                onChange={e => setNovoItemDescricao(e.target.value)}
+              />
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text3)' }}>
+                Use a data para dividir a mesma tarefa em ações de dias diferentes, sem criar uma nova tarefa.
+              </div>
+            </div>
+
+            {checklist.map((item, i) => (
+              <div key={item.id} className="task-checklist-edit-card">
+                <div className="task-checklist-edit-row">
+                  <CheckCircle2 size={14} color="var(--success)" style={{ flexShrink: 0 }} />
+                  <input
+                    className="form-input"
+                    value={item.texto}
+                    onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, texto: e.target.value } : it))}
+                    placeholder="Ação do checklist"
+                  />
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={item.data || ''}
+                    onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
+                    title="Data desta ação"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setChecklist(p => p.filter((_, j) => j !== i))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 6 }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  value={item.descricao || ''}
+                  onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, descricao: e.target.value || undefined } : it))}
+                  placeholder="Descrição/instrução opcional para esta ação"
+                />
               </div>
             ))}
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                className="form-input"
-                placeholder="Adicionar item ao checklist..."
-                value={novoItem}
-                onChange={e => setNovoItem(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addItem()}
-                style={{ flex: 1 }}
-              />
-              <button
-                className={`mic-btn${micItem.listening ? ' listening' : ''}`}
-                onClick={micItem.toggle}
-                style={{ padding: '0 10px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}
-              >
-                {micItem.listening ? <MicOff size={16} /> : <Mic size={16} />}
-              </button>
-              <button className="btn btn-secondary btn-icon" onClick={addItem}><Plus size={16} /></button>
-            </div>
           </div>
 
           {/* Botões */}
