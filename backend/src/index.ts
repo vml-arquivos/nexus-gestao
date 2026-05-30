@@ -19,6 +19,7 @@ import teamsRoutes      from './routes/teams'
 import usersRoutes      from './routes/users'
 import convitesRoutes       from './routes/convites'
 import notificacoesRoutes  from './routes/notificacoes'
+import backupRoutes     from './routes/backup'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 
 const app = express()
@@ -61,7 +62,7 @@ app.use(rateLimit({
 
 // Rate limiting mais restrito para auth
 // Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
-// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
+// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
 // página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
 
 
@@ -105,6 +106,7 @@ app.use('/api/teams',       teamsRoutes)
 app.use('/api/users',       usersRoutes)
 app.use('/api/convites',       convitesRoutes)
 app.use('/api/notificacoes',  notificacoesRoutes)
+app.use('/api/admin/backup',  backupRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {
