@@ -223,13 +223,13 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
     const params: unknown[] = [orgId]
 
     if (role === 'membro') {
-      filter += ` AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
+      filter += ` AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     } else if (role === 'sub_gestor') {
-      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1) OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
+      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1) OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     } else if (role === 'gestor') {
-      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
+      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     }
 
@@ -266,7 +266,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
            COUNT(*) FILTER (WHERE status IN ('concluida','aprovada')) AS concluidas,
            COUNT(*) FILTER (WHERE prazo = CURRENT_DATE AND status NOT IN ('concluida','aprovada','cancelada')) AS hoje
          FROM tarefas
-         WHERE org_id = $1 AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`,
+         WHERE org_id = $1 AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`,
         [orgId, userId]
       )
       res.json({ resumo })
@@ -282,7 +282,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
          COUNT(*) FILTER (WHERE status = 'devolvida') AS devolvidas,
          COUNT(*) FILTER (WHERE status = 'aprovada') AS aprovadas
        FROM tarefas
-       WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`,
+       WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`,
       [orgId, userId]
     )
     const porMembro = await query(
@@ -332,20 +332,20 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     let idx = 2
 
     if (role === 'membro') {
-      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
+      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId); idx++
     } else if (role === 'sub_gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR t.responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $${idx} AND org_id = $${idx + 1}) OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
+      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR t.responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $${idx} AND org_id = $${idx + 1}) OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId, orgId); idx += 2
     } else if (role === 'gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
+      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId); idx++
     }
 
     if (typeof status === 'string' && status && status !== 'todos') { sql += ` AND t.status = $${idx++}`; params.push(status) }
     if (typeof prioridade === 'string' && prioridade && prioridade !== 'todos') { sql += ` AND t.prioridade = $${idx++}`; params.push(prioridade) }
     if (typeof responsavel_id === 'string' && responsavel_id && role !== 'membro') {
-      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
+      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(responsavel_id); idx++
     }
 
