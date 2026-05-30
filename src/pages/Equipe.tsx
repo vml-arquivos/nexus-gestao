@@ -89,6 +89,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
         prazo: prazo || undefined,
         prioridade,
         responsavel_id: membro.id,
+        escopo: 'equipe',
         checklist,
         obs: recorrencia !== 'nenhuma' ? `Recorrência: ${recorrencia}` : undefined,
       })

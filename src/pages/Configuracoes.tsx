@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut } from 'lucide-react'
+import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
@@ -161,6 +161,32 @@ export default function Configuracoes() {
               <Bell size={14} /> Ativar Notificações
             </button>
           )}
+        </div>
+
+
+        {/* Downloads */}
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <Download size={16} color="#10B981" />
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Downloads</span>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
+            Baixe atalhos e arquivos do Nexus para instalar ou acessar o sistema rapidamente em outros dispositivos.
+          </p>
+          <div className="settings-download-grid">
+            <a className="btn btn-secondary settings-download-btn" href="/" target="_blank" rel="noreferrer">
+              <ExternalLink size={14} /> Abrir Nexus
+            </a>
+            <a className="btn btn-secondary settings-download-btn" href="/manifest.webmanifest" download>
+              <Smartphone size={14} /> Manifesto PWA
+            </a>
+            <a className="btn btn-secondary settings-download-btn" href="/icon-192.png" download>
+              <Download size={14} /> Ícone 192
+            </a>
+            <a className="btn btn-secondary settings-download-btn" href="/icon-512.png" download>
+              <Download size={14} /> Ícone 512
+            </a>
+          </div>
         </div>
 
         {/* Sobre */}

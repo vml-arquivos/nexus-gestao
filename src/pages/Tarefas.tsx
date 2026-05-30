@@ -169,6 +169,21 @@ function taskHasChecklistForUser(tarefa: Tarefa, userId?: string) {
   return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => item.responsavel_id === userId)
 }
 
+
+function checklistProgress(items?: ChecklistItem[]) {
+  const list = Array.isArray(items) ? items : []
+  const total = list.length
+  const done = list.filter(item => item.feito).length
+  return { total, done, complete: total > 0 && done === total }
+}
+
+function checklistProgressForUser(tarefa: Tarefa, userId?: string) {
+  const list = (tarefa.checklist || []).filter(item => isChecklistItemExecutor(item, tarefa, userId))
+  const total = list.length
+  const done = list.filter(item => item.feito).length
+  return { items: list, total, done, complete: total > 0 && done === total }
+}
+
 function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
   if (!userId) return false
   return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id && item.responsavel_id !== userId)
@@ -176,6 +191,16 @@ function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
 
 function memberMatchesTask(tarefa: Tarefa, memberId: string) {
   return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
+}
+
+function taskScope(tarefa: Tarefa): 'pessoal' | 'equipe' {
+  return tarefa.escopo === 'equipe' ? 'equipe' : 'pessoal'
+}
+
+function taskHasTeamExecution(tarefa: Tarefa, currentUserId?: string) {
+  if (taskScope(tarefa) === 'equipe') return true
+  if (!currentUserId) return !!tarefa.responsavel_id || taskHasChecklistForOtherMember(tarefa, '')
+  return (!!tarefa.responsavel_id && tarefa.responsavel_id !== currentUserId) || taskHasChecklistForOtherMember(tarefa, currentUserId)
 }
 
 function assigneeOptions(membros: MembroEquipe[], user?: { id?: string; nome?: string; role?: string }) {
@@ -280,6 +305,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [descricao, setDescricao] = useState(tarefa?.descricao || '')
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
+  const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
   const [novoItem, setNovoItem] = useState('')
@@ -290,6 +316,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
   const responsaveisChecklist = assigneeOptions(membros, user || undefined)
+
+  function changeTipoTarefa(next: 'pessoal' | 'equipe') {
+    setTipoTarefa(next)
+    if (next === 'pessoal') setResponsavelId(user?.id || '')
+    if (next === 'equipe' && responsavelId === user?.id) setResponsavelId('')
+  }
 
   function checklistResponsibleName(id?: string) {
     if (!id) return undefined
@@ -322,7 +354,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
-        responsavel_id: isGestor ? ((responsavelId || null) as any) : user?.id,
+        responsavel_id: isGestor ? ((tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null)) as any) : user?.id,
+        escopo: isGestor ? tipoTarefa : 'pessoal',
         checklist,
         obs: obs.trim() || undefined,
       }
@@ -363,13 +396,36 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Responsável</label>
+            <label className="form-label">Tipo da tarefa</label>
+            <div className="task-type-selector" role="radiogroup" aria-label="Tipo da tarefa">
+              <button
+                type="button"
+                className={tipoTarefa === 'pessoal' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => changeTipoTarefa('pessoal')}
+              >
+                <strong>Tarefa pessoal</strong>
+                <span>Minha execução, separada das tarefas do time.</span>
+              </button>
+              <button
+                type="button"
+                className={tipoTarefa === 'equipe' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => changeTipoTarefa('equipe')}
+              >
+                <strong>Tarefa da equipe</strong>
+                <span>Controle do gestor, com ações do checklist para membros.</span>
+              </button>
+            </div>
+          </div>
+        )}
+        {isGestor && tipoTarefa === 'equipe' && (
+          <div className="form-group">
+            <label className="form-label">Responsável principal da tarefa</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Tarefa geral sem responsável único</option>
-              {user?.id && <option value={user.id}>Tarefa pessoal / eu mesmo</option>}
+              <option value="">Tarefa da equipe sem responsável único</option>
+              {user?.id && <option value={user.id}>Eu como responsável principal</option>}
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Você pode manter a tarefa para um responsável principal ou deixar como tarefa geral e distribuir a execução nos checklists.</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>A função antiga de direcionar a tarefa para um membro continua disponível. Você também pode deixar sem responsável principal e direcionar apenas os checklists.</div>
           </div>
         )}
         <div className="form-group">
@@ -817,9 +873,13 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const hasChecklistForMe = checklist.some(item => isChecklistItemExecutor(item, tarefa, userId))
-  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
-  const canToggleChecklist = (canExecuteTask || hasChecklistForMe) && !isTaskFinalizada
+  const myProgress = checklistProgressForUser({ ...tarefa, checklist }, userId)
+  const geralProgress = checklistProgress(checklist)
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
+  const canToggleChecklist = canExecuteTask && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
+  const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
+  const myChecklistDone = myProgress.total === 0 || myProgress.complete
 
   async function persistChecklist(next: ChecklistItem[]) {
     setChecklist(next)
@@ -883,19 +943,30 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   }
 
   async function concluir() {
+    if (!myChecklistDone) {
+      toast(`Conclua os seus checklists antes de enviar (${myProgress.done}/${myProgress.total}).`, 'error')
+      return
+    }
     setSaving(true)
     try {
       if (files.length) await uploadPendentes()
-      const saved = await tarefasApi.updateStatus(tarefa.id, {
-        status: 'concluida',
-        observacao_conclusao: obs.trim() || undefined,
-        resposta_membro: obs.trim() || undefined,
-      })
-      onSaved(saved)
-      toast('Tarefa enviada para conferência.')
+      if (allChecklistDone) {
+        const saved = await tarefasApi.updateStatus(tarefa.id, {
+          status: 'concluida',
+          observacao_conclusao: obs.trim() || undefined,
+          resposta_membro: obs.trim() || undefined,
+        })
+        onSaved(saved)
+        toast('Checklist completo. Tarefa enviada para conferência do gestor.')
+        onClose()
+        return
+      }
+      const result = await tarefasApi.registrarParte(tarefa.id, obs.trim() || undefined)
+      if (result.tarefa) onSaved(result.tarefa)
+      toast('Sua parte foi enviada. A tarefa ficará pendente até todos os checklists serem concluídos.')
       onClose()
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao concluir tarefa.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao enviar sua parte.', 'error')
     } finally { setSaving(false) }
   }
 
@@ -1016,6 +1087,13 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           ) : (
             <p className="muted">Esta tarefa não possui checklist.</p>
           )}
+          {total > 0 && (
+            <div className="task-execution-summary">
+              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus checklists. A tarefa só vai para aprovação quando todos os checklists estiverem completos.
+              {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} checklists.</span>}
+              <span>Total da tarefa: {done}/{total} checklists.</span>
+            </div>
+          )}
           {total > 0 && !canToggleChecklist && (
             <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado. Cada item só pode ser marcado pelo executor definido nele; se não houver executor no item, vale o responsável principal da tarefa.</p>
           )}
@@ -1023,12 +1101,12 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         {canExecuteTask && (
           <section className="task-detail-section">
-            <h3>Evidências para anexar antes de concluir</h3>
+            <h3>{allChecklistDone ? 'Evidências para enviar ao gestor' : 'Evidências da sua parte'}</h3>
             <FileDropzone
               id={`concluir-evidencias-${tarefa.id}`}
               files={files}
               onFiles={setFiles}
-              label="Anexar evidências da conclusão"
+              label={allChecklistDone ? 'Anexar evidências da conclusão' : 'Anexar evidências da sua parte'}
               help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução."
             />
             <label className="form-label">Observação de conclusão</label>
@@ -1052,7 +1130,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           {canReviewTask && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} Enviar conclusão</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving || !myChecklistDone}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar para aprovação' : 'Enviar minha parte'}</button>}
         </div>
       </div>
     </ModalBase>
@@ -1232,12 +1310,16 @@ export default function Tarefas() {
 
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
-    return !!uid && (t.responsavel_id === uid || (!t.responsavel_id && t.criado_por === uid) || taskHasChecklistForUser(t, uid))
+    if (!uid) return false
+    const executorForMe = t.responsavel_id === uid || taskHasChecklistForUser(t, uid)
+    if (taskScope(t) === 'equipe') return executorForMe
+    return executorForMe || (!t.responsavel_id && t.criado_por === uid)
   }, [user?.id])
 
   const isTeamAssignedTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
-    return !!uid && ((!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid))
+    if (!uid) return false
+    return taskScope(t) === 'equipe' || (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
   }, [user?.id])
 
   const scoped = useMemo(() => tarefas.filter(t => {
@@ -1369,7 +1451,7 @@ export default function Tarefas() {
       <section aria-label="Tipo de tarefas" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[
           { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas tarefas para executar' },
-          { id: 'equipe', label: 'Tarefas da equipe', count: equipeCount, hint: 'Atribuídas a outras pessoas' },
+          { id: 'equipe', label: 'Tarefas da equipe', count: equipeCount, hint: 'Do time, com ações para membros' },
           { id: 'todas', label: 'Todas', count: tarefas.length, hint: 'Visão geral' },
         ].map(tab => {
           const active = escopo === tab.id

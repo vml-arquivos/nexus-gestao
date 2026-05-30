@@ -62,6 +62,8 @@ export interface Tarefa {
   data?: string
   prazo?: string
   prioridade: 'baixa' | 'media' | 'alta'
+  /** Separa tarefas pessoais de tarefas controladas pela equipe/gestor. */
+  escopo?: 'pessoal' | 'equipe'
   status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'reenviada' | 'aprovada' | 'cancelada'
   checklist?: ChecklistItem[]
   obs?: string
@@ -463,6 +465,10 @@ export const tarefasApi = {
   async updateStatus(id: string, payload: { status: 'em_progresso' | 'concluida' | 'nao_concluida'; motivo_nao_conclusao?: string; observacao_conclusao?: string; resposta_membro?: string }): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) })
     return data.tarefa
+  },
+
+  async registrarParte(id: string, observacao?: string): Promise<{ ok: boolean; completa: boolean; feitos: number; total: number; tarefa?: Tarefa }> {
+    return apiJson(`/tarefas/${id}/parte-concluida`, { method: 'POST', body: JSON.stringify({ observacao }) })
   },
 
   async aprovar(id: string): Promise<Tarefa> {

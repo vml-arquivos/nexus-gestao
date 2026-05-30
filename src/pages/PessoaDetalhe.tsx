@@ -496,6 +496,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
         prazo: prazo || undefined,
         prioridade,
         responsavel_id: pessoaId,
+        escopo: 'equipe',
         checklist,
       })
       toast('Tarefa criada!')

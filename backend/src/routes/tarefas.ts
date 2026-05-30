@@ -31,6 +31,10 @@ function isValidStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (VALID_STATUS as readonly string[]).includes(v)
 }
 
+function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
+  return value === 'equipe' ? 'equipe' : 'pessoal'
+}
+
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -147,6 +151,25 @@ function changedChecklistDoneItems(before: unknown, after: unknown) {
 
 function hasChecklistAssignedTo(task: any, userId: string) {
   return parseChecklistItems(task?.checklist).some(item => item.responsavel_id === userId)
+}
+
+
+function checklistProgress(task: any) {
+  const items = parseChecklistItems(task?.checklist)
+  const total = items.length
+  const feitos = items.filter(item => !!item.feito).length
+  return { items, total, feitos, completo: total > 0 && feitos === total }
+}
+
+function checklistForUserProgress(task: any, userId: string) {
+  const items = parseChecklistItems(task?.checklist).filter(item => isChecklistItemExecutor(task, item, userId))
+  const total = items.length
+  const feitos = items.filter(item => !!item.feito).length
+  return { items, total, feitos, completo: total > 0 && feitos === total }
+}
+
+function taskHasDistributedChecklist(task: any) {
+  return parseChecklistItems(task?.checklist).some(item => !!item.responsavel_id)
 }
 
 async function syncChecklistTable(input: { orgId: string; tarefaId: string; userId: string; checklist: unknown }) {
@@ -373,16 +396,19 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs } = req.body
+    const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!['baixa','media','alta'].includes(prioridade)) { res.status(400).json({ error: 'Prioridade inválida.' }); return }
 
     const hasResponsavelField = Object.prototype.hasOwnProperty.call(req.body, 'responsavel_id')
     let responsavelId: string | null = hasResponsavelField ? (responsavel_id || null) : userId
+    let escopo: 'pessoal' | 'equipe' = requestedEscopo
 
     if (role === 'membro') {
       // membro só cria tarefa pessoal para si mesmo
       responsavelId = userId
+      escopo = 'pessoal'
     } else if (responsavelId) {
       const resp = await queryOne<{ id: string; nome: string; criado_por: string | null }>(
         'SELECT id, nome, criado_por FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE',
@@ -400,10 +426,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, status, status_gestor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando')
+         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, status, status_gestor)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pendente','aguardando')
        RETURNING *`,
-      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null]
+      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo]
     )
 
     await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
@@ -463,6 +489,16 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
       res.status(403).json({ error: 'Você só pode atualizar status de tarefas atribuídas, criadas por você ou com checklist atribuído a você.' }); return
     }
 
+    if (status === 'concluida') {
+      const progresso = checklistProgress(existing)
+      if (progresso.total > 0 && !progresso.completo) {
+        res.status(400).json({
+          error: `A tarefa só pode ser enviada para aprovação depois que todos os checklists forem concluídos (${progresso.feitos}/${progresso.total}).`,
+        })
+        return
+      }
+    }
+
     const statusAnterior = existing.status
     const sets: string[] = ['status = $1', 'status_gestor = $2', 'updated_at = NOW()']
     const params: unknown[] = [status, status === 'em_progresso' ? existing.status_gestor || 'aguardando' : 'aguardando']
@@ -507,6 +543,79 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
     res.status(500).json({ error: 'Erro ao atualizar status da tarefa.' })
   }
 })
+
+
+// ── REGISTRAR PARTE DO EXECUTOR ──────────────────────────────────────────────
+router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const { observacao } = req.body || {}
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+
+    const minhaParte = checklistForUserProgress(existing, userId)
+    const geral = checklistProgress(existing)
+    const podeRegistrarParte = minhaParte.total > 0 || existing.responsavel_id === userId || (!existing.responsavel_id && existing.criado_por === userId)
+    if (!podeRegistrarParte) {
+      res.status(403).json({ error: 'Você não possui checklist ou execução atribuída nesta tarefa.' })
+      return
+    }
+    if (minhaParte.total > 0 && !minhaParte.completo) {
+      res.status(400).json({ error: `Conclua os seus checklists antes de enviar sua parte (${minhaParte.feitos}/${minhaParte.total}).` })
+      return
+    }
+
+    let tarefaAtualizada: any = existing
+    if (geral.completo && !['concluida', 'aprovada'].includes(String(existing.status))) {
+      tarefaAtualizada = await queryOne<any>(
+        `UPDATE tarefas SET
+           status = 'concluida',
+           status_gestor = 'aguardando',
+           observacao_conclusao = COALESCE($1, observacao_conclusao),
+           resposta_membro = COALESCE($1, resposta_membro),
+           resposta_status = 'concluida',
+           resposta_obs = COALESCE($1, resposta_obs),
+           data_conclusao = NOW(),
+           resposta_em = NOW(),
+           updated_at = NOW()
+         WHERE id = $2 AND org_id = $3 RETURNING *`,
+        [String(observacao || '').trim() || null, req.params.id, orgId]
+      )
+    }
+
+    await addHistorico({
+      orgId,
+      tarefaId: req.params.id,
+      userId,
+      acao: geral.completo ? 'checklist_completo' : 'parte_concluida',
+      statusAnterior: existing.status,
+      statusNovo: geral.completo ? 'concluida' : existing.status,
+      observacao: String(observacao || '').trim() || `Parte do executor concluída (${minhaParte.feitos || geral.feitos}/${minhaParte.total || geral.total}).`,
+    })
+
+    if (existing.criado_por && existing.criado_por !== userId) {
+      const autor = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+      await criarNotificacao({
+        orgId,
+        userId: existing.criado_por,
+        tipo: geral.completo ? 'tarefa_concluida' : 'tarefa_atualizada',
+        titulo: geral.completo ? '✅ Checklist completo para aprovação' : '✅ Parte do checklist concluída',
+        body: geral.completo
+          ? `${autor?.nome || 'Executor'} concluiu a última parte de "${existing.titulo}". A tarefa está pronta para conferência.`
+          : `${autor?.nome || 'Executor'} concluiu sua parte em "${existing.titulo}".`,
+        referenciaId: req.params.id,
+        referenciaTipo: 'tarefa',
+      }).catch(() => {})
+    }
+
+    res.json({ ok: true, completa: geral.completo, feitos: geral.feitos, total: geral.total, tarefa: tarefaAtualizada })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao registrar parte concluída:', err)
+    res.status(500).json({ error: 'Erro ao registrar parte concluída.' })
+  }
+})
+
 
 // ── APROVAR ─────────────────────────────────────────────────────────────────
 router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> => {
@@ -846,7 +955,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
 
     const isMember = role === 'membro'
-    const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs']
+    const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo']
 
     if ((req.body as any).checklist !== undefined) {
       const changedItems = changedChecklistDoneItems(existing.checklist, (req.body as any).checklist)
@@ -874,6 +983,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
             sets.push(`responsavel_id = $${idx++}`); params.push(nextResponsavel)
             sets.push(`responsavel_nome = $${idx++}`); params.push(resp.nome)
           }
+        } else if (key === 'escopo') {
+          sets.push(`escopo = $${idx++}`); params.push(normalizeTaskScope((req.body as any)[key]))
         } else if (key === 'checklist') {
           sets.push(`checklist = $${idx++}`); params.push(await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role))
         } else {

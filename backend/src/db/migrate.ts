@@ -106,6 +106,9 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT 'aguardando';
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS escopo TEXT NOT NULL DEFAULT 'pessoal';
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_escopo_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_escopo_check CHECK (escopo IN ('pessoal','equipe'));
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
 ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
@@ -122,6 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_status      ON tarefas(status);
 CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
+CREATE INDEX IF NOT EXISTS idx_tarefas_escopo ON tarefas(org_id, escopo);
 
 -- Integração externa: permite que o mesmo Nexus receba tarefas vindas do Destrava
 -- sem deixar de funcionar como sistema independente.
