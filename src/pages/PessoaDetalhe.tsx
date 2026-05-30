@@ -10,9 +10,10 @@ import {
 import {
   documentosApi, equipeApi, pagamentosApi, tarefasApi,
   type Documento, type HistoricoPessoa, type Pagamento,
-  type Pessoa, type Tarefa,
+  type Pessoa, type Tarefa, type ChecklistItem,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { nanoid } from '../lib/utils'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -460,7 +461,25 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
   const [descricao, setDescricao] = useState('')
   const [prazo, setPrazo]         = useState('')
   const [prioridade, setPrioridade] = useState<'baixa' | 'media' | 'alta'>('media')
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+  const [novoItem, setNovoItem] = useState('')
+  const [novoItemData, setNovoItemData] = useState('')
+  const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [saving, setSaving]       = useState(false)
+
+  function addItem() {
+    if (!novoItem.trim()) return
+    setChecklist(prev => [...prev, {
+      id: nanoid(),
+      texto: novoItem.trim(),
+      data: novoItemData || undefined,
+      descricao: novoItemDescricao.trim() || undefined,
+      feito: false,
+    }])
+    setNovoItem('')
+    setNovoItemData('')
+    setNovoItemDescricao('')
+  }
 
   async function handleSave() {
     if (!titulo.trim()) {
@@ -475,6 +494,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
         prazo: prazo || undefined,
         prioridade,
         responsavel_id: pessoaId,
+        checklist,
       })
       toast('Tarefa criada!')
       onSaved()
@@ -541,6 +561,74 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                 <option value="alta">Alta</option>
               </select>
             </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Checklist ({checklist.length} itens)</label>
+            <div className="task-checklist-builder">
+              <div className="task-checklist-builder-fields">
+                <div className="form-group">
+                  <label className="form-label">Ação do checklist</label>
+                  <input
+                    className="form-input"
+                    placeholder="Ex: Conferir contrato social"
+                    value={novoItem}
+                    onChange={e => setNovoItem(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Data desta ação</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={novoItemData}
+                    onChange={e => setNovoItemData(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Descrição/instrução da ação</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  placeholder="Explique como executar esta ação..."
+                  value={novoItemDescricao}
+                  onChange={e => setNovoItemDescricao(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-secondary" type="button" onClick={addItem}>
+                <Plus size={14} /> Adicionar ao checklist
+              </button>
+            </div>
+            {checklist.map((item, i) => (
+              <div key={item.id} className="task-checklist-edit-card">
+                <div className="task-checklist-edit-row">
+                  <CheckCircle2 size={14} color="var(--success)" style={{ flexShrink: 0 }} />
+                  <input
+                    className="form-input"
+                    value={item.texto}
+                    onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, texto: e.target.value } : it))}
+                    placeholder="Ação do checklist"
+                  />
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={item.data || ''}
+                    onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
+                  />
+                  <button type="button" onClick={() => setChecklist(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}>
+                    <X size={14} />
+                  </button>
+                </div>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  value={item.descricao || ''}
+                  onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, descricao: e.target.value || undefined } : it))}
+                  placeholder="Descrição/instrução opcional para esta ação"
+                />
+              </div>
+            ))}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

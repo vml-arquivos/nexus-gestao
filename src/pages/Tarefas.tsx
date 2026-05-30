@@ -141,6 +141,17 @@ function checklistDateLabel(value?: string) {
   return fmtDate(key)
 }
 
+function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[] {
+  if (!Array.isArray(items)) return []
+  return items.map(item => ({
+    id: item.id || nanoid(),
+    texto: item.texto || '',
+    descricao: item.descricao || undefined,
+    data: item.data ? String(item.data).slice(0, 10) : undefined,
+    feito: Boolean(item.feito),
+  }))
+}
+
 function checklistMatchesMonthYear(items: ChecklistItem[] | undefined, mes: string, ano: string) {
   const list = Array.isArray(items) ? items : []
   return list.some(item => {
@@ -237,7 +248,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [responsavelId, setResponsavelId] = useState(tarefa?.responsavel_id || '')
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(Array.isArray(tarefa?.checklist) ? tarefa!.checklist! : [])
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
   const [novoItem, setNovoItem] = useState('')
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
@@ -320,30 +331,39 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         <div className="form-group">
           <label className="form-label">Checklist</label>
           <div className="task-checklist-builder">
-            <div className="task-checklist-builder-main">
-              <input
-                className="form-input"
-                value={novoItem}
-                onChange={e => setNovoItem(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
-                placeholder="Adicionar ação do checklist"
-              />
-              <input
-                className="form-input"
-                type="date"
-                value={novoItemData}
-                onChange={e => setNovoItemData(e.target.value)}
-                title="Data desta ação"
-              />
-              <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar</button>
+            <div className="task-checklist-builder-fields">
+              <div className="form-group">
+                <label className="form-label">Ação do checklist</label>
+                <input
+                  className="form-input"
+                  value={novoItem}
+                  onChange={e => setNovoItem(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
+                  placeholder="Ex: Conferir contrato social"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Data desta ação</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={novoItemData}
+                  onChange={e => setNovoItemData(e.target.value)}
+                  title="Data desta ação"
+                />
+              </div>
             </div>
-            <textarea
-              className="form-input"
-              rows={2}
-              value={novoItemDescricao}
-              onChange={e => setNovoItemDescricao(e.target.value)}
-              placeholder="Descrição opcional: explique como executar esta ação, onde buscar informação, padrão esperado, observações..."
-            />
+            <div className="form-group">
+              <label className="form-label">Descrição/instrução da ação</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                value={novoItemDescricao}
+                onChange={e => setNovoItemDescricao(e.target.value)}
+                placeholder="Explique como executar, onde buscar informação, padrão esperado, observações..."
+              />
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar ao checklist</button>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
               Use a data para dividir a mesma tarefa em ações de dias diferentes, sem precisar criar outra tarefa.
             </div>
@@ -719,7 +739,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   onReturn: (t: Tarefa) => void
   onComplemento: (t: Tarefa) => void
 }) {
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(Array.isArray(tarefa.checklist) ? tarefa.checklist : [])
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa.checklist))
   const [obs, setObs] = useState(tarefa.observacao_conclusao || tarefa.resposta_membro || '')
   const [motivo, setMotivo] = useState('')
   const [files, setFiles] = useState<File[]>([])

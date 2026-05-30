@@ -2574,3 +2574,19 @@ a.btn {
     justify-self: end;
   }
 }
+
+/* Hotfix: mesmo checklist completo em nova tarefa e edição. */
+.task-checklist-builder-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 10px;
+  align-items: end;
+}
+.task-checklist-builder .form-group {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .task-checklist-builder-fields {
+    grid-template-columns: 1fr;
+  }
+}

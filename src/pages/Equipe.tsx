@@ -192,40 +192,51 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
           <div className="form-group">
             <label className="form-label">Checklist ({checklist.length} itens)</label>
             <div className="task-checklist-builder">
-              <div className="task-checklist-builder-main">
-                <input
-                  className="form-input"
-                  placeholder="Adicionar ação do checklist..."
-                  value={novoItem}
-                  onChange={e => setNovoItem(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
-                  style={{ flex: 1 }}
-                />
-                <input
-                  className="form-input"
-                  type="date"
-                  value={novoItemData}
-                  onChange={e => setNovoItemData(e.target.value)}
-                  title="Data desta ação"
-                />
-                <button
-                  className={`mic-btn${micItem.listening ? ' listening' : ''}`}
-                  onClick={micItem.toggle}
-                  type="button"
-                  title={micItem.listening ? 'Parar' : 'Ditar item'}
-                  style={{ padding: '0 10px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}
-                >
-                  {micItem.listening ? <MicOff size={16} /> : <Mic size={16} />}
-                </button>
-                <button className="btn btn-secondary btn-icon" type="button" onClick={addItem}><Plus size={16} /></button>
+              <div className="task-checklist-builder-fields">
+                <div className="form-group">
+                  <label className="form-label">Ação do checklist</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      className="form-input"
+                      placeholder="Ex: Conferir contrato social"
+                      value={novoItem}
+                      onChange={e => setNovoItem(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className={`mic-btn${micItem.listening ? ' listening' : ''}`}
+                      onClick={micItem.toggle}
+                      type="button"
+                      title={micItem.listening ? 'Parar' : 'Ditar item'}
+                      style={{ padding: '0 10px', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}
+                    >
+                      {micItem.listening ? <MicOff size={16} /> : <Mic size={16} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Data desta ação</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={novoItemData}
+                    onChange={e => setNovoItemData(e.target.value)}
+                    title="Data desta ação"
+                  />
+                </div>
               </div>
-              <textarea
-                className="form-input"
-                rows={2}
-                placeholder="Descrição opcional: explique como executar esta ação, onde buscar informação, padrão esperado, observações..."
-                value={novoItemDescricao}
-                onChange={e => setNovoItemDescricao(e.target.value)}
-              />
+              <div className="form-group">
+                <label className="form-label">Descrição/instrução da ação</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  placeholder="Explique como executar, onde buscar informação, padrão esperado, observações..."
+                  value={novoItemDescricao}
+                  onChange={e => setNovoItemDescricao(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar ao checklist</button>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text3)' }}>
                 Use a data para dividir a mesma tarefa em ações de dias diferentes, sem criar uma nova tarefa.
               </div>
