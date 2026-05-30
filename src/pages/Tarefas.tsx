@@ -148,8 +148,41 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
     texto: item.texto || '',
     descricao: item.descricao || undefined,
     data: item.data ? String(item.data).slice(0, 10) : undefined,
+    responsavel_id: item.responsavel_id || undefined,
+    responsavel_nome: item.responsavel_nome || undefined,
     feito: Boolean(item.feito),
   }))
+}
+
+function checklistExecutorName(item: ChecklistItem, tarefa: Tarefa) {
+  return item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.criado_por_nome || 'Executor'
+}
+
+function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
+  if (!userId) return false
+  if (item.responsavel_id) return item.responsavel_id === userId
+  return tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
+}
+
+function taskHasChecklistForUser(tarefa: Tarefa, userId?: string) {
+  if (!userId) return false
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => item.responsavel_id === userId)
+}
+
+function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
+  if (!userId) return false
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id && item.responsavel_id !== userId)
+}
+
+function memberMatchesTask(tarefa: Tarefa, memberId: string) {
+  return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
+}
+
+function assigneeOptions(membros: MembroEquipe[], user?: { id?: string; nome?: string; role?: string }) {
+  const map = new Map<string, { id: string; nome: string; role?: string }>()
+  if (user?.id) map.set(user.id, { id: user.id, nome: user.nome || 'Eu', role: user.role })
+  membros.forEach(m => map.set(m.id, { id: m.id, nome: m.nome, role: m.role_na_equipe || m.role }))
+  return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
 function checklistMatchesMonthYear(items: ChecklistItem[] | undefined, mes: string, ano: string) {
@@ -247,14 +280,21 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [descricao, setDescricao] = useState(tarefa?.descricao || '')
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
-  const [responsavelId, setResponsavelId] = useState(tarefa?.responsavel_id || '')
+  const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
   const [novoItem, setNovoItem] = useState('')
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
+  const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
+  const responsaveisChecklist = assigneeOptions(membros, user || undefined)
+
+  function checklistResponsibleName(id?: string) {
+    if (!id) return undefined
+    return responsaveisChecklist.find(m => m.id === id)?.nome
+  }
 
   function addItem() {
     if (!novoItem.trim()) return
@@ -263,11 +303,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       texto: novoItem.trim(),
       descricao: novoItemDescricao.trim() || undefined,
       data: novoItemData || undefined,
+      responsavel_id: novoItemResponsavelId || undefined,
+      responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
       feito: false,
     }])
     setNovoItem('')
     setNovoItemDescricao('')
     setNovoItemData('')
+    setNovoItemResponsavelId('')
   }
 
   async function salvar() {
@@ -279,7 +322,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
-        responsavel_id: isGestor ? (responsavelId || undefined) : user?.id,
+        responsavel_id: isGestor ? ((responsavelId || null) as any) : user?.id,
         checklist,
         obs: obs.trim() || undefined,
       }
@@ -322,10 +365,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="form-group">
             <label className="form-label">Responsável</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Tarefa pessoal / eu mesmo</option>
+              <option value="">Tarefa geral sem responsável único</option>
+              {user?.id && <option value={user.id}>Tarefa pessoal / eu mesmo</option>}
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Deixe em tarefa pessoal para executar você mesmo. Selecione um membro para transformar em tarefa da equipe.</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Você pode manter a tarefa para um responsável principal ou deixar como tarefa geral e distribuir a execução nos checklists.</div>
           </div>
         )}
         <div className="form-group">
@@ -352,6 +396,17 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   title="Data desta ação"
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">Executor deste checklist</label>
+                <select
+                  className="form-input"
+                  value={novoItemResponsavelId}
+                  onChange={e => setNovoItemResponsavelId(e.target.value)}
+                >
+                  <option value="">Usar responsável principal da tarefa</option>
+                  {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
+                </select>
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Descrição/instrução da ação</label>
@@ -365,7 +420,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
             <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar ao checklist</button>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Use a data para dividir a mesma tarefa em ações de dias diferentes, sem precisar criar outra tarefa.
+              Use data e executor para dividir a mesma tarefa em ações de dias diferentes e membros diferentes, sem criar outra tarefa.
             </div>
           </div>
           {!canMarkChecklistInEdit && checklist.length > 0 && (
@@ -407,6 +462,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
                   title="Data desta ação"
                 />
+                <select
+                  className="form-input"
+                  value={item.responsavel_id || ''}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}
+                  title="Executor deste checklist"
+                >
+                  <option value="">Responsável principal</option>
+                  {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                </select>
                 <button type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}><X size={14} /></button>
               </div>
               <textarea
@@ -752,8 +816,9 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
+  const hasChecklistForMe = checklist.some(item => isChecklistItemExecutor(item, tarefa, userId))
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
-  const canToggleChecklist = canExecuteTask
+  const canToggleChecklist = (canExecuteTask || hasChecklistForMe) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
 
   async function persistChecklist(next: ChecklistItem[]) {
@@ -767,6 +832,11 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   }
 
   function toggleCheck(id: string) {
+    const item = checklist.find(i => i.id === id)
+    if (!item || !isChecklistItemExecutor(item, tarefa, userId) || isTaskFinalizada) {
+      toast('Apenas o executor deste checklist pode marcar este item.', 'error')
+      return
+    }
     const next = checklist.map(item => item.id === id ? { ...item, feito: !item.feito } : item)
     persistChecklist(next)
   }
@@ -779,7 +849,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
     const texto = [
       `Checklist da tarefa: ${tarefa.titulo}`,
-      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
     ].join('\n')
 
     try {
@@ -928,13 +998,14 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
                       key={item.id}
                       type="button"
                       className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                      disabled={!canToggleChecklist || saving}
+                      disabled={!canToggleChecklist || !isChecklistItemExecutor(item, tarefa, userId) || saving}
                       onClick={() => toggleCheck(item.id)}
                       aria-pressed={!!item.feito}
                     >
                       <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                       <span className="task-check-content">
                         <span className="task-check-text">{item.texto}</span>
+                        <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
                         {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
                       </span>
                     </button>
@@ -946,7 +1017,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
             <p className="muted">Esta tarefa não possui checklist.</p>
           )}
           {total > 0 && !canToggleChecklist && (
-            <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado. Apenas o executor da tarefa pode marcar os itens; gestor/admin/dev apenas conferem, aprovam ou devolvem.</p>
+            <p className="muted" style={{ marginTop: 8 }}>Checklist bloqueado. Cada item só pode ser marcado pelo executor definido nele; se não houver executor no item, vale o responsável principal da tarefa.</p>
           )}
         </section>
 
@@ -1018,7 +1089,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
-  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel) && !isTaskFinalizada
+  const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)
+  const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
 
@@ -1096,7 +1168,13 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
         {tarefa.descricao && <p style={{ marginTop: 0, color: 'var(--text2)' }}>{tarefa.descricao}</p>}
         {tarefa.obs && <div style={{ margin: '8px 0', color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, fontSize: 13, whiteSpace: 'pre-wrap' }}><strong>Complementos/observações:</strong><br />{tarefa.obs}</div>}
-        {checkTotal > 0 && tarefa.checklist?.map(i => <div key={i.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', fontSize: 13 }}><span>{i.feito ? '✅' : '⬜'}</span>{i.texto}</div>)}
+        {checkTotal > 0 && tarefa.checklist?.map(i => <div key={i.id} style={{ display: 'grid', gap: 3, padding: '7px 0', fontSize: 13 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span>{i.feito ? '✅' : '⬜'}</span><strong>{i.texto}</strong></div>
+          <div style={{ color: 'var(--text3)', fontSize: 12, paddingLeft: 24 }}>
+            {i.data ? `${fmtDate(i.data)} · ` : ''}Executor: {checklistExecutorName(i, tarefa)}
+          </div>
+          {i.descricao && <div style={{ color: 'var(--text2)', fontSize: 12, paddingLeft: 24 }}>{i.descricao}</div>}
+        </div>)}
       </div>}
     </article>
   )
@@ -1154,12 +1232,12 @@ export default function Tarefas() {
 
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
-    return !!uid && (t.responsavel_id === uid || (!t.responsavel_id && t.criado_por === uid))
+    return !!uid && (t.responsavel_id === uid || (!t.responsavel_id && t.criado_por === uid) || taskHasChecklistForUser(t, uid))
   }, [user?.id])
 
   const isTeamAssignedTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
-    return !!uid && !!t.responsavel_id && t.responsavel_id !== uid
+    return !!uid && ((!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid))
   }, [user?.id])
 
   const scoped = useMemo(() => tarefas.filter(t => {
@@ -1175,6 +1253,9 @@ export default function Tarefas() {
     tarefas.forEach(t => {
       if (t.responsavel_id) map.set(t.responsavel_id, { id: t.responsavel_id, nome: t.responsavel_nome_perfil || t.responsavel_nome || 'Responsável' })
       if (t.criado_por) map.set(t.criado_por, { id: t.criado_por, nome: t.criado_por_nome || 'Criador' })
+      ;(t.checklist || []).forEach(item => {
+        if (item.responsavel_id) map.set(item.responsavel_id, { id: item.responsavel_id, nome: item.responsavel_nome || 'Executor do checklist' })
+      })
     })
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [membros, tarefas, user?.id, user?.nome, user?.role])
@@ -1192,7 +1273,7 @@ export default function Tarefas() {
   const filtered = useMemo(() => scoped.filter(t => {
     if (status !== 'todos' && t.status !== status) return false
     if (prioridade !== 'todos' && t.prioridade !== prioridade) return false
-    if (membroFiltro !== 'todos' && t.responsavel_id !== membroFiltro && t.criado_por !== membroFiltro) return false
+    if (membroFiltro !== 'todos' && !memberMatchesTask(t, membroFiltro)) return false
     const refDate = taskReferenceDate(t)
     if ((mesFiltro !== 'todos' || anoFiltro !== 'todos')) {
       const mainDateMatches = (mesFiltro === 'todos' || getMonthValue(refDate) === mesFiltro) && (anoFiltro === 'todos' || getYearValue(refDate) === anoFiltro)
@@ -1200,7 +1281,7 @@ export default function Tarefas() {
       if (!mainDateMatches && !checklistDateMatches) return false
     }
     const q = search.trim().toLowerCase()
-    if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''}`.toLowerCase().includes(q)) return false
+    if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''} ${(t.checklist || []).map(i => `${i.texto} ${i.descricao || ''} ${i.responsavel_nome || ''}`).join(' ')}`.toLowerCase().includes(q)) return false
     return true
   }), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
 

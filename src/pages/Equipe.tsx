@@ -65,6 +65,8 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
       texto: novoItem.trim(),
       data: novoItemData || undefined,
       descricao: novoItemDescricao.trim() || undefined,
+      responsavel_id: membro.id,
+      responsavel_nome: membro.nome,
       feito: false,
     }])
     setNovoItem('')
@@ -236,6 +238,10 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                   onChange={e => setNovoItemDescricao(e.target.value)}
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">Executor deste checklist</label>
+                <input className="form-input" value={membro.nome} disabled title="Neste atalho, cada checklist vai para o membro selecionado." />
+              </div>
               <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar ao checklist</button>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text3)' }}>
                 Use a data para dividir a mesma tarefa em ações de dias diferentes, sem criar uma nova tarefa.
@@ -259,6 +265,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                     onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
                     title="Data desta ação"
                   />
+                  <input className="form-input" value={item.responsavel_nome || membro.nome} disabled title="Executor deste checklist" />
                   <button
                     type="button"
                     onClick={() => setChecklist(p => p.filter((_, j) => j !== i))}

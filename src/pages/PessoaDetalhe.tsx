@@ -474,6 +474,8 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
       texto: novoItem.trim(),
       data: novoItemData || undefined,
       descricao: novoItemDescricao.trim() || undefined,
+      responsavel_id: pessoaId,
+      responsavel_nome: pessoaNome,
       feito: false,
     }])
     setNovoItem('')
@@ -596,6 +598,10 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                   onChange={e => setNovoItemDescricao(e.target.value)}
                 />
               </div>
+              <div className="form-group">
+                <label className="form-label">Executor deste checklist</label>
+                <input className="form-input" value={pessoaNome} disabled title="Neste fluxo, os checklists vão para a pessoa selecionada." />
+              </div>
               <button className="btn btn-secondary" type="button" onClick={addItem}>
                 <Plus size={14} /> Adicionar ao checklist
               </button>
@@ -616,6 +622,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                     value={item.data || ''}
                     onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
                   />
+                  <input className="form-input" value={item.responsavel_nome || pessoaNome} disabled title="Executor deste checklist" />
                   <button type="button" onClick={() => setChecklist(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}>
                     <X size={14} />
                   </button>

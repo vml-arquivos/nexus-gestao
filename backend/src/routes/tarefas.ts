@@ -35,7 +35,7 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -57,6 +57,8 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
         descricao: String(item?.descricao || item?.description || item?.obs || '').trim() || undefined,
         data: safeDate,
+        responsavel_id: isUuid(item?.responsavel_id) ? item.responsavel_id : undefined,
+        responsavel_nome: String(item?.responsavel_nome || '').trim() || undefined,
         feito: !!item?.feito,
       }
     })
@@ -67,9 +69,38 @@ function normalizeChecklist(value: unknown) {
   return JSON.stringify(parseChecklistItems(value))
 }
 
+async function normalizeChecklistForOrg(value: unknown, orgId: string, userId: string, role: string) {
+  const items = parseChecklistItems(value)
+  const ids = Array.from(new Set(items.map(i => i.responsavel_id).filter(Boolean))) as string[]
+  if (!ids.length) return JSON.stringify(items)
+
+  const rows = await query<{ id: string; nome: string; criado_por: string | null }>(
+    `SELECT id, nome, criado_por FROM profiles WHERE org_id = $1 AND ativo = TRUE AND id = ANY($2::uuid[])`,
+    [orgId, ids]
+  )
+  const byId = new Map(rows.map(r => [r.id, r]))
+
+  for (const id of ids) {
+    const profile = byId.get(id)
+    if (!profile) throw Object.assign(new Error('Responsável do checklist não encontrado.'), { statusCode: 404 })
+    if (role === 'membro' && id !== userId) {
+      throw Object.assign(new Error('Membro só pode atribuir checklist para si mesmo.'), { statusCode: 403 })
+    }
+    if (role === 'sub_gestor' && id !== userId && profile.criado_por !== userId) {
+      throw Object.assign(new Error('Sub-gestor só pode atribuir checklist para si ou seus comandados diretos.'), { statusCode: 403 })
+    }
+  }
+
+  return JSON.stringify(items.map(item => {
+    if (!item.responsavel_id) return item
+    const profile = byId.get(item.responsavel_id)
+    return { ...item, responsavel_nome: profile?.nome || item.responsavel_nome }
+  }))
+}
+
 function checklistStructureKey(value: unknown) {
   return parseChecklistItems(value)
-    .map(item => `${item.id || ''}:${item.texto}:${item.data || ''}:${item.descricao || ''}`)
+    .map(item => `${item.id || ''}:${item.texto}:${item.data || ''}:${item.descricao || ''}:${item.responsavel_id || ''}`)
     .join('|')
 }
 
@@ -88,6 +119,27 @@ function checklistDoneChanged(before: unknown, after: unknown) {
 
 function isTaskExecutor(task: any, userId: string) {
   return task.responsavel_id === userId || (!task.responsavel_id && task.criado_por === userId)
+}
+
+function isChecklistItemExecutor(task: any, item: { responsavel_id?: string }, userId: string) {
+  if (item.responsavel_id) return item.responsavel_id === userId
+  return isTaskExecutor(task, userId)
+}
+
+function changedChecklistDoneItems(before: unknown, after: unknown) {
+  const beforeItems = parseChecklistItems(before)
+  const afterItems = parseChecklistItems(after)
+  const beforeByKey = new Map(beforeItems.map(item => [`${item.id || ''}:${item.texto}`, !!item.feito]))
+  return afterItems.filter(item => {
+    const key = `${item.id || ''}:${item.texto}`
+    const beforeDone = beforeByKey.get(key)
+    if (beforeDone === undefined) return !!item.feito
+    return beforeDone !== !!item.feito
+  })
+}
+
+function hasChecklistAssignedTo(task: any, userId: string) {
+  return parseChecklistItems(task?.checklist).some(item => item.responsavel_id === userId)
 }
 
 async function syncChecklistTable(input: { orgId: string; tarefaId: string; userId: string; checklist: unknown }) {
@@ -138,10 +190,10 @@ async function addHistorico(input: {
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
   if (canDeleteOrgRecords(role)) return true
-  if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId
-  if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId
+  if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId || hasChecklistAssignedTo(task, userId)
+  if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
   if (role === 'sub_gestor') {
-    if (task.criado_por === userId || task.responsavel_id === userId) return true
+    if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
     if (!task.responsavel_id) return false
     const resp = await queryOne('SELECT id FROM profiles WHERE id = $1 AND criado_por = $2', [task.responsavel_id, userId])
     return !!resp
@@ -171,13 +223,13 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
     const params: unknown[] = [orgId]
 
     if (role === 'membro') {
-      filter += ' AND (responsavel_id = $2 OR criado_por = $2)'
+      filter += ` AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     } else if (role === 'sub_gestor') {
-      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1))`
+      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1) OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     } else if (role === 'gestor') {
-      filter += ' AND (criado_por = $2 OR responsavel_id = $2)'
+      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`
       params.push(userId)
     }
 
@@ -214,7 +266,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
            COUNT(*) FILTER (WHERE status IN ('concluida','aprovada')) AS concluidas,
            COUNT(*) FILTER (WHERE prazo = CURRENT_DATE AND status NOT IN ('concluida','aprovada','cancelada')) AS hoje
          FROM tarefas
-         WHERE org_id = $1 AND (responsavel_id = $2 OR criado_por = $2)`,
+         WHERE org_id = $1 AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`,
         [orgId, userId]
       )
       res.json({ resumo })
@@ -230,7 +282,7 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
          COUNT(*) FILTER (WHERE status = 'devolvida') AS devolvidas,
          COUNT(*) FILTER (WHERE status = 'aprovada') AS aprovadas
        FROM tarefas
-       WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)`,
+       WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $2))`,
       [orgId, userId]
     )
     const porMembro = await query(
@@ -280,19 +332,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     let idx = 2
 
     if (role === 'membro') {
-      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx})`
+      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId); idx++
     } else if (role === 'sub_gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR t.responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $${idx} AND org_id = $${idx + 1}))`
+      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR t.responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $${idx} AND org_id = $${idx + 1}) OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId, orgId); idx += 2
     } else if (role === 'gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx})`
+      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
       params.push(userId); idx++
     }
 
     if (typeof status === 'string' && status && status !== 'todos') { sql += ` AND t.status = $${idx++}`; params.push(status) }
     if (typeof prioridade === 'string' && prioridade && prioridade !== 'todos') { sql += ` AND t.prioridade = $${idx++}`; params.push(prioridade) }
-    if (typeof responsavel_id === 'string' && responsavel_id && role !== 'membro') { sql += ` AND t.responsavel_id = $${idx++}`; params.push(responsavel_id) }
+    if (typeof responsavel_id === 'string' && responsavel_id && role !== 'membro') {
+      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(t.checklist,'[]'::jsonb)) ci WHERE ci->>'responsavel_id' = $${idx}))`
+      params.push(responsavel_id); idx++
+    }
 
     sql += ' ORDER BY t.created_at DESC'
     const tarefas = await query(sql, params)
@@ -312,7 +367,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!['baixa','media','alta'].includes(prioridade)) { res.status(400).json({ error: 'Prioridade inválida.' }); return }
 
-    let responsavelId = responsavel_id || userId
+    const hasResponsavelField = Object.prototype.hasOwnProperty.call(req.body, 'responsavel_id')
+    let responsavelId: string | null = hasResponsavelField ? (responsavel_id || null) : userId
 
     if (role === 'membro') {
       // membro só cria tarefa pessoal para si mesmo
@@ -328,18 +384,19 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    const responsavel = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [responsavelId, orgId])
+    const responsavel = responsavelId ? await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [responsavelId, orgId]) : null
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
+    const checklistNormalizado = await normalizeChecklistForOrg(checklist, orgId, userId, role)
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, status, status_gestor)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando')
        RETURNING *`,
-      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, normalizeChecklist(checklist), obs || null]
+      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null]
     )
 
-    await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist })
+    await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
     await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'criada', statusNovo: 'pendente', observacao: obs || null })
 
     if (responsavelId && responsavelId !== userId) {
@@ -354,9 +411,24 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }).catch(() => {})
     }
 
+    const checklistExecutores = parseChecklistItems(checklistNormalizado).filter(item => item.responsavel_id && item.responsavel_id !== userId && item.responsavel_id !== responsavelId)
+    for (const item of checklistExecutores) {
+      await criarNotificacao({
+        orgId,
+        userId: item.responsavel_id!,
+        tipo: 'nova_tarefa',
+        titulo: '📋 Checklist atribuído a você',
+        body: `"${item.texto}" dentro da tarefa "${titulo.trim()}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString('pt-BR')}` : ''}`,
+        referenciaId: tarefa.id,
+        referenciaTipo: 'tarefa',
+      }).catch(() => {})
+    }
+
     res.status(201).json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao criar:', err)
+    const statusCode = Number((err as any)?.statusCode || 0)
+    if (statusCode === 403 || statusCode === 404) { res.status(statusCode).json({ error: (err as Error).message }); return }
     res.status(500).json({ error: 'Erro ao criar tarefa.' })
   }
 })
@@ -377,8 +449,8 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
 
     const existing = await getTaskForAccess(id, orgId)
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
-    if (existing.responsavel_id !== userId && existing.criado_por !== userId) {
-      res.status(403).json({ error: 'Você só pode atualizar status de tarefas atribuídas ou criadas por você.' }); return
+    if (existing.responsavel_id !== userId && existing.criado_por !== userId && !hasChecklistAssignedTo(existing, userId)) {
+      res.status(403).json({ error: 'Você só pode atualizar status de tarefas atribuídas, criadas por você ou com checklist atribuído a você.' }); return
     }
 
     const statusAnterior = existing.status
@@ -766,9 +838,13 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const isMember = role === 'membro'
     const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs']
 
-    if ((req.body as any).checklist !== undefined && checklistDoneChanged(existing.checklist, (req.body as any).checklist) && !isTaskExecutor(existing, userId)) {
-      res.status(403).json({ error: 'Apenas o executor da tarefa pode marcar o checklist.' })
-      return
+    if ((req.body as any).checklist !== undefined) {
+      const changedItems = changedChecklistDoneItems(existing.checklist, (req.body as any).checklist)
+      const invalidItem = changedItems.find(item => !isChecklistItemExecutor(existing, item, userId))
+      if (invalidItem) {
+        res.status(403).json({ error: 'Apenas o executor de cada checklist pode marcar o próprio item.' })
+        return
+      }
     }
 
     const sets: string[] = []
@@ -778,12 +854,18 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     for (const key of allowed) {
       if ((req.body as any)[key] !== undefined) {
         if (key === 'responsavel_id') {
-          const resp = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [(req.body as any)[key], orgId])
-          if (!resp) { res.status(404).json({ error: 'Responsável não encontrado.' }); return }
-          sets.push(`responsavel_id = $${idx++}`); params.push((req.body as any)[key])
-          sets.push(`responsavel_nome = $${idx++}`); params.push(resp.nome)
+          const nextResponsavel = (req.body as any)[key] || null
+          if (!nextResponsavel) {
+            sets.push(`responsavel_id = $${idx++}`); params.push(null)
+            sets.push(`responsavel_nome = $${idx++}`); params.push(null)
+          } else {
+            const resp = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [nextResponsavel, orgId])
+            if (!resp) { res.status(404).json({ error: 'Responsável não encontrado.' }); return }
+            sets.push(`responsavel_id = $${idx++}`); params.push(nextResponsavel)
+            sets.push(`responsavel_nome = $${idx++}`); params.push(resp.nome)
+          }
         } else if (key === 'checklist') {
-          sets.push(`checklist = $${idx++}`); params.push(normalizeChecklist((req.body as any)[key]))
+          sets.push(`checklist = $${idx++}`); params.push(await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role))
         } else {
           sets.push(`${key} = $${idx++}`); params.push((req.body as any)[key] || null)
         }
@@ -799,6 +881,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     res.json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao atualizar:', err)
+    const statusCode = Number((err as any)?.statusCode || 0)
+    if (statusCode === 403 || statusCode === 404) { res.status(statusCode).json({ error: (err as Error).message }); return }
     res.status(500).json({ error: 'Erro ao atualizar tarefa.' })
   }
 })

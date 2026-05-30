@@ -37,7 +37,16 @@ export interface UserProfile {
   ativo?: boolean
 }
 
-export interface ChecklistItem { id: string; texto: string; feito: boolean; descricao?: string; data?: string }
+export interface ChecklistItem {
+  id: string
+  texto: string
+  feito: boolean
+  descricao?: string
+  data?: string
+  /** Responsável específico por executar este item do checklist. */
+  responsavel_id?: string
+  responsavel_nome?: string
+}
 
 export interface Tarefa {
   id: string
