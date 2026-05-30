@@ -2954,3 +2954,223 @@ body,
     min-height: 96px !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   HOTFIX FINAL — harmonia real dos modais/cards no mobile
+   Corrige seletor global amplo que fazia o conteúdo do modal virar colunas
+   estreitas no iPhone/Android. Mantém regras e funções intactas.
+   ═══════════════════════════════════════════════════════════════ */
+.modal-box[aria-modal="true"],
+.modal-box[data-modal="true"],
+.modal-card[aria-modal="true"],
+.modal-card[data-modal="true"] {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 0 !important;
+  min-width: 0 !important;
+  width: min(100%, 720px) !important;
+  max-width: min(100%, 720px) !important;
+}
+
+.modal-box[aria-modal="true"] > .modal-header,
+.modal-box[data-modal="true"] > .modal-header,
+.modal-card[aria-modal="true"] > .modal-header,
+.modal-card[data-modal="true"] > .modal-header {
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  flex: 0 0 auto !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  overflow: visible !important;
+}
+
+.modal-box[aria-modal="true"] > .modal-content,
+.modal-box[data-modal="true"] > .modal-content,
+.modal-card[aria-modal="true"] > .modal-content,
+.modal-card[data-modal="true"] > .modal-content {
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: block !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  align-self: stretch !important;
+}
+
+.modal-box[aria-modal="true"] > .modal-content > *,
+.modal-box[data-modal="true"] > .modal-content > *,
+.modal-card[aria-modal="true"] > .modal-content > *,
+.modal-card[data-modal="true"] > .modal-content > * {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.task-detail-modal,
+.task-detail-modal > *,
+.task-detail-hero,
+.task-detail-section,
+.task-checklist-run,
+.task-checklist-date-group,
+.task-upload-block,
+.task-detail-actions {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.task-detail-modal {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+}
+
+.task-detail-section,
+.task-checklist-date-group {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+}
+
+.task-detail-section p,
+.task-detail-section h3,
+.task-check-text,
+.task-check-desc,
+.task-card strong,
+.task-card div,
+.task-card span {
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+.task-check-item {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.task-check-content {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.task-list,
+.task-card-list,
+.tasks-list {
+  min-width: 0 !important;
+}
+
+@media (max-width: 640px) {
+  .modal-overlay,
+  .modal-backdrop {
+    align-items: flex-end !important;
+    justify-content: center !important;
+  }
+
+  .modal-box[aria-modal="true"],
+  .modal-box[data-modal="true"],
+  .modal-card[aria-modal="true"],
+  .modal-card[data-modal="true"] {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 14px) !important;
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+    border-radius: 22px 22px 0 0 !important;
+    align-items: stretch !important;
+    overflow: hidden !important;
+  }
+
+  .modal-box[aria-modal="true"] > .modal-header,
+  .modal-box[data-modal="true"] > .modal-header {
+    margin: -2px 0 10px !important;
+    padding: 0 0 12px !important;
+  }
+
+  .modal-title {
+    font-size: clamp(22px, 6.4vw, 28px) !important;
+    line-height: 1.08 !important;
+  }
+
+  .task-detail-hero {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .task-detail-hero h2 {
+    font-size: clamp(20px, 6vw, 25px) !important;
+    line-height: 1.12 !important;
+  }
+
+  .task-detail-section {
+    padding: 12px !important;
+    border-radius: 16px !important;
+    gap: 9px !important;
+  }
+
+  .task-detail-section-head {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    align-items: stretch !important;
+  }
+
+  .task-checklist-head-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+  }
+
+  .task-check-item {
+    grid-template-columns: 28px minmax(0, 1fr) !important;
+    padding: 10px !important;
+    border-radius: 14px !important;
+  }
+
+  .task-upload-dropzone {
+    min-height: 112px !important;
+    padding: 14px !important;
+  }
+
+  .task-detail-actions,
+  .modal-box [data-modal-actions] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .task-detail-actions .btn,
+  .modal-box [data-modal-actions] .btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .task-card {
+    border-radius: 20px !important;
+  }
+
+  .task-card > div:first-child {
+    padding: 14px !important;
+    gap: 10px !important;
+  }
+
+  .task-card > div:first-child > div:last-child {
+    gap: 2px !important;
+  }
+
+  .task-card > div:nth-child(2) {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    padding: 0 14px 14px !important;
+    gap: 8px !important;
+  }
+
+  .task-card > div:nth-child(2) .btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
