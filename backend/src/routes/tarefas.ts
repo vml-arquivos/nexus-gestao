@@ -31,6 +31,10 @@ function isValidStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (VALID_STATUS as readonly string[]).includes(v)
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
 function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
@@ -49,7 +53,7 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
       const rawDate = String(item?.data || item?.date || item?.prazo || '').slice(0, 10)
       const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined
       return {
-        id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
+        id: isUuid(item?.id) ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
         descricao: String(item?.descricao || item?.description || item?.obs || '').trim() || undefined,
         data: safeDate,
@@ -87,15 +91,22 @@ function isTaskExecutor(task: any, userId: string) {
 }
 
 async function syncChecklistTable(input: { orgId: string; tarefaId: string; userId: string; checklist: unknown }) {
-  const items = parseChecklistItems(input.checklist)
-  await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [input.tarefaId, input.orgId])
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    await query(
-      `INSERT INTO tarefa_checklist (id, tarefa_id, org_id, criado_por, texto, feito, ordem)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [item.id || uuidv4(), input.tarefaId, input.orgId, input.userId, item.texto, !!item.feito, i]
-    )
+  // A tabela tarefa_checklist é auxiliar/legada. A fonte principal do checklist
+  // continua sendo o JSON da própria tarefa. Por isso, falha nessa sincronização
+  // não pode impedir criar ou editar uma tarefa.
+  try {
+    const items = parseChecklistItems(input.checklist)
+    await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [input.tarefaId, input.orgId])
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      await query(
+        `INSERT INTO tarefa_checklist (id, tarefa_id, org_id, criado_por, texto, feito, ordem)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [isUuid(item.id) ? item.id : uuidv4(), input.tarefaId, input.orgId, input.userId, item.texto, !!item.feito, i]
+      )
+    }
+  } catch (err) {
+    console.warn('[TAREFAS] Checklist auxiliar não sincronizado; JSON principal preservado:', err)
   }
 }
 
