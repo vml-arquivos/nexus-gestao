@@ -41,8 +41,15 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value)
-        return Array.isArray(parsed) ? parsed : []
+        if (Array.isArray(parsed)) return parsed
+        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).items)) return (parsed as any).items
+        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).checklist)) return (parsed as any).checklist
+        return []
       } catch { return [] }
+    }
+    if (value && typeof value === 'object') {
+      if (Array.isArray((value as any).items)) return (value as any).items
+      if (Array.isArray((value as any).checklist)) return (value as any).checklist
     }
     return []
   })()
@@ -62,7 +69,7 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         feito: !!item?.feito,
       }
     })
-    .filter(item => item.texto)
+    .filter((item: { texto: string }) => item.texto)
 }
 
 function normalizeChecklist(value: unknown) {
@@ -215,38 +222,65 @@ async function getTaskForAccess(id: string, orgId: string) {
   )
 }
 
+// ── Helpers de listagem sem depender de funções JSONB do banco ────────────────
+// Bancos antigos podem ter tarefas.checklist como JSON, JSONB, texto ou até nulo.
+// Por isso a filtragem por executor de checklist é feita em TypeScript, depois de
+// buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
+async function listTasksForUser(user: NonNullable<Request['user']>) {
+  const { orgId, userId, role } = user
+  const rows = await query<any>(
+    `SELECT t.*,
+            p.nome  AS responsavel_nome_perfil,
+            p.cargo AS responsavel_cargo,
+            c.nome  AS criado_por_nome,
+            COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
+            (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
+     FROM tarefas t
+     LEFT JOIN profiles p ON p.id = t.responsavel_id
+     LEFT JOIN profiles c ON c.id = t.criado_por
+     WHERE t.org_id = $1
+     ORDER BY t.created_at DESC`,
+    [orgId]
+  )
+
+  if (canDeleteOrgRecords(role)) return rows
+
+  let comandados = new Set<string>()
+  if (role === 'sub_gestor') {
+    const subs = await query<{ id: string }>('SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE', [orgId, userId])
+    comandados = new Set(subs.map(s => s.id))
+  }
+
+  return rows.filter(task => {
+    if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
+    if (role === 'sub_gestor' && task.responsavel_id && comandados.has(task.responsavel_id)) return true
+    return false
+  })
+}
+
+function taskMatchesMember(task: any, memberId: string) {
+  return task.responsavel_id === memberId || task.criado_por === memberId || hasChecklistAssignedTo(task, memberId)
+}
+
+function buildTaskStats(tasks: any[]) {
+  const count = (statuses: string[]) => tasks.filter(t => statuses.includes(String(t.status || ''))).length
+  return {
+    total: String(tasks.length),
+    pendente: String(count(['pendente'])),
+    em_progresso: String(count(['em_progresso'])),
+    concluida: String(count(['concluida'])),
+    nao_concluida: String(count(['nao_concluida'])),
+    devolvida: String(count(['devolvida'])),
+    aprovada: String(count(['aprovada'])),
+    cancelada: String(count(['cancelada'])),
+  }
+}
+
 // ── STATS precisa vir antes de /:id ──────────────────────────────────────────
 router.get('/stats', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!
-    let filter = 'WHERE org_id = $1'
-    const params: unknown[] = [orgId]
-
-    if (role === 'membro') {
-      filter += ` AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
-      params.push(userId)
-    } else if (role === 'sub_gestor') {
-      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $2 AND org_id = $1) OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
-      params.push(userId)
-    } else if (role === 'gestor') {
-      filter += ` AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`
-      params.push(userId)
-    }
-
-    const stats = await queryOne<Record<string, string>>(
-      `SELECT
-         COUNT(*) AS total,
-         COUNT(*) FILTER (WHERE status = 'pendente') AS pendente,
-         COUNT(*) FILTER (WHERE status = 'em_progresso') AS em_progresso,
-         COUNT(*) FILTER (WHERE status = 'concluida') AS concluida,
-         COUNT(*) FILTER (WHERE status = 'nao_concluida') AS nao_concluida,
-         COUNT(*) FILTER (WHERE status = 'devolvida') AS devolvida,
-         COUNT(*) FILTER (WHERE status = 'aprovada') AS aprovada,
-         COUNT(*) FILTER (WHERE status = 'cancelada') AS cancelada
-       FROM tarefas ${filter}`,
-      params
-    )
-    res.json({ stats })
+    const tarefas = await listTasksForUser(req.user!)
+    res.json({ stats: buildTaskStats(tarefas) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao buscar stats:', err)
     res.status(500).json({ error: 'Erro ao buscar estatísticas.' })
@@ -257,52 +291,56 @@ router.get('/stats', async (req: Request, res: Response): Promise<void> => {
 router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
+    const tarefas = await listTasksForUser(req.user!)
+    const isOpen = (t: any) => !['concluida','aprovada','cancelada'].includes(String(t.status || ''))
+    const today = new Date().toISOString().slice(0, 10)
+
     if (role === 'membro') {
-      const resumo = await queryOne(
-        `SELECT
-           COUNT(*) FILTER (WHERE status = 'pendente') AS pendentes,
-           COUNT(*) FILTER (WHERE status = 'em_progresso') AS em_progresso,
-           COUNT(*) FILTER (WHERE status = 'devolvida') AS devolvidas,
-           COUNT(*) FILTER (WHERE status IN ('concluida','aprovada')) AS concluidas,
-           COUNT(*) FILTER (WHERE prazo = CURRENT_DATE AND status NOT IN ('concluida','aprovada','cancelada')) AS hoje
-         FROM tarefas
-         WHERE org_id = $1 AND (responsavel_id = $2 OR criado_por = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`,
-        [orgId, userId]
-      )
+      const resumo = {
+        pendentes: tarefas.filter(t => t.status === 'pendente').length,
+        em_progresso: tarefas.filter(t => t.status === 'em_progresso').length,
+        devolvidas: tarefas.filter(t => t.status === 'devolvida').length,
+        concluidas: tarefas.filter(t => ['concluida','aprovada'].includes(String(t.status || ''))).length,
+        hoje: tarefas.filter(t => String(t.prazo || '').slice(0,10) === today && isOpen(t)).length,
+      }
       res.json({ resumo })
       return
     }
 
-    const resumo = await queryOne(
-      `SELECT
-         COUNT(*) AS enviadas,
-         COUNT(*) FILTER (WHERE status = 'pendente') AS pendentes,
-         COUNT(*) FILTER (WHERE status = 'concluida' AND COALESCE(status_gestor,'aguardando') = 'aguardando') AS aguardando_aprovacao,
-         COUNT(*) FILTER (WHERE status = 'nao_concluida') AS nao_concluidas,
-         COUNT(*) FILTER (WHERE status = 'devolvida') AS devolvidas,
-         COUNT(*) FILTER (WHERE status = 'aprovada') AS aprovadas
-       FROM tarefas
-       WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(checklist,'[]'::jsonb)) = 'array' THEN COALESCE(checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $2))`,
-      [orgId, userId]
-    )
-    const porMembro = await query(
-      `SELECT p.id, p.nome,
-              COUNT(t.id) AS total,
-              COUNT(t.id) FILTER (WHERE t.status = 'pendente') AS pendentes,
-              COUNT(t.id) FILTER (WHERE t.status = 'concluida') AS concluidas,
-              COUNT(t.id) FILTER (WHERE t.status = 'nao_concluida') AS nao_concluidas,
-              COUNT(t.id) FILTER (WHERE t.status = 'devolvida') AS devolvidas,
-              COUNT(t.id) FILTER (WHERE t.status = 'aprovada') AS aprovadas
-       FROM profiles p
-       LEFT JOIN tarefas t ON t.responsavel_id = p.id AND t.org_id = p.org_id AND t.criado_por = $2
-       WHERE p.org_id = $1 AND p.ativo = TRUE AND (p.id = $2 OR p.criado_por = $2 OR EXISTS (
+    const resumo = {
+      enviadas: tarefas.length,
+      pendentes: tarefas.filter(t => t.status === 'pendente').length,
+      aguardando_aprovacao: tarefas.filter(t => t.status === 'concluida' && (t.status_gestor || 'aguardando') === 'aguardando').length,
+      nao_concluidas: tarefas.filter(t => t.status === 'nao_concluida').length,
+      devolvidas: tarefas.filter(t => t.status === 'devolvida').length,
+      aprovadas: tarefas.filter(t => t.status === 'aprovada').length,
+    }
+
+    const membros = await query<{ id: string; nome: string }>(
+      `SELECT id, nome
+       FROM profiles
+       WHERE org_id = $1 AND ativo = TRUE AND (id = $2 OR criado_por = $2 OR EXISTS (
          SELECT 1 FROM equipes e JOIN equipes_membros em ON em.equipe_id = e.id AND em.org_id = e.org_id
-         WHERE e.org_id = $1 AND e.criado_por = $2 AND em.user_id = p.id AND COALESCE(em.ativo, TRUE) = TRUE
+         WHERE e.org_id = $1 AND e.criado_por = $2 AND em.user_id = profiles.id AND COALESCE(em.ativo, TRUE) = TRUE
        ))
-       GROUP BY p.id, p.nome
-       ORDER BY p.nome`,
+       ORDER BY nome`,
       [orgId, userId]
     )
+
+    const porMembro = membros.map(m => {
+      const mt = tarefas.filter(t => taskMatchesMember(t, m.id))
+      return {
+        id: m.id,
+        nome: m.nome,
+        total: mt.length,
+        pendentes: mt.filter(t => t.status === 'pendente').length,
+        concluidas: mt.filter(t => t.status === 'concluida').length,
+        nao_concluidas: mt.filter(t => t.status === 'nao_concluida').length,
+        devolvidas: mt.filter(t => t.status === 'devolvida').length,
+        aprovadas: mt.filter(t => t.status === 'aprovada').length,
+      }
+    })
+
     res.json({ resumo, por_membro: porMembro })
   } catch (err) {
     console.error('[TAREFAS] Erro dashboard:', err)
@@ -313,44 +351,16 @@ router.get('/dashboard', async (req: Request, res: Response): Promise<void> => {
 // ── LISTAR TAREFAS ───────────────────────────────────────────────────────────
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!
+    const { role } = req.user!
     const { status, prioridade, responsavel_id } = req.query
+    let tarefas = await listTasksForUser(req.user!)
 
-    let sql = `
-      SELECT t.*,
-             p.nome  AS responsavel_nome_perfil,
-             p.cargo AS responsavel_cargo,
-             c.nome  AS criado_por_nome,
-             COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
-             (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
-      FROM tarefas t
-      LEFT JOIN profiles p ON p.id = t.responsavel_id
-      LEFT JOIN profiles c ON c.id = t.criado_por
-      WHERE t.org_id = $1
-    `
-    const params: unknown[] = [orgId]
-    let idx = 2
-
-    if (role === 'membro') {
-      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
-      params.push(userId); idx++
-    } else if (role === 'sub_gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR t.responsavel_id IN (SELECT id FROM profiles WHERE criado_por = $${idx} AND org_id = $${idx + 1}) OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
-      params.push(userId, orgId); idx += 2
-    } else if (role === 'gestor') {
-      sql += ` AND (t.criado_por = $${idx} OR t.responsavel_id = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
-      params.push(userId); idx++
-    }
-
-    if (typeof status === 'string' && status && status !== 'todos') { sql += ` AND t.status = $${idx++}`; params.push(status) }
-    if (typeof prioridade === 'string' && prioridade && prioridade !== 'todos') { sql += ` AND t.prioridade = $${idx++}`; params.push(prioridade) }
+    if (typeof status === 'string' && status && status !== 'todos') tarefas = tarefas.filter(t => t.status === status)
+    if (typeof prioridade === 'string' && prioridade && prioridade !== 'todos') tarefas = tarefas.filter(t => t.prioridade === prioridade)
     if (typeof responsavel_id === 'string' && responsavel_id && role !== 'membro') {
-      sql += ` AND (t.responsavel_id = $${idx} OR t.criado_por = $${idx} OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(COALESCE(t.checklist,'[]'::jsonb)) = 'array' THEN COALESCE(t.checklist,'[]'::jsonb) ELSE '[]'::jsonb END) ci WHERE ci->>'responsavel_id' = $${idx}))`
-      params.push(responsavel_id); idx++
+      tarefas = tarefas.filter(t => taskMatchesMember(t, responsavel_id))
     }
 
-    sql += ' ORDER BY t.created_at DESC'
-    const tarefas = await query(sql, params)
     res.json({ tarefas })
   } catch (err) {
     console.error('[TAREFAS] Erro ao listar:', err)
