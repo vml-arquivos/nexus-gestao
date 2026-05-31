@@ -660,7 +660,7 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
         for (const file of files) {
           await tarefasApi.uploadAnexo(tarefa.id, file, {
             titulo: file.name || 'Anexo da tarefa',
-            descricao: tipo === 'concluida' ? 'Evidência de conclusão enviada pelo responsável.' : 'Evidência/motivo enviado pelo responsável.',
+            descricao: tipo === 'concluida' ? 'Arquivo de conclusão enviado pelo responsável.' : 'Arquivo/motivo enviado pelo responsável.',
             tipo: tipo === 'concluida' ? 'evidencia' : 'correcao',
           })
         }
@@ -685,12 +685,12 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
         <textarea className="form-input" rows={4} value={obs} onChange={e => setObs(e.target.value)} placeholder={tipo === 'nao_concluida' ? 'Explique o motivo...' : 'Observação sobre a conclusão...'} />
       </div>
       <div className="form-group">
-        <label className="form-label">Anexar evidência da tarefa</label>
+        <label className="form-label">Anexar arquivo da tarefa</label>
         <FileDropzone
-          id={`resposta-evidencias-${tarefa.id}`}
+          id={`resposta-arquivos-${tarefa.id}`}
           files={files}
           onFiles={setFiles}
-          label="Anexar evidência da tarefa"
+          label="Anexar arquivo da tarefa"
           help="Envie PDF, imagem, planilha, documento, TXT ou CSV para o gestor verificar o que foi feito."
         />
       </div>
@@ -817,21 +817,48 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
       setShowGestorUpload(false)
       await load()
       onChanged?.()
-      toast(isGestor ? 'Anexo do gestor enviado.' : 'Evidência enviada.')
+      toast(isGestor ? 'Arquivo do gestor enviado.' : 'Arquivo enviado.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao anexar arquivo.', 'error')
     } finally { setSaving(false) }
   }
 
   async function apagar(anexo: TarefaAnexo) {
-    if (!confirm('Apagar este anexo da tarefa?')) return
+    if (!confirm('Apagar este arquivo da tarefa?')) return
     try {
       await tarefasApi.deleteAnexo(tarefa.id, anexo.id)
       setAnexos(prev => prev.filter(a => a.id !== anexo.id))
       onChanged?.()
-      toast('Anexo apagado.')
+      toast('Arquivo apagado.')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao apagar anexo.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao apagar arquivo.', 'error')
+    }
+  }
+
+  async function abrirArquivo(anexo: TarefaAnexo) {
+    try {
+      const { blob } = await tarefasApi.arquivoAnexo(tarefa.id, anexo.id, false)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao abrir arquivo.', 'error')
+    }
+  }
+
+  async function baixarArquivo(anexo: TarefaAnexo) {
+    try {
+      const { blob, filename } = await tarefasApi.arquivoAnexo(tarefa.id, anexo.id, true)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || anexo.nome_original || anexo.titulo || 'arquivo-da-tarefa'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao baixar arquivo.', 'error')
     }
   }
 
@@ -846,16 +873,16 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           id={`anexos-tarefa-${tarefa.id}`}
           files={files}
           onFiles={setFiles}
-          label={isGestor ? 'Anexar arquivo de referência' : 'Anexar evidência'}
-          help={isGestor ? 'Use PDF, imagem ou documento para referência, validação ou devolução.' : 'Use PDF, foto, comprovante, planilha ou documento da execução.'}
+          label={isGestor ? 'Anexar arquivo de referência' : 'Anexar arquivo da tarefa'}
+          help={isGestor ? 'Use PDF, imagem ou documento para referência, validação ou orientação.' : 'Use PDF, foto, comprovante, planilha ou documento da execução.'}
         />
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">Descrição do anexo</label>
-        <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={isGestor ? 'Ex.: referência, validação ou orientação para correção...' : 'Ex.: foto do serviço finalizado, comprovante, relatório entregue...'} />
+        <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={isGestor ? 'Ex.: referência, validação ou orientação...' : 'Ex.: foto do serviço finalizado, comprovante, relatório entregue...'} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} {isGestor ? 'Enviar anexo do gestor' : 'Enviar evidência'}</button>
+        <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} {isGestor ? 'Enviar arquivo do gestor' : 'Enviar arquivo'}</button>
       </div>
     </div>
   )
@@ -873,8 +900,9 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{anexo.enviado_por_nome || anexo.enviado_por} · {fmtDateTime(anexo.created_at)} {anexo.tamanho ? `· ${formatSize(anexo.tamanho)}` : ''}</div>
                 {anexo.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>{anexo.descricao}</div>}
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <a className="btn btn-secondary" href={anexo.arquivo_url} target="_blank" rel="noopener noreferrer" style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Abrir</a>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" type="button" onClick={() => abrirArquivo(anexo)} style={{ padding: '6px 10px', fontSize: 12 }}><FileText size={13} /> Visualizar</button>
+                <button className="btn btn-secondary" type="button" onClick={() => baixarArquivo(anexo)} style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Baixar</button>
                 <button className="btn btn-ghost" type="button" onClick={() => apagar(anexo)} style={{ padding: '6px 10px', fontSize: 12, color: '#EF4444' }}><Trash2 size={13} /></button>
               </div>
             </div>
@@ -885,7 +913,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   }
 
   return (
-    <ModalBase title={isGestor ? 'Evidências recebidas da tarefa' : 'Evidências anexadas à tarefa'} onClose={onClose}>
+    <ModalBase title="Arquivos da tarefa" onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
           <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
@@ -900,10 +928,10 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           <>
             <section style={{ display: 'grid', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontWeight: 900 }}>Resultado enviado pelo membro</div>
+                <div style={{ fontWeight: 900 }}>Arquivos enviados pelo membro</div>
                 <span style={{ fontSize: 12, color: 'var(--text3)' }}>{anexosDoMembro.length} arquivo(s)</span>
               </div>
-              {renderLista(anexosDoMembro, 'O membro ainda não enviou nenhuma evidência para esta tarefa.')}
+              {renderLista(anexosDoMembro, 'O membro ainda não enviou nenhum arquivo para esta tarefa.')}
             </section>
 
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 10 }}>
@@ -915,13 +943,13 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
                 <button className="btn btn-secondary" type="button" onClick={() => setShowGestorUpload(v => !v)}><Paperclip size={14} /> {showGestorUpload ? 'Ocultar envio' : 'Adicionar anexo'}</button>
               </div>
               {showGestorUpload && uploadForm}
-              {renderLista(anexosDoGestor, 'Nenhum anexo do gestor.')}
+              {renderLista(anexosDoGestor, 'Nenhum arquivo do gestor.')}
             </section>
           </>
         ) : (
           <>
             <div style={{ color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12, fontSize: 13 }}>
-              Para enviar novas evidências, abra a tarefa completa, selecione os arquivos e clique em <strong>Enviar conclusão</strong>. Assim os anexos e a resposta seguem juntos para o gestor.
+              Para enviar novos arquivos, abra a tarefa completa, selecione os arquivos e clique em <strong>Enviar conclusão</strong>. Assim os arquivos e a resposta seguem juntos para o gestor.
             </div>
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
               <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
@@ -1026,7 +1054,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   async function uploadPendentes() {
     for (const file of files) {
       await tarefasApi.uploadAnexo(tarefa.id, file, {
-        titulo: file.name || 'Evidência da tarefa',
+        titulo: file.name || 'Arquivo da tarefa',
         descricao: obs.trim() || motivo.trim() || undefined,
         tipo: 'evidencia',
       })
@@ -1120,7 +1148,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
               <span>{statusCfg(tarefa.status).label}</span>
             </div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Evidências {anexosCount ? `(${anexosCount})` : ''}</button>
+          <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
         </section>
 
         {tarefa.descricao && (
@@ -1181,7 +1209,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           )}
           {total > 0 && (
             <div className="task-execution-summary">
-              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus checklists e envia sua parte. O gestor é notificado para visualizar as evidências, sem etapa de aprovar/reprovar por checklist.
+              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus checklists e envia sua parte. O gestor é notificado para visualizar os arquivos enviados, sem etapa de aprovar/reprovar por checklist.
               {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} checklists.</span>}
               <span>Total da tarefa: {done}/{total} checklists.</span>
               {isGestor && executorSummary.length > 0 && <span>Execução por membro: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</span>}
@@ -1194,12 +1222,12 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         {canExecuteTask && (
           <section className="task-detail-section">
-            <h3>{allChecklistDone ? 'Evidências da conclusão geral' : 'Evidências da sua parte'}</h3>
+            <h3>{allChecklistDone ? 'Arquivos da conclusão geral' : 'Arquivos da sua parte'}</h3>
             <FileDropzone
               id={`concluir-evidencias-${tarefa.id}`}
               files={files}
               onFiles={setFiles}
-              label={allChecklistDone ? 'Anexar evidências da conclusão geral' : 'Anexar evidências da sua parte'}
+              label={allChecklistDone ? 'Anexar arquivos da conclusão geral' : 'Anexar arquivos da sua parte'}
               help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução."
             />
             <label className="form-label">Observação de conclusão</label>
@@ -1314,8 +1342,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                 <Paperclip size={14} />
                 <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                  <strong>{anexosCount > 0 ? 'Evidências recebidas' : 'Nenhuma evidência anexada'}</strong>
-                  {anexosCount > 0 ? ` · ${anexosCount} arquivo(s)` : ' · clique para conferir/anexar referência'}
+                  <strong>{anexosCount > 0 ? 'Arquivos recebidos' : 'Nenhum arquivo anexado'}</strong>
+                  {anexosCount > 0 ? ` · ${anexosCount} arquivo(s)` : ' · clique para visualizar ou baixar'}
                   {ultimaEvidencia ? ` · último envio ${fmtDateTime(ultimaEvidencia)}` : ''}
                 </span>
               </span>
@@ -1334,7 +1362,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
         <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
-        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver evidências' : 'Anexar evidência'}</button>
+        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver arquivos' : 'Anexar arquivo'}</button>
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
         {canExecuteTask && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
         {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
@@ -1530,7 +1558,7 @@ export default function Tarefas() {
   }
 
   async function approve(t: Tarefa) {
-    if (!confirm('Aprovar esta tarefa? Verifique os anexos/evidências antes de aprovar.')) return
+    if (!confirm('Aprovar esta tarefa? Verifique os arquivos da tarefa antes de aprovar.')) return
     try { updateSaved(await tarefasApi.aprovar(t.id)); toast('Tarefa aprovada.') }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao aprovar.', 'error') }
   }

@@ -3,7 +3,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { criarNotificacao } from '../lib/notifHelper'
-import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
+import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage, filenameFromUploadUrl, safeUploadPathFromFilename } from '../lib/uploadSecurity'
+import fs from 'fs'
+import path from 'path'
 
 const router = Router()
 router.use(authMiddleware)
@@ -658,8 +660,8 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
         tipo: geral.completo ? 'tarefa_concluida' : 'tarefa_atualizada',
         titulo: geral.completo ? '✅ Todas as partes foram concluídas' : '✅ Parte enviada pelo membro',
         body: geral.completo
-          ? `${autor?.nome || 'Executor'} concluiu a última parte de "${existing.titulo}". Visualize a tarefa e as evidências enviadas.`
-          : `${autor?.nome || 'Executor'} executou e enviou sua parte em "${existing.titulo}". Visualize as evidências e aguarde o restante da equipe.`,
+          ? `${autor?.nome || 'Executor'} concluiu a última parte de "${existing.titulo}". Visualize a tarefa e os arquivos enviados.`
+          : `${autor?.nome || 'Executor'} executou e enviou sua parte em "${existing.titulo}". Visualize os arquivos enviados e aguarde o restante da equipe.`,
         referenciaId: req.params.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -890,7 +892,7 @@ router.get('/:id/anexos', async (req: Request, res: Response): Promise<void> => 
 })
 
 // POST /api/tarefas/:id/anexos
-// Usado pelo membro para anexar evidências da execução e pelo gestor para anexar referência/validação.
+// Usado pelo membro para anexar arquivos da execução e pelo gestor para anexar referência/orientação.
 router.post('/:id/anexos', uploadEvidenceFile, async (req: MulterTaskRequest, res: Response): Promise<void> => {
   try {
     if (!req.file) { res.status(400).json({ error: 'Nenhum arquivo enviado.' }); return }
@@ -957,6 +959,43 @@ router.post('/:id/anexos', uploadEvidenceFile, async (req: MulterTaskRequest, re
     const msg = uploadErrorMessage(err)
     console.error('[TAREFAS] Erro ao anexar:', msg)
     res.status(500).json({ error: msg })
+  }
+})
+
+
+// GET /api/tarefas/:id/anexos/:anexoId/arquivo
+// Entrega o arquivo pelo backend autenticado, evitando 404 de imagem por link /uploads antigo ou cache do Nginx.
+router.get('/:id/anexos/:anexoId/arquivo', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!
+    const task = await getTaskForAccess(req.params.id, orgId)
+    if (!task) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(task, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+
+    const anexo = await queryOne<any>(
+      `SELECT * FROM tarefa_anexos WHERE id = $1 AND tarefa_id = $2 AND org_id = $3`,
+      [req.params.anexoId, req.params.id, orgId]
+    )
+    if (!anexo) { res.status(404).json({ error: 'Arquivo da tarefa não encontrado.' }); return }
+
+    const filename = filenameFromUploadUrl(anexo.arquivo_url)
+    if (!filename) { res.status(404).json({ error: 'Arquivo físico não localizado.' }); return }
+
+    const filePath = safeUploadPathFromFilename(filename)
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Arquivo físico não encontrado no servidor.' })
+      return
+    }
+
+    const originalName = path.basename(String(anexo.nome_original || anexo.titulo || filename)).replace(/[\r\n"]/g, '') || filename
+    const disposition = req.query.download === '1' ? 'attachment' : 'inline'
+    if (anexo.mime_type) res.setHeader('Content-Type', anexo.mime_type)
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(originalName)}"; filename*=UTF-8''${encodeURIComponent(originalName)}`)
+    res.setHeader('Cache-Control', 'private, max-age=60')
+    res.sendFile(filePath)
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao abrir arquivo da tarefa:', err)
+    res.status(500).json({ error: 'Erro ao abrir arquivo da tarefa.' })
   }
 })
 

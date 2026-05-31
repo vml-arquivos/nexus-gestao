@@ -521,6 +521,20 @@ export const tarefasApi = {
     return data.anexo
   },
 
+  async arquivoAnexo(id: string, anexoId: string, download = false): Promise<{ blob: Blob; filename?: string; mime?: string }> {
+    const res = await apiFetch(`/tarefas/${id}/anexos/${anexoId}/arquivo${download ? '?download=1' : ''}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const filenameStar = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    const filenamePlain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+    const filename = filenameStar ? decodeURIComponent(filenameStar) : filenamePlain ? decodeURIComponent(filenamePlain) : undefined
+    const blob = await res.blob()
+    return { blob, filename, mime: res.headers.get('Content-Type') || blob.type }
+  },
+
   async deleteAnexo(id: string, anexoId: string): Promise<void> {
     await apiJson(`/tarefas/${id}/anexos/${anexoId}`, { method: 'DELETE' })
   },
