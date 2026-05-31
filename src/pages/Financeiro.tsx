@@ -90,6 +90,18 @@ function fromCents(cents: number): number {
   return Number((Math.round(cents) / 100).toFixed(2))
 }
 
+function sumMoneyCents(values: Array<number | string | null | undefined>): number {
+  return values.reduce<number>((total, value) => total + toCents(Number(value || 0)), 0)
+}
+
+function distribuirCentavos(totalCents: number, n: number): number[] {
+  const safeN = Math.max(1, Math.floor(Number(n) || 1))
+  const safeTotal = Math.max(0, Math.round(Number(totalCents) || 0))
+  const base = Math.trunc(safeTotal / safeN)
+  const resto = safeTotal - base * safeN
+  return Array.from({ length: safeN }, (_, i) => base + (i < resto ? 1 : 0))
+}
+
 function distribuirParcelasEmCentavos(total: number, n: number, taxaMensal: number): number[] {
   const safeN = Math.max(1, Math.floor(Number(n) || 1))
   const taxa = Number(taxaMensal) || 0
@@ -243,12 +255,19 @@ function extrairGrupoId(obs?: string): string | null {
 function calcSaldoGrupo(parcelas: Pagamento[]) {
   const pendentes = parcelas.filter(p => p.status === 'pendente')
   const pagas     = parcelas.filter(p => p.status === 'pago')
+  const pendentesOrdenadas = [...pendentes].sort((a, b) => (a.vencimento || '') < (b.vencimento || '') ? -1 : 1)
+  const totalOriginalCents = sumMoneyCents(parcelas.map(p => p.valor))
+  const totalPagoCents = sumMoneyCents(pagas.map(p => p.valor))
+  const totalPendenteCents = sumMoneyCents(pendentes.map(p => p.valor))
   return {
-    totalOriginal : parcelas.reduce((s, p) => s + Number(p.valor), 0),
-    totalPago     : pagas.reduce((s, p) => s + Number(p.valor), 0),
-    totalPendente : pendentes.reduce((s, p) => s + Number(p.valor), 0),
-    numPendentes  : pendentes.length,
-    pendentes     : [...pendentes].sort((a, b) => (a.vencimento || '') < (b.vencimento || '') ? -1 : 1),
+    totalOriginal : fromCents(totalOriginalCents),
+    totalPago     : fromCents(totalPagoCents),
+    totalPendente : fromCents(totalPendenteCents),
+    totalOriginalCents,
+    totalPagoCents,
+    totalPendenteCents,
+    numPendentes  : pendentesOrdenadas.length,
+    pendentes     : pendentesOrdenadas,
   }
 }
 
@@ -586,6 +605,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const [modo, setModo]     = useState<'abatimento' | 'acrescimo'>('abatimento')
   const [valor, setValor]   = useState('')
   const [acao, setAcao]     = useState<'recalcular' | 'proximas'>('recalcular')
+  const [tipoAbatimento, setTipoAbatimento] = useState<'antecipacao' | 'desconto'>('antecipacao')
   const [data, setData]     = useState(new Date().toISOString().slice(0, 10))
   const [forma, setForma]   = useState('')
   const [motivo, setMotivo] = useState('')
@@ -595,16 +615,19 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
   const saldo    = calcSaldoGrupo(parcelas)
   const valorNum = parseMoneyInput(valor)
+  const valorCents = toCents(valorNum)
   const ref      = parcelas[0]
   const historicoCompleto = [...(historicoLocal || []), ...historicoDerivado(parcelas)]
     .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
 
-  const novoSaldo      = modo === 'abatimento'
-    ? Math.max(0, saldo.totalPendente - valorNum)
-    : saldo.totalPendente + valorNum
-  const novaParcelaPMT = saldo.numPendentes > 0 ? novoSaldo / saldo.numPendentes : 0
-  const quitado        = modo === 'abatimento' && valorNum >= saldo.totalPendente
+  const novoSaldoCents = modo === 'abatimento'
+    ? Math.max(0, saldo.totalPendenteCents - valorCents)
+    : saldo.totalPendenteCents + valorCents
+  const novoSaldo      = fromCents(novoSaldoCents)
+  const novosValoresCents = distribuirCentavos(novoSaldoCents, saldo.numPendentes || 1)
+  const novaParcelaPMT = saldo.numPendentes > 0 ? fromCents(novosValoresCents[0] || 0) : 0
+  const quitado        = modo === 'abatimento' && valorCents >= saldo.totalPendenteCents
 
   useEffect(() => {
     setHistoricoLocal(historico || [])
@@ -624,11 +647,16 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     if (modo === 'abatimento' && !data) { toast('Informe a data', 'error'); return }
     setSaving(true)
     try {
+      const ehAntecipacao = modo === 'abatimento' && tipoAbatimento === 'antecipacao'
+      const rotuloMovimento = modo === 'abatimento'
+        ? (ehAntecipacao ? 'Antecipação de pagamento' : 'Abatimento / desconto')
+        : 'Acréscimo'
       const obsMovimento = [
+        modo === 'abatimento' ? `Tipo: ${rotuloMovimento}` : '',
         forma ? `Forma de pagamento: ${forma}` : '',
         motivo || '',
         modo === 'abatimento'
-          ? `Abatimento sobre dívida "${ref?.titulo}"`
+          ? `${rotuloMovimento} sobre dívida "${ref?.titulo}"`
           : `Acréscimo sobre dívida "${ref?.titulo}"`,
       ].filter(Boolean).join(' | ')
 
@@ -640,9 +668,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
         pagamento_id: ref?.id,
         grupo_id: ref?.grupo_id || null,
         tipo_evento: modo === 'abatimento' ? 'abatimento' : 'acrescimo',
-        titulo: modo === 'abatimento' ? 'Abatimento / pagamento registrado' : 'Acréscimo registrado',
+        titulo: modo === 'abatimento' ? `${rotuloMovimento} registrado` : 'Acréscimo registrado',
         descricao: obsMovimento,
-        valor: valorNum,
+        valor: fromCents(valorCents),
         data_evento: data,
         forma_pagamento: forma || undefined,
         saldo_anterior: saldo.totalPendente,
@@ -655,7 +683,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           pessoa_nome: ref?.pessoa_nome || ref?.pessoa_nome_atual,
           valor_parcela: Number(ref?.valor || 0),
         },
-        metadata: { acao, modo, parcelas_pendentes: saldo.numPendentes },
+        metadata: { acao, modo, tipo_abatimento: tipoAbatimento, antecipacao_pagamento: ehAntecipacao, parcelas_pendentes: saldo.numPendentes, valor_centavos: valorCents, saldo_anterior_centavos: saldo.totalPendenteCents, saldo_posterior_centavos: novoSaldoCents },
       })
 
       setHistoricoLocal(prev => [eventoHistorico as HistoricoFinanceiroItem, ...prev])
@@ -663,45 +691,47 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
       if (quitado) {
         for (const p of saldo.pendentes) {
           await pagamentosApi.update(p.id, {
-            status: 'cancelado',
-            obs   : `${p.obs ? p.obs + ' | ' : ''}Quitado via abatimento`,
+            status: ehAntecipacao ? 'pago' : 'cancelado',
+            pago_em: ehAntecipacao ? data : undefined,
+            obs   : `${p.obs ? p.obs + ' | ' : ''}${ehAntecipacao ? 'Quitado por antecipação de pagamento' : 'Quitado por abatimento/desconto'}`,
           })
         }
       } else if (saldo.numPendentes > 0) {
         if (acao === 'recalcular') {
-          const novoValor = Math.round(novaParcelaPMT * 100) / 100
-          for (const p of saldo.pendentes) await pagamentosApi.update(p.id, { valor: novoValor })
+          for (let i = 0; i < saldo.pendentes.length; i++) {
+            await pagamentosApi.update(saldo.pendentes[i].id, { valor: fromCents(novosValoresCents[i] || 0) })
+          }
         } else {
           if (modo === 'abatimento') {
-            let restante = valorNum
+            let restanteCents = valorCents
             for (const p of saldo.pendentes) {
-              const atual = Number(p.valor || 0)
-              if (restante <= 0) break
-              if (restante >= atual) {
+              const atualCents = toCents(Number(p.valor || 0))
+              if (restanteCents <= 0) break
+              if (restanteCents >= atualCents) {
                 await pagamentosApi.update(p.id, {
-                  status: 'pago',
-                  pago_em: data,
-                  obs: `${p.obs ? p.obs + ' | ' : ''}Baixado por abatimento parcial`,
+                  status: ehAntecipacao ? 'pago' : 'cancelado',
+                  pago_em: ehAntecipacao ? data : undefined,
+                  obs: `${p.obs ? p.obs + ' | ' : ''}${ehAntecipacao ? 'Baixado por antecipação de pagamento' : 'Baixado por abatimento/desconto'}`,
                 })
-                restante -= atual
+                restanteCents -= atualCents
               } else {
-                await pagamentosApi.update(p.id, { valor: Math.round((atual - restante) * 100) / 100 })
-                restante = 0
+                await pagamentosApi.update(p.id, { valor: fromCents(atualCents - restanteCents) })
+                restanteCents = 0
               }
             }
           } else {
             const primeira = saldo.pendentes[0]
-            if (primeira) await pagamentosApi.update(primeira.id, { valor: Math.round((Number(primeira.valor) + valorNum) * 100) / 100 })
+            if (primeira) await pagamentosApi.update(primeira.id, { valor: fromCents(toCents(Number(primeira.valor || 0)) + valorCents) })
           }
         }
       }
 
       toast(
         quitado
-          ? 'Dívida quitada! Parcelas canceladas.'
+          ? (ehAntecipacao ? 'Dívida quitada por antecipação!' : 'Dívida quitada por abatimento/desconto!')
           : modo === 'abatimento'
-            ? `Abatimento registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
-            : `Acréscimo registrado. Parcelas recalculadas para ${fmt(novaParcelaPMT)} cada.`
+            ? `${rotuloMovimento} registrado. Novo saldo: ${fmt(novoSaldo)}.`
+            : `Acréscimo registrado. Novo saldo: ${fmt(novoSaldo)}.`
       )
       setValor('')
       setMotivo('')
@@ -808,6 +838,23 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             </div>
           )}
 
+          {modo === 'abatimento' && (
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Tipo do abatimento</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button type="button" className={`btn ${tipoAbatimento === 'antecipacao' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('antecipacao')} style={{ fontSize: 12 }}>
+                  Antecipação
+                </button>
+                <button type="button" className={`btn ${tipoAbatimento === 'desconto' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('desconto')} style={{ fontSize: 12 }}>
+                  Desconto
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                Antecipação marca parcelas pagas. Desconto reduz ou cancela saldo sem criar lançamento separado.
+              </div>
+            </div>
+          )}
+
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Observação do movimento</label>
             <textarea
@@ -845,7 +892,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
                   {[
                     { label: 'Saldo atual',                                       value: saldo.totalPendente, sign: '',  color: 'var(--text1)' },
-                    { label: modo === 'abatimento' ? '− Pagamento' : '+ Acréscimo', value: valorNum,            sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
+                    { label: modo === 'abatimento' ? (tipoAbatimento === 'antecipacao' ? '− Antecipação' : '− Desconto') : '+ Acréscimo', value: fromCents(valorCents), sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
                   ].map(({ label, value, sign, color }) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text3)' }}>{label}</span>
@@ -887,7 +934,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
               : quitado
                 ? <><Check size={14} /> Quitar dívida</>
                 : modo === 'abatimento'
-                  ? <><Check size={14} /> Registrar abatimento</>
+                  ? <><Check size={14} /> Registrar {tipoAbatimento === 'antecipacao' ? 'antecipação' : 'abatimento'}</>
                   : <><Plus size={14} /> Registrar acréscimo</>
             }
           </button>
