@@ -6,6 +6,7 @@ import './app-styles.css'
 import App from './App.tsx'
 import { ThemeProvider } from './lib/ThemeContext'
 import { AuthProvider } from './lib/AuthContext.tsx'
+import { loadSavedTokens, applyAllTokens } from './hooks/useDesignTokens'
 
 // ═══ APLICA TEMA ANTES DO REACT PARA EVITAR FLASH E ESTADO QUEBRADO ═══
 const savedTheme = localStorage.getItem('nexus-theme')
@@ -14,6 +15,14 @@ const initialTheme = savedTheme === 'light' || savedTheme === 'dark'
   : (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 document.documentElement.setAttribute('data-theme', initialTheme)
 document.documentElement.style.colorScheme = initialTheme
+
+// ═══ APLICA TOKENS VISUAIS SALVOS PELO EDITOR, SEM SOBRESCREVER O TEMA PADRÃO ═══
+// Importante: só aplica quando existe personalização salva. Assim o modo claro/escuro
+// continua funcionando normalmente para todos os usuários que não usaram o editor visual.
+const savedDesignTokens = loadSavedTokens()
+if (savedDesignTokens) {
+  applyAllTokens(savedDesignTokens)
+}
 
 // ═══ RECUPERAÇÃO CONTRA CACHE ANTIGO DE CHUNKS ═══
 // Se o navegador tentar carregar um arquivo /assets/*.js antigo e receber erro,

@@ -18,6 +18,7 @@ import Configuracoes from './pages/Configuracoes'
 import PessoaDetalhe from './pages/PessoaDetalhe'
 import Usuarios from './pages/Usuarios'
 import AceitarConvite from './pages/AceitarConvite'
+import DesignEditor from './pages/DesignEditor'
 
 function FullScreenLoader() {
   return (
@@ -103,6 +104,14 @@ export default function App() {
         <Route path="configuracoes" element={<Configuracoes />} />
         {/* Usuários: todos acessam; a tela e o backend limitam criação/listagem por hierarquia */}
         <Route path="usuarios" element={<Usuarios />} />
+        <Route
+          path="design-editor"
+          element={
+            user && ['admin', 'dev', 'gestor'].includes(user.role)
+              ? <DesignEditor />
+              : <Navigate to="/" replace />
+          }
+        />
       </Route>
 
       {/* Convite público — não requer autenticação */}

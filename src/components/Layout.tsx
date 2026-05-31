@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
-  LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
+  LogOut, Settings, Sun, Moon, UserCog, ChevronRight, Palette,
   CheckCircle, XCircle, AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
@@ -25,6 +25,7 @@ const NAV = [
   { path: '/relatorios',   icon: BarChart3,       label: 'Relatórios'  },
   { path: '/usuarios',     icon: UserCog,         label: 'Usuários'    },
   { path: '/configuracoes',icon: Settings,        label: 'Config.'     },
+  { path: '/design-editor', icon: Palette,        label: 'Visual'      },
 ]
 
 // Mantemos NAV no escopo global. BOTTOM_MAIN será calculado dentro do componente Layout.
@@ -155,6 +156,7 @@ export default function Layout() {
                 '/equipe',
                 '/equipes',
                 '/relatorios',
+                '/design-editor',
               ].includes(path)) return null
             }
             return (

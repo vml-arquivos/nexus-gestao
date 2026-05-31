@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { roleLabel } from '../lib/roles'
+import { isGestorLike, roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
 
@@ -139,6 +140,12 @@ export default function Configuracoes() {
               </button>
             ))}
           </div>
+
+          {isGestorLike(user?.role) && (
+            <Link className="btn btn-secondary" style={{ width: '100%', marginTop: 12, justifyContent: 'center', textDecoration: 'none' }} to="/design-editor">
+              <Palette size={14} /> Abrir Editor Visual
+            </Link>
+          )}
         </div>
 
         {/* Notificações */}
