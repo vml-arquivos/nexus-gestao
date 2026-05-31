@@ -34,104 +34,168 @@ function hardQuery(sql: string, params: unknown[]) {
 
 
 /* ── GET /api/admin/backup ──────────────────────────────────────
-   Exporta um backup JSON da organização autenticada.
-   Não inclui refresh tokens nem senhas. */
+   Gera backup completo para restauração: dump do PostgreSQL + uploads + manifesto.
+   Arquivo final: .tar.gz. Não inclui senhas/tokens em texto puro. */
 router.get('/backup', async (req: Request, res: Response): Promise<void> => {
   const { orgId, userId, email, role } = req.user!
 
-  const tables = [
-    'profiles',
-    'equipes',
-    'equipes_membros',
-    'tarefas',
-    'tarefa_checklist',
-    'tarefas_historico',
-    'tarefa_historico',
-    'tarefa_anexos',
-    'pessoas',
-    'agenda',
-    'documentos',
-    'pagamentos',
-    'pagamentos_historico',
-    'notificacoes',
-    'convites',
-    'nexus_external_links',
-  ]
-
-  const sensitive = new Set([
-    'senha', 'password', 'password_hash', 'senha_hash', 'hash',
-    'refresh_token', 'refreshToken', 'token_hash', 'reset_token',
-  ])
-
-  function quoteIdent(v: string): string {
-    return '"' + v.replace(/"/g, '""') + '"'
+  function safeName(v: string): string {
+    return String(v || 'nexus').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').slice(0, 80)
   }
 
-  async function getColumns(table: string): Promise<string[]> {
-    const rows = await query<{ column_name: string }>(
-      `SELECT column_name
-         FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = $1
-        ORDER BY ordinal_position`,
-      [table]
+  function isSensitiveEnvKey(key: string): boolean {
+    const k = key.toUpperCase()
+    return (
+      k.includes('SECRET') ||
+      k.includes('TOKEN') ||
+      k.includes('PASSWORD') ||
+      k.includes('PASS') ||
+      k.includes('PWD') ||
+      k.includes('KEY') ||
+      k === 'DATABASE_URL' ||
+      k.includes('DATABASE') && k.includes('URL')
     )
-    return rows.map(r => r.column_name).filter(c => !sensitive.has(c))
   }
+
+  function buildEnvSnapshot(): Record<string, string> {
+    const allowedPrefixes = [
+      'NODE_ENV', 'FRONTEND_URL', 'VITE_API_URL', 'CORS_EXTRA_ORIGINS',
+      'DATABASE_SSL', 'JWT_EXPIRES_IN', 'JWT_REFRESH_EXPIRES_IN',
+      'DESTRAVA_FRONTEND_URL', 'NEXUS_ALLOWED_FRAME_ANCESTORS',
+      'NEXUS_PUBLIC_URL', 'NEXUS_API_URL', 'COOLIFY_FQDN', 'COOLIFY_URL', 'COOLIFY_BRANCH',
+    ]
+
+    const snapshot: Record<string, string> = {}
+    for (const [key, value] of Object.entries(process.env)) {
+      const shouldInclude = allowedPrefixes.some(prefix => key === prefix || key.startsWith(prefix + '_'))
+      if (!shouldInclude && !isSensitiveEnvKey(key)) continue
+      snapshot[key] = isSensitiveEnvKey(key) ? '[REDACTED — manter/recriar no painel de variáveis do Coolify]' : String(value ?? '')
+    }
+    return snapshot
+  }
+
+  async function execFileAsync(cmd: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number }) {
+    const { execFile } = await import('child_process')
+    return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      execFile(cmd, args, {
+        cwd: options?.cwd,
+        env: options?.env,
+        timeout: options?.timeout ?? 120000,
+        maxBuffer: 1024 * 1024 * 10,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          const err = error as Error & { stdout?: string; stderr?: string }
+          err.stdout = stdout
+          err.stderr = stderr
+          reject(err)
+          return
+        }
+        resolve({ stdout, stderr })
+      })
+    })
+  }
+
+  const fs = await import('fs/promises')
+  const path = await import('path')
+  const os = await import('os')
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), `nexus-backup-${stamp}-`))
+  const bundleDir = path.join(workDir, 'nexus-backup')
+  const backupFile = path.join(workDir, `nexus-backup-completo-${stamp}.tar.gz`)
 
   try {
-    const data: Record<string, unknown[]> = {}
-    const skipped: string[] = []
+    await fs.mkdir(bundleDir, { recursive: true })
 
-    for (const table of tables) {
-      const columns: string[] = await getColumns(table).catch((): string[] => [])
-      if (columns.length === 0) {
-        skipped.push(table)
-        continue
-      }
-
-      const selectCols = columns.map(quoteIdent).join(', ')
-      let rows: unknown[] = []
-
-      if (columns.includes('org_id')) {
-        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE org_id = $1`, [orgId])
-      } else if (table === 'profiles' && columns.includes('id')) {
-        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE id = $1`, [userId])
-      } else if ((table === 'organizacoes' || table === 'organizations') && columns.includes('id')) {
-        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE id = $1`, [orgId])
-      } else {
-        skipped.push(table)
-        continue
-      }
-
-      data[table] = rows
+    const databaseUrl = process.env.DATABASE_URL || ''
+    if (!databaseUrl) {
+      res.status(500).json({ error: 'DATABASE_URL não configurada. Não foi possível gerar dump do banco.' })
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      return
     }
 
-    const payload = {
-      metadata: {
-        sistema: 'Nexus Gestão',
-        tipo: 'backup_organizacao',
-        versao: '1.0',
-        org_id: orgId,
-        gerado_por: { user_id: userId, email, role },
-        gerado_em: new Date().toISOString(),
-        tabelas_exportadas: Object.keys(data),
-        tabelas_ignoradas: skipped,
-        observacao: 'Backup JSON por organização. Senhas, tokens e refresh tokens não são exportados.',
+    const dumpPath = path.join(bundleDir, 'database.dump')
+    const sqlPath = path.join(bundleDir, 'database.sql')
+
+    // Dump custom para restauração confiável com pg_restore.
+    await execFileAsync('pg_dump', [
+      '--format=custom',
+      '--no-owner',
+      '--no-acl',
+      '--file', dumpPath,
+      databaseUrl,
+    ], { timeout: 10 * 60 * 1000 })
+
+    // Dump SQL legível como alternativa de conferência/restauração manual.
+    await execFileAsync('pg_dump', [
+      '--format=plain',
+      '--no-owner',
+      '--no-acl',
+      '--file', sqlPath,
+      databaseUrl,
+    ], { timeout: 10 * 60 * 1000 })
+
+    const uploadsDir = process.env.UPLOADS_DIR || '/app/uploads'
+    const uploadsTarget = path.join(bundleDir, 'uploads')
+    try {
+      await fs.access(uploadsDir)
+      await execFileAsync('cp', ['-a', uploadsDir + '/.', uploadsTarget], { timeout: 5 * 60 * 1000 })
+    } catch {
+      await fs.mkdir(uploadsTarget, { recursive: true })
+      await fs.writeFile(path.join(uploadsTarget, 'SEM_ARQUIVOS.txt'), 'Nenhuma pasta de uploads foi encontrada neste ambiente.\n')
+    }
+
+    const envSnapshot = buildEnvSnapshot()
+    await fs.writeFile(
+      path.join(bundleDir, 'env.runtime.redacted.json'),
+      JSON.stringify(envSnapshot, null, 2),
+      'utf8'
+    )
+
+    const restoreReadme = `# Backup completo — Nexus Gestão\n\nGerado em: ${new Date().toISOString()}\nGerado por: ${email} (${role})\nOrganização: ${orgId}\n\n## Conteúdo\n\n- database.dump: dump PostgreSQL em formato custom, recomendado para restauração com pg_restore.\n- database.sql: dump SQL legível, útil para auditoria ou restauração manual.\n- uploads/: arquivos enviados/anexos do sistema.\n- env.runtime.redacted.json: variáveis de ambiente relevantes, com segredos ocultados por segurança.\n- manifest.json: resumo do pacote.\n\n## Restauração recomendada\n\n1. Criar banco PostgreSQL vazio.\n2. Restaurar o dump custom:\n\n   pg_restore --clean --if-exists --no-owner --no-acl -d \"SUA_DATABASE_URL\" database.dump\n\n3. Copiar a pasta uploads para /app/uploads no container/volume do Nexus.\n4. Recriar no Coolify as variáveis sensíveis marcadas como REDACTED.\n5. Fazer redeploy do Nexus.\n\nObservação: por segurança, JWT_SECRET, DATABASE_URL, senhas, tokens e chaves não são exportados em texto puro.\n`;
+
+    const manifest = {
+      sistema: 'Nexus Gestão',
+      tipo: 'backup_completo_restauração',
+      versao: '2.0',
+      formato: 'tar.gz',
+      org_id: orgId,
+      gerado_por: { user_id: userId, email, role },
+      gerado_em: new Date().toISOString(),
+      conteudo: [
+        'database.dump',
+        'database.sql',
+        'uploads/',
+        'env.runtime.redacted.json',
+        'RESTORE.md',
+      ],
+      seguranca: {
+        inclui_senhas_ou_tokens_em_texto_puro: false,
+        observacao: 'Variáveis sensíveis são listadas com valor REDACTED para evitar vazamento pelo navegador.',
       },
-      data,
     }
 
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const filename = `nexus-backup-${stamp}.json`
-    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    await fs.writeFile(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
+    await fs.writeFile(path.join(bundleDir, 'RESTORE.md'), restoreReadme, 'utf8')
+
+    await execFileAsync('tar', ['-czf', backupFile, '-C', bundleDir, '.'], { timeout: 10 * 60 * 1000 })
+
+    const filename = safeName(`nexus-backup-completo-${stamp}.tar.gz`)
+    res.setHeader('Content-Type', 'application/gzip')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
-    res.status(200).send(JSON.stringify(payload, null, 2))
+    res.download(backupFile, filename, async (err) => {
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+      if (err && !res.headersSent) {
+        console.error('[ADMIN] Erro ao enviar backup:', err)
+      }
+    })
   } catch (err) {
-    console.error('[ADMIN] Erro ao gerar backup:', err)
-    res.status(500).json({ error: 'Erro ao gerar backup do sistema.' })
+    console.error('[ADMIN] Erro ao gerar backup completo:', err)
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {})
+    res.status(500).json({ error: 'Erro ao gerar backup completo do banco e arquivos.' })
   }
 })
+
 
 /* ── DELETE /api/admin/limpar/tarefas ────────────────────────── */
 router.delete('/limpar/tarefas', async (req: Request, res: Response): Promise<void> => {

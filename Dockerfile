@@ -41,7 +41,7 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_CACHE=/root/.npm
 
-RUN apk add --no-cache nginx supervisor wget
+RUN apk add --no-cache nginx supervisor wget postgresql-client tar gzip
 
 # Backend
 WORKDIR /app/backend

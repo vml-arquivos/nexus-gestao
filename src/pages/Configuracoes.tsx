@@ -79,7 +79,7 @@ export default function Configuracoes() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = filename || 'nexus-backup.json'
+      a.download = filename || 'nexus-backup-completo.tar.gz'
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -208,10 +208,10 @@ export default function Configuracoes() {
               <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Backup do sistema</span>
             </div>
             <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
-              Gere um arquivo JSON com os dados da sua organização. Senhas e tokens não são incluídos no backup.
+              Baixe um pacote completo para restauração: banco PostgreSQL, arquivos enviados e variáveis do ambiente sem expor senhas ou tokens em texto puro.
             </p>
             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={gerarBackup} disabled={gerandoBackup}>
-              <Download size={14} /> {gerandoBackup ? 'Gerando backup…' : 'Baixar backup agora'}
+              <Download size={14} /> {gerandoBackup ? 'Gerando backup completo…' : 'Baixar backup completo'}
             </button>
           </div>
         )}
