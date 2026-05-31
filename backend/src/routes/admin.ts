@@ -31,6 +31,108 @@ function hardQuery(sql: string, params: unknown[]) {
   return (): Promise<unknown> => query(sql, params)
 }
 
+
+
+/* ── GET /api/admin/backup ──────────────────────────────────────
+   Exporta um backup JSON da organização autenticada.
+   Não inclui refresh tokens nem senhas. */
+router.get('/backup', async (req: Request, res: Response): Promise<void> => {
+  const { orgId, userId, email, role } = req.user!
+
+  const tables = [
+    'profiles',
+    'equipes',
+    'equipes_membros',
+    'tarefas',
+    'tarefa_checklist',
+    'tarefas_historico',
+    'tarefa_historico',
+    'tarefa_anexos',
+    'pessoas',
+    'agenda',
+    'documentos',
+    'pagamentos',
+    'pagamentos_historico',
+    'notificacoes',
+    'convites',
+    'nexus_external_links',
+  ]
+
+  const sensitive = new Set([
+    'senha', 'password', 'password_hash', 'senha_hash', 'hash',
+    'refresh_token', 'refreshToken', 'token_hash', 'reset_token',
+  ])
+
+  function quoteIdent(v: string): string {
+    return '"' + v.replace(/"/g, '""') + '"'
+  }
+
+  async function getColumns(table: string): Promise<string[]> {
+    const rows = await query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+        ORDER BY ordinal_position`,
+      [table]
+    )
+    return rows.map(r => r.column_name).filter(c => !sensitive.has(c))
+  }
+
+  try {
+    const data: Record<string, unknown[]> = {}
+    const skipped: string[] = []
+
+    for (const table of tables) {
+      const columns: string[] = await getColumns(table).catch((): string[] => [])
+      if (columns.length === 0) {
+        skipped.push(table)
+        continue
+      }
+
+      const selectCols = columns.map(quoteIdent).join(', ')
+      let rows: unknown[] = []
+
+      if (columns.includes('org_id')) {
+        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE org_id = $1`, [orgId])
+      } else if (table === 'profiles' && columns.includes('id')) {
+        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE id = $1`, [userId])
+      } else if ((table === 'organizacoes' || table === 'organizations') && columns.includes('id')) {
+        rows = await query(`SELECT ${selectCols} FROM ${quoteIdent(table)} WHERE id = $1`, [orgId])
+      } else {
+        skipped.push(table)
+        continue
+      }
+
+      data[table] = rows
+    }
+
+    const payload = {
+      metadata: {
+        sistema: 'Nexus Gestão',
+        tipo: 'backup_organizacao',
+        versao: '1.0',
+        org_id: orgId,
+        gerado_por: { user_id: userId, email, role },
+        gerado_em: new Date().toISOString(),
+        tabelas_exportadas: Object.keys(data),
+        tabelas_ignoradas: skipped,
+        observacao: 'Backup JSON por organização. Senhas, tokens e refresh tokens não são exportados.',
+      },
+      data,
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `nexus-backup-${stamp}.json`
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.status(200).send(JSON.stringify(payload, null, 2))
+  } catch (err) {
+    console.error('[ADMIN] Erro ao gerar backup:', err)
+    res.status(500).json({ error: 'Erro ao gerar backup do sistema.' })
+  }
+})
+
 /* ── DELETE /api/admin/limpar/tarefas ────────────────────────── */
 router.delete('/limpar/tarefas', async (req: Request, res: Response): Promise<void> => {
   const { orgId } = req.user!

@@ -26,6 +26,7 @@ export default function Configuracoes() {
   const [savingPerfil, setSavingPerfil]   = useState(false)
   const [savingSenha, setSavingSenha]     = useState(false)
   const [notifEnabled, setNotifEnabled]   = useState(Notification.permission === 'granted')
+  const [gerandoBackup, setGerandoBackup] = useState(false)
 
   function aplicarTema(t: 'dark' | 'light') {
     setTheme(t)
@@ -64,6 +65,30 @@ export default function Configuracoes() {
       toast('Notificações ativadas!')
     } else {
       toast('Permissão negada. Ative nas configurações do navegador.', 'error')
+    }
+  }
+
+  async function gerarBackup() {
+    if (!isGestorLike(user?.role)) {
+      toast('Backup disponível apenas para gestor, admin ou dev.', 'error')
+      return
+    }
+    setGerandoBackup(true)
+    try {
+      const { blob, filename } = await api.download('/admin/backup')
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || 'nexus-backup.json'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast('Backup gerado com sucesso!')
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Erro ao gerar backup', 'error')
+    } finally {
+      setGerandoBackup(false)
     }
   }
 
@@ -131,8 +156,11 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <Palette size={16} color="#EC4899" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Aparência</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Visual do sistema</span>
           </div>
+          <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
+            Escolha o modo claro/escuro ou personalize cores, fontes, bordas e espaçamentos do sistema.
+          </p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {([['dark', '🌙 Escuro'], ['light', '☀️ Claro']] as const).map(([k, l]) => (
               <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#2563EB' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 500, fontSize: 14, color: theme === k ? '#2563EB' : 'var(--text3)' }}>
@@ -143,7 +171,7 @@ export default function Configuracoes() {
 
           {isGestorLike(user?.role) && (
             <Link className="btn btn-secondary" style={{ width: '100%', marginTop: 12, justifyContent: 'center', textDecoration: 'none' }} to="/design-editor">
-              <Palette size={14} /> Abrir Editor Visual
+              <Palette size={14} /> Editar layout, tema e fontes
             </Link>
           )}
         </div>
@@ -170,6 +198,23 @@ export default function Configuracoes() {
           )}
         </div>
 
+
+
+        {/* Backup */}
+        {isGestorLike(user?.role) && (
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Download size={16} color="#5B7CFA" />
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Backup do sistema</span>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
+              Gere um arquivo JSON com os dados da sua organização. Senhas e tokens não são incluídos no backup.
+            </p>
+            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={gerarBackup} disabled={gerandoBackup}>
+              <Download size={14} /> {gerandoBackup ? 'Gerando backup…' : 'Baixar backup agora'}
+            </button>
+          </div>
+        )}
 
         {/* Downloads */}
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>

@@ -383,6 +383,17 @@ export const api = {
   async delete<T>(path: string): Promise<T> {
     return apiJson<T>(path, { method: 'DELETE' })
   },
+  async download(path: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await apiFetch(path)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    const disposition = res.headers.get('content-disposition') || ''
+    const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
+    const filename = decodeURIComponent(match?.[1] || match?.[2] || 'nexus-backup.json')
+    return { blob: await res.blob(), filename }
+  },
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────

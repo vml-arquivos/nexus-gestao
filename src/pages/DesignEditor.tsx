@@ -1,5 +1,5 @@
 // src/pages/DesignEditor.tsx
-// Editor Visual Nativo do Nexus — 100% exclusivo, zero dependências externas
+// Editar aparência Nativo do Nexus — 100% exclusivo, zero dependências externas
 // Edita tokens de design em tempo real com preview ao vivo no sistema inteiro
 
 import { useState, useCallback, useRef } from 'react'
@@ -194,34 +194,50 @@ export default function DesignEditor() {
   const [activeTab, setActiveTab] = useState<'cores' | 'tipografia' | 'layout' | 'presets' | 'codigo'>('presets')
   const [preview, setPreview] = useState<'desktop' | 'mobile'>('desktop')
   const [hasChanges, setHasChanges] = useState(false)
+  const [autoSavedAt, setAutoSavedAt] = useState<string | null>(null)
   const [showInfo, setShowInfo] = useState(false)
 
-  // Aplica token e marca como modificado
+  function markAutoSaved(next: DesignTokens) {
+    saveTokens(next)
+    setHasChanges(false)
+    setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+  }
+
+  // Aplica e salva automaticamente cada ajuste visual.
   const set = useCallback(<K extends keyof DesignTokens>(key: K, value: DesignTokens[K]) => {
-    setTokens(prev => ({ ...prev, [key]: value }))
-    applyToken(key, value)
-    setHasChanges(true)
+    setTokens(prev => {
+      const next = { ...prev, [key]: value }
+      applyToken(key, value)
+      saveTokens(next)
+      return next
+    })
+    setHasChanges(false)
+    setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
   }, [])
 
   function handleSave() {
     saveTokens(tokens)
     setHasChanges(false)
-    toast('✅ Tema salvo! Aplicado ao sistema.')
+    setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+    toast('✅ Visual salvo e aplicado ao sistema.')
   }
 
   function handleReset() {
     const def = resetTokens()
     setTokens(def)
     setHasChanges(false)
-    toast('↩️ Tema restaurado para o padrão.')
+    setAutoSavedAt(null)
+    toast('↩️ Visual restaurado para o padrão.')
   }
 
   function handlePreset(preset: typeof PRESETS[0]) {
     const merged = { ...tokens, ...preset.tokens }
     setTokens(merged)
     applyAllTokens(preset.tokens)
-    setHasChanges(true)
-    toast(`${preset.emoji} Preset "${preset.name}" aplicado!`)
+    saveTokens(merged)
+    setHasChanges(false)
+    setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+    toast(`${preset.emoji} Preset "${preset.name}" aplicado e salvo!`)
   }
 
   function handleExport() {
@@ -259,8 +275,8 @@ export default function DesignEditor() {
           <Palette size={18} color="#fff" />
         </div>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 17, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>Editor Visual</h1>
-          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Edite o design do sistema em tempo real</p>
+          <h1 style={{ fontSize: 17, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>Editar aparência</h1>
+          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Ajuste temas, cores, fontes e layout do sistema</p>
         </div>
 
         {/* Botões de ação */}
@@ -268,7 +284,12 @@ export default function DesignEditor() {
           {hasChanges && (
             <div style={{ fontSize: 11, color: 'var(--warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warning)' }} />
-              Não salvo
+              Salvando…
+            </div>
+          )}
+          {!hasChanges && autoSavedAt && (
+            <div style={{ fontSize: 11, color: 'var(--success)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Check size={12} /> Salvo automaticamente {autoSavedAt}
             </div>
           )}
           <button className="btn btn-ghost btn-sm" onClick={() => setShowInfo(i => !i)} style={{ padding: '6px 8px' }}>
@@ -278,7 +299,7 @@ export default function DesignEditor() {
             <RotateCcw size={14} /> Restaurar
           </button>
           <button className="btn btn-primary btn-sm" onClick={handleSave} title="Salvar tema">
-            <Check size={14} /> Salvar
+            <Check size={14} /> Salvo
           </button>
         </div>
       </div>
@@ -288,7 +309,7 @@ export default function DesignEditor() {
         <div style={{ padding: '12px 20px', background: 'rgba(91,124,250,0.08)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <Info size={16} color="var(--primary)" style={{ flexShrink: 0, marginTop: 1 }} />
           <p style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.7 }}>
-            Todas as alterações são aplicadas <strong>ao vivo</strong> no sistema. Abra outra aba com o sistema para ver o resultado em tempo real. Clique em <strong>Salvar</strong> para persistir. Use <strong>Exportar CSS</strong> para baixar o arquivo e substituir o <code>theme.css</code> no repositório para tornar permanente no código-fonte.
+            Todas as alterações são aplicadas <strong>ao vivo</strong> no sistema. Abra outra aba com o sistema para ver o resultado em tempo real. As alterações são salvas automaticamente neste dispositivo. Use <strong>Exportar CSS</strong> para baixar o arquivo e substituir o <code>theme.css</code> no repositório para tornar permanente no código-fonte.
           </p>
         </div>
       )}
