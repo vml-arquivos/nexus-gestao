@@ -130,7 +130,7 @@ const STATUS_STYLE: Record<string, { label: string; bg: string; color: string }>
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLE[status] || STATUS_STYLE.pendente
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color, letterSpacing: '.03em' }}>
+    <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 20, background: s.bg, color: s.color, letterSpacing: '.03em' }}>
       {s.label}
     </span>
   )
@@ -156,7 +156,7 @@ function GrupoCard({ g, onAbrirParcelas, onMarcarPago, onExcluir }: {
           <Icon size={16} color={cor} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {g.titulo}
             <StatusBadge status={g.status} />
             {g.parcelas > 1 && (
@@ -175,7 +175,7 @@ function GrupoCard({ g, onAbrirParcelas, onMarcarPago, onExcluir }: {
           </div>
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          {g.pendente > 0 && <div style={{ color: cor, fontWeight: 900, fontSize: 15, fontFamily: 'var(--font-heading)' }}>{fmt(g.pendente)}</div>}
+          {g.pendente > 0 && <div style={{ color: cor, fontWeight: 500, fontSize: 15, fontFamily: 'var(--font-heading)' }}>{fmt(g.pendente)}</div>}
           {g.pago > 0 && <div style={{ color: 'var(--text3)', fontSize: 11 }}>Pago {fmt(g.pago)}</div>}
           {g.parcelas > 1 && g.total !== g.pendente && <div style={{ color: 'var(--text3)', fontSize: 10 }}>Total {fmt(g.total)}</div>}
         </div>
@@ -222,7 +222,7 @@ function ModalParcelas({ grupo, onClose, onMarcarPago, onExcluirParcela }: {
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>{grupo.titulo}</h2>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>{grupo.titulo}</h2>
             <div style={{ color: 'var(--text3)', fontSize: 12 }}>{grupo.parcelas} parcelas · Total {fmt(grupo.total)}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
@@ -233,7 +233,7 @@ function ModalParcelas({ grupo, onClose, onMarcarPago, onExcluirParcela }: {
             const vencido = p.status === 'pendente' && (p.vencimento || '') < now
             return (
               <div key={p.id} style={{ background: 'var(--bg3)', border: `1px solid ${vencido ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, borderRadius: 'var(--radius-sm)', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.status === 'pago' ? 'rgba(16,185,129,.2)' : 'var(--bg4)', border: `1px solid ${p.status === 'pago' ? 'rgba(16,185,129,.4)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: p.status === 'pago' ? '#10B981' : 'var(--text3)', flexShrink: 0 }}>
+                <div style={{ width: 26, height: 26, borderRadius: '50%', background: p.status === 'pago' ? 'rgba(16,185,129,.2)' : 'var(--bg4)', border: `1px solid ${p.status === 'pago' ? 'rgba(16,185,129,.4)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 500, color: p.status === 'pago' ? '#10B981' : 'var(--text3)', flexShrink: 0 }}>
                   {p.status === 'pago' ? <Check size={12} /> : i + 1}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -244,7 +244,7 @@ function ModalParcelas({ grupo, onClose, onMarcarPago, onExcluirParcela }: {
                   <div style={{ fontSize: 11, color: 'var(--text3)' }}>Vence {fmtDate(p.vencimento)}{p.pago_em ? ` · Pago ${fmtDate(p.pago_em)}` : ''}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{fmt(Number(p.valor))}</div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>{fmt(Number(p.valor))}</div>
                   <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                     {p.status !== 'pago' && (
                       <button className="btn btn-success btn-sm" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => onMarcarPago([p.id])}>
@@ -294,7 +294,7 @@ function ModalUpload({ pessoaId, onClose, onSaved }: { pessoaId: string; onClose
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Enviar documento</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Enviar documento</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -384,7 +384,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Editar contato</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Editar contato</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -517,7 +517,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
         style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Nova tarefa para {pessoaNome}</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Nova tarefa para {pessoaNome}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}>
             <X size={18} />
           </button>
@@ -790,8 +790,8 @@ export default function PessoaDetalhe() {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 20 }}>{pessoa.nome}</h1>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 20, background: `${TIPO_COR[pessoa.tipo]}22`, color: TIPO_COR[pessoa.tipo] }}>
+                <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 17 }}>{pessoa.nome}</h1>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 9px', borderRadius: 20, background: `${TIPO_COR[pessoa.tipo]}22`, color: TIPO_COR[pessoa.tipo] }}>
                   {TIPO_LABEL[pessoa.tipo] || pessoa.tipo}
                 </span>
               </div>

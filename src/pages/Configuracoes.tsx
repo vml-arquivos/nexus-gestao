@@ -72,7 +72,7 @@ export default function Configuracoes() {
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>⚙️ Configurações</h1>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>⚙️ Configurações</h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie seu perfil e preferências</p>
       </div>
 
@@ -82,8 +82,8 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <User size={16} color="#2563EB" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Meu Perfil</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: roleColor, background: roleColor + '18', padding: '3px 8px', borderRadius: 99 }}>{labelRole}</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Meu Perfil</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 500, color: roleColor, background: roleColor + '18', padding: '3px 8px', borderRadius: 99 }}>{labelRole}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="form-group">
@@ -105,7 +105,7 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <Shield size={16} color="#F59E0B" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Segurança</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Segurança</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="form-group">
@@ -130,11 +130,11 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <Palette size={16} color="#EC4899" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Aparência</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Aparência</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {([['dark', '🌙 Escuro'], ['light', '☀️ Claro']] as const).map(([k, l]) => (
-              <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#2563EB' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 700, fontSize: 14, color: theme === k ? '#2563EB' : 'var(--text3)' }}>
+              <button key={k} onClick={() => aplicarTema(k)} style={{ padding: '12px 16px', borderRadius: 'var(--radius)', border: `2px solid ${theme === k ? '#2563EB' : 'var(--border)'}`, background: theme === k ? 'rgba(108,59,255,0.1)' : 'var(--bg3)', cursor: 'pointer', fontWeight: 500, fontSize: 14, color: theme === k ? '#2563EB' : 'var(--text3)' }}>
                 {l}
               </button>
             ))}
@@ -145,7 +145,7 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Bell size={16} color="#F59E0B" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Notificações Push</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Notificações Push</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
             Receba alertas para tarefas com prazo próximo, compromissos do dia e pagamentos vencidos.
@@ -168,7 +168,7 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Download size={16} color="#10B981" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Downloads</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Downloads</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
             Baixe atalhos e arquivos do Nexus para instalar ou acessar o sistema rapidamente em outros dispositivos.
@@ -193,13 +193,13 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Info size={16} color="var(--text3)" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 15 }}>Sobre o Nexus</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Sobre o Nexus</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             {[['Versão', '3.0.0'], ['Plataforma', 'PWA'], ['Backend', 'PostgreSQL 17'], ['Deploy', 'Coolify / VPS']].map(([k, v]) => (
               <div key={k} style={{ background: 'var(--bg3)', borderRadius: 8, padding: '8px 12px' }}>
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 2 }}>{k}</div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{v}</div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>{v}</div>
               </div>
             ))}
           </div>

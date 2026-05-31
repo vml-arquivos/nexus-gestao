@@ -728,7 +728,7 @@ function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClos
     <ModalBase title="Solicitar complemento na tarefa" onClose={onClose}>
       <div style={{ display: 'grid', gap: 12 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg3)', padding: 12 }}>
-          <div style={{ fontWeight: 900 }}>{tarefa.titulo}</div>
+          <div style={{ fontWeight: 500 }}>{tarefa.titulo}</div>
           <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
             Use essa opção para continuar a mesma tarefa sem criar cards soltos. O membro receberá a tarefa novamente como pendente.
           </div>
@@ -771,7 +771,7 @@ function HistoricoModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => vo
       {loading ? <p>Carregando...</p> : items.length === 0 ? <p style={{ color: 'var(--text3)' }}>Nenhum histórico registrado.</p> : (
         <div style={{ display: 'grid', gap: 8 }}>
           {items.map((h, i) => <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--bg3)' }}>
-            <div style={{ fontWeight: 800, fontSize: 13 }}>{h.acao}</div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>{h.acao}</div>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>{h.usuario_nome || h.user_id} · {h.created_at ? new Date(h.created_at).toLocaleString('pt-BR') : ''}</div>
             {h.observacao && <div style={{ fontSize: 13, marginTop: 4 }}>{h.observacao}</div>}
           </div>)}
@@ -896,7 +896,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           <div key={anexo.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)', display: 'grid', gap: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {anexo.titulo || anexo.nome_original || 'Anexo'}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {anexo.titulo || anexo.nome_original || 'Anexo'}</div>
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{anexo.enviado_por_nome || anexo.enviado_por} · {fmtDateTime(anexo.created_at)} {anexo.tamanho ? `· ${formatSize(anexo.tamanho)}` : ''}</div>
                 {anexo.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>{anexo.descricao}</div>}
               </div>
@@ -916,7 +916,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
     <ModalBase title="Arquivos da tarefa" onClose={onClose}>
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)' }}>
-          <div style={{ fontWeight: 900, marginBottom: 4 }}>{tarefa.titulo}</div>
+          <div style={{ fontWeight: 500, marginBottom: 4 }}>{tarefa.titulo}</div>
           <div style={{ fontSize: 12, color: 'var(--text3)' }}>
             {isGestor
               ? 'Confira aqui os arquivos enviados pelos membros e acompanhe a execução da tarefa.'
@@ -928,7 +928,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
           <>
             <section style={{ display: 'grid', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontWeight: 900 }}>Arquivos enviados pelo membro</div>
+                <div style={{ fontWeight: 500 }}>Arquivos enviados pelo membro</div>
                 <span style={{ fontSize: 12, color: 'var(--text3)' }}>{anexosDoMembro.length} arquivo(s)</span>
               </div>
               {renderLista(anexosDoMembro, 'O membro ainda não enviou nenhum arquivo para esta tarefa.')}
@@ -937,7 +937,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontWeight: 900 }}>Anexos do gestor</div>
+                  <div style={{ fontWeight: 500 }}>Anexos do gestor</div>
                   <div style={{ fontSize: 12, color: 'var(--text3)' }}>Opcional: use para referência, validação ou devolução.</div>
                 </div>
                 <button className="btn btn-secondary" type="button" onClick={() => setShowGestorUpload(v => !v)}><Paperclip size={14} /> {showGestorUpload ? 'Ocultar envio' : 'Adicionar anexo'}</button>
@@ -952,7 +952,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
               Para enviar novos arquivos, abra a tarefa completa, selecione os arquivos e clique em <strong>Enviar conclusão</strong>. Assim os arquivos e a resposta seguem juntos para o gestor.
             </div>
             <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-              <div style={{ fontWeight: 900, marginBottom: 8 }}>Arquivos enviados</div>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>Arquivos enviados</div>
               {renderLista(anexos, 'Nenhum anexo enviado ainda.')}
             </section>
           </>
@@ -1304,8 +1304,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 14, overflowWrap: 'anywhere', textDecoration: tarefa.status === 'aprovada' ? 'line-through' : 'none' }}>{tarefa.titulo}</strong>
-            <span style={{ fontSize: 11, fontWeight: 800, color: sc.color, background: sc.bg, padding: '2px 8px', borderRadius: 99 }}>{sc.label}</span>
-            <span style={{ fontSize: 11, fontWeight: 800, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 8px', borderRadius: 99 }}>{sc.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
             <span><User size={12} /> {tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
@@ -1347,7 +1347,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
                   {ultimaEvidencia ? ` · último envio ${fmtDateTime(ultimaEvidencia)}` : ''}
                 </span>
               </span>
-              <span style={{ color: '#10B981', fontWeight: 800, whiteSpace: 'nowrap' }}>Verificar</span>
+              <span style={{ color: '#10B981', fontWeight: 600, whiteSpace: 'nowrap' }}>Verificar</span>
             </button>
           )}
         </div>
@@ -1580,7 +1580,7 @@ export default function Tarefas() {
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px)' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 800 }}>Tarefas</h1>
+          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>Tarefas</h1>
           <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> Nova tarefa</button>
@@ -1613,7 +1613,7 @@ export default function Tarefas() {
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 14 }}>
         {stats.map(([label, value, color]) => <div key={String(label)} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-          <div style={{ fontSize: 21, fontWeight: 800, color: String(color) }}>{String(value)}</div>
+          <div style={{ fontSize: 21, fontWeight: 600, color: String(color) }}>{String(value)}</div>
           <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 650 }}>{String(label)}</div>
         </div>)}
       </section>
@@ -1676,10 +1676,10 @@ export default function Tarefas() {
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 10 }}>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18 }}>{dashboardStats.total}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>tarefas filtradas</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#10B981' }}>{dashboardStats.done}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#F59E0B' }}>{dashboardStats.opened}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>em aberto</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 18, color: '#EF4444' }}>{dashboardStats.late}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>vencidas</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16 }}>{dashboardStats.total}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>tarefas filtradas</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#10B981' }}>{dashboardStats.done}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#F59E0B' }}>{dashboardStats.opened}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>em aberto</div></div>
+          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#EF4444' }}>{dashboardStats.late}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>vencidas</div></div>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           {dashboardStats.statusItems.map(item => {

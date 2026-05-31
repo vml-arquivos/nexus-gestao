@@ -72,7 +72,7 @@ export default function Login() {
           <Zap size={22} color="#fff" />
         </div>
         <div>
-          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 24, letterSpacing: '-0.04em' }}
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 24, letterSpacing: '-0.04em' }}
                className="text-gradient">NEXUS</div>
           <div style={{ fontSize: 10, color: 'var(--text3)', letterSpacing: '0.12em', fontWeight: 600 }}>
             GESTÃO INTELIGENTE
@@ -83,7 +83,7 @@ export default function Login() {
       <div style={{ width: '100%', maxWidth: 400 }}>
       {/* Título de acesso */}
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ textAlign: 'center', fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 20 }}>Acessar conta</h2>
+        <h2 style={{ textAlign: 'center', fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 17 }}>Acessar conta</h2>
       </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

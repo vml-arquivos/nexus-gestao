@@ -64,7 +64,7 @@ function EventoModal({ initial, onSave, onClose }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{initial?.id ? 'Editar Evento' : 'Novo Evento'}</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>{initial?.id ? 'Editar Evento' : 'Novo Evento'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -154,7 +154,7 @@ export default function Agenda() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Agenda</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Agenda</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>{eventos.length} evento{eventos.length !== 1 ? 's' : ''}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEditando(null); setModalOpen(true) }} style={{ gap: 6 }}><Plus size={16} /> Novo</button>
@@ -168,7 +168,7 @@ export default function Agenda() {
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <button className="btn btn-ghost btn-icon" onClick={() => setViewDate(new Date(year, month - 1, 1))}><ChevronLeft size={16} /></button>
-              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 16 }}>{MESES[month]} {year}</span>
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{MESES[month]} {year}</span>
               <button className="btn btn-ghost btn-icon" onClick={() => setViewDate(new Date(year, month + 1, 1))}><ChevronRight size={16} /></button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
@@ -202,7 +202,7 @@ export default function Agenda() {
           {/* Eventos do dia selecionado */}
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14 }}>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 14 }}>
                 <Calendar size={14} style={{ display: 'inline', marginRight: 6 }} />
                 {new Date(selectedDate + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
               </div>
@@ -234,7 +234,7 @@ export default function Agenda() {
           {/* Proximos eventos */}
           {upcomingEvents.length > 0 && (
             <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 16 }}>
-              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 14, marginBottom: 12 }}>Proximos Eventos</div>
+              <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 14, marginBottom: 12 }}>Proximos Eventos</div>
               {upcomingEvents.map(e => (
                 <div key={e.id} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                   <div style={{ width: 4, borderRadius: 2, background: TIPO_CORES[e.tipo] ?? 'var(--primary)', flexShrink: 0 }} />

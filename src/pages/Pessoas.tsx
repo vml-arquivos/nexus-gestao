@@ -68,7 +68,7 @@ function PessoaModal({ initial, onSave, onClose }: {
     >
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>{initial?.id ? 'Editar Contato' : 'Novo Contato'}</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>{initial?.id ? 'Editar Contato' : 'Novo Contato'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -183,7 +183,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
     >
       <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>Convidar membro</h2>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Convidar membro</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -289,7 +289,7 @@ export default function Pessoas() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Contatos</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Contatos</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>
             Pessoas, clientes, fornecedores e membros
           </p>
@@ -333,7 +333,7 @@ export default function Pessoas() {
           ) : filtradas.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>👤</div>
-              <div style={{ fontWeight: 700 }}>Nenhum contato encontrado</div>
+              <div style={{ fontWeight: 500 }}>Nenhum contato encontrado</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -343,11 +343,11 @@ export default function Pessoas() {
                 return (
                   <div key={p.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: tc.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16, flexShrink: 0 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: '50%', background: tc.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500, fontSize: 16, flexShrink: 0 }}>
                         {p.avatar_url ? <img src={p.avatar_url} alt={p.nome} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : <UserRound size={18} color={tc.color} />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 14 }}>{p.nome}</div>
+                        <div style={{ fontWeight: 500, fontSize: 14 }}>{p.nome}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: tc.color, background: tc.color + '18', padding: '2px 7px', borderRadius: 99 }}><TipoIcon size={10} /> {tc.label}</span>
                           {p.cargo && <span style={{ fontSize: 11, color: 'var(--text3)' }}>{p.cargo}</span>}
@@ -357,7 +357,7 @@ export default function Pessoas() {
                           {p.email && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}><Mail size={11} /> {p.email}</span>}
                         </div>
                         {p.valor && (p.tipo === 'credor' || p.tipo === 'devedor') && (
-                          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, color: p.tipo === 'credor' ? '#EF4444' : '#10B981' }}>
+                          <div style={{ marginTop: 6, fontSize: 13, fontWeight: 500, color: p.tipo === 'credor' ? '#EF4444' : '#10B981' }}>
                             {p.tipo === 'credor' ? 'Devo: ' : 'Me deve: '}{Number(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </div>
                         )}
@@ -409,16 +409,16 @@ export default function Pessoas() {
           {membros.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text3)' }}>
               <div style={{ fontSize: 48, marginBottom: 12 }}>🔐</div>
-              <div style={{ fontWeight: 700 }}>Nenhum membro cadastrado</div>
+              <div style={{ fontWeight: 500 }}>Nenhum membro cadastrado</div>
             </div>
           ) : membros.map(m => (
             <div key={m.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: m.role === 'gestor' ? 'rgba(108,59,255,0.2)' : 'rgba(6,182,212,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 16, flexShrink: 0 }}>
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: m.role === 'gestor' ? 'rgba(108,59,255,0.2)' : 'rgba(6,182,212,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500, fontSize: 16, flexShrink: 0 }}>
                   {m.nome.charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{m.nome}</div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>{m.nome}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: m.role === 'gestor' ? '#2563EB' : '#06B6D4', background: m.role === 'gestor' ? 'rgba(37,99,235,0.12)' : 'rgba(6,182,212,0.12)', padding: '2px 7px', borderRadius: 99 }}>{m.role === 'gestor' ? 'Gestor' : 'Membro'}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--text3)' }}><Mail size={10} /> {m.email}</span>
