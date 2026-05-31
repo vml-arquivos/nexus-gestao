@@ -1137,7 +1137,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   })
 
   return (
-    <ModalBase title="Detalhes da tarefa" onClose={onClose}>
+    <ModalBase title="Tarefa" onClose={onClose}>
       <div className="task-detail-modal">
         <section className="task-detail-hero">
           <div>
@@ -1153,7 +1153,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         {tarefa.descricao && (
           <section className="task-detail-section">
-            <h3>Descrição do que precisa ser feito</h3>
+            <h3>Orientações</h3>
             <p>{tarefa.descricao}</p>
           </section>
         )}
@@ -1167,11 +1167,11 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
         <section className="task-detail-section">
           <div className="task-detail-section-head">
-            <h3>Checklist de execução</h3>
+            <h3>Passos da tarefa</h3>
             <div className="task-checklist-head-actions">
               {total > 0 && (
                 <button className="btn btn-secondary btn-sm" type="button" onClick={copiarChecklist}>
-                  <Copy size={14} /> Copiar checklist
+                  <Copy size={14} /> Copiar passos
                 </button>
               )}
               <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
@@ -1251,7 +1251,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar conclusão da tarefa' : myChecklistDone ? 'Enviar minha parte' : 'Marcar e enviar minha parte'}</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar tarefa' : myChecklistDone ? 'Enviar minha parte' : 'Enviar minha parte'}</button>}
         </div>
       </div>
     </ModalBase>

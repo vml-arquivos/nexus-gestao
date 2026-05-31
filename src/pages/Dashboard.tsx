@@ -507,8 +507,8 @@ export default function Dashboard() {
       <section className="dash-workspace">
         <div className="dash-section-head">
           <div>
-            <h2><ClipboardList size={18} /> Painel kanban mensal</h2>
-            <p>Tarefas, compromissos e financeiro organizados por prazo.</p>
+            <h2><ClipboardList size={18} /> Organização do mês</h2>
+            <p>Tarefas, compromissos e pagamentos organizados por data.</p>
           </div>
           <Link to="/tarefas" className="dash-inline-link">Abrir tarefas <ArrowRight size={13} /></Link>
         </div>
@@ -521,8 +521,8 @@ export default function Dashboard() {
               </div>
               <div className="dash-kanban-list">
                 {column.items.slice(0, 8).map(item => <MiniItem key={item.id} item={item} />)}
-                {column.items.length === 0 && <div className="dash-empty">Nada nesta coluna.</div>}
-                {column.items.length > 8 && <div className="dash-more">+ {column.items.length - 8} itens no filtro</div>}
+                {column.items.length === 0 && <div className="dash-empty">Nada por aqui.</div>}
+                {column.items.length > 8 && <div className="dash-more">+ {column.items.length - 8} itens restantes</div>}
               </div>
             </div>
           ))}
@@ -549,7 +549,7 @@ export default function Dashboard() {
                   <div className="dash-day-badges" aria-label="Resumo do dia">
                     {cell.items.some(i => i.tipo === 'tarefas') && <span className="task">Tarefas {cell.items.filter(i => i.tipo === 'tarefas').length}</span>}
                     {cell.items.some(i => i.tipo === 'agenda') && <span className="event">Agenda {cell.items.filter(i => i.tipo === 'agenda').length}</span>}
-                    {cell.items.some(i => i.tipo === 'financeiro') && <span className="money">Fin. {cell.items.filter(i => i.tipo === 'financeiro').length}</span>}
+                    {cell.items.some(i => i.tipo === 'financeiro') && <span className="money">Financeiro {cell.items.filter(i => i.tipo === 'financeiro').length}</span>}
                   </div>
                   <div className="dash-calendar-items">
                     {cell.items.map(item => <CalendarItem key={item.id} item={item} />)}
