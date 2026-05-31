@@ -11,20 +11,21 @@ import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
 import { NotificacaoToast } from './NotificacaoToast'
 import { isGestorLike, roleLabel } from '../lib/roles'
+import { useVisualTexts, type VisualTextKey } from '../hooks/useVisualTexts'
 
 // ── Rotas de navegação ────────────────────────────────────────────────────────
-const NAV = [
-  { path: '/',             icon: LayoutDashboard, label: 'Início'      },
-  { path: '/equipe',       icon: Users,           label: 'Equipe'      },
-  { path: '/equipes',      icon: Grid3X3,          label: 'Equipes'     },
-  { path: '/tarefas',      icon: CheckCircle2,    label: 'Tarefas'     },
-  { path: '/agenda',       icon: Calendar,        label: 'Agenda'      },
-  { path: '/financeiro',   icon: DollarSign,      label: 'Financeiro'  },
-  { path: '/pessoas',      icon: Users,           label: 'Pessoas'     },
-  { path: '/documentos',   icon: FileText,        label: 'Arquivos'    },
-  { path: '/relatorios',   icon: BarChart3,       label: 'Relatórios'  },
-  { path: '/usuarios',     icon: UserCog,         label: 'Usuários'    },
-  { path: '/configuracoes',icon: Settings,        label: 'Config.'     },
+const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey }[] = [
+  { path: '/',             icon: LayoutDashboard, labelKey: 'nav.home'      },
+  { path: '/equipe',       icon: Users,           labelKey: 'nav.team'      },
+  { path: '/equipes',      icon: Grid3X3,          labelKey: 'nav.teams'     },
+  { path: '/tarefas',      icon: CheckCircle2,    labelKey: 'nav.tasks'     },
+  { path: '/agenda',       icon: Calendar,        labelKey: 'nav.agenda'    },
+  { path: '/financeiro',   icon: DollarSign,      labelKey: 'nav.finance'   },
+  { path: '/pessoas',      icon: Users,           labelKey: 'nav.people'    },
+  { path: '/documentos',   icon: FileText,        labelKey: 'nav.files'     },
+  { path: '/relatorios',   icon: BarChart3,       labelKey: 'nav.reports'   },
+  { path: '/usuarios',     icon: UserCog,         labelKey: 'nav.users'     },
+  { path: '/configuracoes',icon: Settings,        labelKey: 'nav.settings'  },
 ]
 
 // Mantemos NAV no escopo global. BOTTOM_MAIN será calculado dentro do componente Layout.
@@ -51,6 +52,7 @@ export default function Layout() {
   const { pathname }           = useLocation()
   const navigate               = useNavigate()
   const { user, logout }       = useAuth()
+  const { t }                  = useVisualTexts()
   const { theme, toggleTheme } = useTheme()
   const { notificacoes, naoLidas, toasts, marcarLida, marcarTodasLidas, fecharToast } = useNotificacoes()
 
@@ -79,10 +81,10 @@ export default function Layout() {
     return ['/', '/equipe', '/tarefas', '/agenda'].includes(n.path)
   }).map(item => {
     // Se membro, redireciona /tarefas para /minhas-tarefas
-    if (!isGestorLike(user?.role) && item.path === '/tarefas') {
-      return { ...item, path: '/minhas-tarefas', label: 'Tarefas' }
-    }
-    return item
+    const adjusted = !isGestorLike(user?.role) && item.path === '/tarefas'
+      ? { ...item, path: '/minhas-tarefas' }
+      : item
+    return { ...adjusted, label: t(adjusted.labelKey) }
   })
 
   useEffect(() => { closeAll() }, [pathname])
@@ -133,8 +135,8 @@ export default function Layout() {
             <Zap size={18} color="#fff" />
           </div>
           <div>
-            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 15, lineHeight: 1 }}>NEXUS</div>
-            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, letterSpacing: '0.05em' }}>GESTÃO</div>
+            <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 15, lineHeight: 1 }}>{t('app.name')}</div>
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, letterSpacing: '0.05em' }}>{t('app.subtitle')}</div>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -145,7 +147,8 @@ export default function Layout() {
         </div>
 
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto' }}>
-          {NAV.map(({ path, icon: Icon, label }) => {
+          {NAV.map(({ path, icon: Icon, labelKey }) => {
+            const label = t(labelKey)
             if (!user) return null
             // Esconde entradas restritas para membros
             if (!isGestorLike(user.role)) {
@@ -554,7 +557,8 @@ export default function Layout() {
             <div style={{ width: 36, height: 4, borderRadius: 99, background: 'var(--border2)', margin: '0 auto 16px' }} />
             <div className="section-label" style={{ padding: 0, marginBottom: 14 }}>Mais opções</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-              {NAV.slice(4).map(({ path, icon: Icon, label }) => {
+              {NAV.slice(4).map(({ path, icon: Icon, labelKey }) => {
+                const label = t(labelKey)
                 // Usuários fica disponível para todos; permissões são filtradas por hierarquia no backend
                 return (
                   <Link

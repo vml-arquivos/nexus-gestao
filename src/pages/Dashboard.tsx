@@ -20,6 +20,7 @@ import {
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { isGestorLike, roleLabel } from '../lib/roles'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -197,11 +198,12 @@ function CalendarItem({ item }: { item: PainelItem }) {
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const { t } = useVisualTexts()
   const now = new Date()
   const hoje = new Date(now); hoje.setHours(12, 0, 0, 0)
   const hojeKey = dateKey(hoje.toISOString())
   const hora = now.getHours()
-  const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
+  const saudacao = hora < 12 ? t('dashboard.greeting.morning') : hora < 18 ? t('dashboard.greeting.afternoon') : t('dashboard.greeting.night')
 
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [agenda, setAgenda] = useState<Evento[]>([])
@@ -421,12 +423,12 @@ export default function Dashboard() {
       <div className="dash-hero">
         <div>
           <p className="dash-eyebrow">{roleLabel(user?.role)} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>
-          <h1>{saudacao}, {user?.nome?.split(' ')[0] || 'tudo bem'} 👋</h1>
-          <p>Seu painel central junta tarefas, agenda e financeiro em uma visão mensal limpa.</p>
+          <h1>{saudacao}, {user?.nome?.split(' ')[0] || t('dashboard.greeting.fallbackName')} 👋</h1>
+          <p>{t('dashboard.subtitle')}</p>
         </div>
         <div className="dash-hero-actions">
-          <Link to="/tarefas" className="dash-primary-action"><ListChecks size={16} /> Nova tarefa</Link>
-          <Link to="/financeiro" className="dash-secondary-action"><WalletCards size={16} /> Financeiro</Link>
+          <Link to="/tarefas" className="dash-primary-action"><ListChecks size={16} /> {t('dashboard.primaryAction')}</Link>
+          <Link to="/financeiro" className="dash-secondary-action"><WalletCards size={16} /> {t('dashboard.secondaryAction')}</Link>
         </div>
       </div>
 
@@ -441,25 +443,25 @@ export default function Dashboard() {
       <div className="dash-metrics-grid">
         <Link to="/tarefas" className="dash-metric-card">
           <CheckCircle2 size={18} />
-          <span>Tarefas abertas</span>
+          <span>{t('dashboard.metrics.openTasks')}</span>
           <strong>{metrics.tarefasPendentes}</strong>
           <small>{metrics.tarefasConcluidas} concluídas/aprovadas</small>
         </Link>
         <Link to="/agenda" className="dash-metric-card">
           <Calendar size={18} />
-          <span>Compromissos hoje</span>
+          <span>{t('dashboard.metrics.todayEvents')}</span>
           <strong>{metrics.eventosHoje.length}</strong>
           <small>agenda do dia</small>
         </Link>
         <Link to="/financeiro" className="dash-metric-card">
           <DollarSign size={18} />
-          <span>Financeiro hoje</span>
+          <span>{t('dashboard.metrics.todayFinance')}</span>
           <strong>{metrics.financeirosHoje.length}</strong>
           <small>pagamentos/recebimentos</small>
         </Link>
         <Link to="/pessoas" className="dash-metric-card">
           <Users size={18} />
-          <span>Equipe</span>
+          <span>{t('dashboard.metrics.team')}</span>
           <strong>{membros.length || '—'}</strong>
           <small>membros ativos</small>
         </Link>
@@ -468,11 +470,11 @@ export default function Dashboard() {
       <section className="dash-command-panel">
         <div className="dash-section-head">
           <div>
-            <h2><Filter size={18} /> Filtros do painel</h2>
-            <p>Controle a visão mensal por tipo de informação, status e busca.</p>
+            <h2><Filter size={18} /> {t('dashboard.filters.title')}</h2>
+            <p>{t('dashboard.filters.description')}</p>
           </div>
           <button type="button" className="dash-clear-btn" onClick={() => { setMesFiltro(monthKeyFromDate(new Date())); setTipoFiltro('todos'); setStatusFiltro('abertos'); setBusca('') }}>
-            Limpar filtros
+            {t('dashboard.filters.clear')}
           </button>
         </div>
         <div className="dash-filters-grid">
@@ -496,7 +498,7 @@ export default function Dashboard() {
       </section>
 
       <section className="dash-summary-strip">
-        <div><span>Tarefas abertas</span><strong>{filteredSummary.tarefasAbertas}</strong></div>
+        <div><span>{t('dashboard.metrics.openTasks')}</span><strong>{filteredSummary.tarefasAbertas}</strong></div>
         <div><span>Concluídas</span><strong>{filteredSummary.tarefasFechadas}</strong></div>
         <div><span>Compromissos</span><strong>{filteredSummary.compromissos}</strong></div>
         <div><span>Entradas</span><strong className="positive">{fmt(filteredSummary.entradas)}</strong></div>
@@ -507,8 +509,8 @@ export default function Dashboard() {
       <section className="dash-workspace">
         <div className="dash-section-head">
           <div>
-            <h2><ClipboardList size={18} /> Organização do mês</h2>
-            <p>Tarefas, compromissos e pagamentos organizados por data.</p>
+            <h2><ClipboardList size={18} /> {t('dashboard.organization.title')}</h2>
+            <p>{t('dashboard.organization.description')}</p>
           </div>
           <Link to="/tarefas" className="dash-inline-link">Abrir tarefas <ArrowRight size={13} /></Link>
         </div>
@@ -532,8 +534,8 @@ export default function Dashboard() {
       <section className="dash-calendar-panel">
         <div className="dash-section-head">
           <div>
-            <h2><CalendarDays size={18} /> Calendário do mês</h2>
-            <p>Tarefas com status, compromissos e financeiro por dia, respeitando os filtros acima.</p>
+            <h2><CalendarDays size={18} /> {t('dashboard.calendar.title')}</h2>
+            <p>{t('dashboard.calendar.description')}</p>
           </div>
           <Link to="/agenda" className="dash-inline-link">Abrir agenda <ArrowRight size={13} /></Link>
         </div>
@@ -564,7 +566,7 @@ export default function Dashboard() {
       <section className="dash-finance-panel">
         <div className="dash-section-head">
           <div>
-            <h2><WalletCards size={18} /> Fechamento financeiro filtrado</h2>
+            <h2><WalletCards size={18} /> {t('dashboard.finance.title')}</h2>
             <p>Resumo rápido de entradas e saídas do período selecionado.</p>
           </div>
           <Link to="/financeiro" className="dash-inline-link">Detalhes <ArrowRight size={13} /></Link>

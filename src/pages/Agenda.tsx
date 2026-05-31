@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader } from 'lucide-react'
 import { agendaApi, type Evento } from '../lib/api'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -105,6 +106,7 @@ function EventoModal({ initial, onSave, onClose }: {
 }
 
 export default function Agenda() {
+  const { t } = useVisualTexts()
   const [eventos, setEventos]       = useState<Evento[]>([])
   const [loading, setLoading]       = useState(true)
   const [viewDate, setViewDate]     = useState(new Date())
@@ -154,7 +156,7 @@ export default function Agenda() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Agenda</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('agenda.pageTitle')}</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>{eventos.length} evento{eventos.length !== 1 ? 's' : ''}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEditando(null); setModalOpen(true) }} style={{ gap: 6 }}><Plus size={16} /> Novo</button>

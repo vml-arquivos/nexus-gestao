@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { tarefasApi, equipeApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
 import { nanoid } from '../lib/utils'
 
@@ -1387,6 +1388,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
 
 export default function Tarefas() {
   const { user } = useAuth()
+  const { t } = useVisualTexts()
   const location = useLocation()
   const navigate = useNavigate()
   const isGestor = isGestorLike(user?.role)
@@ -1580,18 +1582,18 @@ export default function Tarefas() {
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px)' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>Tarefas</h1>
+          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
           <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> Nova tarefa</button>
+        <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
 
       <section className="task-smart-tabs" aria-label="Tipo de tarefas">
         {[
-          { id: 'pessoais', label: 'Pessoais', count: pessoalCount, hint: 'Minha execução' },
-          { id: 'equipe', label: 'Equipe', count: equipeCount, hint: 'Time e delegações' },
-          { id: 'recentes', label: 'Últimas', count: recentesCount, hint: 'Movimentadas agora' },
-          { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Visão geral' },
+          { id: 'pessoais', label: t('tasks.tabs.personal'), count: pessoalCount, hint: 'Minha execução' },
+          { id: 'equipe', label: t('tasks.tabs.team'), count: equipeCount, hint: 'Time e delegações' },
+          { id: 'recentes', label: t('tasks.tabs.recent'), count: recentesCount, hint: 'Movimentadas agora' },
+          { id: 'todas', label: t('tasks.tabs.all'), count: tarefasVisiveis.length, hint: 'Visão geral' },
         ].map(tab => {
           const active = escopo === tab.id
           return (
@@ -1620,13 +1622,13 @@ export default function Tarefas() {
 
       <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: 14, fontWeight: 750 }}>Filtros dinâmicos</strong>
-          <button className="btn btn-ghost" type="button" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 10px', fontSize: 12 }}>Limpar filtros</button>
+          <strong style={{ fontSize: 14, fontWeight: 750 }}>{t('tasks.filters.title')}</strong>
+          <button className="btn btn-ghost" type="button" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 10px', fontSize: 12 }}>{t('tasks.filters.clear')}</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
-            <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar tarefa, membro..." />
+            <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={t('tasks.search.placeholder')} />
           </div>
           <select className="form-input" value={membroFiltro} onChange={e => setMembroFiltro(e.target.value)}>
             <option value="todos">Todos membros</option>

@@ -27,6 +27,7 @@ import {
 import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
 import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -1694,6 +1695,7 @@ export default function Financeiro() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { t } = useVisualTexts()
   const canDeleteFinanceiro = !!user
 
   const [grupos, setGrupos] = useState<GrupoPagamento[]>([])
@@ -1892,7 +1894,7 @@ export default function Financeiro() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Financeiro</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('finance.pageTitle')}</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Pagamentos, recebimentos, recorrências e datas personalizadas</p>
         </div>
         <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>

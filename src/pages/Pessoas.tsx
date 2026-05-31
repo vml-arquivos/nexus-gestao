@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound, Eye } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 // O componente Pessoas unifica todos os tipos de pessoas cadastradas no sistema:
 // membros da equipe, prestadores de serviço, credores, devedores e clientes.
@@ -219,6 +220,7 @@ function ConviteModal({ onSave, onClose }: { onSave: () => void; onClose: () => 
 
 export default function Pessoas() {
   const { user } = useAuth()
+  const { t } = useVisualTexts()
   const navigate = useNavigate()
   const canDeleteOwnRecords = !!user
 
@@ -289,9 +291,9 @@ export default function Pessoas() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>Contatos</h1>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('people.pageTitle')}</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>
-            Pessoas, clientes, fornecedores e membros
+            {t('people.pageSubtitle')}
           </p>
         </div>
         {canDeleteOwnRecords && (

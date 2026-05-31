@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext'
 import { isGestorLike, roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -17,6 +18,7 @@ function toast(msg: string, type: 'success' | 'error' = 'success') {
 export default function Configuracoes() {
   const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
+  const { t } = useVisualTexts()
 
   const [nome, setNome]           = useState(user?.nome || '')
   const [email, setEmail]         = useState(user?.email || '')
@@ -98,7 +100,7 @@ export default function Configuracoes() {
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>⚙️ Configurações</h1>
+        <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('settings.pageTitle')}</h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie seu perfil e preferências</p>
       </div>
 
@@ -156,7 +158,7 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <Palette size={16} color="#EC4899" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Visual do sistema</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>{t('settings.visualTitle')}</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
             Escolha o modo claro/escuro ou personalize cores, fontes, bordas e espaçamentos do sistema.
@@ -171,7 +173,7 @@ export default function Configuracoes() {
 
           {isGestorLike(user?.role) && (
             <Link className="btn btn-secondary" style={{ width: '100%', marginTop: 12, justifyContent: 'center', textDecoration: 'none' }} to="/design-editor">
-              <Palette size={14} /> Editar layout, tema e fontes
+              <Palette size={14} /> {t('settings.visualButton')}
             </Link>
           )}
         </div>
@@ -205,13 +207,13 @@ export default function Configuracoes() {
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Download size={16} color="#5B7CFA" />
-              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Backup do sistema</span>
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>{t('settings.backupTitle')}</span>
             </div>
             <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
               Baixe um pacote completo para restauração: banco PostgreSQL, arquivos enviados e variáveis do ambiente sem expor senhas ou tokens em texto puro.
             </p>
             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={gerarBackup} disabled={gerandoBackup}>
-              <Download size={14} /> {gerandoBackup ? 'Gerando backup completo…' : 'Baixar backup completo'}
+              <Download size={14} /> {gerandoBackup ? 'Gerando backup completo…' : t('settings.backupButton')}
             </button>
           </div>
         )}
@@ -220,7 +222,7 @@ export default function Configuracoes() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Download size={16} color="#10B981" />
-            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Downloads</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>{t('settings.downloadsTitle')}</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
             Baixe atalhos e arquivos do Nexus para instalar ou acessar o sistema rapidamente em outros dispositivos.

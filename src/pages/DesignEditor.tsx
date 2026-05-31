@@ -7,13 +7,17 @@ import type { ElementType, ReactNode } from 'react'
 import {
   Palette, Type, Layout, Sliders, Download, RotateCcw,
   Check, ChevronRight, Eye, Code, Smartphone, Monitor,
-  Copy, Wand2, Sun, Moon, Layers, ArrowLeft, Info,
+  Copy, Wand2, Sun, Moon, Layers, ArrowLeft, Info, MessageSquare,
 } from 'lucide-react'
 import {
   DEFAULT_TOKENS, loadTokens, saveTokens, resetTokens,
   applyToken, applyAllTokens, exportTokensAsCSS,
   type DesignTokens,
 } from '../hooks/useDesignTokens'
+import {
+  loadVisualTexts, setVisualText, resetVisualTexts, VISUAL_TEXT_GROUPS,
+  type VisualTextKey, type VisualTexts,
+} from '../hooks/useVisualTexts'
 
 // ── Toast ─────────────────────────────────────────────────────────
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -183,6 +187,49 @@ function Section({ icon: Icon, title, children, defaultOpen = true }: {
   )
 }
 
+
+// ── Campo de texto visual ─────────────────────────────────────────
+function VisualTextField({ label, value, onChange }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <label style={{ display: 'block', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ display: 'block', fontSize: 11, color: 'var(--text3)', marginBottom: 5, letterSpacing: '0.03em' }}>{label}</span>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          width: '100%',
+          background: 'var(--bg3)',
+          border: '1px solid var(--border2)',
+          borderRadius: 8,
+          padding: '8px 10px',
+          color: 'var(--text)',
+          fontSize: 12,
+          outline: 'none',
+        }}
+      />
+    </label>
+  )
+}
+
+function labelFromKey(key: VisualTextKey) {
+  return key
+    .replace('dashboard.', 'Inicial · ')
+    .replace('tasks.', 'Tarefas · ')
+    .replace('settings.', 'Configurações · ')
+    .replace('nav.', 'Menu · ')
+    .replace('app.', 'Sistema · ')
+    .replace('finance.', 'Financeiro · ')
+    .replace('agenda.', 'Agenda · ')
+    .replace('people.', 'Pessoas · ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/\./g, ' · ')
+    .trim()
+}
+
 // ── PÁGINA PRINCIPAL ──────────────────────────────────────────────
 export default function DesignEditor() {
   const [tokens, setTokens] = useState<DesignTokens>(() => {
@@ -191,7 +238,8 @@ export default function DesignEditor() {
     setTimeout(() => applyAllTokens(t), 0)
     return t
   })
-  const [activeTab, setActiveTab] = useState<'cores' | 'tipografia' | 'layout' | 'presets' | 'codigo'>('presets')
+  const [visualTexts, setVisualTextsState] = useState<VisualTexts>(() => loadVisualTexts())
+  const [activeTab, setActiveTab] = useState<'cores' | 'tipografia' | 'layout' | 'presets' | 'textos' | 'codigo'>('presets')
   const [preview, setPreview] = useState<'desktop' | 'mobile'>('desktop')
   const [hasChanges, setHasChanges] = useState(false)
   const [autoSavedAt, setAutoSavedAt] = useState<string | null>(null)
@@ -214,6 +262,20 @@ export default function DesignEditor() {
     setHasChanges(false)
     setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
   }, [])
+
+  function setText(key: VisualTextKey, value: string) {
+    const next = setVisualText(key, value)
+    setVisualTextsState(next)
+    setHasChanges(false)
+    setAutoSavedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+  }
+
+  function handleResetTexts() {
+    const defaults = resetVisualTexts()
+    setVisualTextsState(defaults)
+    setAutoSavedAt(null)
+    toast('↩️ Textos visuais restaurados para o padrão.')
+  }
 
   function handleSave() {
     saveTokens(tokens)
@@ -263,6 +325,7 @@ export default function DesignEditor() {
     { id: 'cores',       label: 'Cores',       icon: Palette },
     { id: 'tipografia',  label: 'Tipografia',  icon: Type },
     { id: 'layout',      label: 'Layout',      icon: Layout },
+    { id: 'textos',      label: 'Textos',      icon: MessageSquare },
     { id: 'codigo',      label: 'Código',      icon: Code },
   ] as const
 
@@ -276,7 +339,7 @@ export default function DesignEditor() {
         </div>
         <div style={{ flex: 1 }}>
           <h1 style={{ fontSize: 17, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>Editar aparência</h1>
-          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Ajuste temas, cores, fontes e layout do sistema</p>
+          <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Ajuste temas, textos, cores, fontes e layout do sistema</p>
         </div>
 
         {/* Botões de ação */}
@@ -512,6 +575,32 @@ export default function DesignEditor() {
                     ))}
                   </div>
                 </Section>
+              </div>
+            )}
+
+
+            {/* ═══ TEXTOS ═══ */}
+            {activeTab === 'textos' && (
+              <div>
+                <p style={{ fontSize: 12, color: 'var(--text3)', padding: '0 8px 12px', lineHeight: 1.6 }}>
+                  Altere somente os nomes visuais que aparecem na tela. Isso não muda rotas, banco, permissões, APIs ou funcionamento interno.
+                </p>
+                <button className="btn btn-ghost btn-sm" onClick={handleResetTexts} style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }}>
+                  <RotateCcw size={14} /> Restaurar textos padrão
+                </button>
+                {VISUAL_TEXT_GROUPS.map(group => (
+                  <Section key={group.title} icon={MessageSquare} title={group.title} defaultOpen={group.title === 'Página inicial'}>
+                    <p style={{ fontSize: 11, color: 'var(--text3)', padding: '10px 0 2px', lineHeight: 1.6 }}>{group.description}</p>
+                    {group.keys.map(key => (
+                      <VisualTextField
+                        key={key}
+                        label={labelFromKey(key)}
+                        value={visualTexts[key]}
+                        onChange={value => setText(key, value)}
+                      />
+                    ))}
+                  </Section>
+                ))}
               </div>
             )}
 
