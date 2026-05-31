@@ -576,20 +576,42 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
 
-    const minhaParte = checklistForUserProgress(existing, userId)
-    const geral = checklistProgress(existing)
-    const podeRegistrarParte = minhaParte.total > 0 || existing.responsavel_id === userId || (!existing.responsavel_id && existing.criado_por === userId)
+    const podeRegistrarParte = hasChecklistAssignedTo(existing, userId) || existing.responsavel_id === userId || (!existing.responsavel_id && existing.criado_por === userId)
     if (!podeRegistrarParte) {
       res.status(403).json({ error: 'Você não possui checklist ou execução atribuída nesta tarefa.' })
       return
     }
-    if (minhaParte.total > 0 && !minhaParte.completo) {
-      res.status(400).json({ error: `Conclua os seus checklists antes de enviar sua parte (${minhaParte.feitos}/${minhaParte.total}).` })
-      return
+
+    // Enviar a parte do membro deve ser uma ação final de execução. Para evitar
+    // erro 400 no fluxo operacional, o backend marca automaticamente como feitos
+    // os checklists que pertencem ao usuário logado e ainda estejam pendentes.
+    // Itens de outros executores nunca são alterados aqui.
+    const checklistAtual = parseChecklistItems(existing.checklist)
+    let alterouChecklist = false
+    const checklistExecutado = checklistAtual.map(item => {
+      if (isChecklistItemExecutor(existing, item, userId) && !item.feito) {
+        alterouChecklist = true
+        return { ...item, feito: true }
+      }
+      return item
+    })
+
+    let baseTask: any = existing
+    if (alterouChecklist) {
+      const checklistJson = JSON.stringify(checklistExecutado)
+      baseTask = await queryOne<any>(
+        `UPDATE tarefas SET checklist = $1, data_inicio = COALESCE(data_inicio, NOW()), updated_at = NOW()
+         WHERE id = $2 AND org_id = $3 RETURNING *`,
+        [checklistJson, req.params.id, orgId]
+      ) || existing
+      await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: checklistJson })
     }
 
-    let tarefaAtualizada: any = existing
-    if (geral.completo && !['concluida', 'aprovada'].includes(String(existing.status))) {
+    const minhaParte = checklistForUserProgress(baseTask, userId)
+    const geral = checklistProgress(baseTask)
+
+    let tarefaAtualizada: any = baseTask
+    if (geral.completo && !['concluida', 'aprovada'].includes(String(baseTask.status))) {
       tarefaAtualizada = await queryOne<any>(
         `UPDATE tarefas SET
            status = 'concluida',
@@ -603,8 +625,8 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
            updated_at = NOW()
          WHERE id = $2 AND org_id = $3 RETURNING *`,
         [String(observacao || '').trim() || null, req.params.id, orgId]
-      )
-    } else if (['pendente', 'devolvida', 'reenviada'].includes(String(existing.status))) {
+      ) || baseTask
+    } else if (['pendente', 'devolvida', 'reenviada'].includes(String(baseTask.status))) {
       tarefaAtualizada = await queryOne<any>(
         `UPDATE tarefas SET
            status = 'em_progresso',
@@ -615,7 +637,7 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
            updated_at = NOW()
          WHERE id = $2 AND org_id = $3 RETURNING *`,
         [String(observacao || '').trim() || null, req.params.id, orgId]
-      ) || existing
+      ) || baseTask
     }
 
     await addHistorico({
@@ -625,7 +647,7 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
       acao: geral.completo ? 'checklist_completo' : 'parte_enviada',
       statusAnterior: existing.status,
       statusNovo: geral.completo ? 'concluida' : tarefaAtualizada.status,
-      observacao: String(observacao || '').trim() || `Parte do executor concluída (${minhaParte.feitos || geral.feitos}/${minhaParte.total || geral.total}).`,
+      observacao: String(observacao || '').trim() || `Parte do executor enviada (${minhaParte.feitos || geral.feitos}/${minhaParte.total || geral.total}).`,
     })
 
     if (existing.criado_por && existing.criado_por !== userId) {

@@ -3307,3 +3307,69 @@ a.btn svg {
     padding: 8px;
   }
 }
+
+/* Tarefas: filtro inteligente e harmonizado */
+.task-smart-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.task-smart-tab {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 11px 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.task-smart-tab:hover { transform: translateY(-1px); border-color: rgba(16,185,129,.45); }
+.task-smart-tab.active {
+  border-color: #10B981;
+  background: rgba(16,185,129,.10);
+  box-shadow: 0 10px 26px rgba(16,185,129,.10);
+}
+.task-smart-tab-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.task-smart-tab-main strong {
+  font-size: 14px;
+  font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-smart-tab-main em {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 850;
+  color: var(--text3);
+}
+.task-smart-tab.active .task-smart-tab-main em { color: #10B981; }
+.task-smart-tab-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--text3);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 760px) {
+  .task-smart-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .task-smart-tab { border-radius: 15px; padding: 10px 11px; }
+  .task-smart-tab-main strong { font-size: 13px; }
+  .task-smart-tab-hint { font-size: 11px; }
+}
+@media (max-width: 380px) {
+  .task-smart-tabs { grid-template-columns: 1fr; }
+}

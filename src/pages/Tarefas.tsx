@@ -1034,10 +1034,6 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   }
 
   async function concluir() {
-    if (!myChecklistDone) {
-      toast(`Conclua os seus checklists antes de enviar (${myProgress.done}/${myProgress.total}).`, 'error')
-      return
-    }
     setSaving(true)
     try {
       if (files.length) await uploadPendentes()
@@ -1227,7 +1223,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
           {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
-          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving || !myChecklistDone}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar conclusão da tarefa' : 'Enviar minha parte'}</button>}
+          {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {allChecklistDone ? 'Enviar conclusão da tarefa' : myChecklistDone ? 'Enviar minha parte' : 'Marcar e enviar minha parte'}</button>}
         </div>
       </div>
     </ModalBase>
@@ -1382,7 +1378,7 @@ export default function Tarefas() {
   const [membroFiltro, setMembroFiltro] = useState('todos')
   const [mesFiltro, setMesFiltro] = useState('todos')
   const [anoFiltro, setAnoFiltro] = useState('todos')
-  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'todas'>('pessoais')
+  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'todas' | 'recentes'>('pessoais')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1427,11 +1423,19 @@ export default function Tarefas() {
     return taskScope(t) === 'equipe' || (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
   }, [user?.id])
 
+  const recentesIds = useMemo(() => new Set(
+    [...tarefasVisiveis]
+      .sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())
+      .slice(0, 12)
+      .map(t => t.id)
+  ), [tarefasVisiveis])
+
   const scoped = useMemo(() => tarefasVisiveis.filter(t => {
     if (escopo === 'pessoais') return isPersonalTask(t)
     if (escopo === 'equipe') return isTeamAssignedTask(t)
+    if (escopo === 'recentes') return recentesIds.has(t.id)
     return true
-  }), [tarefasVisiveis, escopo, isPersonalTask, isTeamAssignedTask])
+  }), [tarefasVisiveis, escopo, isPersonalTask, isTeamAssignedTask, recentesIds])
 
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
@@ -1474,6 +1478,7 @@ export default function Tarefas() {
 
   const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
   const equipeCount = useMemo(() => tarefasVisiveis.filter(isTeamAssignedTask).length, [tarefasVisiveis, isTeamAssignedTask])
+  const recentesCount = recentesIds.size
 
   const stats = [
     ['Total', scoped.length, 'var(--text)'],
@@ -1548,41 +1553,31 @@ export default function Tarefas() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 800 }}>Tarefas</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas atribuídas aos membros da equipe' : 'Todas as tarefas acessíveis'}</p>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> Nova tarefa</button>
       </header>
 
-      <section aria-label="Tipo de tarefas" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+      <section className="task-smart-tabs" aria-label="Tipo de tarefas">
         {[
-          { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas tarefas para executar' },
-          { id: 'equipe', label: 'Tarefas da equipe', count: equipeCount, hint: 'Do time, com ações para membros' },
-          { id: 'todas', label: 'Todas', count: tarefas.length, hint: 'Visão geral' },
+          { id: 'pessoais', label: 'Pessoais', count: pessoalCount, hint: 'Minha execução' },
+          { id: 'equipe', label: 'Equipe', count: equipeCount, hint: 'Time e delegações' },
+          { id: 'recentes', label: 'Últimas', count: recentesCount, hint: 'Movimentadas agora' },
+          { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Visão geral' },
         ].map(tab => {
           const active = escopo === tab.id
           return (
             <button
               key={tab.id}
               type="button"
-              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'todas')}
-              style={{
-                flex: '1 1 180px',
-                minHeight: 58,
-                textAlign: 'left',
-                border: `1px solid ${active ? '#10B981' : 'var(--border)'}`,
-                background: active ? 'rgba(16,185,129,.10)' : 'var(--bg2)',
-                color: 'var(--text)',
-                borderRadius: 16,
-                padding: '10px 12px',
-                cursor: 'pointer',
-                boxShadow: active ? '0 10px 26px rgba(16,185,129,.10)' : 'none',
-              }}
+              className={active ? 'task-smart-tab active' : 'task-smart-tab'}
+              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'todas' | 'recentes')}
             >
-              <span style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                <strong style={{ fontSize: 14, fontWeight: 800 }}>{tab.label}</strong>
-                <span style={{ fontSize: 12, fontWeight: 800, color: active ? '#10B981' : 'var(--text3)' }}>{tab.count}</span>
+              <span className="task-smart-tab-main">
+                <strong>{tab.label}</strong>
+                <em>{tab.count}</em>
               </span>
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--text3)', fontSize: 12 }}>{tab.hint}</span>
+              <span className="task-smart-tab-hint">{tab.hint}</span>
             </button>
           )
         })}
@@ -1676,7 +1671,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa atribuída à equipe encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
