@@ -295,15 +295,91 @@ function historicoDerivado(parcelas: Pagamento[]): HistoricoFinanceiroItem[] {
   return eventos.sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
 }
 
+function readHistoricoMetadata(h?: HistoricoFinanceiroItem | null): Record<string, unknown> {
+  const raw = (h as any)?.metadata
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw as Record<string, unknown>
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) as Record<string, unknown> } catch { return {} }
+  }
+  return {}
+}
+
+function isDerivedParcelaEvent(h: HistoricoFinanceiroItem): boolean {
+  return String(h.id || '').startsWith('parcela-') || String(h.id || '').startsWith('parcela:')
+}
+
+function isAntecipacaoFinanceira(h: HistoricoFinanceiroItem): boolean {
+  const meta = readHistoricoMetadata(h)
+  return h.tipo_evento === 'abatimento' && (
+    meta.antecipacao_pagamento === true ||
+    meta.tipo_abatimento === 'antecipacao' ||
+    /antecip/i.test(String(h.titulo || '')) ||
+    /antecip/i.test(String(h.descricao || ''))
+  )
+}
+
+function isDescontoFinanceiro(h: HistoricoFinanceiroItem): boolean {
+  const meta = readHistoricoMetadata(h)
+  return h.tipo_evento === 'abatimento' && !isAntecipacaoFinanceira(h) && (
+    meta.tipo_abatimento === 'desconto' ||
+    /desconto|abatimento/i.test(String(h.titulo || '')) ||
+    /desconto/i.test(String(h.descricao || ''))
+  )
+}
+
+function calcExtratoGrupo(parcelas: Pagamento[], historico: HistoricoFinanceiroItem[] = []) {
+  const eventosManuais = (historico || []).filter(h => !isDerivedParcelaEvent(h))
+  const pagasCents = sumMoneyCents((parcelas || []).filter(p => p.status === 'pago').map(p => p.valor))
+  const pendentesCents = sumMoneyCents((parcelas || []).filter(p => p.status === 'pendente').map(p => p.valor))
+  const antecipacoesCents = sumMoneyCents(eventosManuais.filter(isAntecipacaoFinanceira).map(h => h.valor || 0))
+  const descontosCents = sumMoneyCents(eventosManuais.filter(isDescontoFinanceiro).map(h => h.valor || 0))
+  const acrescimosCents = sumMoneyCents(eventosManuais.filter(h => h.tipo_evento === 'acrescimo').map(h => h.valor || 0))
+  const totalPagoRealCents = pagasCents + antecipacoesCents
+  const valorAtualizadoCents = pendentesCents + totalPagoRealCents
+  const ultimoMovimento = [...eventosManuais]
+    .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())[0] || null
+
+  return {
+    pagasCents,
+    pendentesCents,
+    antecipacoesCents,
+    descontosCents,
+    acrescimosCents,
+    totalPagoRealCents,
+    valorAtualizadoCents,
+    ultimoMovimento,
+    pagoReal: fromCents(totalPagoRealCents),
+    pendente: fromCents(pendentesCents),
+    valorAtualizado: fromCents(valorAtualizadoCents),
+    antecipacoes: fromCents(antecipacoesCents),
+    descontos: fromCents(descontosCents),
+    acrescimos: fromCents(acrescimosCents),
+  }
+}
+
+function valorHistoricoColor(h: HistoricoFinanceiroItem): string {
+  if (h.tipo_evento === 'acrescimo') return '#F59E0B'
+  if (isDescontoFinanceiro(h)) return '#6366F1'
+  if (h.tipo_evento === 'pagamento' || isAntecipacaoFinanceira(h) || h.tipo_evento === 'abatimento') return '#10B981'
+  return 'var(--text1)'
+}
+
+function sinalHistorico(h: HistoricoFinanceiroItem, entrada = false): string {
+  if (h.tipo_evento === 'acrescimo') return '+'
+  if (h.tipo_evento === 'pagamento') return entrada ? '+' : '-'
+  if (h.tipo_evento === 'abatimento') return '-'
+  return ''
+}
+
 function tituloEventoFinanceiro(tipo: string) {
   if (tipo === 'abatimento') return 'Abatimento / pagamento'
   if (tipo === 'acrescimo') return 'Acréscimo de saldo'
   if (tipo === 'pagamento') return 'Pagamento de parcela'
-  if (tipo === 'recalculo') return 'Recalculo de parcelas'
+  if (tipo === 'recalculo') return 'Recálculo de parcelas'
   if (tipo === 'cancelamento') return 'Cancelamento'
   return 'Movimento financeiro'
 }
-
 
 type GrupoFinanceiro = {
   id: string
@@ -620,6 +696,8 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const historicoCompleto = [...(historicoLocal || []), ...historicoDerivado(parcelas)]
     .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
+  const extrato = calcExtratoGrupo(parcelas, historicoCompleto)
+  const nomeOperacao = tipo === 'recebimento' ? 'recebimento' : 'pagamento'
 
   const novoSaldoCents = modo === 'abatimento'
     ? Math.max(0, saldo.totalPendenteCents - valorCents)
@@ -757,11 +835,11 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
         <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 18 }}>{ref?.titulo}{ref?.pessoa_nome ? ` · ${ref.pessoa_nome}` : ''}</div>
 
         {/* Resumo */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
           {([
-            { label: 'Total original', value: saldo.totalOriginal, color: 'var(--text1)', bg: 'var(--bg3)' },
-            { label: 'Já pago',        value: saldo.totalPago,     color: '#10B981',      bg: 'rgba(16,185,129,0.1)' },
-            { label: 'Saldo restante', value: saldo.totalPendente, color: '#EF4444',      bg: 'rgba(239,68,68,0.1)'  },
+            { label: 'Valor atualizado', value: extrato.valorAtualizado, color: 'var(--text1)', bg: 'var(--bg3)' },
+            { label: tipo === 'recebimento' ? 'Já recebido' : 'Já pago', value: extrato.pagoReal, color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
+            { label: 'Saldo restante', value: saldo.totalPendente, color: saldo.totalPendente > 0 ? '#EF4444' : '#10B981', bg: 'rgba(239,68,68,0.1)'  },
           ] as const).map(({ label, value, color, bg }) => (
             <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
@@ -769,15 +847,25 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 16, textAlign: 'center' }}>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10, textAlign: 'center' }}>
           {saldo.numPendentes} parcela{saldo.numPendentes !== 1 ? 's' : ''} pendente{saldo.numPendentes !== 1 ? 's' : ''} · {fmt(saldo.totalPendente / (saldo.numPendentes || 1))} cada
         </div>
+        {(extrato.antecipacoes > 0 || extrato.descontos > 0 || extrato.acrescimos > 0 || extrato.ultimoMovimento) && (
+          <div style={{ border: '1px solid var(--border)', background: 'var(--bg3)', borderRadius: 12, padding: 10, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+              {extrato.antecipacoes > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Antecipações</div><strong style={{ fontSize: 13, color: '#10B981' }}>{fmt(extrato.antecipacoes)}</strong></div>}
+              {extrato.descontos > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Descontos</div><strong style={{ fontSize: 13, color: '#6366F1' }}>{fmt(extrato.descontos)}</strong></div>}
+              {extrato.acrescimos > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Acréscimos</div><strong style={{ fontSize: 13, color: '#F59E0B' }}>{fmt(extrato.acrescimos)}</strong></div>}
+              {extrato.ultimoMovimento && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Último movimento</div><strong style={{ fontSize: 13 }}>{fmt(Number(extrato.ultimoMovimento.valor || 0))}</strong><div style={{ fontSize: 10, color: 'var(--text3)' }}>{fmtDate(extrato.ultimoMovimento.data_evento || extrato.ultimoMovimento.created_at)}</div></div>}
+            </div>
+          </div>
+        )}
 
         <section style={{ border: '1px solid var(--border)', borderRadius: 14, background: 'var(--bg3)', padding: 12, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
             <div>
-              <div style={{ fontWeight: 500, fontSize: 14 }}>Histórico / extrato</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Todos os pagamentos, abatimentos e acréscimos deste registro.</div>
+              <div style={{ fontWeight: 500, fontSize: 14 }}>Extrato deste registro</div>
+              <div style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos, recebimentos, antecipações, descontos, acréscimos e recálculos.</div>
             </div>
             <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>{historicoCompleto.length} evento(s)</span>
           </div>
@@ -792,7 +880,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                       <div style={{ fontWeight: 500, fontSize: 13 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{h.data_evento ? fmtDate(String(h.data_evento)) : fmtDateTime(h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
                     </div>
-                    {h.valor !== null && h.valor !== undefined && <div style={{ fontWeight: 500, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : '#10B981', whiteSpace: 'nowrap' }}>{h.tipo_evento === 'acrescimo' ? '+' : '-'}{fmt(Number(h.valor))}</div>}
+                    {h.valor !== null && h.valor !== undefined && <div style={{ fontWeight: 500, color: valorHistoricoColor(h), whiteSpace: 'nowrap' }}>{sinalHistorico(h, tipo === 'recebimento')}{fmt(Number(h.valor))}</div>}
                   </div>
                   {h.descricao && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 6, overflowWrap: 'anywhere' }}>{h.descricao}</div>}
                   {(h.saldo_anterior !== null && h.saldo_anterior !== undefined && h.saldo_posterior !== null && h.saldo_posterior !== undefined) && (
@@ -817,7 +905,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">{modo === 'abatimento' ? 'Valor pago (R$)' : 'Valor a acrescentar (R$)'}</label>
+              <label className="form-label">{modo === 'abatimento' ? `Valor do ${nomeOperacao} / abatimento (R$)` : 'Valor a acrescentar (R$)'}</label>
               <input className="form-input" type="text" inputMode="decimal" placeholder="" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
             </div>
             {modo === 'abatimento' && (
@@ -1420,7 +1508,11 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
   const isGrupo = Boolean(g.is_grupo || g.parcelas.length > 1)
   const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
   const sinal = g.tipo === 'recebimento' ? '+' : '-'
-  const chip = g.vencido ? 'Vencido' : g.valor_pendente === 0 ? 'Pago' : 'Pendente'
+  const extrato = calcExtratoGrupo(g.parcelas || [], g.historico || [])
+  const valorPagoReal = extrato.pagoReal || Number(g.valor_pago || 0)
+  const valorPendenteReal = extrato.pendente || Number(g.valor_pendente || 0)
+  const valorTotalReal = extrato.valorAtualizado || Number(g.valor_total || 0)
+  const chip = g.vencido ? 'Vencido' : valorPendenteReal === 0 ? 'Pago' : 'Pendente'
   const chipColor = chip === 'Vencido' ? '#EF4444' : chip === 'Pago' ? '#10B981' : '#F59E0B'
   const chipBg = chip === 'Vencido' ? 'rgba(239,68,68,0.12)' : chip === 'Pago' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'
   const principal = g.parcelas[0]
@@ -1455,23 +1547,23 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div style={{ fontWeight: 600, fontSize: 16, color: valorColor, fontFamily: 'var(--font-heading)' }}>
-              {sinal}{fmt(isGrupo ? g.valor_pendente : g.valor_total)}
+              {sinal}{fmt(isGrupo ? valorPendenteReal : valorTotalReal)}
             </div>
-            {isGrupo && g.valor_pago > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(g.valor_pago)}</div>
+            {isGrupo && valorPagoReal > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Pago: {fmt(valorPagoReal)}</div>
             )}
           </div>
         </div>
 
         {/* Barra de progresso */}
-        {isGrupo && g.valor_total > 0 && (
+        {isGrupo && valorTotalReal > 0 && (
           <div style={{ marginTop: 10 }}>
             <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (g.valor_pago / g.valor_total) * 100)}%`, background: '#10B981', borderRadius: 999, transition: 'width 0.3s' }} />
+              <div style={{ height: '100%', width: `${Math.min(100, (valorPagoReal / valorTotalReal) * 100)}%`, background: '#10B981', borderRadius: 999, transition: 'width 0.3s' }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: 'var(--text3)' }}>
-              <span>Total: {fmt(g.valor_total)}</span>
-              <span>{Math.round((g.valor_pago / g.valor_total) * 100)}% pago</span>
+              <span>Total: {fmt(valorTotalReal)}</span>
+              <span>{Math.round((valorPagoReal / valorTotalReal) * 100)}% pago</span>
             </div>
           </div>
         )}
@@ -1601,12 +1693,15 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
   const historicoCompleto = [...(grupo.historico || []), ...historicoDerivado(parcelas)]
     .filter((item, index, arr) => arr.findIndex(x => x.id === item.id) === index)
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
+  const extrato = calcExtratoGrupo(parcelas, historicoCompleto)
+  const progressoReal = extrato.valorAtualizadoCents > 0 ? Math.min(100, Math.round((extrato.totalPagoRealCents / extrato.valorAtualizadoCents) * 100)) : progresso
 
   const resumo = [
-    { label: tituloTipo, value: grupo.valor_total, color: valorColor },
+    { label: tituloTipo, value: extrato.valorAtualizado, color: valorColor },
     { label: `Parcelado em`, valueText: `${grupo.num_parcelas || parcelas.length || 1}x`, color: 'var(--text1)' },
-    { label: 'Parcela', value: valorParcelaBase, color: 'var(--text1)' },
-    { label: 'Saldo restante', value: grupo.valor_pendente, color: grupo.valor_pendente > 0 ? '#EF4444' : '#10B981' },
+    { label: 'Parcela atual', value: valorParcelaBase, color: 'var(--text1)' },
+    { label: 'Saldo restante', value: extrato.pendente, color: extrato.pendente > 0 ? '#EF4444' : '#10B981' },
+    { label: entrada ? 'Já recebido' : 'Já pago', value: extrato.pagoReal, color: '#10B981' },
   ]
 
   return (
@@ -1652,13 +1747,25 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
               </div>
             </div>
             <div style={{ height: 6, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${progresso}%`, background: '#10B981', borderRadius: 999 }} />
+              <div style={{ height: '100%', width: `${progressoReal}%`, background: '#10B981', borderRadius: 999 }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 11, color: 'var(--text3)' }}>
-              <span>{progresso}% realizado</span>
+              <span>{progressoReal}% realizado</span>
               <span>{pagas.length} pagas · {pendentes.length} pendentes{canceladas.length ? ` · ${canceladas.length} canceladas` : ''}</span>
             </div>
           </section>
+
+          {(extrato.antecipacoes > 0 || extrato.descontos > 0 || extrato.acrescimos > 0 || extrato.ultimoMovimento) && (
+            <section style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, marginBottom: 14 }}>
+              <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 8 }}>Resumo do extrato</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                {extrato.antecipacoes > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Antecipações</div><strong style={{ color: '#10B981' }}>{fmt(extrato.antecipacoes)}</strong></div>}
+                {extrato.descontos > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Descontos</div><strong style={{ color: '#6366F1' }}>{fmt(extrato.descontos)}</strong></div>}
+                {extrato.acrescimos > 0 && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Acréscimos</div><strong style={{ color: '#F59E0B' }}>{fmt(extrato.acrescimos)}</strong></div>}
+                {extrato.ultimoMovimento && <div><div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>Último movimento</div><strong>{fmt(Number(extrato.ultimoMovimento.valor || 0))}</strong><div style={{ fontSize: 10, color: 'var(--text3)' }}>{fmtDate(extrato.ultimoMovimento.data_evento || extrato.ultimoMovimento.created_at)}</div></div>}
+              </div>
+            </section>
+          )}
 
           {primeira?.descricao && (
             <section style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, marginBottom: 14 }}>
@@ -1703,8 +1810,8 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div>
-                  <div style={{ fontWeight: 500, fontSize: 14 }}>Histórico</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>Atualizações deste registro.</div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>Extrato do registro</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)' }}>Pagamentos, antecipações, descontos, acréscimos e recálculos.</div>
                 </div>
                 <span style={{ fontSize: 11, color: 'var(--text3)', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 8px' }}>{historicoCompleto.length}</span>
               </div>
@@ -1716,7 +1823,7 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
                     <div key={h.id || i} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                         <strong style={{ fontSize: 12 }}>{h.titulo || tituloEventoFinanceiro(h.tipo_evento)}</strong>
-                        {h.valor !== null && h.valor !== undefined && <strong style={{ fontSize: 12, color: h.tipo_evento === 'acrescimo' ? '#F59E0B' : h.tipo_evento === 'pagamento' || h.tipo_evento === 'abatimento' ? '#10B981' : 'var(--text1)', whiteSpace: 'nowrap' }}>{fmt(Number(h.valor || 0))}</strong>}
+                        {h.valor !== null && h.valor !== undefined && <strong style={{ fontSize: 12, color: valorHistoricoColor(h), whiteSpace: 'nowrap' }}>{sinalHistorico(h, entrada)}{fmt(Number(h.valor || 0))}</strong>}
                       </div>
                       <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 3 }}>{fmtDate(h.data_evento || h.created_at)}{h.forma_pagamento ? ` · ${h.forma_pagamento}` : ''}</div>
                       {h.descricao && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5, whiteSpace: 'pre-wrap' }}>{h.descricao}</div>}
@@ -1730,7 +1837,7 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
           <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
             <button className="btn btn-ghost" onClick={onClose} style={{ flex: '1 1 120px' }}>Fechar</button>
             {primeira && <button className="btn btn-ghost" onClick={() => onEdit(primeira)} style={{ flex: '1 1 120px' }}><Pencil size={14} /> Editar</button>}
-            <button className="btn btn-primary" onClick={() => onGerenciar(grupo)} style={{ flex: '2 1 180px' }}><WalletCards size={14} /> Gerenciar histórico / dívida</button>
+            <button className="btn btn-primary" onClick={() => onGerenciar(grupo)} style={{ flex: '2 1 180px' }}><WalletCards size={14} /> Pagar / ajustar saldo</button>
           </div>
         </div>
       </div>

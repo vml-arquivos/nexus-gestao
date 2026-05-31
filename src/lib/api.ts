@@ -213,6 +213,7 @@ export interface HistoricoFinanceiro {
   saldo_anterior?: number | null
   saldo_posterior?: number | null
   user_nome?: string | null
+  metadata?: Record<string, unknown> | string | null
   created_at: string
 }
 

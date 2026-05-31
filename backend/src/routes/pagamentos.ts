@@ -377,6 +377,7 @@ router.get('/grupos', async (req: Request, res: Response): Promise<void> => {
           saldo_anterior: h.saldo_anterior !== null && h.saldo_anterior !== undefined ? Number(h.saldo_anterior) : null,
           saldo_posterior: h.saldo_posterior !== null && h.saldo_posterior !== undefined ? Number(h.saldo_posterior) : null,
           user_nome: h.user_nome || null,
+          metadata: h.metadata || {},
           created_at: h.created_at,
         })
         break
