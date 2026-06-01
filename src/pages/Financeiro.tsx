@@ -24,7 +24,7 @@ import {
   ChevronUp,
   Eye,
 } from 'lucide-react'
-import { pagamentosApi, equipeApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro } from '../lib/api'
+import { pagamentosApi, equipeApi, destravaApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro, type DestravaCatalogoItem } from '../lib/api'
 import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -1175,6 +1175,15 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   const [pessoaNome, setPessoaNome] = useState(initial?.pessoa_nome || '')
   const [categoria, setCategoria] = useState(initial?.categoria || '')
   const [obs, setObs] = useState(initial?.obs || '')
+  const [destravaBusca, setDestravaBusca] = useState('')
+  const [destravaLoading, setDestravaLoading] = useState(false)
+  const [destravaItens, setDestravaItens] = useState<DestravaCatalogoItem[]>([])
+  const [destravaSelecionado, setDestravaSelecionado] = useState<DestravaCatalogoItem | null>(() => {
+    if ((initial as any)?.origem_sistema === 'destrava' && (initial as any)?.origem_id) {
+      return { id: (initial as any).origem_id, tipo: (initial as any).origem_tipo || 'empresa', nome: (initial as any).origem_nome || 'Registro do Destrava', url: (initial as any).origem_url }
+    }
+    return null
+  })
   const [saving, setSaving] = useState(false)
 
   // ── Parcelado ──
@@ -1185,6 +1194,22 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
 
   const initialMode: ScheduleMode = initial?.recorrencia && initial.recorrencia !== 'nenhum' ? 'recorrente' : 'unico'
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(initialMode)
+
+  useEffect(() => {
+    let alive = true
+    const timer = window.setTimeout(async () => {
+      setDestravaLoading(true)
+      try {
+        const items = await destravaApi.catalogo({ tipo: 'empresa', q: destravaBusca, limit: 10 })
+        if (alive) setDestravaItens(items)
+      } catch {
+        if (alive) setDestravaItens([])
+      } finally {
+        if (alive) setDestravaLoading(false)
+      }
+    }, destravaBusca.trim() ? 350 : 0)
+    return () => { alive = false; window.clearTimeout(timer) }
+  }, [destravaBusca])
   const [recorrencia, setRecorrencia] = useState(initial?.recorrencia || 'mensal')
   const [recorrenciaFim, setRecorrenciaFim] = useState(initial?.recorrencia_fim?.slice(0, 10) || '')
   const [datasPersonalizadas, setDatasPersonalizadas] = useState<string[]>([])
@@ -1220,6 +1245,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
       const obsComForma = [
         scheduleMode === 'parcelado' ? `grupo_id:grp_${Date.now()}` : '',
         formaPagamento ? `Forma de pagamento: ${formaPagamento}` : '',
+        destravaSelecionado ? `Vínculo Destrava: ${destravaSelecionado.nome}${destravaSelecionado.documento ? ` (${destravaSelecionado.documento})` : ''}` : '',
         scheduleMode === 'parcelado' ? `${qtdParcelas}x de ${fmt(valorFinal)}${parseMoneyInput(taxaJuros) > 0 ? ` (${taxaJuros}% a.m.)` : ''}` : '',
         obs,
       ].filter(Boolean).join(' | ')
@@ -1240,6 +1266,12 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         recorrencia: scheduleMode === 'recorrente' ? recorrencia : 'nenhum',
         recorrencia_fim: scheduleMode === 'recorrente' && recorrenciaFim ? recorrenciaFim : undefined,
         datas_personalizadas: scheduleMode === 'personalizado' ? datasPersonalizadas : (scheduleMode === 'parcelado' ? datasParcelado : undefined),
+        origem_sistema: destravaSelecionado ? 'destrava' : undefined,
+        origem_tipo: destravaSelecionado?.tipo || undefined,
+        origem_id: destravaSelecionado?.id || undefined,
+        origem_nome: destravaSelecionado?.nome || undefined,
+        origem_url: destravaSelecionado?.url || undefined,
+        origem_payload: destravaSelecionado?.metadata || undefined,
       }
 
       const p = isEdit && initial?.id
@@ -1308,6 +1340,23 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               <option value="">Sem categoria</option>
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Vínculo com empresa do Destrava</label>
+            <div className="integration-link-box">
+              <input className="form-input" value={destravaBusca} onChange={e => setDestravaBusca(e.target.value)} placeholder="Buscar empresa ou CNPJ no Destrava..." />
+              {destravaSelecionado ? (
+                <div className="integration-selected"><div><strong>{destravaSelecionado.nome}</strong><span>{destravaSelecionado.documento || destravaSelecionado.subtitulo || 'Vinculado ao lançamento'}</span></div><button className="btn btn-ghost btn-sm" type="button" onClick={() => setDestravaSelecionado(null)}>Remover</button></div>
+              ) : (
+                <div className="integration-results">
+                  {destravaLoading && <span className="integration-muted">Buscando no Destrava...</span>}
+                  {!destravaLoading && destravaItens.slice(0, 5).map(item => <button key={`${item.tipo}-${item.id}`} type="button" className="integration-result" onClick={() => { setDestravaSelecionado(item); setDestravaBusca(item.nome); if (!pessoaNome && !pessoaId) setPessoaNome(item.nome) }}><strong>{item.nome}</strong><span>{item.documento || item.subtitulo || 'Registro do Destrava'}</span></button>)}
+                  {!destravaLoading && destravaItens.length === 0 && destravaBusca.trim() && <span className="integration-muted">Nenhum registro encontrado.</span>}
+                </div>
+              )}
+              <div className="integration-help">Use para registrar pagamento ou recebimento ligado a empresa do Destrava sem misturar os bancos.</div>
+            </div>
           </div>
 
           {scheduleMode !== 'parcelado' && (

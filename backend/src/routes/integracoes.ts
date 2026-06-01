@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express'
+import { authMiddleware } from '../middleware/auth'
 import { v4 as uuidv4 } from 'uuid'
 import { query, queryOne } from '../db/pool'
 
@@ -123,6 +124,63 @@ async function addHistorico(orgId: string, tarefaId: string, userId: string, aca
     ).catch(() => {})
   })
 }
+
+
+function destravaBaseUrl(): string {
+  return String(process.env.DESTRAVA_API_URL || process.env.DESTRAVA_INTERNAL_API_URL || process.env.DESTRAVA_PUBLIC_URL || '').replace(/\/$/, '')
+}
+
+function destravaSecret(): string {
+  return String(process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || '').trim()
+}
+
+async function callDestrava(path: string, options: RequestInit = {}) {
+  const base = destravaBaseUrl()
+  const secret = destravaSecret()
+  if (!base || !secret) {
+    const err = new Error('Integração com Destrava não configurada.') as Error & { status?: number }
+    err.status = 503
+    throw err
+  }
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-nexus-integration-secret': secret,
+    ...(options.headers as Record<string, string> || {}),
+  }
+  const res = await fetch(`${base}${path}`, { ...options, headers })
+  const data: any = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = new Error(data?.error || `Erro ${res.status} na integração Destrava.`) as Error & { status?: number }
+    err.status = res.status
+    throw err
+  }
+  return data
+}
+
+// Rotas autenticadas para o próprio Nexus consultar o catálogo do Destrava sem expor a chave no navegador.
+router.get('/destrava/catalogo', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tipo = String(req.query.tipo || 'empresa')
+    const q = String(req.query.q || '')
+    const limit = String(req.query.limit || '20')
+    const params = new URLSearchParams({ tipo, q, limit })
+    const data = await callDestrava(`/api/nexus/catalogo?${params.toString()}`)
+    res.json(data)
+  } catch (err: any) {
+    console.error('[INTEGRACOES] Erro ao buscar catálogo Destrava:', err)
+    res.status(err?.status || 500).json({ error: err?.message || 'Erro ao buscar dados do Destrava.' })
+  }
+})
+
+router.get('/destrava/empresa/:id/resumo', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const data = await callDestrava(`/api/nexus/empresas/${encodeURIComponent(req.params.id)}/resumo`)
+    res.json(data)
+  } catch (err: any) {
+    console.error('[INTEGRACOES] Erro ao buscar empresa Destrava:', err)
+    res.status(err?.status || 500).json({ error: err?.message || 'Erro ao buscar empresa do Destrava.' })
+  }
+})
 
 router.use(requireIntegrationSecret)
 

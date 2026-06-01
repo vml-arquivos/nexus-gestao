@@ -26,6 +26,44 @@ interface MulterTaskRequest extends Request {
   file?: Express.Multer.File
 }
 
+
+function destravaEventUrl(): string | null {
+  const base = String(process.env.DESTRAVA_API_URL || process.env.DESTRAVA_INTERNAL_API_URL || process.env.DESTRAVA_PUBLIC_URL || '').replace(/\/$/, '')
+  return base ? `${base}/api/nexus/eventos` : null
+}
+
+async function enviarEventoDestrava(tarefa: any, evento: string, payload: Record<string, unknown> = {}) {
+  if (!tarefa || tarefa.origem_sistema !== 'destrava' || !tarefa.origem_id) return
+  const url = destravaEventUrl()
+  const secret = String(process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || '').trim()
+  if (!url || !secret) return
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-nexus-integration-secret': secret },
+      body: JSON.stringify({
+        evento,
+        origem_sistema: 'nexus',
+        external_type: tarefa.origem_tipo || 'empresa',
+        external_id: tarefa.origem_id,
+        external_name: tarefa.origem_nome || null,
+        tarefa: {
+          id: tarefa.id,
+          titulo: tarefa.titulo,
+          status: tarefa.status,
+          status_gestor: tarefa.status_gestor,
+          prioridade: tarefa.prioridade,
+          prazo: tarefa.prazo,
+          origem_url: tarefa.origem_url || null,
+        },
+        ...payload,
+      }),
+    }).catch(() => undefined)
+  } catch (err) {
+    console.warn('[TAREFAS] Falha ao enviar evento para Destrava:', (err as Error)?.message || err)
+  }
+}
+
 const VALID_STATUS = ['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'devolvida', 'reenviada', 'aprovada', 'cancelada'] as const
 type TaskStatus = typeof VALID_STATUS[number]
 
@@ -397,7 +435,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
-    const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs } = req.body
+    const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload } = req.body
     const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
@@ -450,14 +488,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, status, status_gestor)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pendente','aguardando')
+         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pendente','aguardando',$13,$14,$15,$16,$17,$18)
        RETURNING *`,
-      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo]
+      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
     )
 
     await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
     await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'criada', statusNovo: 'pendente', observacao: obs || null })
+    await enviarEventoDestrava(tarefa, 'tarefa.criada', { observacao: obs || null })
 
     if (responsavelId && responsavelId !== userId) {
       const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
@@ -651,6 +690,8 @@ router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise
       statusNovo: geral.completo ? 'concluida' : tarefaAtualizada.status,
       observacao: String(observacao || '').trim() || `Parte do executor enviada (${minhaParte.feitos || geral.feitos}/${minhaParte.total || geral.total}).`,
     })
+
+    await enviarEventoDestrava(tarefaAtualizada || existing, geral.completo ? 'tarefa.checklist_completo' : 'tarefa.parte_enviada', { observacao: String(observacao || '').trim() || null, progresso: { feitos: geral.feitos, total: geral.total, completo: geral.completo } })
 
     if (existing.criado_por && existing.criado_por !== userId) {
       const autor = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
@@ -940,6 +981,8 @@ router.post('/:id/anexos', uploadEvidenceFile, async (req: MulterTaskRequest, re
       statusNovo: task.status,
       observacao: `${anexo?.titulo || 'Anexo'} (${req.file.originalname || req.file.filename})`,
     })
+
+    await enviarEventoDestrava(task, 'tarefa.arquivo_enviado', { arquivo: { titulo: anexo?.titulo || null, nome_original: req.file.originalname || null, mime_type: req.file.mimetype || null, tamanho: req.file.size || null }, observacao: descricao ? String(descricao).trim() : null })
 
     if (task.criado_por && task.criado_por !== userId) {
       await criarNotificacao({

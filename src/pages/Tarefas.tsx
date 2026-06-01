@@ -6,7 +6,7 @@ import {
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
   Paperclip, Upload, Download, FileText, Copy,
 } from 'lucide-react'
-import { tarefasApi, equipeApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem } from '../lib/api'
+import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
@@ -401,9 +401,41 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemData, setNovoItemData] = useState('')
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
+  const [destravaBusca, setDestravaBusca] = useState('')
+  const [destravaLoading, setDestravaLoading] = useState(false)
+  const [destravaItens, setDestravaItens] = useState<DestravaCatalogoItem[]>([])
+  const [destravaSelecionado, setDestravaSelecionado] = useState<DestravaCatalogoItem | null>(() => {
+    if (tarefa?.origem_sistema === 'destrava' && tarefa?.origem_id) {
+      return {
+        id: tarefa.origem_id,
+        tipo: tarefa.origem_tipo || 'empresa',
+        nome: tarefa.origem_nome || 'Registro do Destrava',
+        url: tarefa.origem_url || undefined,
+        metadata: tarefa.origem_payload || undefined,
+      }
+    }
+    return null
+  })
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
   const responsaveisChecklist = assigneeOptions(membros, user || undefined)
+
+  useEffect(() => {
+    let alive = true
+    const timer = window.setTimeout(async () => {
+      if (!isGestor) return
+      setDestravaLoading(true)
+      try {
+        const items = await destravaApi.catalogo({ tipo: 'empresa', q: destravaBusca, limit: 12 })
+        if (alive) setDestravaItens(items)
+      } catch {
+        if (alive) setDestravaItens([])
+      } finally {
+        if (alive) setDestravaLoading(false)
+      }
+    }, destravaBusca.trim() ? 350 : 0)
+    return () => { alive = false; window.clearTimeout(timer) }
+  }, [destravaBusca, isGestor])
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
@@ -447,6 +479,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         escopo: isGestor ? tipoTarefa : 'pessoal',
         checklist,
         obs: obs.trim() || undefined,
+        origem_sistema: destravaSelecionado ? 'destrava' : undefined,
+        origem_tipo: destravaSelecionado?.tipo || undefined,
+        origem_id: destravaSelecionado?.id || undefined,
+        origem_nome: destravaSelecionado?.nome || undefined,
+        origem_url: destravaSelecionado?.url || undefined,
+        origem_payload: destravaSelecionado?.metadata || undefined,
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
       onSaved(saved)
@@ -469,6 +507,40 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <label className="form-label">Descrição</label>
           <textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes e instruções" />
         </div>
+        {isGestor && (
+          <div className="form-group">
+            <label className="form-label">Vínculo com empresa do Destrava</label>
+            <div className="integration-link-box">
+              <input
+                className="form-input"
+                value={destravaBusca}
+                onChange={e => setDestravaBusca(e.target.value)}
+                placeholder="Buscar empresa, CNPJ ou cliente do Destrava..."
+              />
+              {destravaSelecionado ? (
+                <div className="integration-selected">
+                  <div>
+                    <strong>{destravaSelecionado.nome}</strong>
+                    <span>{destravaSelecionado.documento || destravaSelecionado.subtitulo || 'Empresa vinculada à tarefa'}</span>
+                  </div>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDestravaSelecionado(null)}>Remover</button>
+                </div>
+              ) : (
+                <div className="integration-results">
+                  {destravaLoading && <span className="integration-muted">Buscando no Destrava...</span>}
+                  {!destravaLoading && destravaItens.slice(0, 6).map(item => (
+                    <button key={`${item.tipo}-${item.id}`} type="button" className="integration-result" onClick={() => { setDestravaSelecionado(item); setDestravaBusca(item.nome) }}>
+                      <strong>{item.nome}</strong>
+                      <span>{item.documento || item.subtitulo || item.status || 'Registro do Destrava'}</span>
+                    </button>
+                  ))}
+                  {!destravaLoading && destravaItens.length === 0 && destravaBusca.trim() && <span className="integration-muted">Nenhum registro encontrado.</span>}
+                </div>
+              )}
+              <div className="integration-help">Este vínculo não altera a rota da tarefa. Ele apenas conecta a execução, arquivos e histórico à empresa correspondente no Destrava.</div>
+            </div>
+          </div>
+        )}
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Prazo</label>

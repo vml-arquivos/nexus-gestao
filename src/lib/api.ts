@@ -176,6 +176,12 @@ export interface Pagamento {
   pessoa_nome_atual?: string
   obs?: string
   comprovante_url?: string
+  origem_sistema?: string
+  origem_tipo?: string
+  origem_id?: string
+  origem_nome?: string
+  origem_url?: string
+  origem_payload?: Record<string, unknown>
   /**
    * Recorrência deste lançamento. "nenhum" indica lançamento único.
    * Pode ser 'nenhum', 'semanal', 'quinzenal', 'mensal', 'anual'.
@@ -301,6 +307,20 @@ export interface HistoricoPessoa {
   }
 }
 
+
+export interface DestravaCatalogoItem {
+  id: string
+  tipo: 'empresa' | 'cliente' | 'contrato' | 'simulacao' | string
+  nome: string
+  documento?: string | null
+  email?: string | null
+  telefone?: string | null
+  status?: string | null
+  subtitulo?: string | null
+  url?: string | null
+  metadata?: Record<string, unknown>
+}
+
 // ── FETCH COM AUTH ────────────────────────────────────────────────────────────
 let isRefreshing = false
 let refreshQueue: Array<(token: string) => void> = []
@@ -394,6 +414,23 @@ export const api = {
     const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
     const filename = decodeURIComponent(match?.[1] || match?.[2] || 'nexus-backup.json')
     return { blob: await res.blob(), filename }
+  },
+}
+
+
+// ── INTEGRAÇÃO DESTRAVA ─────────────────────────────────────────────────────
+export const destravaApi = {
+  async catalogo(params?: { tipo?: string; q?: string; limit?: number }): Promise<DestravaCatalogoItem[]> {
+    const qs = '?' + new URLSearchParams({
+      tipo: params?.tipo || 'empresa',
+      q: params?.q || '',
+      limit: String(params?.limit || 20),
+    }).toString()
+    const data = await apiJson<{ items: DestravaCatalogoItem[] }>(`/integracoes/destrava/catalogo${qs}`)
+    return data.items || []
+  },
+  async empresaResumo(id: string): Promise<any> {
+    return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
 }
 
