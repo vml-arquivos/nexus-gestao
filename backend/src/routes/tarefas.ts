@@ -75,6 +75,20 @@ function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
   return value === 'equipe' ? 'equipe' : 'pessoal'
 }
 
+function normalizeTaskDistribution(value: unknown): 'normal' | 'livre_equipe' {
+  return value === 'livre_equipe' ? 'livre_equipe' : 'normal'
+}
+
+function isFreeTeamTask(task: any) {
+  return normalizeTaskDistribution(task?.modo_distribuicao) === 'livre_equipe'
+}
+
+function periodMonth(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 7)
+  return d.toISOString().slice(0, 7)
+}
+
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -260,6 +274,8 @@ async function addHistorico(input: {
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
   if (canDeleteOrgRecords(role)) return true
+  if (isFreeTeamTask(task) && !task.aceita_por) return true
+  if (isFreeTeamTask(task) && task.aceita_por === userId) return true
   if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId || hasChecklistAssignedTo(task, userId)
   if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
   if (role === 'sub_gestor') {
@@ -275,11 +291,14 @@ async function getTaskForAccess(id: string, orgId: string) {
   return queryOne<any>(
     `SELECT t.*, p.nome AS responsavel_nome_perfil, p.cargo AS responsavel_cargo,
             c.nome AS criado_por_nome,
+            ap.nome AS aceita_por_nome,
             COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
             (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
      FROM tarefas t
      LEFT JOIN profiles p ON p.id = t.responsavel_id
      LEFT JOIN profiles c ON c.id = t.criado_por
+     LEFT JOIN profiles ap ON ap.id = t.aceita_por
+     LEFT JOIN profiles ap ON ap.id = t.aceita_por
      WHERE t.id = $1 AND t.org_id = $2`,
     [id, orgId]
   )
@@ -296,6 +315,7 @@ async function listTasksForUser(user: NonNullable<Request['user']>) {
             p.nome  AS responsavel_nome_perfil,
             p.cargo AS responsavel_cargo,
             c.nome  AS criado_por_nome,
+            ap.nome AS aceita_por_nome,
             COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
             (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
      FROM tarefas t
@@ -315,6 +335,8 @@ async function listTasksForUser(user: NonNullable<Request['user']>) {
   }
 
   return rows.filter(task => {
+    if (isFreeTeamTask(task) && !task.aceita_por) return true
+    if (isFreeTeamTask(task) && task.aceita_por === userId) return true
     if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
     if (role === 'sub_gestor' && task.responsavel_id && comandados.has(task.responsavel_id)) return true
     return false
@@ -322,7 +344,7 @@ async function listTasksForUser(user: NonNullable<Request['user']>) {
 }
 
 function taskMatchesMember(task: any, memberId: string) {
-  return task.responsavel_id === memberId || task.criado_por === memberId || hasChecklistAssignedTo(task, memberId)
+  return task.responsavel_id === memberId || task.criado_por === memberId || task.aceita_por === memberId || hasChecklistAssignedTo(task, memberId)
 }
 
 function buildTaskStats(tasks: any[]) {
@@ -431,12 +453,90 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
+// ── RANKING DA EQUIPE / DESAFIO ─────────────────────────────────────────────
+router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!
+    const periodo = typeof req.query.periodo === 'string' && /^\d{4}-\d{2}$/.test(req.query.periodo) ? req.query.periodo : periodMonth()
+    const ranking = await query<any>(
+      `SELECT p.id, p.nome, p.email, p.role,
+              COALESCE(SUM(tp.pontos), 0)::int AS pontos,
+              COUNT(tp.id)::int AS tarefas_aprovadas,
+              MAX(tp.aprovado_em) AS ultima_aprovacao
+       FROM profiles p
+       LEFT JOIN tarefas_pontuacao tp ON tp.usuario_id = p.id AND tp.org_id = p.org_id AND tp.periodo_mes = $2
+       WHERE p.org_id = $1 AND p.ativo = TRUE
+       GROUP BY p.id, p.nome, p.email, p.role
+       ORDER BY pontos DESC, tarefas_aprovadas DESC, ultima_aprovacao DESC NULLS LAST, p.nome ASC`,
+      [orgId, periodo]
+    )
+    const livres = await queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE modo_distribuicao = 'livre_equipe' AND aceita_por IS NULL AND status IN ('pendente','em_progresso'))::int AS disponiveis,
+         COUNT(*) FILTER (WHERE modo_distribuicao = 'livre_equipe' AND aceita_por IS NOT NULL AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS em_execucao,
+         COUNT(*) FILTER (WHERE modo_distribuicao = 'livre_equipe' AND status IN ('concluida','aprovada'))::int AS concluidas
+       FROM tarefas WHERE org_id = $1`,
+      [orgId]
+    )
+    res.json({ periodo, ranking, resumo: livres || { disponiveis: 0, em_execucao: 0, concluidas: 0 } })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao buscar ranking:', err)
+    res.status(500).json({ error: 'Erro ao buscar ranking de tarefas.' })
+  }
+})
+
+// ── PEGAR TAREFA LIVRE DA EQUIPE ─────────────────────────────────────────────
+router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!isFreeTeamTask(existing)) { res.status(400).json({ error: 'Esta tarefa não está disponível para pegar.' }); return }
+    if (existing.aceita_por) { res.status(409).json({ error: 'Esta tarefa já foi selecionada por outro membro.' }); return }
+    if (['concluida','aprovada','cancelada'].includes(String(existing.status))) { res.status(400).json({ error: 'Tarefa finalizada não pode ser selecionada.' }); return }
+
+    const ativa = await queryOne<any>(
+      `SELECT id, titulo FROM tarefas
+       WHERE org_id = $1 AND aceita_por = $2 AND modo_distribuicao = 'livre_equipe'
+         AND COALESCE(bloquear_nova_livre_ate_concluir, TRUE) = TRUE
+         AND status IN ('pendente','em_progresso','devolvida','reenviada')
+       LIMIT 1`,
+      [orgId, userId]
+    )
+    if (ativa) {
+      res.status(409).json({ error: `Você já pegou a tarefa "${ativa.titulo}". Conclua ou devolva antes de pegar outra.` })
+      return
+    }
+
+    const profile = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [userId, orgId])
+    const tarefa = await queryOne<any>(
+      `UPDATE tarefas SET aceita_por = $1, aceita_em = NOW(), responsavel_id = $1, responsavel_nome = $2,
+          status = 'em_progresso', data_inicio = COALESCE(data_inicio, NOW()), escopo = 'equipe', updated_at = NOW()
+       WHERE id = $3 AND org_id = $4 AND aceita_por IS NULL
+       RETURNING *`,
+      [userId, profile?.nome || null, req.params.id, orgId]
+    )
+    if (!tarefa) { res.status(409).json({ error: 'Tarefa já foi selecionada.' }); return }
+    await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'tarefa_livre_aceita', statusAnterior: existing.status, statusNovo: 'em_progresso', observacao: `${profile?.nome || 'Membro'} pegou a tarefa.` })
+    if (existing.criado_por && existing.criado_por !== userId) {
+      await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: '🙋 Tarefa selecionada', body: `${profile?.nome || 'Um membro'} pegou a tarefa "${existing.titulo}".`, referenciaId: tarefa.id, referenciaTipo: 'tarefa' }).catch(() => {})
+    }
+    res.json({ tarefa })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao pegar tarefa:', err)
+    res.status(500).json({ error: 'Erro ao pegar tarefa.' })
+  }
+})
+
 // ── CRIAR TAREFA ─────────────────────────────────────────────────────────────
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload } = req.body
     const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
+    const modoDistribuicao = normalizeTaskDistribution((req.body as any).modo_distribuicao)
+    const pontuacao = Math.max(1, Math.min(999, Number((req.body as any).pontuacao || 1)))
+    const contaRanking = (req.body as any).conta_ranking !== false
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!['baixa','media','alta'].includes(prioridade)) { res.status(400).json({ error: 'Prioridade inválida.' }); return }
@@ -444,6 +544,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const hasResponsavelField = Object.prototype.hasOwnProperty.call(req.body, 'responsavel_id')
     let responsavelId: string | null = hasResponsavelField ? (responsavel_id || null) : userId
     let escopo: 'pessoal' | 'equipe' = requestedEscopo
+
+    const modoFinal = role === 'membro' ? 'normal' : modoDistribuicao
 
     if (role === 'membro') {
       // membro só cria tarefa pessoal para si mesmo
@@ -476,10 +578,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          AND COALESCE(descricao, '') = COALESCE($5, '')
          AND COALESCE(prazo::text, '') = COALESCE($6::text, '')
          AND COALESCE(escopo, 'pessoal') = $7
+         AND COALESCE(modo_distribuicao, 'normal') = $8
          AND created_at >= NOW() - INTERVAL '12 seconds'
        ORDER BY created_at DESC
        LIMIT 1`,
-      [orgId, userId, responsavelId, titulo.trim(), descricao || '', prazo || '', escopo]
+      [orgId, userId, responsavelId, titulo.trim(), descricao || '', prazo || '', escopo, modoFinal]
     )
     if (duplicate) {
       res.status(200).json({ tarefa: duplicate })
@@ -488,17 +591,17 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pendente','aguardando',$13,$14,$15,$16,$17,$18)
+         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,TRUE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
        RETURNING *`,
-      [orgId, userId, responsavelId, responsavel?.nome || null, titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
+      [orgId, userId, modoFinal === 'livre_equipe' ? null : responsavelId, modoFinal === 'livre_equipe' ? null : (responsavel?.nome || null), titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, modoFinal, pontuacao, contaRanking, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
     )
 
     await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
     await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'criada', statusNovo: 'pendente', observacao: obs || null })
     await enviarEventoDestrava(tarefa, 'tarefa.criada', { observacao: obs || null })
 
-    if (responsavelId && responsavelId !== userId) {
+    if (modoFinal !== 'livre_equipe' && responsavelId && responsavelId !== userId) {
       const prazoFmt = prazo ? ` — prazo: ${new Date(prazo).toLocaleDateString('pt-BR')}` : ''
       await criarNotificacao({
         orgId, userId: responsavelId,
@@ -731,6 +834,17 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
        WHERE id = $2 AND org_id = $3 RETURNING *`,
       [userId, req.params.id, orgId]
     )
+    if (existing.conta_ranking !== false) {
+      const participante = existing.aceita_por || existing.responsavel_id
+      if (participante) {
+        await query(
+          `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+           VALUES ($1,$2,$3,$4,'tarefa_aprovada',$5,NOW(),$6)
+           ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
+          [orgId, req.params.id, participante, Math.max(1, Number(existing.pontuacao || 1)), userId, periodMonth()]
+        ).catch(() => {})
+      }
+    }
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'aprovada', statusAnterior: existing.status, statusNovo: 'aprovada' })
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
       await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_aprovada', titulo: '✅ Tarefa aprovada', body: `"${existing.titulo}" foi aprovada.`, referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
@@ -1093,7 +1207,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
 
     const isMember = role === 'membro'
-    const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo']
+    const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo','modo_distribuicao','pontuacao','conta_ranking']
 
     if ((req.body as any).checklist !== undefined) {
       const changedItems = changedChecklistDoneItems(existing.checklist, (req.body as any).checklist)
@@ -1123,6 +1237,19 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
           }
         } else if (key === 'escopo') {
           sets.push(`escopo = $${idx++}`); params.push(normalizeTaskScope((req.body as any)[key]))
+        } else if (key === 'modo_distribuicao') {
+          const nextMode = normalizeTaskDistribution((req.body as any)[key])
+          sets.push(`modo_distribuicao = $${idx++}`); params.push(nextMode)
+          if (nextMode === 'livre_equipe') {
+            sets.push(`responsavel_id = NULL`)
+            sets.push(`responsavel_nome = NULL`)
+            sets.push(`aceita_por = NULL`)
+            sets.push(`aceita_em = NULL`)
+          }
+        } else if (key === 'pontuacao') {
+          sets.push(`pontuacao = $${idx++}`); params.push(Math.max(1, Math.min(999, Number((req.body as any)[key] || 1))))
+        } else if (key === 'conta_ranking') {
+          sets.push(`conta_ranking = $${idx++}`); params.push((req.body as any)[key] !== false)
         } else if (key === 'checklist') {
           sets.push(`checklist = $${idx++}`); params.push(await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role))
         } else {
@@ -1185,6 +1312,10 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const existing = await getTaskForAccess(req.params.id, orgId)
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     const canDeleteAny = canDeleteOrgRecords(role)
+    if (['concluida','aprovada'].includes(String(existing.status)) || isFreeTeamTask(existing)) {
+      res.status(403).json({ error: 'Tarefas livres ou concluídas não podem ser apagadas. Cancele ou arquive em vez de excluir.' })
+      return
+    }
     if (role === 'membro' && existing.criado_por !== userId) { res.status(403).json({ error: 'Membro só exclui tarefas pessoais criadas por ele.' }); return }
     if (!canDeleteAny && role !== 'membro' && existing.criado_por !== userId && existing.responsavel_id !== userId) { res.status(403).json({ error: 'Acesso negado.' }); return }
 

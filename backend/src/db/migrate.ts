@@ -109,6 +109,33 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS escopo TEXT NOT NULL DEFAULT 'pessoal';
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_escopo_check;
 ALTER TABLE tarefas ADD CONSTRAINT tarefas_escopo_check CHECK (escopo IN ('pessoal','equipe'));
+
+-- Tarefas livres para a equipe: o gestor publica, um membro pega, executa e só pontua após aprovação.
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS modo_distribuicao TEXT NOT NULL DEFAULT 'normal';
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_modo_distribuicao_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_modo_distribuicao_check CHECK (modo_distribuicao IN ('normal','livre_equipe'));
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
+
+CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+  tarefa_id   UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  usuario_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  pontos      INTEGER NOT NULL DEFAULT 1,
+  motivo      TEXT,
+  aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  aprovado_em TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  periodo_mes TEXT NOT NULL,
+  created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  UNIQUE (tarefa_id, usuario_id, motivo)
+);
+CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
+CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
 ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;

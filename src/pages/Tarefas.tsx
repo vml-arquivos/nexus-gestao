@@ -4,7 +4,7 @@ import type { ReactNode, DragEvent } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
-  Paperclip, Upload, Download, FileText, Copy,
+  Paperclip, Upload, Download, FileText, Copy, Trophy,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -222,6 +222,18 @@ function taskScope(tarefa: Tarefa): 'pessoal' | 'equipe' {
   return tarefa.escopo === 'equipe' ? 'equipe' : 'pessoal'
 }
 
+function taskDistribution(tarefa: Tarefa): 'normal' | 'livre_equipe' {
+  return tarefa.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal'
+}
+
+function isFreeTeamTask(tarefa: Tarefa) {
+  return taskDistribution(tarefa) === 'livre_equipe'
+}
+
+function isAvailableFreeTask(tarefa: Tarefa) {
+  return isFreeTeamTask(tarefa) && !tarefa.aceita_por && !['concluida', 'aprovada', 'cancelada'].includes(String(tarefa.status))
+}
+
 function duplicateTaskVisualKey(tarefa: Tarefa) {
   // Tarefas de equipe devem aparecer como uma única entidade no painel do gestor.
   // Quando houver registros legados/repetidos com o mesmo título, descrição e prazo,
@@ -394,6 +406,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
+  const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
+  const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao || 1))
+  const [contaRanking, setContaRanking] = useState(tarefa?.conta_ranking !== false)
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
   const [novoItem, setNovoItem] = useState('')
@@ -439,8 +454,19 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
-    if (next === 'pessoal') setResponsavelId(user?.id || '')
+    if (next === 'pessoal') {
+      setModoDistribuicao('normal')
+      setResponsavelId(user?.id || '')
+    }
     if (next === 'equipe' && responsavelId === user?.id) setResponsavelId('')
+  }
+
+  function changeModoDistribuicao(next: 'normal' | 'livre_equipe') {
+    setModoDistribuicao(next)
+    if (next === 'livre_equipe') {
+      setTipoTarefa('equipe')
+      setResponsavelId('')
+    }
   }
 
   function checklistResponsibleName(id?: string) {
@@ -475,8 +501,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
-        responsavel_id: isGestor ? ((tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null)) as any) : user?.id,
+        responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : user?.id,
         escopo: isGestor ? tipoTarefa : 'pessoal',
+        modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
+        pontuacao: Number(pontuacao || 1),
+        conta_ranking: contaRanking,
         checklist,
         obs: obs.trim() || undefined,
         origem_sistema: destravaSelecionado ? 'destrava' : undefined,
@@ -579,6 +608,41 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && (
+          <div className="form-group">
+            <label className="form-label">Modelo de distribuição</label>
+            <div className="task-type-selector" role="radiogroup" aria-label="Modelo de distribuição da tarefa">
+              <button
+                type="button"
+                className={modoDistribuicao === 'normal' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => changeModoDistribuicao('normal')}
+              >
+                <strong>Direcionar para alguém</strong>
+                <span>Você escolhe o responsável principal ou distribui nos checklists.</span>
+              </button>
+              <button
+                type="button"
+                className={modoDistribuicao === 'livre_equipe' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => changeModoDistribuicao('livre_equipe')}
+              >
+                <strong>Disponível para pegar</strong>
+                <span>Fica visível para o time. Quem pegar executa e não pega outra até concluir.</span>
+              </button>
+            </div>
+          </div>
+        )}
+        {isGestor && tipoTarefa === 'equipe' && modoDistribuicao === 'livre_equipe' && (
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Pontuação no ranking</label>
+              <input className="form-input" type="number" min="1" max="999" value={pontuacao} onChange={e => setPontuacao(e.target.value)} />
+            </div>
+            <label className="form-group" style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 22 }}>
+              <input type="checkbox" checked={contaRanking} onChange={e => setContaRanking(e.target.checked)} />
+              <span style={{ fontSize: 13, color: 'var(--text2)' }}>Contar no ranking após aprovação</span>
+            </label>
+          </div>
+        )}
+        {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
           <div className="form-group">
             <label className="form-label">Responsável principal da tarefa</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
@@ -1058,6 +1122,8 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const isCriador = tarefa.criado_por === userId
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
+  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -1331,7 +1397,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
+function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -1339,6 +1405,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   onEdit: (t: Tarefa) => void
   onDelete: (id: string) => void
   onStart: (t: Tarefa) => void
+  onPegar: (t: Tarefa) => void
   onResponder: (t: Tarefa) => void
   onApprove: (t: Tarefa) => void
   onReturn: (t: Tarefa) => void
@@ -1362,6 +1429,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const isCriador = tarefa.criado_por === userId
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
+  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -1379,9 +1448,13 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
             <strong style={{ fontSize: 14, overflowWrap: 'anywhere', textDecoration: tarefa.status === 'aprovada' ? 'line-through' : 'none' }}>{tarefa.titulo}</strong>
             <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 8px', borderRadius: 99 }}>{sc.label}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
+            {livreDisponivel && <span className="badge badge-primary">Para pegar</span>}
+            {livreAceita && <span className="badge badge-success">Selecionada</span>}
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
-            <span><User size={12} /> {tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
+            <span><User size={12} /> {livreDisponivel ? 'Disponível para o time' : tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
+            {livreAceita && <span>Selecionada por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+            {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
             {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
             {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist{!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}</span>}
           </div>
@@ -1428,12 +1501,13 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           <button title="Anexos" onClick={() => onAnexos(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Paperclip size={15} /></button>
           <button title="Histórico" onClick={() => onHistory(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><History size={15} /></button>
           {isGestor && <button title="Editar" onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Edit3 size={15} /></button>}
-          {canDeleteTarefa(tarefa, userId, isGestor) && <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>}
+          {canDeleteTarefa(tarefa, userId, isGestor) && !isFreeTeamTask(tarefa) && !['concluida','aprovada'].includes(String(tarefa.status)) && <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>}
           {(tarefa.descricao || checkTotal > 0) && <button title="Detalhes" onClick={() => setExpanded(v => !v)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><MessageSquare size={15} /></button>}
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
+        {livreDisponivel && !isGestor && <button className="btn btn-primary" onClick={() => onPegar(tarefa)} type="button">Pegar tarefa</button>}
         <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
         <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver arquivos' : 'Anexar arquivo'}</button>
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
@@ -1455,6 +1529,52 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         </div>)}
       </div>}
     </article>
+  )
+}
+
+
+function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]; resumo: any } | null }) {
+  const lista = Array.isArray(ranking?.ranking) ? ranking!.ranking : []
+  const resumo = ranking?.resumo || {}
+  return (
+    <section style={{ display: 'grid', gap: 12 }}>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 14 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div>
+            <strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}><Trophy size={17} /> Desafio da equipe</strong>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Conta somente tarefas aprovadas pelo gestor no período {ranking?.periodo || 'atual'}.</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <span className="badge badge-primary">{Number(resumo.disponiveis || 0)} para pegar</span>
+            <span className="badge badge-warning">{Number(resumo.em_execucao || 0)} em execução</span>
+            <span className="badge badge-success">{Number(resumo.concluidas || 0)} concluídas</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {lista.length === 0 ? (
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 26, textAlign: 'center', color: 'var(--text3)' }}>
+            Ainda não há tarefas aprovadas no ranking deste mês.
+          </div>
+        ) : lista.map((membro, index) => {
+          const pontos = Number(membro.pontos || 0)
+          const aprovadas = Number(membro.tarefas_aprovadas || 0)
+          return (
+            <div key={membro.id || index} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 12, alignItems: 'center' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: index === 0 ? 'rgba(245,158,11,.16)' : 'var(--bg3)', color: index === 0 ? '#F59E0B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{index + 1}º</div>
+              <div style={{ minWidth: 0 }}>
+                <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro da equipe'}</strong>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{aprovadas} tarefa(s) aprovada(s)</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <strong style={{ display: 'block', fontSize: 18, color: pontos > 0 ? 'var(--success)' : 'var(--text3)' }}>{pontos}</strong>
+                <span style={{ color: 'var(--text3)', fontSize: 11 }}>pontos</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -1480,17 +1600,20 @@ export default function Tarefas() {
   const [membroFiltro, setMembroFiltro] = useState('todos')
   const [mesFiltro, setMesFiltro] = useState('todos')
   const [anoFiltro, setAnoFiltro] = useState('todos')
-  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'todas' | 'recentes'>('pessoais')
+  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
+  const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [ts, ms] = await Promise.all([
+      const [ts, ms, rk] = await Promise.all([
         tarefasApi.list(),
         isGestor ? equipeApi.membros() : Promise.resolve([]),
+        tarefasApi.ranking().catch(() => null),
       ])
       setTarefas(Array.isArray(ts) ? ts : [])
       setMembros(Array.isArray(ms) ? ms : [])
+      setRanking(rk)
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
     } finally { setLoading(false) }
@@ -1534,7 +1657,9 @@ export default function Tarefas() {
 
   const scoped = useMemo(() => tarefasVisiveis.filter(t => {
     if (escopo === 'pessoais') return isPersonalTask(t)
-    if (escopo === 'equipe') return isTeamAssignedTask(t)
+    if (escopo === 'equipe') return isTeamAssignedTask(t) && !isAvailableFreeTask(t)
+    if (escopo === 'disponiveis') return isAvailableFreeTask(t)
+    if (escopo === 'ranking') return true
     if (escopo === 'recentes') return recentesIds.has(t.id)
     return true
   }), [tarefasVisiveis, escopo, isPersonalTask, isTeamAssignedTask, recentesIds])
@@ -1581,6 +1706,7 @@ export default function Tarefas() {
   const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
   const equipeCount = useMemo(() => tarefasVisiveis.filter(isTeamAssignedTask).length, [tarefasVisiveis, isTeamAssignedTask])
   const recentesCount = recentesIds.size
+  const disponiveisCount = useMemo(() => tarefasVisiveis.filter(isAvailableFreeTask).length, [tarefasVisiveis])
 
   const stats = [
     ['Total', scoped.length, 'var(--text)'],
@@ -1631,6 +1757,17 @@ export default function Tarefas() {
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao iniciar.', 'error') }
   }
 
+  async function pegarTarefa(t: Tarefa) {
+    try {
+      const saved = await tarefasApi.pegar(t.id)
+      updateSaved(saved)
+      await load()
+      toast('Tarefa selecionada. Conclua esta antes de pegar outra tarefa livre.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao pegar tarefa.', 'error')
+    }
+  }
+
   async function approve(t: Tarefa) {
     if (!confirm('Aprovar esta tarefa? Verifique os arquivos da tarefa antes de aprovar.')) return
     try { updateSaved(await tarefasApi.aprovar(t.id)); toast('Tarefa aprovada.') }
@@ -1655,7 +1792,7 @@ export default function Tarefas() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'disponiveis' ? 'Tarefas livres para membros selecionarem e aprenderem executando' : escopo === 'ranking' ? 'Placar de tarefas aprovadas e premiações do time' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
@@ -1664,6 +1801,8 @@ export default function Tarefas() {
         {[
           { id: 'pessoais', label: t('tasks.tabs.personal'), count: pessoalCount, hint: 'Minha execução' },
           { id: 'equipe', label: t('tasks.tabs.team'), count: equipeCount, hint: 'Time e delegações' },
+          { id: 'disponiveis', label: 'Para pegar', count: disponiveisCount, hint: 'Livres para o time' },
+          { id: 'ranking', label: 'Ranking', count: ranking?.ranking?.length || 0, hint: 'Pontuação do mês' },
           { id: 'recentes', label: t('tasks.tabs.recent'), count: recentesCount, hint: 'Movimentadas agora' },
           { id: 'todas', label: t('tasks.tabs.all'), count: tarefasVisiveis.length, hint: 'Visão geral' },
         ].map(tab => {
@@ -1673,7 +1812,7 @@ export default function Tarefas() {
               key={tab.id}
               type="button"
               className={active ? 'task-smart-tab active' : 'task-smart-tab'}
-              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'todas' | 'recentes')}
+              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes')}
             >
               <span className="task-smart-tab-main">
                 <strong>{tab.label}</strong>
@@ -1773,12 +1912,13 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'disponiveis' ? 'Nenhuma tarefa disponível para pegar agora.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}
               onStart={startTask}
+              onPegar={pegarTarefa}
               onResponder={setDetalhe}
               onApprove={approve}
               onReturn={devolver}

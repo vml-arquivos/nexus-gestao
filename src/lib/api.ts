@@ -64,6 +64,14 @@ export interface Tarefa {
   prioridade: 'baixa' | 'media' | 'alta'
   /** Separa tarefas pessoais de tarefas controladas pela equipe/gestor. */
   escopo?: 'pessoal' | 'equipe'
+  /** normal = tarefa atribuída; livre_equipe = fica disponível para um membro pegar. */
+  modo_distribuicao?: 'normal' | 'livre_equipe'
+  aceita_por?: string
+  aceita_por_nome?: string
+  aceita_em?: string
+  pontuacao?: number
+  conta_ranking?: boolean
+  bloquear_nova_livre_ate_concluir?: boolean
   status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'reenviada' | 'aprovada' | 'cancelada'
   checklist?: ChecklistItem[]
   obs?: string
@@ -518,6 +526,16 @@ export const tarefasApi = {
 
   async registrarParte(id: string, observacao?: string): Promise<{ ok: boolean; completa: boolean; feitos: number; total: number; tarefa?: Tarefa }> {
     return apiJson(`/tarefas/${id}/parte-concluida`, { method: 'POST', body: JSON.stringify({ observacao }) })
+  },
+
+  async pegar(id: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/pegar`, { method: 'POST' })
+    return data.tarefa
+  },
+
+  async ranking(periodo?: string): Promise<{ periodo: string; ranking: any[]; resumo: any }> {
+    const qs = periodo ? `?periodo=${encodeURIComponent(periodo)}` : ''
+    return apiJson(`/tarefas/ranking${qs}`)
   },
 
   async aprovar(id: string): Promise<Tarefa> {

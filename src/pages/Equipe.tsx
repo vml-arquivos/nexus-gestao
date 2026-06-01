@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Users, Plus, X, Mic, MicOff, Calendar, ChevronDown, ChevronUp,
   CheckCircle2, Clock, Crown, Shield, User, Trash2, Edit3, Check,
-  Send, Copy, Share2, Link, RefreshCw,
+  Send, Copy, Share2, Link, RefreshCw, Trophy,
 } from 'lucide-react'
 import { equipeApi, usersApi, tarefasApi, teamsApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem, type Equipe as EquipeTipo } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -658,6 +658,7 @@ export default function Equipe() {
   const [modalConvite, setModalConvite] = useState(false)
   const [modalAdicionarMembro, setModalAdicionarMembro] = useState(false)
   const [modalEditar, setModalEditar]   = useState<MembroEquipe | null>(null)
+  const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
   const [editNome, setEditNome]         = useState('')
   const [editCargo, setEditCargo]       = useState('')
   const [editRole, setEditRole]         = useState('')
@@ -668,8 +669,12 @@ export default function Equipe() {
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
     try {
-      const data = await equipeApi.membros()
+      const [data, rk] = await Promise.all([
+        equipeApi.membros(),
+        tarefasApi.ranking().catch(() => null),
+      ])
       setMembros(data)
+      setRanking(rk)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Erro ao buscar membros.')
     } finally {
@@ -743,6 +748,31 @@ export default function Equipe() {
           Pessoas
         </button>
       </div>
+
+      {tab === 'membros' && ranking && (
+        <section style={{ margin: '0 16px 14px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <strong style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Trophy size={16} /> Desafio da equipe</strong>
+              <div style={{ color: 'var(--text3)', fontSize: 12, marginTop: 2 }}>Tarefas aprovadas contam pontos para premiação.</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge badge-primary">{Number(ranking.resumo?.disponiveis || 0)} para pegar</span>
+              <span className="badge badge-warning">{Number(ranking.resumo?.em_execucao || 0)} em execução</span>
+              <span className="badge badge-success">{Number(ranking.resumo?.concluidas || 0)} concluídas</span>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            {(ranking.ranking || []).slice(0, 5).map((r: any, index: number) => (
+              <div key={r.id || index} style={{ display: 'grid', gridTemplateColumns: '34px 1fr auto', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--bg3)', borderRadius: 12 }}>
+                <strong style={{ color: index === 0 ? '#F59E0B' : 'var(--text2)' }}>{index + 1}º</strong>
+                <span style={{ fontSize: 13 }}>{r.nome}</span>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{Number(r.pontos || 0)} pts · {Number(r.tarefas_aprovadas || 0)} aprov.</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Conteúdo */}
       {tab === 'membros' && (
