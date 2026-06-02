@@ -5041,3 +5041,134 @@ button:disabled,
     justify-content: center;
   }
 }
+
+/* HOTFIX CRÍTICO — Modal de tarefa/checklist sem texto vertical.
+   Garante que o detalhe da tarefa, orientações e checklist ocupem largura real
+   dentro do modal, sem colunas estreitas nem quebra letra por letra. */
+.tarefa-modal-box,
+.modal-box[data-modal="true"].tarefa-modal-box,
+.modal-box[aria-modal="true"].tarefa-modal-box {
+  width: min(94vw, 860px) !important;
+  max-width: min(94vw, 860px) !important;
+}
+
+.tarefa-modal-box .modal-content,
+.tarefa-modal-box .modal-content > *,
+.tarefa-modal-box .task-detail-modal,
+.tarefa-modal-box .task-detail-modal > *,
+.tarefa-modal-box .task-detail-hero,
+.tarefa-modal-box .task-detail-section,
+.tarefa-modal-box .task-checklist-run,
+.tarefa-modal-box .task-checklist-date-group,
+.tarefa-modal-box .task-check-item,
+.tarefa-modal-box .task-check-main-button,
+.tarefa-modal-box .task-check-content {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.tarefa-modal-box .task-detail-modal {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  align-items: stretch !important;
+  gap: 14px !important;
+}
+
+.tarefa-modal-box .task-detail-hero {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: start !important;
+  gap: 14px !important;
+}
+
+.tarefa-modal-box .task-detail-hero > div,
+.tarefa-modal-box .task-detail-section > *,
+.tarefa-modal-box .task-check-content > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.tarefa-modal-box .task-detail-hero h2,
+.tarefa-modal-box .task-detail-section h3,
+.tarefa-modal-box .task-detail-section p,
+.tarefa-modal-box .task-check-text,
+.tarefa-modal-box .task-check-desc,
+.tarefa-modal-box .task-execution-summary,
+.tarefa-modal-box .muted {
+  display: block !important;
+  width: auto !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  text-align: left !important;
+  letter-spacing: normal !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+}
+
+.tarefa-modal-box .task-detail-section p,
+.tarefa-modal-box .task-check-desc {
+  line-height: 1.55 !important;
+}
+
+.tarefa-modal-box .task-detail-meta {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+}
+
+.tarefa-modal-box .task-detail-meta span,
+.tarefa-modal-box .task-checklist-date-title,
+.tarefa-modal-box .task-checklist-head-actions,
+.tarefa-modal-box .task-detail-actions {
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  writing-mode: horizontal-tb !important;
+}
+
+.tarefa-modal-box .task-check-main-button {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 10px !important;
+}
+
+.tarefa-modal-box .task-check-content {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 4px !important;
+}
+
+.tarefa-modal-box .task-check-box {
+  width: 22px !important;
+  min-width: 22px !important;
+  max-width: 22px !important;
+  height: 22px !important;
+  line-height: 20px !important;
+  text-align: center !important;
+  flex: 0 0 22px !important;
+}
+
+@media (max-width: 720px) {
+  .tarefa-modal-box,
+  .modal-box[data-modal="true"].tarefa-modal-box,
+  .modal-box[aria-modal="true"].tarefa-modal-box {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+
+  .tarefa-modal-box .task-detail-hero {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .tarefa-modal-box .task-detail-hero .btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
