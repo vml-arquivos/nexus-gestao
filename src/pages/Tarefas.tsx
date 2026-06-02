@@ -442,25 +442,20 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   useEffect(() => {
     let alive = true
-    const q = destravaBusca.trim()
-    if (!isGestor || destravaSelecionado || q.length < 2) {
+    if (!isGestor) {
       setDestravaItens([])
       setDestravaLoading(false)
       return () => { alive = false }
     }
-    const timer = window.setTimeout(async () => {
-      setDestravaLoading(true)
-      try {
-        const items = await destravaApi.catalogo({ tipo: 'empresa', q, limit: 8 })
-        if (alive) setDestravaItens(items)
-      } catch {
-        if (alive) setDestravaItens([])
-      } finally {
-        if (alive) setDestravaLoading(false)
-      }
-    }, 350)
-    return () => { alive = false; window.clearTimeout(timer) }
-  }, [destravaBusca, destravaSelecionado, isGestor])
+
+    setDestravaLoading(true)
+    destravaApi.catalogo({ tipo: 'empresa', q: '', limit: 120 })
+      .then(items => { if (alive) setDestravaItens(Array.isArray(items) ? items : []) })
+      .catch(() => { if (alive) setDestravaItens([]) })
+      .finally(() => { if (alive) setDestravaLoading(false) })
+
+    return () => { alive = false }
+  }, [isGestor])
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
@@ -500,6 +495,13 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     setNovoItemData('')
     setNovoItemResponsavelId('')
   }
+
+  const destravaSelectOptions = useMemo(() => {
+    const map = new Map<string, DestravaCatalogoItem>()
+    if (destravaSelecionado) map.set(`${destravaSelecionado.tipo}-${destravaSelecionado.id}`, destravaSelecionado)
+    destravaItens.forEach(item => map.set(`${item.tipo}-${item.id}`, item))
+    return Array.from(map.values()).sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+  }, [destravaItens, destravaSelecionado])
 
   async function salvar() {
     if (loading) return
@@ -548,31 +550,31 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Empresa do Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
-            <div className="integration-link-box compact">
-              <div className="integration-search-wrap">
-                <input
-                  className="form-input"
-                  value={destravaSelecionado ? destravaSelecionado.nome : destravaBusca}
-                  onChange={e => { setDestravaSelecionado(null); setDestravaBusca(e.target.value) }}
-                  placeholder="Digite 2 letras para buscar empresa, CNPJ ou cliente..."
-                />
-                {destravaSelecionado && <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setDestravaSelecionado(null); setDestravaBusca('') }}>Limpar</button>}
+            <label className="form-label">Empresa Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+            <select
+              className="form-input"
+              value={destravaSelecionado ? `${destravaSelecionado.tipo}-${destravaSelecionado.id}` : ''}
+              onChange={e => {
+                const value = e.target.value
+                if (!value) { setDestravaSelecionado(null); setDestravaBusca(''); return }
+                const item = destravaSelectOptions.find(i => `${i.tipo}-${i.id}` === value) || null
+                setDestravaSelecionado(item)
+                setDestravaBusca(item?.nome || '')
+              }}
+            >
+              <option value="">Selecione a empresa, se esta tarefa for para uma empresa do Destrava</option>
+              {destravaLoading && <option value="" disabled>Carregando empresas...</option>}
+              {!destravaLoading && destravaSelectOptions.map(item => (
+                <option key={`${item.tipo}-${item.id}`} value={`${item.tipo}-${item.id}`}>
+                  {item.nome}{item.documento ? ` · ${item.documento}` : ''}
+                </option>
+              ))}
+            </select>
+            {destravaSelecionado && (
+              <div className="integration-help">
+                Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}. Ao executar ou anexar arquivos, o histórico da empresa no Destrava será atualizado.
               </div>
-              {!destravaSelecionado && (destravaLoading || destravaItens.length > 0 || destravaBusca.trim().length >= 2) && (
-                <div className="integration-results compact">
-                  {destravaLoading && <span className="integration-muted">Buscando...</span>}
-                  {!destravaLoading && destravaItens.slice(0, 6).map(item => (
-                    <button key={`${item.tipo}-${item.id}`} type="button" className="integration-result" onClick={() => { setDestravaSelecionado(item); setDestravaBusca(item.nome) }}>
-                      <strong>{item.nome}</strong>
-                      <span>{item.documento || item.subtitulo || item.status || 'Registro do Destrava'}</span>
-                    </button>
-                  ))}
-                  {!destravaLoading && destravaItens.length === 0 && destravaBusca.trim().length >= 2 && <span className="integration-muted">Nenhum registro encontrado.</span>}
-                </div>
-              )}
-              {destravaSelecionado && <div className="integration-help">Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}</div>}
-            </div>
+            )}
           </div>
         )}
         <div className="grid-2">
@@ -650,16 +652,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 className={modoDistribuicao === 'normal' ? 'task-type-option active' : 'task-type-option'}
                 onClick={() => changeModoDistribuicao('normal')}
               >
-                <strong>Direcionar para alguém</strong>
-                <span>Você escolhe o responsável principal ou distribui nos checklists.</span>
+                <strong>Direcionar</strong>
+                <span>Escolha um responsável ou distribua pelos checklists.</span>
               </button>
               <button
                 type="button"
                 className={modoDistribuicao === 'livre_equipe' ? 'task-type-option active' : 'task-type-option'}
                 onClick={() => changeModoDistribuicao('livre_equipe')}
               >
-                <strong>Disponível para assumir</strong>
-                <span>Fica visível para o time. Quem assumir executa e não assume outra até concluir.</span>
+                <strong>Livre para o time</strong>
+                <span>Fica disponível para qualquer membro assumir.</span>
               </button>
             </div>
           </div>
@@ -1482,22 +1484,21 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
             <strong style={{ fontSize: 14, overflowWrap: 'anywhere', textDecoration: tarefa.status === 'aprovada' ? 'line-through' : 'none' }}>{tarefa.titulo}</strong>
             <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 8px', borderRadius: 99 }}>{sc.label}</span>
             <span style={{ fontSize: 11, fontWeight: 600, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
-            {livreDisponivel && <span className="badge badge-primary">Para pegar</span>}
-            {livreAceita && <span className="badge badge-success">Selecionada</span>}
+            {livreDisponivel && <span className="badge badge-primary">Livre</span>}
+            {livreAceita && <span className="badge badge-success">Assumida</span>}
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
-            <span><User size={12} /> {livreDisponivel ? 'Disponível para o time' : tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
-            {livreAceita && <span>Selecionada por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+            <span><User size={12} /> {livreDisponivel ? 'Livre para assumir' : tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
+            {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
             {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
             {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
             {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist{!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}</span>}
           </div>
-          {tarefa.descricao && <div style={{ marginTop: 8, color: 'var(--text2)', fontSize: 13, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{tarefa.descricao}</div>}
+          {tarefa.descricao && <div style={{ marginTop: 8, color: 'var(--text2)', fontSize: 13, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>{tarefa.descricao}</div>}
           {checkTotal > 0 && <div className="task-progress-line"><span style={{ width: `${Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100))}%` }} /></div>}
           {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: 'var(--info)', background: 'var(--info-dim)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
           {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
           {distributedTask && isGestor && executorSummary.length > 0 && <div className="task-team-summary"><strong>Execução da equipe:</strong> {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>}
-          {Number((tarefa as any).__merged_count || 1) > 1 && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--info-dim)', border: '1px solid var(--border)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Tarefa única no painel:</strong> registros repetidos/legados foram agrupados visualmente. Os checklists ficam centralizados neste cartão.</div>}
           {canReviewTask && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
             <button
               type="button"
@@ -1540,15 +1541,15 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
-        {livreDisponivel && !isGestor && <button className="btn btn-primary" onClick={() => onPegar(tarefa)} type="button">Assumir tarefa</button>}
-        <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
-        <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver arquivos' : 'Anexar arquivo'}</button>
-        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-        {canExecuteTask && !['aprovada', 'cancelada'].includes(tarefa.status) && <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir e executar</button>}
-        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={14} /> Complementar</button>}
+      <div className="task-card-actions">
+        {livreDisponivel && !isGestor && <button className="btn btn-primary btn-sm" onClick={() => onPegar(tarefa)} type="button">Assumir</button>}
+        <button className="btn btn-primary btn-sm" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={13} /> Arquivos</button>
+        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
+        {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
+        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={13} /> Complementar</button>}
       </div>
 
       {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
@@ -1691,7 +1692,7 @@ export default function Tarefas() {
 
   const scoped = useMemo(() => tarefasVisiveis.filter(t => {
     if (escopo === 'pessoais') return isPersonalTask(t)
-    if (escopo === 'equipe') return isTeamAssignedTask(t) && !isAvailableFreeTask(t)
+    if (escopo === 'equipe') return isTeamAssignedTask(t) || isAvailableFreeTask(t)
     if (escopo === 'disponiveis') return isAvailableFreeTask(t)
     if (escopo === 'ranking') return true
     if (escopo === 'recentes') return recentesIds.has(t.id)
@@ -1733,12 +1734,12 @@ export default function Tarefas() {
       if (!mainDateMatches && !checklistDateMatches) return false
     }
     const q = search.trim().toLowerCase()
-    if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''} ${(t.checklist || []).map(i => `${i.texto} ${i.descricao || ''} ${i.responsavel_nome || ''}`).join(' ')}`.toLowerCase().includes(q)) return false
+    if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''} ${t.origem_nome || ''} ${(t.checklist || []).map(i => `${i.texto} ${i.descricao || ''} ${i.responsavel_nome || ''}`).join(' ')}`.toLowerCase().includes(q)) return false
     return true
   }), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
 
   const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
-  const equipeCount = useMemo(() => tarefasVisiveis.filter(isTeamAssignedTask).length, [tarefasVisiveis, isTeamAssignedTask])
+  const equipeCount = useMemo(() => tarefasVisiveis.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasVisiveis, isTeamAssignedTask])
   const recentesCount = recentesIds.size
   const disponiveisCount = useMemo(() => tarefasVisiveis.filter(isAvailableFreeTask).length, [tarefasVisiveis])
 
@@ -1826,19 +1827,17 @@ export default function Tarefas() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'disponiveis' ? 'Tarefas livres para membros assumirem e aprenderem executando' : escopo === 'ranking' ? 'Placar de tarefas aprovadas e premiações do time' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas' : escopo === 'equipe' ? 'Tarefas do time' : escopo === 'recentes' ? 'Últimas movimentações' : 'Todas as tarefas'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
 
       <section className="task-smart-tabs" aria-label="Tipo de tarefas">
         {[
-          { id: 'pessoais', label: t('tasks.tabs.personal'), count: pessoalCount, hint: 'Minha execução' },
-          { id: 'equipe', label: t('tasks.tabs.team'), count: equipeCount, hint: 'Time e delegações' },
-          { id: 'disponiveis', label: 'Para assumir', count: disponiveisCount, hint: 'Livres' },
-          { id: 'ranking', label: 'Ranking', count: ranking?.ranking?.length || 0, hint: 'Pontuação do mês' },
-          { id: 'recentes', label: t('tasks.tabs.recent'), count: recentesCount, hint: 'Movimentadas agora' },
-          { id: 'todas', label: t('tasks.tabs.all'), count: tarefasVisiveis.length, hint: 'Visão geral' },
+          { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas' },
+          { id: 'equipe', label: 'Tarefas do time', count: equipeCount, hint: 'Equipe' },
+          { id: 'recentes', label: 'Últimas tarefas', count: recentesCount, hint: 'Recentes' },
+          { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Geral' },
         ].map(tab => {
           const active = escopo === tab.id
           return (
@@ -1946,7 +1945,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'disponiveis' ? 'Nenhuma tarefa disponível para assumir agora.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}

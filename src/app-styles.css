@@ -4527,3 +4527,36 @@ button:disabled,
   .task-filters-grid > * { min-width: 100% !important; max-width: none !important; }
   .integration-search-wrap { flex-direction: column; align-items: stretch; }
 }
+
+/* Ajustes finais da página de tarefas: menos poluição e navegação mais direta */
+.task-smart-tabs {
+  grid-template-columns: repeat(4, minmax(0, max-content)) !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  margin-bottom: 10px !important;
+}
+.task-smart-tab {
+  min-height: 46px !important;
+  padding: 7px 10px !important;
+  border-radius: 12px !important;
+  width: auto !important;
+  min-width: 112px !important;
+}
+.task-smart-tab-main strong { font-size: 11.5px !important; white-space: nowrap !important; }
+.task-smart-tab-main em { font-size: 10px !important; }
+.task-smart-tab-hint { font-size: 9px !important; line-height: 1 !important; }
+.task-filters-panel { padding: 10px !important; }
+.task-filters-grid { display: flex !important; flex-wrap: wrap !important; gap: 6px !important; align-items: center !important; }
+.task-filters-grid > * { width: auto !important; min-width: 130px !important; max-width: 210px !important; }
+.task-filters-grid .form-input { min-height: 34px !important; height: 34px !important; padding-top: 6px !important; padding-bottom: 6px !important; font-size: 12px !important; }
+.task-card { box-shadow: 0 1px 2px rgba(15,23,42,.04) !important; }
+.task-card:hover { border-color: rgba(59,130,246,.30) !important; }
+.task-card-actions { display: flex; gap: 6px; padding: 0 14px 12px; flex-wrap: wrap; align-items: center; }
+.task-card-actions .btn { min-height: 32px !important; padding: 7px 10px !important; font-size: 12px !important; border-radius: 10px !important; }
+.integration-help { margin-top: 6px; }
+@media (max-width: 760px) {
+  .task-smart-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .task-smart-tab { width: 100% !important; min-width: 0 !important; }
+  .task-filters-grid { display: grid !important; grid-template-columns: 1fr !important; }
+  .task-filters-grid > * { min-width: 100% !important; max-width: none !important; width: 100% !important; }
+}
