@@ -298,7 +298,6 @@ async function getTaskForAccess(id: string, orgId: string) {
      LEFT JOIN profiles p ON p.id = t.responsavel_id
      LEFT JOIN profiles c ON c.id = t.criado_por
      LEFT JOIN profiles ap ON ap.id = t.aceita_por
-     LEFT JOIN profiles ap ON ap.id = t.aceita_por
      WHERE t.id = $1 AND t.org_id = $2`,
     [id, orgId]
   )
