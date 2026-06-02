@@ -4985,3 +4985,19 @@ button:disabled,
     text-overflow: ellipsis !important;
   }
 }
+
+.gemini-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--text2);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.gemini-error strong {
+  color: var(--danger, #ef4444);
+}

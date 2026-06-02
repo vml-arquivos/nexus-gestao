@@ -151,13 +151,18 @@ export default function Inteligencia() {
 
       <section className="intel-two-columns">
         <div className="intel-card">
-          <div className="section-title"><Sparkles size={18} /><div><h3>Análise Gemini</h3><p>LLM configurável por GEMINI_API_KEY.</p></div></div>
+          <div className="section-title"><Sparkles size={18} /><div><h3>Análise Gemini</h3><p>LLM configurável por GEMINI_API_KEY e GEMINI_MODEL.</p></div></div>
           <div className="gemini-box">
             <div className="gemini-status">
               <span className={painel.gemini.enabled ? 'online' : 'offline'} />
               {painel.gemini.enabled ? `Gemini ativo · ${painel.gemini.model}` : 'Análise local ativa'}
             </div>
             <p>{painel.gemini.texto}</p>
+            {painel.gemini.erro && (
+              <div className="gemini-error">
+                <strong>Detalhe técnico:</strong> {painel.gemini.erro}
+              </div>
+            )}
           </div>
         </div>
 
