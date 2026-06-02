@@ -71,6 +71,68 @@ function isValidStatus(v: unknown): v is TaskStatus {
   return typeof v === 'string' && (VALID_STATUS as readonly string[]).includes(v)
 }
 
+function normalizeTextForScore(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function calculateTaskComplexityPoints(input: {
+  titulo?: unknown
+  descricao?: unknown
+  prioridade?: unknown
+  checklist?: unknown
+  origem_sistema?: unknown
+  origem_tipo?: unknown
+  origem_nome?: unknown
+  origem_payload?: unknown
+  manual?: unknown
+}) {
+  // A pontuação continua simples para o usuário, mas passa a refletir a dificuldade real.
+  // Base pensada para o uso do Nexus na operação da Destrava Crédito: análise de CNPJ,
+  // rating/relacionamento bancário, faturamento, documentos e diagnóstico financeiro.
+  const manual = Number(input.manual || 0)
+  const checklist = parseChecklistItems(input.checklist)
+  const text = normalizeTextForScore([
+    input.titulo,
+    input.descricao,
+    input.origem_tipo,
+    input.origem_nome,
+    typeof input.origem_payload === 'string' ? input.origem_payload : JSON.stringify(input.origem_payload || {}),
+    checklist.map(i => `${i.texto} ${i.descricao || ''}`).join(' '),
+  ].join(' '))
+
+  let points = 5
+
+  const prioridade = String(input.prioridade || 'media')
+  if (prioridade === 'baixa') points += 1
+  if (prioridade === 'media') points += 3
+  if (prioridade === 'alta') points += 7
+
+  points += Math.min(18, checklist.length * 2)
+  points += Math.min(10, checklist.filter(i => i.responsavel_id).length * 2)
+
+  const rules: Array<[RegExp, number]> = [
+    [/\b(cnpj|cartao cnpj|receita federal|situacao cadastral|qsa|socios?|cnae|contrato social|nire)\b/, 8],
+    [/\b(rating|bancario|banco|limite|relacionamento bancario|restri(?:c|ç)ao|scr|registrato|serasa|spc|protesto)\b/, 13],
+    [/\b(faturamento|receita|dre|balanco|balan(?:c|ç)ete|extrato|fluxo de caixa|endividamento|margem|lucro)\b/, 15],
+    [/\b(documenta(?:c|ç)ao|documentos?|certid(?:a|ã)o|comprovante|upload|anexo|pendencia)\b/, 6],
+    [/\b(analise|diagnostico|viabilidade|credito|simulacao|proposta|aprovar|aprovacao|contrato|garantia)\b/, 12],
+    [/\b(urgente|critico|critica|risco|vencido|atrasado|prazo final|prioridade alta)\b/, 10],
+  ]
+  for (const [pattern, add] of rules) if (pattern.test(text)) points += add
+
+  if (String(input.origem_sistema || '').toLowerCase() === 'destrava') points += 10
+  if (manual > 1) points = Math.max(points, manual)
+
+  return Math.max(1, Math.min(999, Math.round(points)))
+}
+
+function statusShouldReturnToExecution(status: unknown) {
+  return ['concluida', 'aprovada'].includes(String(status || ''))
+}
+
 function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
   return value === 'equipe' ? 'equipe' : 'pessoal'
 }
@@ -535,7 +597,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload } = req.body
     const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
     const modoDistribuicao = normalizeTaskDistribution((req.body as any).modo_distribuicao)
-    const pontuacao = Math.max(1, Math.min(999, Number((req.body as any).pontuacao || 1)))
+    const pontuacaoManual = Number((req.body as any).pontuacao || 0)
     const contaRanking = (req.body as any).conta_ranking !== false
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
@@ -579,6 +641,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const responsavel = responsavelId ? await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [responsavelId, orgId]) : null
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
     const checklistNormalizado = await normalizeChecklistForOrg(checklist, orgId, userId, role)
+    const pontuacao = calculateTaskComplexityPoints({ titulo, descricao, prioridade, checklist: checklistNormalizado, origem_sistema, origem_tipo, origem_nome, origem_payload, manual: pontuacaoManual })
 
     // Proteção contra duplo clique/envio repetido: se a mesma tarefa foi criada
     // há poucos segundos pelo mesmo usuário, devolve a existente em vez de criar
@@ -855,7 +918,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
            VALUES ($1,$2,$3,$4,'tarefa_aprovada',$5,NOW(),$6)
            ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
-          [orgId, req.params.id, participante, Math.max(1, Number(existing.pontuacao || 1)), userId, periodMonth()]
+          [orgId, req.params.id, participante, calculateTaskComplexityPoints({ titulo: existing.titulo, descricao: existing.descricao, prioridade: existing.prioridade, checklist: existing.checklist, origem_sistema: existing.origem_sistema, origem_tipo: existing.origem_tipo, origem_nome: existing.origem_nome, origem_payload: existing.origem_payload, manual: existing.pontuacao }), userId, periodMonth()]
         ).catch(() => {})
       }
     }
@@ -915,6 +978,19 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
     const obsComplemento = `Complemento solicitado em ${carimbo}: ${complemento.trim()}`
     const novaObs = [existing.obs, obsComplemento].filter(Boolean).join('\n\n')
 
+    const novaPrioridade = prioridade || existing.prioridade
+    const novaPontuacao = calculateTaskComplexityPoints({
+      titulo: existing.titulo,
+      descricao: [existing.descricao, complemento].filter(Boolean).join(' '),
+      prioridade: novaPrioridade,
+      checklist: existing.checklist,
+      origem_sistema: existing.origem_sistema,
+      origem_tipo: existing.origem_tipo,
+      origem_nome: existing.origem_nome,
+      origem_payload: existing.origem_payload,
+      manual: existing.pontuacao,
+    })
+
     const updated = await queryOne(
       `UPDATE tarefas SET
          status = 'pendente',
@@ -923,16 +999,26 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
          resposta_membro = NULL,
          motivo_nao_conclusao = NULL,
          observacao_conclusao = NULL,
+         resposta_status = NULL,
+         resposta_obs = NULL,
+         resposta_em = NULL,
          data_inicio = NULL,
          data_conclusao = NULL,
+         aprovada_em = NULL,
+         aprovada_por = NULL,
+         devolvida_em = NULL,
          prazo = COALESCE($1, prazo),
          prioridade = COALESCE($2, prioridade),
          obs = $3,
+         pontuacao = $4,
+         conta_ranking = TRUE,
          updated_at = NOW()
-       WHERE id = $4 AND org_id = $5
+       WHERE id = $5 AND org_id = $6
        RETURNING *`,
-      [prazo || null, prioridade || null, novaObs, req.params.id, orgId]
+      [prazo || null, prioridade || null, novaObs, novaPontuacao, req.params.id, orgId]
     )
+
+    await query('DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2', [orgId, req.params.id]).catch(() => {})
 
     await addHistorico({
       orgId,
@@ -1265,19 +1351,46 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
         } else if (key === 'conta_ranking') {
           sets.push(`conta_ranking = $${idx++}`); params.push((req.body as any)[key] !== false)
         } else if (key === 'checklist') {
-          sets.push(`checklist = $${idx++}`); params.push(await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role))
+          const nextChecklist = await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role)
+          sets.push(`checklist = $${idx++}`); params.push(nextChecklist)
+          const structureChanged = checklistStructureKey(existing.checklist) !== checklistStructureKey(nextChecklist)
+          if (structureChanged && statusShouldReturnToExecution(existing.status)) {
+            sets.push(`status = 'pendente'`)
+            sets.push(`status_gestor = 'aguardando'`)
+            sets.push(`ressalva_gestor = NULL`)
+            sets.push(`resposta_membro = NULL`)
+            sets.push(`motivo_nao_conclusao = NULL`)
+            sets.push(`observacao_conclusao = NULL`)
+            sets.push(`resposta_status = NULL`)
+            sets.push(`resposta_obs = NULL`)
+            sets.push(`resposta_em = NULL`)
+            sets.push(`data_inicio = NULL`)
+            sets.push(`data_conclusao = NULL`)
+            sets.push(`aprovada_em = NULL`)
+            sets.push(`aprovada_por = NULL`)
+            sets.push(`devolvida_em = NULL`)
+            sets.push(`conta_ranking = TRUE`)
+            sets.push(`pontuacao = $${idx++}`); params.push(calculateTaskComplexityPoints({ titulo: existing.titulo, descricao: existing.descricao, prioridade: existing.prioridade, checklist: nextChecklist, origem_sistema: existing.origem_sistema, origem_tipo: existing.origem_tipo, origem_nome: existing.origem_nome, origem_payload: existing.origem_payload, manual: existing.pontuacao }))
+          }
         } else {
           sets.push(`${key} = $${idx++}`); params.push((req.body as any)[key] || null)
         }
       }
     }
     if (!sets.length) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
+    const checklistStructureChanged = (req.body as any).checklist !== undefined && checklistStructureKey(existing.checklist) !== checklistStructureKey((req.body as any).checklist)
+    const voltouParaExecucao = checklistStructureChanged && statusShouldReturnToExecution(existing.status)
     params.push(req.params.id, orgId)
     const tarefa = await queryOne<any>(`UPDATE tarefas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND org_id = $${idx} RETURNING *`, params)
     if ((req.body as any).checklist !== undefined) {
-      await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: (req.body as any).checklist })
+      await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: tarefa.checklist })
     }
-    await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'atualizada', statusAnterior: existing.status, statusNovo: tarefa.status })
+    if (voltouParaExecucao) {
+      await query('DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2', [orgId, req.params.id]).catch(() => {})
+      await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'complemento_solicitado', statusAnterior: existing.status, statusNovo: tarefa.status, observacao: 'Checklist complementar adicionado; tarefa voltou para execução.' })
+    } else {
+      await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'atualizada', statusAnterior: existing.status, statusNovo: tarefa.status })
+    }
     res.json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao atualizar:', err)

@@ -218,7 +218,7 @@ function checklistExecutorSummary(tarefa: Tarefa) {
 }
 
 function memberMatchesTask(tarefa: Tarefa, memberId: string) {
-  return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
+  return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || tarefa.aceita_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
 }
 
 function taskScope(tarefa: Tarefa): 'pessoal' | 'equipe' {
@@ -1550,7 +1550,7 @@ function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div>
             <strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}><Trophy size={17} /> Desafio da equipe</strong>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Conta somente tarefas aprovadas pelo gestor no período {ranking?.periodo || 'atual'}.</span>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontua tarefas aprovadas no período {ranking?.periodo || 'atual'}. Tarefas mais complexas valem mais pontos.</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <span className="badge badge-primary">{Number(resumo.disponiveis || 0)} para pegar</span>
@@ -1645,15 +1645,19 @@ export default function Tarefas() {
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
     if (!uid) return false
+    // Tarefas da equipe nunca entram em Minhas tarefas pessoais, mesmo quando
+    // o usuário assumiu a execução ou recebeu um item de checklist. Elas ficam
+    // no quadro da equipe, como solicitado para a operação do Nexus/Destrava.
+    if (taskScope(t) === 'equipe' || isFreeTeamTask(t)) return false
     const executorForMe = t.responsavel_id === uid || taskHasChecklistForUser(t, uid)
-    if (taskScope(t) === 'equipe') return executorForMe
     return executorForMe || (!t.responsavel_id && t.criado_por === uid)
   }, [user?.id])
 
   const isTeamAssignedTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
     if (!uid) return false
-    return taskScope(t) === 'equipe' || (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
+    if (taskScope(t) === 'equipe' || isFreeTeamTask(t)) return true
+    return (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
   }, [user?.id])
 
   const recentesIds = useMemo(() => new Set(
