@@ -46,6 +46,8 @@ async function ensureTaskRuntimeSchema() {
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reenviada_em TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_reabertura TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reaberto_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_sistema TEXT;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_tipo TEXT;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_id TEXT;
@@ -219,6 +221,26 @@ function calculateTaskComplexityPoints(input: {
   if (manual > 1) points = Math.max(points, manual)
 
   return Math.max(1, Math.min(999, Math.round(points)))
+}
+
+function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string }, task: any) {
+  const itemText = `${item?.texto || ''} ${item?.descricao || ''}`
+  const taskText = `${task?.titulo || ''} ${task?.descricao || ''} ${task?.origem_nome || ''} ${task?.origem_tipo || ''}`
+  const base = calculateTaskComplexityPoints({
+    titulo: itemText || task?.titulo,
+    descricao: taskText,
+    prioridade: task?.prioridade,
+    checklist: [item],
+    origem_sistema: task?.origem_sistema,
+    origem_tipo: task?.origem_tipo,
+    origem_nome: task?.origem_nome,
+    origem_payload: task?.origem_payload,
+    manual: 0,
+  })
+  // A pontuação do ranking agora é por subtarefa/checklist. Mantemos uma faixa
+  // clara: subtarefa simples vale menos; análise/documento/financeiro/Destrava
+  // pode valer mais, sem transformar uma tarefa inteira em um único bloco de pontos.
+  return Math.max(3, Math.min(80, Math.round(base / 2)))
 }
 
 function statusShouldReturnToExecution(status: unknown) {
@@ -502,7 +524,7 @@ async function listTasksForUser(user: NonNullable<Request['user']>) {
      LEFT JOIN profiles c ON c.id = t.criado_por
      LEFT JOIN profiles ap ON ap.id = t.aceita_por
      WHERE t.org_id = $1
-     ORDER BY t.created_at DESC`,
+     ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
     [orgId]
   )
 
@@ -705,6 +727,53 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
   } catch (err) {
     console.error('[TAREFAS] Erro ao pegar tarefa:', err)
     res.status(500).json({ error: 'Erro ao pegar tarefa.' })
+  }
+})
+
+// ── ASSUMIR SUBTAREFA/CHECKLIST DE TAREFA LIVRE ─────────────────────────────
+router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    if (!isFreeTeamTask(existing) && normalizeTaskScope(existing.escopo) !== 'equipe') {
+      res.status(400).json({ error: 'Somente tarefas da equipe permitem assumir subtarefa.' })
+      return
+    }
+    if (['aprovada','cancelada'].includes(String(existing.status))) {
+      res.status(400).json({ error: 'Tarefa finalizada não permite assumir subtarefa.' })
+      return
+    }
+
+    const profile = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [userId, orgId])
+    const items = parseChecklistItems(existing.checklist)
+    const index = items.findIndex(item => String(item.id || '') === String(req.params.itemId || ''))
+    if (index < 0) { res.status(404).json({ error: 'Subtarefa não encontrada no checklist.' }); return }
+    const item = items[index]
+    if (item.feito) { res.status(400).json({ error: 'Esta subtarefa já foi concluída.' }); return }
+    if (item.responsavel_id && item.responsavel_id !== userId) {
+      res.status(409).json({ error: 'Esta subtarefa já está com outro responsável.' })
+      return
+    }
+
+    items[index] = { ...item, responsavel_id: userId, responsavel_nome: profile?.nome || item.responsavel_nome || 'Membro' }
+    const checklistJson = JSON.stringify(items)
+    const tarefa = await queryOne<any>(
+      `UPDATE tarefas SET checklist = $1, status = CASE WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso' ELSE status END,
+          status_gestor = 'aguardando', escopo = 'equipe', modo_distribuicao = 'livre_equipe', data_inicio = COALESCE(data_inicio, NOW()), updated_at = NOW()
+       WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [checklistJson, req.params.id, orgId]
+    )
+    await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: checklistJson })
+    await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'subtarefa_assumida', statusAnterior: existing.status, statusNovo: tarefa?.status || existing.status, observacao: `${profile?.nome || 'Membro'} assumiu: ${item.texto}` })
+    if (existing.criado_por && existing.criado_por !== userId) {
+      await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: 'Subtarefa assumida', body: `${profile?.nome || 'Um membro'} assumiu "${item.texto}" em "${existing.titulo}".`, referenciaId: existing.id, referenciaTipo: 'tarefa' }).catch(() => {})
+    }
+    res.json({ tarefa })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao assumir subtarefa:', err)
+    res.status(500).json({ error: 'Erro ao assumir subtarefa.' })
   }
 })
 
@@ -1030,14 +1099,31 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
       [userId, req.params.id, orgId]
     )
     if (existing.conta_ranking !== false) {
-      const participante = existing.aceita_por || existing.responsavel_id
-      if (participante) {
-        await query(
-          `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-           VALUES ($1,$2,$3,$4,'tarefa_aprovada',$5,NOW(),$6)
-           ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
-          [orgId, req.params.id, participante, calculateTaskComplexityPoints({ titulo: existing.titulo, descricao: existing.descricao, prioridade: existing.prioridade, checklist: existing.checklist, origem_sistema: existing.origem_sistema, origem_tipo: existing.origem_tipo, origem_nome: existing.origem_nome, origem_payload: existing.origem_payload, manual: existing.pontuacao }), userId, periodMonth()]
-        ).catch(() => {})
+      const items = parseChecklistItems(existing.checklist)
+      const periodo = periodMonth()
+      if (items.length) {
+        for (const item of items) {
+          if (!item.feito) continue
+          const participante = item.responsavel_id || existing.aceita_por || existing.responsavel_id
+          if (!participante) continue
+          const pontosItem = calculateChecklistItemPoints(item, existing)
+          await query(
+            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+             VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7)
+             ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
+            [orgId, req.params.id, participante, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
+          ).catch(() => {})
+        }
+      } else {
+        const participante = existing.aceita_por || existing.responsavel_id
+        if (participante) {
+          await query(
+            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+             VALUES ($1,$2,$3,$4,'tarefa_sem_checklist_aprovada',$5,NOW(),$6)
+             ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
+            [orgId, req.params.id, participante, calculateChecklistItemPoints({ texto: existing.titulo, descricao: existing.descricao }, existing), userId, periodo]
+          ).catch(() => {})
+        }
       }
     }
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'aprovada', statusAnterior: existing.status, statusNovo: 'aprovada' })
@@ -1096,12 +1182,24 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
     const obsComplemento = `Complemento solicitado em ${carimbo}: ${complemento.trim()}`
     const novaObs = [existing.obs, obsComplemento].filter(Boolean).join('\n\n')
 
+    const checklistComplementar = parseChecklistItems(existing.checklist)
+    checklistComplementar.push({
+      id: uuidv4(),
+      texto: complemento.trim(),
+      descricao: '',
+      data: normalizeNullableDate(prazo) || undefined,
+      responsavel_id: undefined,
+      responsavel_nome: undefined,
+      feito: false,
+    })
+    const checklistComplementarJson = JSON.stringify(checklistComplementar)
+
     const novaPrioridade = prioridade || existing.prioridade
     const novaPontuacao = calculateTaskComplexityPoints({
       titulo: existing.titulo,
       descricao: [existing.descricao, complemento].filter(Boolean).join(' '),
       prioridade: novaPrioridade,
-      checklist: existing.checklist,
+      checklist: checklistComplementarJson,
       origem_sistema: existing.origem_sistema,
       origem_tipo: existing.origem_tipo,
       origem_nome: existing.origem_nome,
@@ -1125,15 +1223,18 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
          aprovada_em = NULL,
          aprovada_por = NULL,
          devolvida_em = NULL,
+         data_reabertura = NOW(),
+         reaberto_por = $6,
          prazo = COALESCE($1, prazo),
          prioridade = COALESCE($2, prioridade),
          obs = $3,
-         pontuacao = $4,
+         checklist = $4,
+         pontuacao = $5,
          conta_ranking = TRUE,
          updated_at = NOW()
-       WHERE id = $5 AND org_id = $6
+       WHERE id = $7 AND org_id = $8
        RETURNING *`,
-      [prazo || null, prioridade || null, novaObs, novaPontuacao, req.params.id, orgId]
+      [prazo || null, prioridade || null, novaObs, checklistComplementarJson, novaPontuacao, userId, req.params.id, orgId]
     )
 
     await query('DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2', [orgId, req.params.id]).catch(() => {})
@@ -1540,6 +1641,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
           setValue('aprovada_em', null)
           setValue('aprovada_por', null)
           setValue('devolvida_em', null)
+          setRaw('data_reabertura', 'NOW()')
+          setValue('reaberto_por', userId)
           setValue('conta_ranking', true)
           setValue('pontuacao', calculateTaskComplexityPoints({
             titulo: (req.body as any).titulo || existing.titulo,

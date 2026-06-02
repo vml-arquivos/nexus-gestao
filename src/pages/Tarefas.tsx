@@ -233,8 +233,12 @@ function isFreeTeamTask(tarefa: Tarefa) {
   return taskDistribution(tarefa) === 'livre_equipe'
 }
 
+function taskHasUnassignedChecklist(tarefa: Tarefa) {
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !item.feito && !item.responsavel_id)
+}
+
 function isAvailableFreeTask(tarefa: Tarefa) {
-  return isFreeTeamTask(tarefa) && !tarefa.aceita_por && !['concluida', 'aprovada', 'cancelada'].includes(String(tarefa.status))
+  return isFreeTeamTask(tarefa) && !['concluida', 'aprovada', 'cancelada'].includes(String(tarefa.status)) && (!tarefa.aceita_por || taskHasUnassignedChecklist(tarefa))
 }
 
 function duplicateTaskVisualKey(tarefa: Tarefa) {
@@ -339,7 +343,7 @@ function isOverdue(value?: string, status?: string) {
 }
 
 function taskReferenceDate(tarefa: Tarefa) {
-  return tarefa.prazo || tarefa.data || tarefa.created_at || ''
+  return tarefa.data_reabertura || tarefa.updated_at || tarefa.prazo || tarefa.data || tarefa.created_at || ''
 }
 
 function getMonthValue(value?: string) {
@@ -1185,6 +1189,23 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
     }
   }
 
+
+  async function assumirChecklistItem(item: ChecklistItem) {
+    if (!item.id) return
+    setSaving(true)
+    try {
+      const saved = await tarefasApi.assumirChecklist(tarefa.id, item.id)
+      const nextChecklist = normalizeChecklistItems(saved.checklist)
+      setChecklist(nextChecklist)
+      onSaved(saved)
+      toast('Subtarefa assumida. Ela continua no quadro da equipe e agora aparece como sua execução.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao assumir subtarefa.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function toggleCheck(id: string) {
     const item = checklist.find(i => i.id === id)
     if (!item || !isChecklistItemExecutor(item, tarefa, userId) || isTaskFinalizada) {
@@ -1321,6 +1342,9 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
               {tarefa.prazo && <span><Calendar size={14} /> Prazo: {fmtDate(tarefa.prazo)}</span>}
               <span style={{ color: prioridadeCfg(tarefa.prioridade).color }}>{prioridadeCfg(tarefa.prioridade).label}</span>
               <span>{statusCfg(tarefa.status).label}</span>
+              <span>Criada: {fmtDateTime(tarefa.created_at)}</span>
+              {tarefa.data_reabertura && <span>Reaberta: {fmtDateTime(tarefa.data_reabertura)}</span>}
+              {tarefa.updated_at && <span>Última atualização: {fmtDateTime(tarefa.updated_at)}</span>}
             </div>
           </div>
           <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
@@ -1359,23 +1383,34 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
                   <div className="task-checklist-date-title">
                     <Calendar size={13} /> {checklistDateLabel(dateKey === 'sem-data' ? undefined : dateKey)}
                   </div>
-                  {checklistByDate[dateKey].map(item => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                      disabled={!canToggleChecklist || !isChecklistItemExecutor(item, tarefa, userId) || saving}
-                      onClick={() => toggleCheck(item.id)}
-                      aria-pressed={!!item.feito}
-                    >
-                      <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
-                      <span className="task-check-content">
-                        <span className="task-check-text">{item.texto}</span>
-                        <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
-                        {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
-                      </span>
-                    </button>
-                  ))}
+                  {checklistByDate[dateKey].map(item => {
+                    const canAssumeThisItem = !isGestor && isFreeTeamTask(tarefa) && !item.feito && !item.responsavel_id
+                    const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
+                    return (
+                      <div key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>
+                        <button
+                          type="button"
+                          className="task-check-main-button"
+                          disabled={!canToggleThisItem}
+                          onClick={() => toggleCheck(item.id)}
+                          aria-pressed={!!item.feito}
+                        >
+                          <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
+                          <span className="task-check-content">
+                            <span className="task-check-text">{item.texto}</span>
+                            <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
+                            {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
+                            {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
+                          </span>
+                        </button>
+                        {canAssumeThisItem && (
+                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving}>
+                            Assumir subtarefa
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ))}
             </div>
@@ -1500,7 +1535,9 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
           {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
-          {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem data</span>}
+          {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
+          {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
+          {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
           {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo(s)</span>}
           {ultimaEvidencia && <span>Envio {fmtDateTime(ultimaEvidencia)}</span>}
         </div>
@@ -1525,7 +1562,10 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       </div>
 
       <div className="task-report-actions">
-        {livreDisponivel && !isGestor && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir</button>}
+        {livreDisponivel && !isGestor && (taskHasUnassignedChecklist(tarefa)
+          ? <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver/assumir subtarefa</button>
+          : <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir</button>
+        )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
         <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
         {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
@@ -1713,7 +1753,7 @@ export default function Tarefas() {
     const q = search.trim().toLowerCase()
     if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''} ${t.origem_nome || ''} ${(t.checklist || []).map(i => `${i.texto} ${i.descricao || ''} ${i.responsavel_nome || ''}`).join(' ')}`.toLowerCase().includes(q)) return false
     return true
-  }), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
+  }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
 
   const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
   const equipeCount = useMemo(() => tarefasVisiveis.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasVisiveis, isTeamAssignedTask])

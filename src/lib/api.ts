@@ -87,6 +87,8 @@ export interface Tarefa {
   aprovada_em?: string
   aprovada_por?: string
   devolvida_em?: string
+  data_reabertura?: string
+  reaberto_por?: string
   reenviada_em?: string
   data_inicio?: string
   data_conclusao?: string
@@ -553,6 +555,11 @@ export const tarefasApi = {
 
   async pegar(id: string): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/pegar`, { method: 'POST' })
+    return data.tarefa
+  },
+
+  async assumirChecklist(id: string, itemId: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}/assumir`, { method: 'POST' })
     return data.tarefa
   },
 
