@@ -5172,3 +5172,99 @@ button:disabled,
     justify-content: center !important;
   }
 }
+
+/* HOTFIX DEFINITIVO 2026-06-02: modal de tarefa/checklist responsivo
+   O card do checklist virou container; ele NÃO pode manter grid de 2 colunas,
+   senão o botão interno fica preso em 28px e o texto quebra letra por letra. */
+.tarefa-modal-box .task-check-item,
+.tarefa-modal-box .task-check-item.done {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+}
+
+.tarefa-modal-box .task-check-main-button,
+.tarefa-modal-box .task-check-main-button:disabled {
+  display: grid !important;
+  grid-template-columns: 28px minmax(0, 1fr) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  writing-mode: horizontal-tb !important;
+}
+
+.tarefa-modal-box .task-check-content,
+.tarefa-modal-box .task-check-text,
+.tarefa-modal-box .task-check-desc {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  letter-spacing: normal !important;
+}
+
+.tarefa-modal-box .task-check-text {
+  display: block !important;
+  line-height: 1.45 !important;
+}
+
+.tarefa-modal-box .task-check-desc {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  line-height: 1.4 !important;
+}
+
+.tarefa-modal-box .task-check-assume {
+  margin-left: 38px !important;
+  margin-top: 8px !important;
+  max-width: calc(100% - 38px) !important;
+}
+
+.tarefa-modal-box .task-detail-section,
+.tarefa-modal-box .task-checklist-date-group,
+.tarefa-modal-box .task-checklist-run {
+  overflow: visible !important;
+}
+
+@media (max-width: 720px) {
+  .tarefa-modal-box .task-check-item {
+    padding: 10px !important;
+  }
+  .tarefa-modal-box .task-check-main-button {
+    grid-template-columns: 26px minmax(0, 1fr) !important;
+    gap: 9px !important;
+  }
+  .tarefa-modal-box .task-check-assume {
+    margin-left: 35px !important;
+    width: calc(100% - 35px) !important;
+    max-width: calc(100% - 35px) !important;
+    justify-content: center !important;
+  }
+  .tarefa-modal-box .task-detail-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+  .tarefa-modal-box .task-detail-actions .btn {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
