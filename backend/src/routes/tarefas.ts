@@ -10,6 +10,89 @@ import path from 'path'
 const router = Router()
 router.use(authMiddleware)
 
+
+// ── GARANTIA DE SCHEMA EM TEMPO DE EXECUÇÃO ─────────────────────────────────
+// A migração automática já existe no startup, mas em VPS/Coolify pode haver
+// deploy com banco antigo, migração interrompida ou container antigo atendendo
+// requisição. Esta proteção evita erro 500 em salvar/editar tarefa quando uma
+// coluna nova ainda não foi aplicada no PostgreSQL nativo.
+let taskRuntimeSchemaPromise: Promise<void> | null = null
+
+async function ensureTaskRuntimeSchema() {
+  if (!taskRuntimeSchemaPromise) {
+    taskRuntimeSchemaPromise = (async () => {
+      await query(`
+        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT 'aguardando';
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS escopo TEXT NOT NULL DEFAULT 'pessoal';
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS modo_distribuicao TEXT NOT NULL DEFAULT 'normal';
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reenviada_em TIMESTAMPTZ;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_sistema TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_tipo TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_id TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_nome TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_url TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_payload JSONB DEFAULT '{}'::jsonb;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS external_key TEXT;
+
+        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check
+          CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','reenviada','aprovada','cancelada'));
+        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_escopo_check;
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_escopo_check CHECK (escopo IN ('pessoal','equipe'));
+        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_modo_distribuicao_check;
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_modo_distribuicao_check CHECK (modo_distribuicao IN ('normal','livre_equipe'));
+        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
+
+        CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+          tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+          usuario_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          pontos INTEGER NOT NULL DEFAULT 1,
+          motivo TEXT,
+          aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
+          aprovado_em TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+          periodo_mes TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+          UNIQUE (tarefa_id, usuario_id, motivo)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
+        CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
+        CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
+      `)
+    })().catch(err => {
+      taskRuntimeSchemaPromise = null
+      throw err
+    })
+  }
+  return taskRuntimeSchemaPromise
+}
+
+router.use(async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    await ensureTaskRuntimeSchema()
+    next()
+  } catch (err) {
+    console.error('[TAREFAS] Schema de tarefas não pôde ser preparado:', err)
+    res.status(500).json({ error: 'Banco de tarefas não preparado para salvar. Execute o deploy novamente ou aplique as migrations.' })
+  }
+})
+
+
 // ── UPLOADS DE EVIDÊNCIAS DA TAREFA ─────────────────────────────────────────
 const evidenceUpload = createSecureMulterUpload()
 const uploadEvidenceFile = (req: Request, res: Response, next: NextFunction) => {
@@ -131,6 +214,32 @@ function calculateTaskComplexityPoints(input: {
 
 function statusShouldReturnToExecution(status: unknown) {
   return ['concluida', 'aprovada'].includes(String(status || ''))
+}
+
+
+
+function normalizeNullableDate(value: unknown): string | null {
+  if (value === undefined || value === null) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+  const br = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  const d = new Date(raw)
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  return null
+}
+
+function normalizePriority(value: unknown, fallback: string = 'media'): 'baixa' | 'media' | 'alta' {
+  const raw = String(value || '').trim().toLowerCase()
+  if (raw === 'baixa' || raw === 'media' || raw === 'alta') return raw
+  return normalizePriority(fallback || 'media', 'media')
+}
+
+function normalizePositiveScore(value: unknown, fallback = 1) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(999, Number(fallback || 1)))
+  return Math.max(1, Math.min(999, parsed))
 }
 
 function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
@@ -1346,8 +1455,16 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
             sets.push(`aceita_por = NULL`)
             sets.push(`aceita_em = NULL`)
           }
+        } else if (key === 'prioridade') {
+          sets.push(`prioridade = $${idx++}`); params.push(normalizePriority((req.body as any)[key], existing.prioridade))
+        } else if (key === 'data' || key === 'prazo') {
+          sets.push(`${key} = $${idx++}`); params.push(normalizeNullableDate((req.body as any)[key]))
+        } else if (key === 'titulo') {
+          const nextTitulo = String((req.body as any)[key] || '').trim()
+          if (!nextTitulo) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
+          sets.push(`titulo = $${idx++}`); params.push(nextTitulo)
         } else if (key === 'pontuacao') {
-          sets.push(`pontuacao = $${idx++}`); params.push(Math.max(1, Math.min(999, Number((req.body as any)[key] || 1))))
+          sets.push(`pontuacao = $${idx++}`); params.push(normalizePositiveScore((req.body as any)[key], existing.pontuacao || 1))
         } else if (key === 'conta_ranking') {
           sets.push(`conta_ranking = $${idx++}`); params.push((req.body as any)[key] !== false)
         } else if (key === 'checklist') {
@@ -1373,7 +1490,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
             sets.push(`pontuacao = $${idx++}`); params.push(calculateTaskComplexityPoints({ titulo: existing.titulo, descricao: existing.descricao, prioridade: existing.prioridade, checklist: nextChecklist, origem_sistema: existing.origem_sistema, origem_tipo: existing.origem_tipo, origem_nome: existing.origem_nome, origem_payload: existing.origem_payload, manual: existing.pontuacao }))
           }
         } else {
-          sets.push(`${key} = $${idx++}`); params.push((req.body as any)[key] || null)
+          sets.push(`${key} = $${idx++}`); params.push((req.body as any)[key] === undefined ? null : (req.body as any)[key])
         }
       }
     }
@@ -1396,6 +1513,11 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     console.error('[TAREFAS] Erro ao atualizar:', err)
     const statusCode = Number((err as any)?.statusCode || 0)
     if (statusCode === 403 || statusCode === 404) { res.status(statusCode).json({ error: (err as Error).message }); return }
+    const pgCode = String((err as any)?.code || '')
+    if (['22007', '22008', '23514', '22P02'].includes(pgCode)) {
+      res.status(400).json({ error: 'Não foi possível salvar: revise data, prioridade, responsável e checklist.' })
+      return
+    }
     res.status(500).json({ error: 'Erro ao atualizar tarefa.' })
   }
 })
