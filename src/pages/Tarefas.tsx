@@ -1449,7 +1449,6 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   onHistory: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
   const Icon = sc.icon
@@ -1474,99 +1473,73 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
   const canReviewTask = isGestor && !canExecuteTask
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
+  const responsavelLabel = livreDisponivel
+    ? 'Livre para assumir'
+    : tarefa.responsavel_id
+      ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável')
+      : taskScope(tarefa) === 'equipe'
+        ? 'Tarefa da equipe'
+        : 'Tarefa pessoal'
+  const checklistLabel = checkTotal > 0
+    ? `${checkDone}/${checkTotal}${!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}`
+    : 'Sem checklist'
+  const progressWidth = checkTotal > 0 ? Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100)) : 0
 
   return (
-    <article className="task-card" onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', cursor: 'pointer' }}>
-      <div style={{ display: 'flex', gap: 12, padding: 14, alignItems: 'flex-start' }}>
-        <Icon size={18} color={sc.color} style={{ flexShrink: 0, marginTop: 2 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 14, overflowWrap: 'anywhere', textDecoration: tarefa.status === 'aprovada' ? 'line-through' : 'none' }}>{tarefa.titulo}</strong>
-            <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, background: sc.bg, padding: '2px 8px', borderRadius: 99 }}>{sc.label}</span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: pc.color, background: `${pc.color}18`, padding: '2px 8px', borderRadius: 99 }}>{pc.label}</span>
-            {livreDisponivel && <span className="badge badge-primary">Livre</span>}
-            {livreAceita && <span className="badge badge-success">Assumida</span>}
-          </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: 'var(--text3)' }}>
-            <span><User size={12} /> {livreDisponivel ? 'Livre para assumir' : tarefa.responsavel_id ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável') : taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal'}</span>
-            {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
-            {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
-            {tarefa.prazo && <span style={{ color: overdue ? '#EF4444' : undefined, fontWeight: overdue ? 800 : 500 }}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span>}
-            {checkTotal > 0 && <span>{checkDone}/{checkTotal} checklist{!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}</span>}
-          </div>
-          {tarefa.descricao && <div style={{ marginTop: 8, color: 'var(--text2)', fontSize: 13, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>{tarefa.descricao}</div>}
-          {checkTotal > 0 && <div className="task-progress-line"><span style={{ width: `${Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100))}%` }} /></div>}
-          {tarefa.ressalva_gestor && <div style={{ marginTop: 8, color: 'var(--info)', background: 'var(--info-dim)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Ressalva:</strong> {tarefa.ressalva_gestor}</div>}
-          {(tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs) && <div style={{ marginTop: 8, color: 'var(--text2)', background: 'var(--bg3)', padding: 8, borderRadius: 8, fontSize: 12 }}><strong>Resposta:</strong> {tarefa.motivo_nao_conclusao || tarefa.observacao_conclusao || tarefa.resposta_obs}</div>}
-          {distributedTask && isGestor && executorSummary.length > 0 && <div className="task-team-summary"><strong>Execução da equipe:</strong> {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>}
-          {canReviewTask && ['concluida', 'nao_concluida', 'devolvida', 'aprovada'].includes(tarefa.status) && (
-            <button
-              type="button"
-              onClick={() => onAnexos(tarefa)}
-              style={{
-                marginTop: 8,
-                width: '100%',
-                textAlign: 'left',
-                border: '1px solid var(--border)',
-                borderRadius: 10,
-                background: anexosCount > 0 ? 'rgba(16,185,129,.10)' : 'var(--bg3)',
-                color: 'var(--text2)',
-                padding: 10,
-                fontSize: 12,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <Paperclip size={14} />
-                <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                  <strong>{anexosCount > 0 ? 'Arquivos recebidos' : 'Nenhum arquivo anexado'}</strong>
-                  {anexosCount > 0 ? ` · ${anexosCount} arquivo(s)` : ' · clique para visualizar ou baixar'}
-                  {ultimaEvidencia ? ` · último envio ${fmtDateTime(ultimaEvidencia)}` : ''}
-                </span>
-              </span>
-              <span style={{ color: '#10B981', fontWeight: 600, whiteSpace: 'nowrap' }}>Verificar</span>
-            </button>
-          )}
+    <article
+      className="task-report-row"
+      onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
+      title="Clique para abrir a tarefa"
+    >
+      <div className="task-report-main">
+        <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>
+          <Icon size={16} color={sc.color} />
+          <span>{tarefa.titulo}</span>
+        </button>
+        <div className="task-report-meta">
+          <span><User size={12} /> {responsavelLabel}</span>
+          {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+          {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
+          {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem data</span>}
+          {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo(s)</span>}
+          {ultimaEvidencia && <span>Envio {fmtDateTime(ultimaEvidencia)}</span>}
         </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button title="Anexos" onClick={() => onAnexos(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Paperclip size={15} /></button>
-          <button title="Histórico" onClick={() => onHistory(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><History size={15} /></button>
-          {isGestor && <button title="Editar" onClick={() => onEdit(tarefa)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><Edit3 size={15} /></button>}
-          {canDeleteTarefa(tarefa, userId, isGestor) && !isFreeTeamTask(tarefa) && !['concluida','aprovada'].includes(String(tarefa.status)) && <button title="Apagar" onClick={() => onDelete(tarefa.id)} style={{ background: 'none', border: 0, color: '#EF4444', cursor: 'pointer' }}><Trash2 size={15} /></button>}
-          {(tarefa.descricao || checkTotal > 0) && <button title="Detalhes" onClick={() => setExpanded(v => !v)} style={{ background: 'none', border: 0, color: 'var(--text3)', cursor: 'pointer' }}><MessageSquare size={15} /></button>}
-        </div>
+        {distributedTask && isGestor && executorSummary.length > 0 && (
+          <div className="task-report-team-line">Equipe: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>
+        )}
       </div>
 
-      <div className="task-card-actions">
-        {livreDisponivel && !isGestor && <button className="btn btn-primary btn-sm" onClick={() => onPegar(tarefa)} type="button">Assumir</button>}
-        <button className="btn btn-primary btn-sm" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
-        <button className="btn btn-secondary btn-sm" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={13} /> Arquivos</button>
-        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-        {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
-        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={13} /> Complementar</button>}
+      <div className="task-report-cell task-report-status">
+        <span style={{ color: sc.color, background: sc.bg }}><Icon size={12} /> {sc.label}</span>
+        {livreDisponivel && <em>Livre</em>}
+        {livreAceita && <em>Assumida</em>}
       </div>
 
-      {expanded && <div style={{ borderTop: '1px solid var(--border)', padding: 14 }}>
-        {tarefa.descricao && <p style={{ marginTop: 0, color: 'var(--text2)' }}>{tarefa.descricao}</p>}
-        {tarefa.obs && <div style={{ margin: '8px 0', color: 'var(--text2)', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, fontSize: 13, whiteSpace: 'pre-wrap' }}><strong>Complementos/observações:</strong><br />{tarefa.obs}</div>}
-        {checkTotal > 0 && checklistForCard.map(i => <div key={i.id} style={{ display: 'grid', gap: 3, padding: '7px 0', fontSize: 13 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><span>{i.feito ? '✅' : '⬜'}</span><strong>{i.texto}</strong></div>
-          <div style={{ color: 'var(--text3)', fontSize: 12, paddingLeft: 24 }}>
-            {i.data ? `${fmtDate(i.data)} · ` : ''}Executor: {checklistExecutorName(i, tarefa)}
-          </div>
-          {i.descricao && <div style={{ color: 'var(--text2)', fontSize: 12, paddingLeft: 24 }}>{i.descricao}</div>}
-        </div>)}
-      </div>}
+      <div className="task-report-cell task-report-priority">
+        <span style={{ color: pc.color, background: `${pc.color}18` }}>{pc.label}</span>
+      </div>
+
+      <div className="task-report-cell task-report-progress">
+        <strong>{checklistLabel}</strong>
+        <div className="task-progress-line compact"><span style={{ width: `${progressWidth}%` }} /></div>
+      </div>
+
+      <div className="task-report-actions">
+        {livreDisponivel && !isGestor && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir</button>}
+        <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
+        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
+        {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
+        {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
+        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
+        {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
+        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={12} /> Complementar</button>}
+        {canDeleteTarefa(tarefa, userId, isGestor) && !isFreeTeamTask(tarefa) && !['concluida','aprovada'].includes(String(tarefa.status)) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+      </div>
     </article>
   )
 }
-
 
 function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]; resumo: any } | null }) {
   const lista = Array.isArray(ranking?.ranking) ? ranking!.ranking : []
@@ -1944,7 +1917,7 @@ export default function Tarefas() {
       </section>
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
-        <div style={{ display: 'grid', gap: 10 }}>
+        <div className="task-report-list">
           {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
