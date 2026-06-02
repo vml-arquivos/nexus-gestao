@@ -32,6 +32,13 @@ async function ensureTaskRuntimeSchema() {
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS obs TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs TEXT;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em TIMESTAMPTZ;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
@@ -56,6 +63,8 @@ async function ensureTaskRuntimeSchema() {
         ALTER TABLE tarefas ADD CONSTRAINT tarefas_modo_distribuicao_check CHECK (modo_distribuicao IN ('normal','livre_equipe'));
         ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
         ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
+        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_resposta_status_check;
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_resposta_status_check CHECK (resposta_status IS NULL OR resposta_status IN ('concluida','nao_concluida'));
 
         CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1416,7 +1425,9 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
 
     const isMember = role === 'membro'
-    const allowed = isMember ? ['checklist', 'obs'] : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo','modo_distribuicao','pontuacao','conta_ranking']
+    const allowed = isMember
+      ? ['checklist', 'obs']
+      : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo','modo_distribuicao','pontuacao','conta_ranking']
 
     if ((req.body as any).checklist !== undefined) {
       const changedItems = changedChecklistDoneItems(existing.checklist, (req.body as any).checklist)
@@ -1427,95 +1438,185 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Usa um mapa de colunas para evitar erro PostgreSQL "multiple assignments to same column".
+    // Esse erro acontecia quando o frontend enviava pontuacao/conta_ranking e, ao mesmo tempo,
+    // o checklist complementar reabria a tarefa e também tentava atualizar esses campos.
+    const setMap = new Map<string, { raw?: string; value?: unknown }>()
+    const setValue = (column: string, value: unknown) => setMap.set(column, { value })
+    const setRaw = (column: string, raw: string) => setMap.set(column, { raw })
+
+    let nextChecklistForSync: string | null = null
+    let checklistStructureChanged = false
+    let voltouParaExecucao = false
+
+    for (const key of allowed) {
+      if ((req.body as any)[key] === undefined) continue
+
+      if (key === 'responsavel_id') {
+        const nextResponsavel = (req.body as any)[key] || null
+        if (!nextResponsavel) {
+          setValue('responsavel_id', null)
+          setValue('responsavel_nome', null)
+        } else {
+          const resp = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [nextResponsavel, orgId])
+          if (!resp) { res.status(404).json({ error: 'Responsável não encontrado.' }); return }
+          setValue('responsavel_id', nextResponsavel)
+          setValue('responsavel_nome', resp.nome)
+        }
+        continue
+      }
+
+      if (key === 'escopo') {
+        setValue('escopo', normalizeTaskScope((req.body as any)[key]))
+        continue
+      }
+
+      if (key === 'modo_distribuicao') {
+        const nextMode = normalizeTaskDistribution((req.body as any)[key])
+        setValue('modo_distribuicao', nextMode)
+        if (nextMode === 'livre_equipe') {
+          setValue('responsavel_id', null)
+          setValue('responsavel_nome', null)
+          setValue('aceita_por', null)
+          setValue('aceita_em', null)
+          setValue('escopo', 'equipe')
+        }
+        continue
+      }
+
+      if (key === 'prioridade') {
+        setValue('prioridade', normalizePriority((req.body as any)[key], existing.prioridade))
+        continue
+      }
+
+      if (key === 'data' || key === 'prazo') {
+        setValue(key, normalizeNullableDate((req.body as any)[key]))
+        continue
+      }
+
+      if (key === 'titulo') {
+        const nextTitulo = String((req.body as any)[key] || '').trim()
+        if (!nextTitulo) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
+        setValue('titulo', nextTitulo)
+        continue
+      }
+
+      if (key === 'descricao' || key === 'obs') {
+        const text = String((req.body as any)[key] || '').trim()
+        setValue(key, text || null)
+        continue
+      }
+
+      if (key === 'pontuacao') {
+        setValue('pontuacao', normalizePositiveScore((req.body as any)[key], existing.pontuacao || 1))
+        continue
+      }
+
+      if (key === 'conta_ranking') {
+        setValue('conta_ranking', (req.body as any)[key] !== false)
+        continue
+      }
+
+      if (key === 'checklist') {
+        const nextChecklist = await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role)
+        nextChecklistForSync = nextChecklist
+        setValue('checklist', nextChecklist)
+
+        checklistStructureChanged = checklistStructureKey(existing.checklist) !== checklistStructureKey(nextChecklist)
+        voltouParaExecucao = checklistStructureChanged && statusShouldReturnToExecution(existing.status)
+
+        if (voltouParaExecucao) {
+          setValue('status', 'pendente')
+          setValue('status_gestor', 'aguardando')
+          setValue('ressalva_gestor', null)
+          setValue('resposta_membro', null)
+          setValue('motivo_nao_conclusao', null)
+          setValue('observacao_conclusao', null)
+          setValue('resposta_status', null)
+          setValue('resposta_obs', null)
+          setValue('resposta_em', null)
+          setValue('data_inicio', null)
+          setValue('data_conclusao', null)
+          setValue('aprovada_em', null)
+          setValue('aprovada_por', null)
+          setValue('devolvida_em', null)
+          setValue('conta_ranking', true)
+          setValue('pontuacao', calculateTaskComplexityPoints({
+            titulo: (req.body as any).titulo || existing.titulo,
+            descricao: (req.body as any).descricao || existing.descricao,
+            prioridade: (req.body as any).prioridade || existing.prioridade,
+            checklist: nextChecklist,
+            origem_sistema: existing.origem_sistema,
+            origem_tipo: existing.origem_tipo,
+            origem_nome: existing.origem_nome,
+            origem_payload: existing.origem_payload,
+            manual: (req.body as any).pontuacao || existing.pontuacao,
+          }))
+        }
+        continue
+      }
+    }
+
+    if (!setMap.size) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
+
     const sets: string[] = []
     const params: unknown[] = []
     let idx = 1
-
-    for (const key of allowed) {
-      if ((req.body as any)[key] !== undefined) {
-        if (key === 'responsavel_id') {
-          const nextResponsavel = (req.body as any)[key] || null
-          if (!nextResponsavel) {
-            sets.push(`responsavel_id = $${idx++}`); params.push(null)
-            sets.push(`responsavel_nome = $${idx++}`); params.push(null)
-          } else {
-            const resp = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [nextResponsavel, orgId])
-            if (!resp) { res.status(404).json({ error: 'Responsável não encontrado.' }); return }
-            sets.push(`responsavel_id = $${idx++}`); params.push(nextResponsavel)
-            sets.push(`responsavel_nome = $${idx++}`); params.push(resp.nome)
-          }
-        } else if (key === 'escopo') {
-          sets.push(`escopo = $${idx++}`); params.push(normalizeTaskScope((req.body as any)[key]))
-        } else if (key === 'modo_distribuicao') {
-          const nextMode = normalizeTaskDistribution((req.body as any)[key])
-          sets.push(`modo_distribuicao = $${idx++}`); params.push(nextMode)
-          if (nextMode === 'livre_equipe') {
-            sets.push(`responsavel_id = NULL`)
-            sets.push(`responsavel_nome = NULL`)
-            sets.push(`aceita_por = NULL`)
-            sets.push(`aceita_em = NULL`)
-          }
-        } else if (key === 'prioridade') {
-          sets.push(`prioridade = $${idx++}`); params.push(normalizePriority((req.body as any)[key], existing.prioridade))
-        } else if (key === 'data' || key === 'prazo') {
-          sets.push(`${key} = $${idx++}`); params.push(normalizeNullableDate((req.body as any)[key]))
-        } else if (key === 'titulo') {
-          const nextTitulo = String((req.body as any)[key] || '').trim()
-          if (!nextTitulo) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
-          sets.push(`titulo = $${idx++}`); params.push(nextTitulo)
-        } else if (key === 'pontuacao') {
-          sets.push(`pontuacao = $${idx++}`); params.push(normalizePositiveScore((req.body as any)[key], existing.pontuacao || 1))
-        } else if (key === 'conta_ranking') {
-          sets.push(`conta_ranking = $${idx++}`); params.push((req.body as any)[key] !== false)
-        } else if (key === 'checklist') {
-          const nextChecklist = await normalizeChecklistForOrg((req.body as any)[key], orgId, userId, role)
-          sets.push(`checklist = $${idx++}`); params.push(nextChecklist)
-          const structureChanged = checklistStructureKey(existing.checklist) !== checklistStructureKey(nextChecklist)
-          if (structureChanged && statusShouldReturnToExecution(existing.status)) {
-            sets.push(`status = 'pendente'`)
-            sets.push(`status_gestor = 'aguardando'`)
-            sets.push(`ressalva_gestor = NULL`)
-            sets.push(`resposta_membro = NULL`)
-            sets.push(`motivo_nao_conclusao = NULL`)
-            sets.push(`observacao_conclusao = NULL`)
-            sets.push(`resposta_status = NULL`)
-            sets.push(`resposta_obs = NULL`)
-            sets.push(`resposta_em = NULL`)
-            sets.push(`data_inicio = NULL`)
-            sets.push(`data_conclusao = NULL`)
-            sets.push(`aprovada_em = NULL`)
-            sets.push(`aprovada_por = NULL`)
-            sets.push(`devolvida_em = NULL`)
-            sets.push(`conta_ranking = TRUE`)
-            sets.push(`pontuacao = $${idx++}`); params.push(calculateTaskComplexityPoints({ titulo: existing.titulo, descricao: existing.descricao, prioridade: existing.prioridade, checklist: nextChecklist, origem_sistema: existing.origem_sistema, origem_tipo: existing.origem_tipo, origem_nome: existing.origem_nome, origem_payload: existing.origem_payload, manual: existing.pontuacao }))
-          }
-        } else {
-          sets.push(`${key} = $${idx++}`); params.push((req.body as any)[key] === undefined ? null : (req.body as any)[key])
-        }
+    for (const [column, item] of setMap.entries()) {
+      if (item.raw !== undefined) {
+        sets.push(`${column} = ${item.raw}`)
+      } else {
+        sets.push(`${column} = $${idx++}`)
+        params.push(item.value)
       }
     }
-    if (!sets.length) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
-    const checklistStructureChanged = (req.body as any).checklist !== undefined && checklistStructureKey(existing.checklist) !== checklistStructureKey((req.body as any).checklist)
-    const voltouParaExecucao = checklistStructureChanged && statusShouldReturnToExecution(existing.status)
+
     params.push(req.params.id, orgId)
-    const tarefa = await queryOne<any>(`UPDATE tarefas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND org_id = $${idx} RETURNING *`, params)
-    if ((req.body as any).checklist !== undefined) {
+    const tarefa = await queryOne<any>(
+      `UPDATE tarefas SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND org_id = $${idx} RETURNING *`,
+      params
+    )
+
+    if (!tarefa) { res.status(404).json({ error: 'Tarefa não encontrada para atualizar.' }); return }
+
+    if (nextChecklistForSync !== null) {
       await syncChecklistTable({ orgId, tarefaId: req.params.id, userId, checklist: tarefa.checklist })
     }
+
     if (voltouParaExecucao) {
       await query('DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2', [orgId, req.params.id]).catch(() => {})
-      await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'complemento_solicitado', statusAnterior: existing.status, statusNovo: tarefa.status, observacao: 'Checklist complementar adicionado; tarefa voltou para execução.' })
+      await addHistorico({
+        orgId,
+        tarefaId: req.params.id,
+        userId,
+        acao: 'complemento_solicitado',
+        statusAnterior: existing.status,
+        statusNovo: tarefa.status,
+        observacao: 'Checklist complementar adicionado; tarefa voltou para execução.',
+      })
+      if (tarefa.responsavel_id && tarefa.responsavel_id !== userId) {
+        await criarNotificacao({
+          orgId,
+          userId: tarefa.responsavel_id,
+          tipo: 'tarefa_atualizada',
+          titulo: 'Tarefa reaberta para complemento',
+          body: `A tarefa "${tarefa.titulo}" recebeu nova ação no checklist e voltou para execução.`,
+          referenciaId: tarefa.id,
+          referenciaTipo: 'tarefa',
+        }).catch(() => {})
+      }
     } else {
       await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'atualizada', statusAnterior: existing.status, statusNovo: tarefa.status })
     }
+
     res.json({ tarefa })
   } catch (err) {
     console.error('[TAREFAS] Erro ao atualizar:', err)
     const statusCode = Number((err as any)?.statusCode || 0)
     if (statusCode === 403 || statusCode === 404) { res.status(statusCode).json({ error: (err as Error).message }); return }
     const pgCode = String((err as any)?.code || '')
-    if (['22007', '22008', '23514', '22P02'].includes(pgCode)) {
-      res.status(400).json({ error: 'Não foi possível salvar: revise data, prioridade, responsável e checklist.' })
+    if (['22007', '22008', '23514', '22P02', '42703', '42710'].includes(pgCode)) {
+      res.status(400).json({ error: 'Não foi possível salvar: revise data, prioridade, responsável e checklist. Se acabou de atualizar, faça um novo deploy para preparar o banco.' })
       return
     }
     res.status(500).json({ error: 'Erro ao atualizar tarefa.' })
