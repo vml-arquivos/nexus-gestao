@@ -151,6 +151,7 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
     data: item.data ? String(item.data).slice(0, 10) : undefined,
     responsavel_id: item.responsavel_id || undefined,
     responsavel_nome: item.responsavel_nome || undefined,
+    pontuacao: Math.max(1, Math.min(999, Number((item as any).pontuacao || 1))),
     feito: Boolean(item.feito),
   }))
 }
@@ -422,6 +423,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
+  const [novoItemPontuacao, setNovoItemPontuacao] = useState('10')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
   const [destravaLoading, setDestravaLoading] = useState(false)
@@ -484,7 +486,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   }
 
   function addItem() {
-    if (!novoItem.trim()) return
+    if (!novoItem.trim()) { toast('Informe a ação do checklist.', 'error'); return }
+    if (!Number(novoItemPontuacao) || Number(novoItemPontuacao) < 1) { toast('Informe a pontuação desta subtarefa.', 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -492,12 +495,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       data: novoItemData || undefined,
       responsavel_id: novoItemResponsavelId || undefined,
       responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
+      pontuacao: Math.max(1, Math.min(999, Number(novoItemPontuacao || 10))),
       feito: false,
     }])
     setNovoItem('')
     setNovoItemDescricao('')
     setNovoItemData('')
     setNovoItemResponsavelId('')
+    setNovoItemPontuacao('10')
   }
 
   const destravaSelectOptions = useMemo(() => {
@@ -510,6 +515,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   async function salvar() {
     if (loading) return
     if (!titulo.trim()) { toast('Informe o título da tarefa.', 'error'); return }
+    if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma subtarefa/checklist para tarefa da equipe.', 'error'); return }
+    const invalidItem = checklist.find(item => !String(item.texto || '').trim() || !Number((item as any).pontuacao || 0))
+    if (invalidItem) { toast('Cada checklist precisa ter ação e pontuação.', 'error'); return }
     setLoading(true)
     try {
       const payload: Partial<Tarefa> = {
@@ -778,10 +786,19 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 />
                 <input
                   className="form-input"
+                  type="number"
+                  min="1"
+                  max="999"
+                  value={(item as any).pontuacao || 1}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(999, Number(e.target.value || 1))) } : i))}
+                  title="Pontuação obrigatória desta subtarefa"
+                />
+                <input
+                  className="form-input"
                   type="date"
                   value={item.data || ''}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
-                  title="Data desta ação"
+                  title="Data desta ação opcional"
                 />
                 <select
                   className="form-input"
@@ -1140,8 +1157,9 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 }
 
 
-function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
   tarefa: Tarefa
+  membros: MembroEquipe[]
   isGestor: boolean
   userId: string
   onClose: () => void
@@ -1157,6 +1175,16 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const [motivo, setMotivo] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [editTitulo, setEditTitulo] = useState(tarefa.titulo || '')
+  const [editDescricao, setEditDescricao] = useState(tarefa.descricao || '')
+  const [editPrazo, setEditPrazo] = useState(tarefa.prazo?.slice(0, 10) || '')
+  const [editPrioridade, setEditPrioridade] = useState<Priority>(tarefa.prioridade || 'media')
+  const [newSubtask, setNewSubtask] = useState('')
+  const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
+  const [newSubtaskDate, setNewSubtaskDate] = useState('')
+  const [newSubtaskResp, setNewSubtaskResp] = useState('')
+  const [newSubtaskPoints, setNewSubtaskPoints] = useState('10')
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
   const isCriador = tarefa.criado_por === userId
@@ -1178,6 +1206,59 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
   const executorSummary = checklistExecutorSummary({ ...tarefa, checklist })
+  const responsaveisChecklist = assigneeOptions(membros, undefined)
+
+  function checklistResponsibleName(id?: string) {
+    if (!id) return undefined
+    return responsaveisChecklist.find(m => m.id === id)?.nome
+  }
+
+  function addInlineSubtask() {
+    if (!newSubtask.trim()) { toast('Informe a ação do checklist.', 'error'); return }
+    if (!Number(newSubtaskPoints) || Number(newSubtaskPoints) < 1) { toast('Informe a pontuação da subtarefa.', 'error'); return }
+    setChecklist(prev => [...prev, {
+      id: nanoid(),
+      texto: newSubtask.trim(),
+      descricao: newSubtaskDesc.trim() || undefined,
+      data: newSubtaskDate || undefined,
+      responsavel_id: newSubtaskResp || undefined,
+      responsavel_nome: checklistResponsibleName(newSubtaskResp),
+      pontuacao: Math.max(1, Math.min(999, Number(newSubtaskPoints || 10))),
+      feito: false,
+    }])
+    setNewSubtask('')
+    setNewSubtaskDesc('')
+    setNewSubtaskDate('')
+    setNewSubtaskResp('')
+    setNewSubtaskPoints('10')
+    setEditMode(true)
+  }
+
+  async function saveInlineEdit() {
+    if (!editTitulo.trim()) { toast('Informe o título da tarefa.', 'error'); return }
+    if (!checklist.length) { toast('A tarefa precisa ter pelo menos uma subtarefa/checklist.', 'error'); return }
+    const invalid = checklist.find(item => !String(item.texto || '').trim() || !Number((item as any).pontuacao || 0))
+    if (invalid) { toast('Cada subtarefa precisa ter ação e pontuação.', 'error'); return }
+    setSaving(true)
+    try {
+      const saved = await tarefasApi.update(tarefa.id, {
+        titulo: editTitulo.trim(),
+        descricao: editDescricao.trim() || undefined,
+        prazo: editPrazo || undefined,
+        prioridade: editPrioridade,
+        checklist,
+      })
+      const next = normalizeChecklistItems(saved.checklist)
+      setChecklist(next)
+      onSaved(saved)
+      toast('Tarefa atualizada. Se estava concluída/aprovada, voltou para execução.')
+      setEditMode(false)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao salvar tarefa.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function persistChecklist(next: ChecklistItem[]) {
     setChecklist(next)
@@ -1224,7 +1305,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
 
     const texto = [
       `Checklist da tarefa: ${tarefa.titulo}`,
-      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${(item as any).pontuacao ? `\n   Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
     ].join('\n')
 
     try {
@@ -1347,8 +1428,87 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
               {tarefa.updated_at && <span>Última atualização: {fmtDateTime(tarefa.updated_at)}</span>}
             </div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
+          <div className="task-detail-hero-actions">
+            {isGestor && <button className="btn btn-secondary" type="button" onClick={() => setEditMode(v => !v)}><Edit3 size={14} /> {editMode ? 'Ocultar edição' : 'Editar / incluir subtarefa'}</button>}
+            <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
+          </div>
         </section>
+
+        {isGestor && editMode && (
+          <section className="task-detail-section task-inline-editor">
+            <div className="task-detail-section-head">
+              <h3>Editar tarefa e subtarefas</h3>
+              <button className="btn btn-primary btn-sm" type="button" onClick={saveInlineEdit} disabled={saving}>{saving ? <Loader size={14} /> : <Send size={14} />} Salvar alterações</button>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Título *</label>
+                <input className="form-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)} />
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Prazo</label>
+                  <input className="form-input" type="date" value={editPrazo} onChange={e => setEditPrazo(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Prioridade</label>
+                  <select className="form-input" value={editPrioridade} onChange={e => setEditPrioridade(e.target.value as Priority)}>
+                    <option value="baixa">Baixa</option>
+                    <option value="media">Média</option>
+                    <option value="alta">Alta</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Descrição da tarefa</label>
+              <textarea className="form-input" rows={3} value={editDescricao} onChange={e => setEditDescricao(e.target.value)} />
+            </div>
+
+            <div className="task-inline-add-subtask">
+              <div className="form-group">
+                <label className="form-label">Nova subtarefa/checklist *</label>
+                <input className="form-input" value={newSubtask} onChange={e => setNewSubtask(e.target.value)} placeholder="Ex.: Conferir contrato social" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Pontuação *</label>
+                <input className="form-input" type="number" min="1" max="999" value={newSubtaskPoints} onChange={e => setNewSubtaskPoints(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Data de execução <span>(opcional)</span></label>
+                <input className="form-input" type="date" value={newSubtaskDate} onChange={e => setNewSubtaskDate(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Executor <span>(opcional)</span></label>
+                <select className="form-input" value={newSubtaskResp} onChange={e => setNewSubtaskResp(e.target.value)}>
+                  <option value="">Livre / responsável principal</option>
+                  {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                </select>
+              </div>
+              <div className="form-group task-inline-desc">
+                <label className="form-label">Descrição/instrução <span>(opcional)</span></label>
+                <textarea className="form-input" rows={2} value={newSubtaskDesc} onChange={e => setNewSubtaskDesc(e.target.value)} placeholder="Explique como executar, se necessário." />
+              </div>
+              <button className="btn btn-secondary" type="button" onClick={addInlineSubtask}><Plus size={14} /> Incluir subtarefa</button>
+            </div>
+
+            <div className="task-inline-checklist-editor">
+              {checklist.map(item => (
+                <div key={item.id} className="task-inline-checklist-row">
+                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Ação do checklist" />
+                  <input className="form-input" type="number" min="1" max="999" value={(item as any).pontuacao || 1} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(999, Number(e.target.value || 1))) } : i))} title="Pontuação" />
+                  <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
+                  <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
+                    <option value="">Livre / responsável principal</option>
+                    {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                  </select>
+                  <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
+                  <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta subtarefa" />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {tarefa.descricao && (
           <section className="task-detail-section">
@@ -1398,6 +1558,7 @@ function TarefaDetalheModal({ tarefa, isGestor, userId, onClose, onSaved, onAnex
                           <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           <span className="task-check-content">
                             <span className="task-check-text">{item.texto}</span>
+                            <span className="task-check-points">{(item as any).pontuacao || 1} ponto(s)</span>
                             <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
                             {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
@@ -1983,7 +2144,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {detalhe && <TarefaDetalheModal tarefa={detalhe} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
       {complemento && <ComplementoModal tarefa={complemento} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>

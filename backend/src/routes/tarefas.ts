@@ -223,7 +223,9 @@ function calculateTaskComplexityPoints(input: {
   return Math.max(1, Math.min(999, Math.round(points)))
 }
 
-function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string }, task: any) {
+function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string; pontuacao?: number }, task: any) {
+  const manual = Number((item as any)?.pontuacao || 0)
+  if (Number.isFinite(manual) && manual > 0) return Math.max(1, Math.min(999, Math.round(manual)))
   const itemText = `${item?.texto || ''} ${item?.descricao || ''}`
   const taskText = `${task?.titulo || ''} ${task?.descricao || ''} ${task?.origem_nome || ''} ${task?.origem_tipo || ''}`
   const base = calculateTaskComplexityPoints({
@@ -295,7 +297,7 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -326,6 +328,7 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         data: safeDate,
         responsavel_id: isUuid(item?.responsavel_id) ? item.responsavel_id : undefined,
         responsavel_nome: String(item?.responsavel_nome || '').trim() || undefined,
+        pontuacao: normalizePositiveScore(item?.pontuacao, 1),
         feito: !!item?.feito,
       }
     })
@@ -1110,7 +1113,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           await query(
             `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
              VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7)
-             ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             [orgId, req.params.id, participante, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
           ).catch(() => {})
         }
@@ -1120,7 +1123,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           await query(
             `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
              VALUES ($1,$2,$3,$4,'tarefa_sem_checklist_aprovada',$5,NOW(),$6)
-             ON CONFLICT (tarefa_id, usuario_id, motivo) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             [orgId, req.params.id, participante, calculateChecklistItemPoints({ texto: existing.titulo, descricao: existing.descricao }, existing), userId, periodo]
           ).catch(() => {})
         }

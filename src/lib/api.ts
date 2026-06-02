@@ -46,6 +46,8 @@ export interface ChecklistItem {
   /** Responsável específico por executar este item do checklist. */
   responsavel_id?: string
   responsavel_nome?: string
+  /** Pontos manuais desta subtarefa/checklist. Obrigatório para ranking por checklist. */
+  pontuacao?: number
 }
 
 export interface Tarefa {
