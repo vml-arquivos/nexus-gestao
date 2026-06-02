@@ -29,6 +29,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
     const { orgId, userId, role } = req.user!
     const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(role)
     const personalFilter = gestorLike ? '' : ' AND (t.criado_por = $2 OR t.responsavel_id = $2 OR t.aceita_por = $2)'
+    const taskParams = gestorLike ? [orgId] : [orgId, userId]
     const paymentFilter = ' AND p.criado_por = $2'
     const agendaFilter = ' AND a.criado_por = $2'
 
@@ -44,7 +45,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         COUNT(*) FILTER (WHERE jsonb_array_length(COALESCE(checklist, '[]'::jsonb)) = 0 AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS sem_checklist
       FROM tarefas t
       WHERE t.org_id = $1${personalFilter}
-    `, [orgId, userId])
+    `, taskParams)
 
     const financeiroRows = await query<any>(`
       SELECT
@@ -92,7 +93,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         COALESCE(prazo, data) ASC NULLS LAST,
         created_at ASC
       LIMIT 8
-    `, [orgId, userId])
+    `, taskParams)
 
     const t = tarefasRows[0] || {}
     const f = financeiroRows[0] || {}

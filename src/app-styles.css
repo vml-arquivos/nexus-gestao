@@ -4918,3 +4918,70 @@ button:disabled,
 .critical-row > small { color:var(--text3); font-weight:700; text-align:right; }
 @media (max-width: 1100px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } .intel-two-columns { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .intel-hero { grid-template-columns: 1fr; padding:16px; text-align:left; } .health-score { width:132px; height:132px; } .health-score strong { font-size:34px; } .health-copy h2 { font-size:22px; } .metrics-grid { grid-template-columns: 1fr; } .critical-row { grid-template-columns: 1fr; gap:7px; } .critical-row > small { text-align:left; } .intel-card { padding:13px; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   HOTFIX MENU MOBILE — navegação lateral acessível em PWA/navegador
+   Corrige menu preso/escurecido atrás do bottom-nav em celulares.
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 1023px) {
+  .app-shell.sidebar-is-open {
+    overflow: hidden !important;
+  }
+
+  .app-shell.sidebar-is-open .bottom-nav {
+    transform: translateY(120%) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  .sidebar-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9000 !important;
+    background: rgba(2, 6, 23, 0.58) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: min(88vw, 360px) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 18px) !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    z-index: 9010 !important;
+    transform: translate3d(-110%, 0, 0) !important;
+    border-right: 1px solid var(--border) !important;
+    border-radius: 0 22px 22px 0 !important;
+    box-shadow: 18px 0 50px rgba(0, 0, 0, 0.28) !important;
+    overflow: hidden !important;
+  }
+
+  .sidebar.open {
+    transform: translate3d(0, 0, 0) !important;
+  }
+
+  .sidebar > nav {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: calc(var(--safe-bot) + 28px) !important;
+  }
+
+  .sidebar .nav-item {
+    min-height: 42px !important;
+    padding: 10px 14px !important;
+    border-radius: 12px !important;
+  }
+
+  .sidebar .nav-item span {
+    font-size: 14px !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+}

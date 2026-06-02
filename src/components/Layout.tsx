@@ -98,6 +98,15 @@ export default function Layout() {
     return () => mq.removeEventListener('change', handler)
   }, [])
 
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSidebarOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [sidebarOpen])
+
   // Fecha painel de notificações ao clicar fora
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -113,7 +122,7 @@ export default function Layout() {
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${sidebarOpen ? ' sidebar-is-open' : ''}`}>
       {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
       <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
 
