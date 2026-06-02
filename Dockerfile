@@ -32,7 +32,12 @@ COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY . .
 RUN rm -rf backend
-RUN npm run build
+
+# Força o BuildKit a concluir o build TypeScript do backend antes do build do frontend.
+# Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
+# consumindo muita memória na VPS e derrubando o deploy sem mostrar erro TypeScript claro.
+COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
+RUN rm -rf /tmp/backend-build-check && npm run build
 
 # ── STAGE 3: Produção ──────────────────────────────────────
 FROM node:20-alpine AS production
