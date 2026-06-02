@@ -4457,3 +4457,73 @@ button:disabled,
   .integration-selected { align-items: flex-start; flex-direction: column; }
   .integration-selected .btn { width: 100%; justify-content: center; }
 }
+
+/* Hotfix: tarefas para assumir, filtros compactos e vínculo Destrava limpo */
+.task-smart-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(108px, max-content)) !important;
+  justify-content: start;
+  gap: 7px !important;
+}
+.task-smart-tab {
+  width: auto !important;
+  min-width: 108px !important;
+  border-radius: 13px !important;
+  padding: 8px 10px !important;
+}
+.task-smart-tab-main strong { font-size: 12px !important; font-weight: 700 !important; }
+.task-smart-tab-main em { font-size: 11px !important; }
+.task-smart-tab-hint { font-size: 10px !important; margin-top: 2px !important; }
+.task-filters-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 7px !important;
+}
+.task-filters-grid > * {
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 128px !important;
+  max-width: 210px !important;
+}
+.task-filters-grid .form-input {
+  min-height: 38px !important;
+  height: 38px !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+  font-size: 13px !important;
+}
+.task-type-selector.compact .task-type-option,
+.task-type-selector .task-type-option {
+  min-height: 64px;
+}
+.integration-link-box.compact {
+  padding: 8px !important;
+  gap: 6px !important;
+  overflow: visible;
+}
+.integration-search-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.integration-search-wrap .form-input { flex: 1; min-width: 0; }
+.integration-results.compact {
+  max-height: 156px !important;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg2);
+  padding: 5px;
+}
+.integration-results.compact .integration-result {
+  padding: 7px 8px !important;
+  border-radius: 8px !important;
+}
+.integration-results.compact .integration-result strong { font-size: 12px !important; }
+.integration-results.compact .integration-result span { font-size: 10px !important; }
+@media (max-width: 760px) {
+  .task-smart-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .task-smart-tab { min-width: 0 !important; width: 100% !important; }
+  .task-filters-grid > * { min-width: 100% !important; max-width: none !important; }
+  .integration-search-wrap { flex-direction: column; align-items: stretch; }
+}

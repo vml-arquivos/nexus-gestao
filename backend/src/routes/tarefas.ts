@@ -517,9 +517,9 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
       [userId, profile?.nome || null, req.params.id, orgId]
     )
     if (!tarefa) { res.status(409).json({ error: 'Tarefa já foi selecionada.' }); return }
-    await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'tarefa_livre_aceita', statusAnterior: existing.status, statusNovo: 'em_progresso', observacao: `${profile?.nome || 'Membro'} pegou a tarefa.` })
+    await addHistorico({ orgId, tarefaId: tarefa.id, userId, acao: 'tarefa_livre_aceita', statusAnterior: existing.status, statusNovo: 'em_progresso', observacao: `${profile?.nome || 'Membro'} assumiu a tarefa.` })
     if (existing.criado_por && existing.criado_por !== userId) {
-      await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: '🙋 Tarefa selecionada', body: `${profile?.nome || 'Um membro'} pegou a tarefa "${existing.titulo}".`, referenciaId: tarefa.id, referenciaTipo: 'tarefa' }).catch(() => {})
+      await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: '🙋 Tarefa selecionada', body: `${profile?.nome || 'Um membro'} assumiu a tarefa "${existing.titulo}".`, referenciaId: tarefa.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
     res.json({ tarefa })
   } catch (err) {
@@ -548,9 +548,23 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const modoFinal = role === 'membro' ? 'normal' : modoDistribuicao
 
     if (role === 'membro') {
-      // membro só cria tarefa pessoal para si mesmo
-      responsavelId = userId
-      escopo = 'pessoal'
+      // Membro continua criando tarefa pessoal normalmente, mas agora também pode
+      // solicitar uma tarefa para um gestor/admin/subgestor da própria organização.
+      // Isso não libera tarefa livre nem atribuição para outros membros.
+      if (requestedEscopo === 'equipe' && responsavelId && responsavelId !== userId) {
+        const destino = await queryOne<{ id: string; nome: string; role: string }>(
+          'SELECT id, nome, role FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE',
+          [responsavelId, orgId]
+        )
+        if (!destino) { res.status(404).json({ error: 'Responsável não encontrado.' }); return }
+        if (!['admin','dev','gestor','sub_gestor'].includes(String(destino.role || ''))) {
+          res.status(403).json({ error: 'Membro só pode solicitar tarefa para gestor, subgestor, admin ou dev.' }); return
+        }
+        escopo = 'equipe'
+      } else {
+        responsavelId = userId
+        escopo = 'pessoal'
+      }
     } else if (responsavelId) {
       const resp = await queryOne<{ id: string; nome: string; criado_por: string | null }>(
         'SELECT id, nome, criado_por FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE',

@@ -156,7 +156,10 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
 }
 
 function checklistExecutorName(item: ChecklistItem, tarefa: Tarefa) {
-  return item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.criado_por_nome || 'Executor'
+  if (item.responsavel_nome) return item.responsavel_nome
+  if (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) return tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Executor'
+  if (tarefa.modo_distribuicao === 'livre_equipe') return tarefa.aceita_por_nome || 'Livre para quem assumir'
+  return tarefa.criado_por_nome || 'Executor'
 }
 
 function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
@@ -434,23 +437,30 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
   const responsaveisChecklist = assigneeOptions(membros, user || undefined)
+  const gestoresParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id && ['admin','dev','gestor','sub_gestor'].includes(String(m.role || '')))
+  const isMemberRequest = !isGestor && tipoTarefa === 'equipe' && !!responsavelId && responsavelId !== user?.id
 
   useEffect(() => {
     let alive = true
+    const q = destravaBusca.trim()
+    if (!isGestor || destravaSelecionado || q.length < 2) {
+      setDestravaItens([])
+      setDestravaLoading(false)
+      return () => { alive = false }
+    }
     const timer = window.setTimeout(async () => {
-      if (!isGestor) return
       setDestravaLoading(true)
       try {
-        const items = await destravaApi.catalogo({ tipo: 'empresa', q: destravaBusca, limit: 12 })
+        const items = await destravaApi.catalogo({ tipo: 'empresa', q, limit: 8 })
         if (alive) setDestravaItens(items)
       } catch {
         if (alive) setDestravaItens([])
       } finally {
         if (alive) setDestravaLoading(false)
       }
-    }, destravaBusca.trim() ? 350 : 0)
+    }, 350)
     return () => { alive = false; window.clearTimeout(timer) }
-  }, [destravaBusca, isGestor])
+  }, [destravaBusca, destravaSelecionado, isGestor])
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
@@ -501,8 +511,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
-        responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : user?.id,
-        escopo: isGestor ? tipoTarefa : 'pessoal',
+        responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : (isMemberRequest ? responsavelId : user?.id),
+        escopo: isGestor ? tipoTarefa : (isMemberRequest ? 'equipe' : 'pessoal'),
         modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
         pontuacao: Number(pontuacao || 1),
         conta_ranking: contaRanking,
@@ -538,35 +548,30 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Vínculo com empresa do Destrava</label>
-            <div className="integration-link-box">
-              <input
-                className="form-input"
-                value={destravaBusca}
-                onChange={e => setDestravaBusca(e.target.value)}
-                placeholder="Buscar empresa, CNPJ ou cliente do Destrava..."
-              />
-              {destravaSelecionado ? (
-                <div className="integration-selected">
-                  <div>
-                    <strong>{destravaSelecionado.nome}</strong>
-                    <span>{destravaSelecionado.documento || destravaSelecionado.subtitulo || 'Empresa vinculada à tarefa'}</span>
-                  </div>
-                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => setDestravaSelecionado(null)}>Remover</button>
-                </div>
-              ) : (
-                <div className="integration-results">
-                  {destravaLoading && <span className="integration-muted">Buscando no Destrava...</span>}
+            <label className="form-label">Empresa do Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+            <div className="integration-link-box compact">
+              <div className="integration-search-wrap">
+                <input
+                  className="form-input"
+                  value={destravaSelecionado ? destravaSelecionado.nome : destravaBusca}
+                  onChange={e => { setDestravaSelecionado(null); setDestravaBusca(e.target.value) }}
+                  placeholder="Digite 2 letras para buscar empresa, CNPJ ou cliente..."
+                />
+                {destravaSelecionado && <button className="btn btn-ghost btn-sm" type="button" onClick={() => { setDestravaSelecionado(null); setDestravaBusca('') }}>Limpar</button>}
+              </div>
+              {!destravaSelecionado && (destravaLoading || destravaItens.length > 0 || destravaBusca.trim().length >= 2) && (
+                <div className="integration-results compact">
+                  {destravaLoading && <span className="integration-muted">Buscando...</span>}
                   {!destravaLoading && destravaItens.slice(0, 6).map(item => (
                     <button key={`${item.tipo}-${item.id}`} type="button" className="integration-result" onClick={() => { setDestravaSelecionado(item); setDestravaBusca(item.nome) }}>
                       <strong>{item.nome}</strong>
                       <span>{item.documento || item.subtitulo || item.status || 'Registro do Destrava'}</span>
                     </button>
                   ))}
-                  {!destravaLoading && destravaItens.length === 0 && destravaBusca.trim() && <span className="integration-muted">Nenhum registro encontrado.</span>}
+                  {!destravaLoading && destravaItens.length === 0 && destravaBusca.trim().length >= 2 && <span className="integration-muted">Nenhum registro encontrado.</span>}
                 </div>
               )}
-              <div className="integration-help">Este vínculo não altera a rota da tarefa. Ele apenas conecta a execução, arquivos e histórico à empresa correspondente no Destrava.</div>
+              {destravaSelecionado && <div className="integration-help">Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}</div>}
             </div>
           </div>
         )}
@@ -607,6 +612,35 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
           </div>
         )}
+        {!isGestor && (
+          <div className="form-group">
+            <label className="form-label">Destino da tarefa</label>
+            <div className="task-type-selector compact" role="radiogroup" aria-label="Destino da tarefa">
+              <button
+                type="button"
+                className={tipoTarefa === 'pessoal' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => { setTipoTarefa('pessoal'); setResponsavelId(user?.id || '') }}
+              >
+                <strong>Minha tarefa</strong>
+                <span>Fica para minha execução.</span>
+              </button>
+              <button
+                type="button"
+                className={tipoTarefa === 'equipe' ? 'task-type-option active' : 'task-type-option'}
+                onClick={() => { setTipoTarefa('equipe'); if (!responsavelId || responsavelId === user?.id) setResponsavelId(gestoresParaSolicitar[0]?.id || '') }}
+              >
+                <strong>Solicitar ao gestor</strong>
+                <span>Envia uma demanda para o responsável conferir ou executar.</span>
+              </button>
+            </div>
+            {tipoTarefa === 'equipe' && (
+              <select className="form-input" style={{ marginTop: 8 }} value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
+                <option value="">Selecione o gestor</option>
+                {gestoresParaSolicitar.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
+              </select>
+            )}
+          </div>
+        )}
         {isGestor && tipoTarefa === 'equipe' && (
           <div className="form-group">
             <label className="form-label">Modelo de distribuição</label>
@@ -624,8 +658,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 className={modoDistribuicao === 'livre_equipe' ? 'task-type-option active' : 'task-type-option'}
                 onClick={() => changeModoDistribuicao('livre_equipe')}
               >
-                <strong>Disponível para pegar</strong>
-                <span>Fica visível para o time. Quem pegar executa e não pega outra até concluir.</span>
+                <strong>Disponível para assumir</strong>
+                <span>Fica visível para o time. Quem assumir executa e não assume outra até concluir.</span>
               </button>
             </div>
           </div>
@@ -684,7 +718,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   value={novoItemResponsavelId}
                   onChange={e => setNovoItemResponsavelId(e.target.value)}
                 >
-                  <option value="">Usar responsável principal da tarefa</option>
+                  <option value="">Livre / usar responsável principal</option>
                   {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
                 </select>
               </div>
@@ -749,7 +783,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}
                   title="Executor deste checklist"
                 >
-                  <option value="">Responsável principal</option>
+                  <option value="">Livre / responsável principal</option>
                   {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
                 </select>
                 <button type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}><X size={14} /></button>
@@ -1507,7 +1541,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       </div>
 
       <div style={{ display: 'flex', gap: 8, padding: '0 14px 14px', flexWrap: 'wrap' }}>
-        {livreDisponivel && !isGestor && <button className="btn btn-primary" onClick={() => onPegar(tarefa)} type="button">Pegar tarefa</button>}
+        {livreDisponivel && !isGestor && <button className="btn btn-primary" onClick={() => onPegar(tarefa)} type="button">Assumir tarefa</button>}
         <button className="btn btn-primary" onClick={() => onOpen(tarefa)} type="button">Abrir tarefa</button>
         <button className="btn btn-secondary" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={14} /> {isGestor ? 'Ver arquivos' : 'Anexar arquivo'}</button>
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
@@ -1762,9 +1796,9 @@ export default function Tarefas() {
       const saved = await tarefasApi.pegar(t.id)
       updateSaved(saved)
       await load()
-      toast('Tarefa selecionada. Conclua esta antes de pegar outra tarefa livre.')
+      toast('Tarefa assumida. Conclua esta antes de assumir outra tarefa livre.')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao pegar tarefa.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao assumir tarefa.', 'error')
     }
   }
 
@@ -1792,7 +1826,7 @@ export default function Tarefas() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'disponiveis' ? 'Tarefas livres para membros selecionarem e aprenderem executando' : escopo === 'ranking' ? 'Placar de tarefas aprovadas e premiações do time' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas pessoais e recebidas' : escopo === 'equipe' ? 'Tarefas do time com execução por membros' : escopo === 'disponiveis' ? 'Tarefas livres para membros assumirem e aprenderem executando' : escopo === 'ranking' ? 'Placar de tarefas aprovadas e premiações do time' : escopo === 'recentes' ? 'Últimas movimentações e execuções' : 'Todas as tarefas acessíveis'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
@@ -1801,7 +1835,7 @@ export default function Tarefas() {
         {[
           { id: 'pessoais', label: t('tasks.tabs.personal'), count: pessoalCount, hint: 'Minha execução' },
           { id: 'equipe', label: t('tasks.tabs.team'), count: equipeCount, hint: 'Time e delegações' },
-          { id: 'disponiveis', label: 'Para pegar', count: disponiveisCount, hint: 'Livres para o time' },
+          { id: 'disponiveis', label: 'Para assumir', count: disponiveisCount, hint: 'Livres' },
           { id: 'ranking', label: 'Ranking', count: ranking?.ranking?.length || 0, hint: 'Pontuação do mês' },
           { id: 'recentes', label: t('tasks.tabs.recent'), count: recentesCount, hint: 'Movimentadas agora' },
           { id: 'todas', label: t('tasks.tabs.all'), count: tarefasVisiveis.length, hint: 'Visão geral' },
@@ -1831,12 +1865,12 @@ export default function Tarefas() {
         </div>)}
       </section>
 
-      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
+      <section className="task-filters-panel" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 14, fontWeight: 750 }}>{t('tasks.filters.title')}</strong>
           <button className="btn btn-ghost" type="button" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 10px', fontSize: 12 }}>{t('tasks.filters.clear')}</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+        <div className="task-filters-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, max-content))', gap: 8 }}>
           <div style={{ position: 'relative' }}>
             <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
             <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={t('tasks.search.placeholder')} />
@@ -1912,7 +1946,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'disponiveis' ? 'Nenhuma tarefa disponível para pegar agora.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa de equipe encontrada.' : escopo === 'disponiveis' ? 'Nenhuma tarefa disponível para assumir agora.' : escopo === 'recentes' ? 'Nenhuma movimentação recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
