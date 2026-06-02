@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Copy, Eye, EyeOff, KeyRound, Link as LinkIcon, Loader, Power, PowerOff, Trash2, UserPlus, X } from 'lucide-react'
 import { usersApi, type UserProfile } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -115,6 +116,7 @@ function ModalUsuario({ onClose, onCreated, currentRole }: { onClose: () => void
 }
 
 export default function Usuarios() {
+  const { t } = useVisualTexts()
   const { user: eu } = useAuth()
   const [usuarios, setUsuarios] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -196,7 +198,7 @@ export default function Usuarios() {
   if (!canManage) return <div className="page-container"><h1>Acesso restrito</h1><p>Você não tem permissão para gerenciar usuários.</p></div>
 
   return <div className="page-container" style={{ maxWidth:920 }}>
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Usuários</h1><p style={{ color:'var(--text3)' }}>Crie usuários abaixo do seu nível, gere convites e gerencie acessos.</p></div><button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> Novo usuário</button></div>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>{t('users.pageTitle')}</h1><p style={{ color:'var(--text3)' }}>{t('users.pageSubtitle')}</p></div><button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> {t('users.newButton')}</button></div>
     {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gap:20 }}><section><h2 style={{ fontSize:16, marginBottom:10 }}>Gestão</h2><div style={{ display:'grid', gap:10 }}>{grupos.gestores.map(row)}</div></section><section><h2 style={{ fontSize:16, marginBottom:10 }}>Membros</h2><div style={{ display:'grid', gap:10 }}>{grupos.membros.map(row)}{grupos.membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro cadastrado.</div>}</div></section></div>}
     {open && <ModalUsuario currentRole={eu?.role} onClose={()=>setOpen(false)} onCreated={(u)=>{setUsuarios(v=>[...v,u]);}}/>}
   </div>

@@ -3,6 +3,7 @@ import { Plus, Users, X, Trash2, Edit2, UserPlus } from 'lucide-react'
 import { equipeApi, teamsApi, type Equipe, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { isGestorLike, isGestorOwner, roleLabel } from '../lib/roles'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -92,6 +93,7 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
 }
 
 export default function Equipes() {
+  const { t } = useVisualTexts()
   const { user } = useAuth()
   const [teams, setTeams] = useState<Equipe[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,7 +106,7 @@ export default function Equipes() {
   if (!canManageTeams) return <div className="page-container"><h1>Acesso restrito</h1><p>Somente perfis de gestão gerenciam equipes.</p></div>
 
   return <div className="page-container" style={{ maxWidth:920 }}>
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>Equipes</h1><p style={{ color:'var(--text3)' }}>Crie equipes e vincule membros existentes.</p></div><button className="btn btn-primary" onClick={()=>setModal(null)}><Plus size={16}/> Nova equipe</button></div>
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:22 }}><div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>{t('teams.pageTitle')}</h1><p style={{ color:'var(--text3)' }}>{t('teams.pageSubtitle')}</p></div><button className="btn btn-primary" onClick={()=>setModal(null)}><Plus size={16}/> Nova equipe</button></div>
     {loading ? <div>Carregando...</div> : <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:14 }}>{teams.map(t=><div key={t.id} style={{ padding:16, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:18 }}><div style={{ display:'flex', gap:12, alignItems:'center' }}><div style={{ width:40, height:40, borderRadius:12, background:'var(--grad-primary)', display:'grid', placeItems:'center' }}><Users size={20} color="#fff"/></div><div style={{ minWidth:0 }}><b>{t.nome}</b><div style={{ color:'var(--text3)', fontSize:13 }}>{t.members_count || 0} membro(s)</div></div></div>{t.descricao && <p style={{ color:'var(--text3)', fontSize:13 }}>{t.descricao}</p>}<div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}><button className="btn btn-secondary" onClick={()=>setMembersTeam(t)}><Users size={15}/> Membros</button><button className="btn btn-ghost" onClick={()=>setModal(t)}><Edit2 size={15}/> Editar</button></div></div>)}{teams.length===0 && <div style={{ color:'var(--text3)' }}>Nenhuma equipe cadastrada.</div>}</div>}
     {modal !== undefined && <TeamModal team={modal} onClose={()=>setModal(undefined)} onSaved={(saved)=>{ setTeams(ts=> modal ? ts.map(t=>t.id===saved.id?saved:t) : [...ts,saved]) }} />}
     {membersTeam && <MembersModal equipe={membersTeam} onClose={()=>{ setMembersTeam(null); loadTeams() }} />}

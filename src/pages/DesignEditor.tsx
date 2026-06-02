@@ -330,7 +330,7 @@ export default function DesignEditor() {
   ] as const
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
+    <div className="design-editor-root" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
 
       {/* ── Header ── */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
@@ -378,10 +378,10 @@ export default function DesignEditor() {
       )}
 
       {/* ── Layout principal ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div className="design-editor-main" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* ── Painel lateral de edição ── */}
-        <div style={{ width: 320, flexShrink: 0, borderRight: '1px solid var(--border)', overflowY: 'auto', background: 'var(--bg2)' }}>
+        <div className="design-editor-sidebar" style={{ width: 320, flexShrink: 0, borderRight: '1px solid var(--border)', overflowY: 'auto', background: 'var(--bg2)' }}>
 
           {/* Tabs */}
           <div style={{ display: 'flex', padding: '8px 8px 0', gap: 2, background: 'var(--bg3)', borderBottom: '1px solid var(--border)' }}>
@@ -637,7 +637,7 @@ export default function DesignEditor() {
         </div>
 
         {/* ── Área de preview ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg3)' }}>
+        <div className="design-editor-preview-pane" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg3)' }}>
 
           {/* Toolbar de preview */}
           <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -655,11 +655,12 @@ export default function DesignEditor() {
           </div>
 
           {/* Preview iframe vivo */}
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, overflow: 'auto' }}>
+          <div className="design-editor-preview-stage" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, overflow: 'auto' }}>
             <div style={{
-              width: preview === 'mobile' ? 375 : '100%',
-              maxWidth: preview === 'mobile' ? 375 : 1100,
-              height: preview === 'mobile' ? 720 : '100%',
+              width: preview === 'mobile' ? 'min(390px, 100%)' : '100%',
+              maxWidth: preview === 'mobile' ? 390 : 1100,
+              height: preview === 'mobile' ? '100%' : '100%',
+              maxHeight: preview === 'mobile' ? 760 : 'none',
               borderRadius: preview === 'mobile' ? 32 : 16,
               overflow: 'hidden',
               boxShadow: '0 8px 48px rgba(0,0,0,0.2)',
@@ -668,7 +669,7 @@ export default function DesignEditor() {
               flexShrink: 0,
             }}>
               {/* Mini preview do sistema com os tokens aplicados */}
-              <PreviewContent tokens={tokens} mobile={preview === 'mobile'} />
+              <PreviewContent tokens={tokens} mobile={preview === 'mobile'} texts={visualTexts} />
             </div>
           </div>
         </div>
@@ -678,114 +679,208 @@ export default function DesignEditor() {
 }
 
 // ── Preview Component — simula o sistema real ─────────────────────
-function PreviewContent({ tokens, mobile }: { tokens: DesignTokens; mobile: boolean }) {
-  const [activePage, setActivePage] = useState<'dashboard' | 'tarefas' | 'usuarios'>('dashboard')
+type PreviewPageId =
+  | 'dashboard'
+  | 'tarefas'
+  | 'minhasTarefas'
+  | 'agenda'
+  | 'financeiro'
+  | 'pessoas'
+  | 'documentos'
+  | 'relatorios'
+  | 'equipe'
+  | 'equipes'
+  | 'usuarios'
+  | 'configuracoes'
 
-  const nav = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'tarefas', label: 'Tarefas', icon: '✅' },
-    { id: 'usuarios', label: 'Usuários', icon: '👥' },
-  ] as const
+type PreviewPage = { id: PreviewPageId; label: string; icon: string }
+
+function PageHeader({ title, subtitle, action, tokens, mobile }: { title: string; subtitle?: string; action?: string; tokens: DesignTokens; mobile: boolean }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: mobile ? 'column' : 'row', alignItems: mobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
+      <div>
+        <h1 style={{ fontFamily: tokens.fontHeading, fontSize: tokens.text2xl, fontWeight: Number(tokens.fwBlack), lineHeight: 1.1, margin: 0 }}>{title}</h1>
+        {subtitle && <p style={{ color: tokens.text3, fontSize: tokens.textSm, marginTop: 5, marginBottom: 0 }}>{subtitle}</p>}
+      </div>
+      {action && <button style={{ background: tokens.gradPrimary, color: '#fff', border: 'none', borderRadius: tokens.radius, padding: '8px 12px', fontSize: tokens.textSm, fontWeight: Number(tokens.fwSemibold), cursor: 'pointer', alignSelf: mobile ? 'flex-start' : 'center' }}>{action}</button>}
+    </div>
+  )
+}
+
+function MiniCard({ title, value, icon, tokens }: { title: string; value: string; icon: string; tokens: DesignTokens }) {
+  return (
+    <div style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius, padding: tokens.cardPad, boxShadow: tokens.shadowSm, minWidth: 0 }}>
+      <div style={{ fontSize: 20, marginBottom: 6 }}>{icon}</div>
+      <div style={{ fontFamily: tokens.fontHeading, fontSize: tokens.textXl, fontWeight: Number(tokens.fwBold), color: tokens.primary, whiteSpace: 'nowrap' }}>{value}</div>
+      <div style={{ fontSize: tokens.textXs, color: tokens.text3, fontWeight: Number(tokens.fwSemibold), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+    </div>
+  )
+}
+
+function ListRow({ left, right, meta, tokens }: { left: string; right?: string; meta?: string; tokens: DesignTokens }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: `1px solid ${tokens.border}` }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.primary, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: tokens.textSm, fontWeight: Number(tokens.fwSemibold), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{left}</div>
+        {meta && <div style={{ fontSize: tokens.textXs, color: tokens.text3, marginTop: 2 }}>{meta}</div>}
+      </div>
+      {right && <span style={{ fontSize: tokens.textXs, color: tokens.text2, background: `${tokens.primary}15`, padding: '3px 8px', borderRadius: tokens.radiusXs, whiteSpace: 'nowrap' }}>{right}</span>}
+    </div>
+  )
+}
+
+function PreviewContent({ tokens, mobile, texts }: { tokens: DesignTokens; mobile: boolean; texts: VisualTexts }) {
+  const [activePage, setActivePage] = useState<PreviewPageId>('dashboard')
+
+  const nav: PreviewPage[] = [
+    { id: 'dashboard', label: texts['nav.home'], icon: '🏠' },
+    { id: 'tarefas', label: texts['nav.tasks'], icon: '✅' },
+    { id: 'minhasTarefas', label: texts['personalTasks.pageTitle'], icon: '☑️' },
+    { id: 'agenda', label: texts['nav.agenda'], icon: '📅' },
+    { id: 'financeiro', label: texts['nav.finance'], icon: '💰' },
+    { id: 'pessoas', label: texts['nav.people'], icon: '👤' },
+    { id: 'documentos', label: texts['nav.files'], icon: '📎' },
+    { id: 'relatorios', label: texts['nav.reports'], icon: '📊' },
+    { id: 'equipe', label: texts['nav.team'], icon: '👥' },
+    { id: 'equipes', label: texts['nav.teams'], icon: '🧩' },
+    { id: 'usuarios', label: texts['nav.users'], icon: '🔐' },
+    { id: 'configuracoes', label: texts['nav.settings'], icon: '⚙️' },
+  ]
+
+  const pageButton = (n: PreviewPage) => (
+    <button key={n.id} onClick={() => setActivePage(n.id)}
+      style={{ display: 'flex', alignItems: 'center', gap: mobile ? 4 : 10, padding: mobile ? '7px 9px' : '9px 12px', marginBottom: mobile ? 0 : 2, borderRadius: tokens.radiusSm, cursor: 'pointer', border: 'none', background: activePage === n.id ? `${tokens.primary}20` : 'transparent', color: activePage === n.id ? tokens.primary : tokens.text3, fontWeight: activePage === n.id ? Number(tokens.fwBold) : Number(tokens.fwMedium), fontSize: mobile ? tokens.textXs : tokens.textSm, transition: tokens.transitionBase, whiteSpace: 'nowrap', flexShrink: 0 }}>
+      <span>{n.icon}</span><span>{n.label}</span>
+    </button>
+  )
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', fontFamily: tokens.fontBody, background: tokens.bg, color: tokens.text, fontSize: tokens.textBase }}>
-      {/* Topbar */}
-      <div style={{ height: tokens.topbarH, background: tokens.bg2, borderBottom: `1px solid ${tokens.border2}`, display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', fontFamily: tokens.fontBody, background: tokens.bg, color: tokens.text, fontSize: tokens.textBase, overflow: 'hidden' }}>
+      <div style={{ height: tokens.topbarH, background: tokens.bg2, borderBottom: `1px solid ${tokens.border2}`, display: 'flex', alignItems: 'center', padding: '0 14px', gap: 10, flexShrink: 0 }}>
         <div style={{ width: 28, height: 28, borderRadius: tokens.radiusSm, background: tokens.gradPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>⚡</div>
-        <span style={{ fontFamily: tokens.fontHeading, fontWeight: 600, fontSize: tokens.textLg, background: tokens.gradPrimary, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Nexus</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: tokens.fontHeading, fontWeight: Number(tokens.fwBlack), fontSize: tokens.textLg, lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{texts['app.name']}</div>
+          <div style={{ fontSize: tokens.textXs, color: tokens.text3, lineHeight: 1.1 }}>{texts['app.subtitle']}</div>
+        </div>
         <div style={{ flex: 1 }} />
-        <div style={{ width: 28, height: 28, borderRadius: tokens.radius, background: tokens.gradPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', fontWeight: 600 }}>VM</div>
+        <div style={{ width: 28, height: 28, borderRadius: tokens.radius, background: tokens.gradPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', fontWeight: Number(tokens.fwBold) }}>VM</div>
       </div>
 
-      {/* Conteúdo */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-        {/* Sidebar (só desktop) */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', minHeight: 0 }}>
         {!mobile && (
-          <div style={{ width: tokens.sidebarW, background: tokens.bg2, borderRight: `1px solid ${tokens.border}`, padding: '12px 8px', flexShrink: 0 }}>
-            {nav.map(n => (
-              <div key={n.id} onClick={() => setActivePage(n.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', marginBottom: 2, borderRadius: tokens.radiusSm, cursor: 'pointer', background: activePage === n.id ? `${tokens.primary}20` : 'transparent', color: activePage === n.id ? tokens.primary : tokens.text3, fontWeight: activePage === n.id ? 700 : 500, fontSize: tokens.textSm, transition: tokens.transitionBase }}>
-                {n.icon} {n.label}
-              </div>
-            ))}
+          <div style={{ width: tokens.sidebarW, background: tokens.bg2, borderRight: `1px solid ${tokens.border}`, padding: '12px 8px', flexShrink: 0, overflowY: 'auto' }}>
+            {nav.map(pageButton)}
           </div>
         )}
 
-        {/* Page content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: tokens.pagePad }}>
+        <div style={{ flex: 1, overflow: 'auto', padding: tokens.pagePad, minWidth: 0 }}>
+          {mobile && (
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10, marginBottom: 10, borderBottom: `1px solid ${tokens.border}` }}>
+              {nav.map(pageButton)}
+            </div>
+          )}
+
           {activePage === 'dashboard' && (
             <div>
-              <h1 style={{ fontFamily: tokens.fontHeading, fontSize: tokens.text2xl, fontWeight: 600, marginBottom: 4 }}>Dashboard</h1>
-              <p style={{ color: tokens.text3, fontSize: tokens.textSm, marginBottom: 20 }}>Visão geral do sistema</p>
-              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-                {[{ label: 'Tarefas', val: '24', icon: '✅', color: tokens.success }, { label: 'Membros', val: '8', icon: '👥', color: tokens.primary }, { label: 'Receita', val: 'R$12k', icon: '💰', color: tokens.warning }, { label: 'Alertas', val: '3', icon: '🔔', color: tokens.danger }].map(m => (
-                  <div key={m.label} style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius, padding: tokens.cardPad, boxShadow: tokens.shadowSm }}>
-                    <div style={{ fontSize: 20, marginBottom: 6 }}>{m.icon}</div>
-                    <div style={{ fontFamily: tokens.fontHeading, fontSize: tokens.textXl, fontWeight: 600, color: m.color }}>{m.val}</div>
-                    <div style={{ fontSize: tokens.textXs, color: tokens.text3, fontWeight: 600 }}>{m.label}</div>
-                  </div>
-                ))}
+              <PageHeader title="Dashboard" subtitle={texts['dashboard.subtitle']} action={texts['dashboard.primaryAction']} tokens={tokens} mobile={mobile} />
+              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
+                <MiniCard title={texts['dashboard.metrics.openTasks']} value="24" icon="✅" tokens={tokens} />
+                <MiniCard title={texts['dashboard.metrics.todayEvents']} value="3" icon="📅" tokens={tokens} />
+                <MiniCard title={texts['dashboard.metrics.todayFinance']} value="R$ 12k" icon="💰" tokens={tokens} />
+                <MiniCard title={texts['dashboard.metrics.team']} value="8" icon="👥" tokens={tokens} />
               </div>
               <div style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, padding: tokens.cardPad, boxShadow: tokens.shadowSm }}>
-                <div style={{ fontFamily: tokens.fontHeading, fontWeight: 600, fontSize: tokens.textMd, marginBottom: 12 }}>Tarefas Recentes</div>
-                {['Revisar contrato de vendas', 'Reunião com equipe de TI', 'Atualizar relatório mensal'].map((t, i) => (
-                  <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < 2 ? `1px solid ${tokens.border}` : 'none' }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: [tokens.success, tokens.warning, tokens.primary][i] }} />
-                    <span style={{ flex: 1, fontSize: tokens.textSm }}>{t}</span>
-                    <span style={{ fontSize: tokens.textXs, color: tokens.text3, background: `${tokens.primary}15`, padding: '2px 8px', borderRadius: tokens.radiusXs }}>Hoje</span>
+                <div style={{ fontFamily: tokens.fontHeading, fontWeight: Number(tokens.fwBold), fontSize: tokens.textMd, marginBottom: 8 }}>{texts['dashboard.calendar.title']}</div>
+                <p style={{ fontSize: tokens.textXs, color: tokens.text3, marginTop: 0 }}>{texts['dashboard.calendar.description']}</p>
+                <ListRow left="Revisar contrato de vendas" right="Hoje" tokens={tokens} />
+                <ListRow left="Reunião com equipe de TI" right="Hoje" tokens={tokens} />
+                <ListRow left="Pagamento fornecedor" right="Amanhã" tokens={tokens} />
+              </div>
+            </div>
+          )}
+
+          {(activePage === 'tarefas' || activePage === 'minhasTarefas') && (
+            <div>
+              <PageHeader title={activePage === 'tarefas' ? texts['tasks.pageTitle'] : texts['personalTasks.pageTitle']} subtitle={activePage === 'tarefas' ? texts['tasks.filters.description'] : texts['personalTasks.pageSubtitle']} action={texts['tasks.newButton']} tokens={tokens} mobile={mobile} />
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 12 }}>
+                {[texts['tasks.tabs.personal'], texts['tasks.tabs.team'], texts['tasks.tabs.recent'], texts['tasks.tabs.all']].map((tab, i) => <span key={tab} style={{ padding: '6px 10px', borderRadius: tokens.radiusSm, background: i === 0 ? `${tokens.primary}20` : tokens.bg2, color: i === 0 ? tokens.primary : tokens.text3, border: `1px solid ${tokens.border}`, fontSize: tokens.textXs, fontWeight: Number(tokens.fwSemibold), whiteSpace: 'nowrap' }}>{tab}</span>)}
+              </div>
+              <div style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', boxShadow: tokens.shadowSm }}>
+                {[
+                  ['Revisar contrato de vendas', 'Vilson Marcio', 'Hoje', 'Aberta', 'Alta', '3/5'],
+                  ['Atualizar relatório mensal', 'Equipe TI', '12/06', 'Executando', 'Média', '7/10'],
+                  ['Conferir arquivos anexados', 'Ana Silva', '15/06', 'Concluída', 'Baixa', '4/4'],
+                ].map((row, i) => (
+                  <div key={row[0]} style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1.5fr 1fr .75fr .8fr .8fr 1fr auto', gap: mobile ? 6 : 10, alignItems: 'center', padding: '11px 12px', borderBottom: i < 2 ? `1px solid ${tokens.border}` : 'none' }}>
+                    <strong style={{ fontSize: tokens.textSm }}>{row[0]}</strong>
+                    <span style={{ fontSize: tokens.textXs, color: tokens.text2 }}>{texts['tasks.card.responsible']}: {row[1]}</span>
+                    <span style={{ fontSize: tokens.textXs, color: tokens.text2 }}>{texts['tasks.card.date']}: {row[2]}</span>
+                    <span style={{ fontSize: tokens.textXs, color: tokens.primary }}>{row[3]}</span>
+                    <span style={{ fontSize: tokens.textXs, color: tokens.warning }}>{row[4]}</span>
+                    <span style={{ fontSize: tokens.textXs, color: tokens.text2 }}>{texts['tasks.card.progress']}: {row[5]}</span>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {[texts['tasks.action.view'], texts['tasks.action.files'], texts['tasks.action.edit'], texts['tasks.action.assume']].map(a => <button key={a} style={{ border: `1px solid ${tokens.border}`, background: tokens.bg3, color: tokens.text2, borderRadius: tokens.radiusXs, padding: '4px 6px', fontSize: '10px' }}>{a}</button>)}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {activePage === 'tarefas' && (
+
+          {activePage === 'agenda' && (
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h1 style={{ fontFamily: tokens.fontHeading, fontSize: tokens.text2xl, fontWeight: 600 }}>Tarefas</h1>
-                <button style={{ background: tokens.gradPrimary, color: '#fff', border: 'none', borderRadius: tokens.radius, padding: '8px 16px', fontSize: tokens.textSm, fontWeight: 600, cursor: 'pointer' }}>+ Nova</button>
+              <PageHeader title={texts['agenda.pageTitle']} subtitle={texts['agenda.pageSubtitle']} action={texts['agenda.newButton']} tokens={tokens} mobile={mobile} />
+              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
+                {['Seg 10', 'Ter 11', 'Qua 12'].map((d, i) => <div key={d} style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius, padding: tokens.cardPad }}><strong>{d}</strong><ListRow left={['Reunião comercial', 'Entrega de relatório', 'Follow-up cliente'][i]} right="09:00" tokens={tokens} /></div>)}
               </div>
-              {['Pendente', 'Em progresso', 'Concluída'].map((status, si) => (
-                <div key={status} style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius, padding: tokens.cardPad, marginBottom: 12, boxShadow: tokens.shadowSm }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: tokens.textSm }}>{status}</span>
-                    <span style={{ fontSize: tokens.textXs, color: '#fff', background: [tokens.warning, tokens.primary, tokens.success][si], padding: '2px 8px', borderRadius: tokens.radiusXs }}>{[3, 2, 5][si]}</span>
-                  </div>
-                  <div style={{ height: 4, background: tokens.bg4, borderRadius: 99 }}>
-                    <div style={{ height: '100%', width: ['30%', '55%', '100%'][si], background: tokens.gradPrimary, borderRadius: 99 }} />
-                  </div>
-                </div>
-              ))}
             </div>
           )}
-          {activePage === 'usuarios' && (
+
+          {activePage === 'financeiro' && (
             <div>
-              <h1 style={{ fontFamily: tokens.fontHeading, fontSize: tokens.text2xl, fontWeight: 600, marginBottom: 20 }}>Usuários</h1>
-              {['Ana Silva — Gestora', 'Carlos Souza — Membro', 'Maria Santos — Sub-Gestora'].map((u, i) => (
-                <div key={u} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: tokens.cardPad, background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radius, marginBottom: 8, boxShadow: tokens.shadowSm }}>
-                  <div style={{ width: 36, height: 36, borderRadius: tokens.radiusSm, background: tokens.gradPrimary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', fontWeight: 600, flexShrink: 0 }}>{u[0]}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: tokens.textSm }}>{u.split('—')[0]}</div>
-                    <span style={{ fontSize: tokens.textXs, color: [tokens.primary, tokens.text3, tokens.secondary][i], background: [`${tokens.primary}15`, `${tokens.text3}15`, `${tokens.secondary}15`][i], padding: '1px 6px', borderRadius: tokens.radiusXs, fontWeight: 600 }}>{u.split('—')[1]}</span>
-                  </div>
-                </div>
-              ))}
+              <PageHeader title={texts['finance.pageTitle']} subtitle={texts['finance.pageSubtitle']} action={texts['finance.newIncome']} tokens={tokens} mobile={mobile} />
+              <div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr 1fr' : 'repeat(3,1fr)', gap: 12, marginBottom: 14 }}>
+                <MiniCard title="Entradas" value="R$ 18.200" icon="↗️" tokens={tokens} />
+                <MiniCard title="Saídas" value="R$ 7.450" icon="↘️" tokens={tokens} />
+                <MiniCard title="Saldo" value="R$ 10.750" icon="📈" tokens={tokens} />
+              </div>
+              <div style={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, padding: tokens.cardPad }}>
+                <ListRow left="Contrato mensal" meta="Recorrente · 12 parcelas" right="Pago" tokens={tokens} />
+                <ListRow left="Fornecedor sistema" meta="Vence hoje" right="Aberto" tokens={tokens} />
+              </div>
             </div>
+          )}
+
+          {activePage === 'pessoas' && (
+            <div><PageHeader title={texts['people.pageTitle']} subtitle={texts['people.pageSubtitle']} action={texts['people.newButton']} tokens={tokens} mobile={mobile} /><ListRow left="Maria Santos" meta="Cliente · Comercial" right="Ativo" tokens={tokens} /><ListRow left="Carlos Souza" meta="Fornecedor" right="Pendente" tokens={tokens} /></div>
+          )}
+
+          {activePage === 'documentos' && (
+            <div><PageHeader title={texts['files.pageTitle']} subtitle={texts['files.pageSubtitle']} action={texts['files.uploadButton']} tokens={tokens} mobile={mobile} /><ListRow left="Contrato social.pdf" meta="PDF · 2 MB" right="Hoje" tokens={tokens} /><ListRow left="Comprovante financeiro.xlsx" meta="Planilha" right="Ontem" tokens={tokens} /></div>
+          )}
+
+          {activePage === 'relatorios' && (
+            <div><PageHeader title={texts['reports.pageTitle']} subtitle={texts['reports.pageSubtitle']} tokens={tokens} mobile={mobile} /><div style={{ display: 'grid', gridTemplateColumns: mobile ? '1fr' : '1fr 1fr', gap: 12 }}><MiniCard title="Tarefas concluídas" value="82%" icon="✅" tokens={tokens} /><MiniCard title="Receita mensal" value="R$ 42k" icon="📊" tokens={tokens} /></div></div>
+          )}
+
+          {activePage === 'equipe' && (
+            <div><PageHeader title={texts['team.pageTitle']} subtitle={texts['team.pageSubtitle']} action="Convidar membro" tokens={tokens} mobile={mobile} /><ListRow left="Ana Silva" meta="Gestora" right="Online" tokens={tokens} /><ListRow left="João Pereira" meta="Membro" right="Tarefas 4" tokens={tokens} /></div>
+          )}
+
+          {activePage === 'equipes' && (
+            <div><PageHeader title={texts['teams.pageTitle']} subtitle={texts['teams.pageSubtitle']} action="Nova equipe" tokens={tokens} mobile={mobile} /><ListRow left="Comercial" meta="5 membros" right="Ativa" tokens={tokens} /><ListRow left="Operacional" meta="3 membros" right="Ativa" tokens={tokens} /></div>
+          )}
+
+          {activePage === 'usuarios' && (
+            <div><PageHeader title={texts['users.pageTitle']} subtitle={texts['users.pageSubtitle']} action={texts['users.newButton']} tokens={tokens} mobile={mobile} /><ListRow left="Vilson Marcio" meta="Admin" right="Ativo" tokens={tokens} /><ListRow left="Equipe Teste" meta="Membro" right="Convite" tokens={tokens} /></div>
+          )}
+
+          {activePage === 'configuracoes' && (
+            <div><PageHeader title={texts['settings.pageTitle']} subtitle="Ajustes gerais do Nexus" tokens={tokens} mobile={mobile} /><ListRow left={texts['settings.visualTitle']} meta={texts['settings.visualButton']} right="Abrir" tokens={tokens} /><ListRow left={texts['settings.backupTitle']} meta={texts['settings.backupButton']} right="Backup" tokens={tokens} /><ListRow left={texts['settings.downloadsTitle']} meta="Arquivos exportados" right="Ver" tokens={tokens} /></div>
           )}
         </div>
       </div>
-
-      {/* Bottom nav (mobile) */}
-      {mobile && (
-        <div style={{ height: tokens.bottomNavH, background: tokens.bg2, borderTop: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          {nav.map(n => (
-            <button key={n.id} onClick={() => setActivePage(n.id)}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 4px', background: 'none', border: 'none', cursor: 'pointer' }}>
-              <span style={{ fontSize: 18 }}>{n.icon}</span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: activePage === n.id ? tokens.primary : tokens.text3 }}>{n.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

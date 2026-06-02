@@ -4793,3 +4793,68 @@ button:disabled,
     justify-content: center;
   }
 }
+
+/* Editor de aparência: responsivo e com preview completo */
+.design-editor-root {
+  min-height: 0;
+}
+
+.design-editor-preview-stage {
+  min-height: 0;
+}
+
+@media (max-width: 900px) {
+  .design-editor-root {
+    height: auto !important;
+    min-height: 100dvh !important;
+    overflow: auto !important;
+  }
+
+  .design-editor-main {
+    flex-direction: column !important;
+    overflow: visible !important;
+  }
+
+  .design-editor-sidebar {
+    width: 100% !important;
+    max-height: none !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+    overflow: visible !important;
+  }
+
+  .design-editor-preview-pane {
+    min-height: 78dvh !important;
+    overflow: visible !important;
+  }
+
+  .design-editor-preview-stage {
+    padding: 12px !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    overflow: visible !important;
+    min-height: 72dvh !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .design-editor-root > div:first-child {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+
+  .design-editor-root > div:first-child > div:last-child {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .design-editor-preview-pane {
+    min-height: 88dvh !important;
+  }
+
+  .design-editor-preview-stage {
+    padding: 8px !important;
+  }
+}

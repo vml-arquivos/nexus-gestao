@@ -2,12 +2,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { BarChart3, Download, Loader } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { tarefasApi, pagamentosApi, equipeApi, type Tarefa, type Pagamento, type Pessoa } from '../lib/api'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 const COLORS = ['#2563EB', '#06B6D4', '#10B981', '#F59E0B', '#EF4444', '#3B82F6']
 
 function fmtCurrency(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) }
 
 export default function Relatorios() {
+  const { t } = useVisualTexts()
   const [tarefas, setTarefas]       = useState<Tarefa[]>([])
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
   const [pessoas, setPessoas]       = useState<Pessoa[]>([])
@@ -89,8 +91,8 @@ export default function Relatorios() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>Relatorios</h1>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Visao geral da organizacao</p>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>{t('reports.pageTitle')}</h1>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>{t('reports.pageSubtitle')}</p>
         </div>
         <button className="btn btn-secondary" onClick={exportarCSV} style={{ gap: 6 }}><Download size={14} /> Exportar CSV</button>
       </div>

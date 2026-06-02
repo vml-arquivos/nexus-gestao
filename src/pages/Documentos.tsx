@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search, Camera } from 'lucide-react'
 import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -223,6 +224,7 @@ function HistoricoModal({ pessoaId, onClose }: { pessoaId: string; onClose: () =
 }
 
 export default function Documentos() {
+  const { t } = useVisualTexts()
   const { user } = useAuth()
   const canDeleteOwnRecords = !!user
   const [documentos, setDocumentos]   = useState<Documento[]>([])
@@ -264,10 +266,10 @@ export default function Documentos() {
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>📎 Documentos</h1>
-          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Comprovantes, contratos e arquivos</p>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>📎 {t('files.pageTitle')}</h1>
+          <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>{t('files.pageSubtitle')}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setUploadOpen(true)} style={{ gap: 6 }}><Plus size={16} /> Enviar</button>
+        <button className="btn btn-primary" onClick={() => setUploadOpen(true)} style={{ gap: 6 }}><Plus size={16} /> {t('files.uploadButton')}</button>
       </div>
 
       {pessoas.length > 0 && (

@@ -9,6 +9,7 @@ import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { isGestorLike, isGestorOwner } from '../lib/roles'
+import { useVisualTexts } from '../hooks/useVisualTexts'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toast(msg: string, type: 'success' | 'error' = 'success') {
@@ -648,6 +649,7 @@ function CardMembro({
 
 // ── Página Principal ──────────────────────────────────────────────────────────
 export default function Equipe() {
+  const { t } = useVisualTexts()
   const { user } = useAuth()
   const [membros, setMembros] = useState<MembroEquipe[]>([])
   const [loading, setLoading] = useState(true)
@@ -724,8 +726,8 @@ export default function Equipe() {
       {/* Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">Equipe</h1>
-          <p className="page-subtitle">{membros.length} membro{membros.length !== 1 ? 's' : ''}</p>
+          <h1 className="page-title">{t('team.pageTitle')}</h1>
+          <p className="page-subtitle">{t('team.pageSubtitle')} · {membros.length} membro{membros.length !== 1 ? 's' : ''}</p>
         </div>
         {canManage && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
