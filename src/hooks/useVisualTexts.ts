@@ -12,6 +12,7 @@ export const DEFAULT_VISUAL_TEXTS = {
   'app.subtitle': 'GESTÃO',
 
   'nav.home': 'Início',
+  'nav.intelligence': 'Inteligência',
   'nav.team': 'Equipe',
   'nav.teams': 'Equipes',
   'nav.tasks': 'Tarefas',

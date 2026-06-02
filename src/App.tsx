@@ -4,6 +4,7 @@ import { useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Inteligencia from './pages/Inteligencia'
 import Pessoas from './pages/Pessoas'
 import Equipe from './pages/Equipe'
 import Equipes from './pages/Equipes'
@@ -48,6 +49,7 @@ export default function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index            element={<Dashboard />} />
+        <Route path="inteligencia" element={<Inteligencia />} />
         {/* Pessoas são privadas por usuário; membros também podem usar seus próprios contatos */}
         <Route path="pessoas"   element={<Pessoas />} />
         <Route path="pessoas/:id" element={<PessoaDetalhe />} />

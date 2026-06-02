@@ -20,6 +20,7 @@ import usersRoutes      from './routes/users'
 import convitesRoutes       from './routes/convites'
 import notificacoesRoutes  from './routes/notificacoes'
 import integracoesRoutes   from './routes/integracoes'
+import inteligenciaRoutes  from './routes/inteligencia'
 import adminRoutes         from './routes/admin'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 
@@ -123,6 +124,7 @@ app.use('/api/users',       usersRoutes)
 app.use('/api/convites',       convitesRoutes)
 app.use('/api/notificacoes',  notificacoesRoutes)
 app.use('/api/integracoes',   integracoesRoutes)
+app.use('/api/inteligencia',  inteligenciaRoutes)
 app.use('/api/admin',        adminRoutes)
 
 // ── 404 ───────────────────────────────────────────────────────────────────────

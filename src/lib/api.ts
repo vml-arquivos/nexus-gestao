@@ -316,6 +316,21 @@ export interface HistoricoPessoa {
 }
 
 
+
+
+export interface InteligenciaPainel {
+  score: number
+  nivel: 'baixo' | 'medio' | 'alto' | 'critico'
+  resumo: string
+  metricas: Record<string, number>
+  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
+  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string }>
+  sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
+  tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
+  gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
+  gerado_em: string
+}
+
 export interface DestravaCatalogoItem {
   id: string
   tipo: 'empresa' | 'cliente' | 'contrato' | 'simulacao' | string
@@ -441,6 +456,14 @@ export const destravaApi = {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
 }
+
+// ── INTELIGÊNCIA OPERACIONAL ─────────────────────────────────────────────────
+export const inteligenciaApi = {
+  async painel(): Promise<InteligenciaPainel> {
+    return apiJson('/inteligencia/painel')
+  },
+}
+
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 export const auth = {

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
+  BrainCircuit,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
   LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
   CheckCircle, XCircle, AlertTriangle,
@@ -16,6 +17,7 @@ import { useVisualTexts, type VisualTextKey } from '../hooks/useVisualTexts'
 // ── Rotas de navegação ────────────────────────────────────────────────────────
 const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey }[] = [
   { path: '/',             icon: LayoutDashboard, labelKey: 'nav.home'      },
+  { path: '/inteligencia', icon: BrainCircuit,    labelKey: 'nav.intelligence' },
   { path: '/equipe',       icon: Users,           labelKey: 'nav.team'      },
   { path: '/equipes',      icon: Grid3X3,          labelKey: 'nav.teams'     },
   { path: '/tarefas',      icon: CheckCircle2,    labelKey: 'nav.tasks'     },
