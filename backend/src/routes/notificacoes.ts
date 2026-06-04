@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { addSseClient, removeSseClient } from '../lib/notifHelper'
+import { deactivatePushSubscription, ensurePushSchema, getVapidPublicKey, pushConfigured, upsertPushSubscription } from '../services/pushService'
 
 const router = Router()
 
@@ -31,6 +32,74 @@ router.get('/stream', authMiddleware, (req: Request, res: Response): void => {
 })
 
 router.use(authMiddleware)
+
+// GET /api/notificacoes/push/status
+router.get('/push/status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensurePushSchema()
+    const { userId, orgId } = req.user!
+    const count = await queryOne<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM push_subscriptions WHERE org_id = $1 AND user_id = $2 AND active = TRUE`,
+      [orgId, userId]
+    )
+    res.json({
+      supported: true,
+      configured: pushConfigured(),
+      publicKey: getVapidPublicKey(),
+      subscriptions: Number(count?.count || 0),
+      subject: process.env.WEB_PUSH_SUBJECT || process.env.VAPID_SUBJECT || null,
+    })
+  } catch (err) {
+    console.error('[PUSH] Erro ao buscar status:', err)
+    res.status(500).json({ error: 'Erro ao buscar status do push.' })
+  }
+})
+
+// POST /api/notificacoes/push/subscribe
+router.post('/push/subscribe', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId, orgId } = req.user!
+    const sub = req.body?.subscription || req.body
+    const endpoint = String(sub?.endpoint || '').trim()
+    const p256dh = String(sub?.keys?.p256dh || '').trim()
+    const auth = String(sub?.keys?.auth || '').trim()
+    if (!pushConfigured()) {
+      res.status(400).json({ error: 'Push não configurado no servidor. Configure WEB_PUSH_PUBLIC_KEY e WEB_PUSH_PRIVATE_KEY.' })
+      return
+    }
+    if (!endpoint || !p256dh || !auth) {
+      res.status(400).json({ error: 'Assinatura push inválida.' })
+      return
+    }
+    await upsertPushSubscription({
+      orgId,
+      userId,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent: String(req.headers['user-agent'] || ''),
+      deviceLabel: String(req.body?.device_label || req.body?.deviceLabel || ''),
+    })
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[PUSH] Erro ao salvar assinatura:', err)
+    res.status(500).json({ error: 'Erro ao ativar push.' })
+  }
+})
+
+// POST /api/notificacoes/push/unsubscribe
+router.post('/push/unsubscribe', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.user!
+    const endpoint = String(req.body?.endpoint || '').trim()
+    if (endpoint) await deactivatePushSubscription({ userId, endpoint })
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[PUSH] Erro ao desativar assinatura:', err)
+    res.status(500).json({ error: 'Erro ao desativar push.' })
+  }
+})
+
 
 // GET /api/notificacoes
 router.get('/', async (req: Request, res: Response): Promise<void> => {

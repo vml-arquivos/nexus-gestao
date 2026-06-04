@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken'
 const JWT_SECRET             = process.env.JWT_SECRET             || 'nexus-secret-dev'
 const JWT_REFRESH_SECRET     = process.env.JWT_REFRESH_SECRET     || 'nexus-refresh-secret-dev'
 const JWT_EXPIRES_IN         = process.env.JWT_EXPIRES_IN         || '15m'
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '30d'
+const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '365d'
 
 export type UserRole = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
 

@@ -39,6 +39,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { loadUser() }, [loadUser])
 
+  // Mantém a sessão viva enquanto existir refresh token válido.
+  // O usuário só sai de fato quando clicar em sair ou quando o refresh expirar/revogar.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (getAccessToken()) auth.me().catch(() => undefined)
+    }, 10 * 60 * 1000)
+    return () => window.clearInterval(interval)
+  }, [])
+
   const signIn = async (email: string, senha: string): Promise<{ error: string | null }> => {
     try {
       const { user: u } = await auth.login(email, senha)

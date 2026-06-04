@@ -75,7 +75,7 @@ export default function Layout() {
   const { user, logout }       = useAuth()
   const { t }                  = useVisualTexts()
   const { theme, toggleTheme } = useTheme()
-  const { notificacoes, naoLidas, toasts, marcarLida, marcarTodasLidas, fecharToast } = useNotificacoes()
+  const { notificacoes, naoLidas, toasts, marcarLida, marcarTodasLidas, fecharToast, pushStatus, ativandoPush, ativarPush } = useNotificacoes()
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [moreOpen, setMoreOpen]       = useState(false)
@@ -173,6 +173,27 @@ export default function Layout() {
     <div className={`app-shell${sidebarOpen ? ' sidebar-is-open' : ''}`}>
       {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
       <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
+
+      {user && pushStatus?.supported && pushStatus.configured && pushStatus.permission !== 'granted' && (
+        <div className="push-permission-banner">
+          <div>
+            <strong>🔔 Receba alertas mesmo com o Nexus fechado</strong>
+            <span>Ative para receber tarefas atrasadas, cobranças, compromissos e vencimentos no celular e no PC.</span>
+          </div>
+          <button type="button" className="btn btn-primary" disabled={ativandoPush} onClick={() => ativarPush().catch(() => undefined)}>
+            {ativandoPush ? 'Ativando...' : 'Ativar notificações'}
+          </button>
+        </div>
+      )}
+
+      {user && pushStatus?.supported && !pushStatus.configured && (
+        <div className="push-permission-banner push-permission-banner-warning">
+          <div>
+            <strong>🔔 Push ainda não configurado no servidor</strong>
+            <span>Configure WEB_PUSH_PUBLIC_KEY e WEB_PUSH_PRIVATE_KEY no Coolify para enviar alertas com o sistema fechado.</span>
+          </div>
+        </div>
+      )}
 
       {atrasosPopupOpen && atrasosResumo && (
         <div className="daily-overdue-overlay" role="dialog" aria-modal="true">

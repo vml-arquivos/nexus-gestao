@@ -4,6 +4,7 @@
  */
 import { Response } from 'express'
 import { query } from '../db/pool'
+import { sendPushToUser } from '../services/pushService'
 
 // ── SSE: mapa de conexões ativas ─────────────────────────────────────────────
 // Chave: userId  →  lista de respostas SSE abertas (multi-tab)
@@ -53,8 +54,18 @@ export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
        opts.referenciaId || null, opts.referenciaTipo || null]
     )
     const notif = Array.isArray(row) ? row[0] : row
-    // Dispara SSE imediatamente para o destinatário
+    // Dispara SSE imediatamente para o destinatário quando o sistema estiver aberto.
     pushSse(opts.userId, 'notificacao', notif)
+    // Dispara Web Push para celular/PC mesmo com o sistema fechado, quando o usuário autorizou.
+    sendPushToUser({
+      orgId: opts.orgId,
+      userId: opts.userId,
+      title: opts.titulo,
+      body: opts.body,
+      tipo: opts.tipo,
+      referenciaId: opts.referenciaId,
+      referenciaTipo: opts.referenciaTipo,
+    }).catch((err) => console.warn('[PUSH] Falha no push da notificação:', (err as Error)?.message || err))
   } catch (err) {
     console.error('[NOTIF] Erro ao criar notificação:', err)
   }

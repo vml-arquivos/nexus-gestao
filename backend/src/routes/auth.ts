@@ -94,7 +94,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     // Salva refresh token
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+       VALUES ($1, $2, NOW() + INTERVAL '365 days')`,
       [user.id, refreshToken]
     )
 
@@ -153,7 +153,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     await query('DELETE FROM refresh_tokens WHERE user_id = $1 AND expires_at < NOW()', [user.id])
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+       VALUES ($1, $2, NOW() + INTERVAL '365 days')`,
       [user.id, refreshToken]
     )
 
@@ -210,7 +210,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     await query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken])
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+       VALUES ($1, $2, NOW() + INTERVAL '365 days')`,
       [user.id, tokens.refreshToken]
     )
 
@@ -424,7 +424,7 @@ router.post('/accept-invite', async (req: Request, res: Response): Promise<void>
     const { accessToken, refreshToken } = generateTokens(payload)
     await query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+       VALUES ($1, $2, NOW() + INTERVAL '365 days')`,
       [user.id, refreshToken]
     )
     res.status(201).json({ user: { id: user.id, nome: user.nome, email: user.email, role: user.role, orgId: user.org_id }, accessToken, refreshToken })

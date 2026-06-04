@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiJson, getAccessToken } from '../lib/api'
+import { enablePushNotifications, getPushNotificationStatus } from '../lib/pushNotifications'
 
 export interface Notificacao {
   id: string
@@ -15,6 +16,14 @@ export interface Notificacao {
   referencia_tipo?: string
   lida: boolean
   created_at: string
+}
+
+export type PushUiStatus = {
+  supported: boolean
+  configured: boolean
+  permission: NotificationPermission | 'unsupported'
+  subscriptions?: number
+  error?: string
 }
 
 // ── Som de notificação gerado via Web Audio API (sem arquivo externo) ─────────
@@ -119,6 +128,8 @@ export function useNotificacoes() {
   const [notificacoes, setNotificacoes] = useState<Notificacao[]>([])
   const [naoLidas, setNaoLidas] = useState(0)
   const [toasts, setToasts] = useState<Notificacao[]>([])
+  const [pushStatus, setPushStatus] = useState<PushUiStatus | null>(null)
+  const [ativandoPush, setAtivandoPush] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
   const reconectarRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -217,6 +228,23 @@ export function useNotificacoes() {
     }
   }, [carregar, conectarSse])
 
+  useEffect(() => {
+    let mounted = true
+    getPushNotificationStatus().then(status => { if (mounted) setPushStatus(status) }).catch(() => undefined)
+    return () => { mounted = false }
+  }, [])
+
+  const ativarPush = useCallback(async () => {
+    setAtivandoPush(true)
+    try {
+      const status = await enablePushNotifications()
+      setPushStatus(status)
+      return status
+    } finally {
+      setAtivandoPush(false)
+    }
+  }, [])
+
   // Marcar uma como lida
   const marcarLida = useCallback(async (id: string) => {
     try {
@@ -256,5 +284,8 @@ export function useNotificacoes() {
     marcarTodasLidas,
     fecharToast,
     carregar,
+    pushStatus,
+    ativandoPush,
+    ativarPush,
   }
 }

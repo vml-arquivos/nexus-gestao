@@ -30,10 +30,8 @@ if (savedDesignTokens) {
 const RELOAD_FLAG = 'nexus-reloaded-after-chunk-error'
 async function clearOldPwaCaches() {
   try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations()
-      await Promise.all(regs.map(reg => reg.unregister()))
-    }
+    // Mantém o Service Worker ativo porque ele é necessário para Push Notifications.
+    // Limpamos apenas caches antigos para evitar tela branca por assets obsoletos.
     if ('caches' in window) {
       const keys = await caches.keys()
       await Promise.all(keys.map(key => caches.delete(key)))
@@ -66,9 +64,8 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 })
 
-// Limpeza proativa: remove SW/caches antigos deixados pelo vite-plugin-pwa.
-// Mantemos isso por segurança para todos os usuários que já instalaram/cachearam a versão anterior.
-if ('serviceWorker' in navigator || 'caches' in window) {
+// Limpeza proativa: remove caches antigos, mas preserva o Service Worker atual do Nexus.
+if ('caches' in window) {
   window.addEventListener('load', () => {
     clearOldPwaCaches()
   })
