@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { gerarAnaliseGemini } from '../services/geminiService'
 import { criarNotificacao } from '../lib/notifHelper'
+import { sincronizarAgendaOperacional as sincronizarAgendaGlobal } from '../services/agendaSyncService'
 
 const router = Router()
 router.use(authMiddleware)
@@ -467,13 +468,13 @@ router.post('/executar-acao', async (req: Request, res: Response): Promise<void>
 
 
     if (tipo === 'sincronizar_agenda') {
-      const result = await sincronizarAgendaOperacional({ orgId, userId })
+      const result = await sincronizarAgendaGlobal({ orgId, userId, forceGoogle: true })
       await criarNotificacao({
         orgId,
         userId,
         tipo: 'agenda_lembrete',
         titulo: '🤖 Agenda sincronizada pela Central Inteligente',
-        body: `Foram criados ${result.criados} evento(s) e preservados ${result.existentes} já sincronizado(s).`,
+        body: `Sincronização concluída: ${result.locaisCriados} criado(s), ${result.locaisAtualizados} atualizado(s), ${result.locaisExistentes} já existente(s). Google: ${result.googleCriados} criado(s), ${result.googleAtualizados} atualizado(s), ${result.googleFalhas} falha(s).`,
         referenciaTipo: 'agenda',
       }).catch(() => {})
       res.json({ ok: true, enviados: 1, agenda: result })

@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, gestorOnly } from '../middleware/auth'
 import { query } from '../db/pool'
+import { executarBackupAutomatico, getBackupAutoStatus } from '../services/backupAutoService'
+import { getAgendaSyncStatus, sincronizarAgendaOperacional } from '../services/agendaSyncService'
 
 const router = Router()
 router.use(authMiddleware)
@@ -31,6 +33,41 @@ function hardQuery(sql: string, params: unknown[]) {
   return (): Promise<unknown> => query(sql, params)
 }
 
+
+
+/* ── GET /api/admin/backup-auto/status ─────────────────────────
+   Mostra o estado do backup automático e últimos envios ao Google Drive. */
+router.get('/backup-auto/status', (_req: Request, res: Response): void => {
+  res.json({ ok: true, ...getBackupAutoStatus() })
+})
+
+/* ── POST /api/admin/backup-auto/executar ───────────────────────
+   Executa backup automático agora e envia ao Google Drive quando configurado. */
+router.post('/backup-auto/executar', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const backup = await executarBackupAutomatico('manual')
+    res.json({ ok: backup.status === 'ok', backup })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao executar backup automático manual:', err)
+    res.status(500).json({ error: (err as Error).message || 'Erro ao executar backup automático.' })
+  }
+})
+
+/* ── GET /api/admin/agenda-sync/status ────────────────────────── */
+router.get('/agenda-sync/status', (_req: Request, res: Response): void => {
+  res.json({ ok: true, ...getAgendaSyncStatus() })
+})
+
+/* ── POST /api/admin/agenda-sync/executar ─────────────────────── */
+router.post('/agenda-sync/executar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await sincronizarAgendaOperacional({ orgId: req.user!.orgId, userId: req.user!.userId, forceGoogle: true })
+    res.json({ ok: result.ok, result })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao sincronizar agenda:', err)
+    res.status(500).json({ error: (err as Error).message || 'Erro ao sincronizar agenda.' })
+  }
+})
 
 
 /* ── GET /api/admin/backup ──────────────────────────────────────

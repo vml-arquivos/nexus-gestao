@@ -23,6 +23,8 @@ import integracoesRoutes   from './routes/integracoes'
 import inteligenciaRoutes  from './routes/inteligencia'
 import adminRoutes         from './routes/admin'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
+import { iniciarAgendaAutoSync } from './services/agendaSyncService'
+import { iniciarBackupAutomatico } from './services/backupAutoService'
 
 const app = express()
 // Necessário em produção atrás do Coolify/Traefik para o express-rate-limit interpretar X-Forwarded-For corretamente.
@@ -174,6 +176,8 @@ async function start() {
     console.log(`[SERVER] 📁 Uploads: ${UPLOADS_DIR}`)
     // Inicia jobs de notificação após o servidor subir
     iniciarJobsNotificacao()
+    iniciarAgendaAutoSync()
+    iniciarBackupAutomatico()
   })
 }
 

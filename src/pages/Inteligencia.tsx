@@ -100,7 +100,7 @@ export default function Inteligencia() {
         window.open(result.whatsapp_url, '_blank', 'noopener,noreferrer')
         alert(`Ação executada. WhatsApp aberto com mensagem pronta. Notificações internas: ${result.enviados || 0}.`)
       } else if (result.agenda) {
-        alert(`Agenda sincronizada. Eventos criados: ${result.agenda.criados}. Já existentes preservados: ${result.agenda.existentes}.`)
+        alert(`Agenda sincronizada. Internos: ${result.agenda.locaisCriados ?? result.agenda.criados ?? 0} criados, ${result.agenda.locaisAtualizados ?? 0} atualizados, ${result.agenda.locaisExistentes ?? result.agenda.existentes ?? 0} já existentes. Google Agenda: ${result.agenda.googleCriados ?? 0} criados, ${result.agenda.googleAtualizados ?? 0} atualizados, ${result.agenda.googleFalhas ?? 0} falhas.`)
       } else {
         const extra = result.tarefa_id ? `\nTarefa criada/identificada: ${result.tarefa_id}` : ''
         alert(`Ação executada. Notificações enviadas: ${result.enviados || 0}.${extra}`)

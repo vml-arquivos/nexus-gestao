@@ -479,7 +479,7 @@ export const inteligenciaApi = {
     tarefa_id?: string
     pagamento_id?: string
     mensagem?: string
-  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string; whatsapp_url?: string; whatsapp_message?: string; canal?: 'interno' | 'whatsapp'; agenda?: { criados: number; existentes: number; tarefas: number; financeiros: number } }> {
+  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string; whatsapp_url?: string; whatsapp_message?: string; canal?: 'interno' | 'whatsapp'; agenda?: { criados?: number; existentes?: number; tarefas?: number; financeiros?: number; locaisCriados?: number; locaisAtualizados?: number; locaisExistentes?: number; googleCriados?: number; googleAtualizados?: number; googleFalhas?: number } }> {
     return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }
