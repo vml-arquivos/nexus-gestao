@@ -673,7 +673,7 @@ export default function Equipe() {
     try {
       const [data, rk] = await Promise.all([
         equipeApi.membros(),
-        tarefasApi.ranking().catch(() => null),
+        tarefasApi.ranking('todos').catch(() => null),
       ])
       setMembros(data)
       setRanking(rk)

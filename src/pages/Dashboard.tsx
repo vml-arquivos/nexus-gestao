@@ -227,7 +227,7 @@ export default function Dashboard() {
           agendaApi.list(),
           pagamentosApi.list(),
           isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
-          tarefasApi.ranking().catch(() => null),
+          tarefasApi.ranking('todos').catch(() => null),
         ])
         setTarefas(t)
         setAgenda(a)
@@ -516,7 +516,7 @@ export default function Dashboard() {
         <div className="dash-section-head">
           <div>
             <h2><Trophy size={18} /> Ranking de execução da equipe</h2>
-            <p>Pontuação por subtarefa/checklist aprovado no mês. Quanto maior a dificuldade, maior a pontuação.</p>
+            <p>Pontuação geral por subtarefa/checklist já executado. Todos os membros aparecem, mesmo com zero pontos.</p>
           </div>
           <Link to="/tarefas" className="dash-inline-link">Ver ranking completo <ArrowRight size={13} /></Link>
         </div>
@@ -529,14 +529,14 @@ export default function Dashboard() {
                 <span className="dash-ranking-pos">#{index + 1}</span>
                 <div className="dash-ranking-main">
                   <strong>{r.nome || 'Membro'}</strong>
-                  <small>{Number(r.tarefas_aprovadas || 0)} subtarefa(s)/aprovação(ões)</small>
+                  <small>{Number(r.subtarefas_executadas || r.tarefas_aprovadas || 0)} subtarefa(s) executada(s)</small>
                   <div className="dash-ranking-bar"><i style={{ width: `${width}%` }} /></div>
                 </div>
                 <b>{Number(r.pontos || 0)} pts</b>
               </div>
             )
           })}
-          {(!ranking?.ranking || ranking.ranking.length === 0) && <div className="dash-empty">Ainda não há pontuação de tarefas neste mês.</div>}
+          {(!ranking?.ranking || ranking.ranking.length === 0) && <div className="dash-empty">Ainda não há subtarefas executadas pontuadas.</div>}
         </div>
       </section>
 

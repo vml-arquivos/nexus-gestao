@@ -686,19 +686,103 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const periodo = typeof req.query.periodo === 'string' && /^\d{4}-\d{2}$/.test(req.query.periodo) ? req.query.periodo : periodMonth()
-    const ranking = await query<any>(
-      `SELECT p.id, p.nome, p.email, p.role,
-              COALESCE(SUM(tp.pontos), 0)::int AS pontos,
-              COUNT(tp.id)::int AS tarefas_aprovadas,
-              MAX(tp.aprovado_em) AS ultima_aprovacao
-       FROM profiles p
-       LEFT JOIN tarefas_pontuacao tp ON tp.usuario_id = p.id AND tp.org_id = p.org_id AND tp.periodo_mes = $2
-       WHERE p.org_id = $1 AND p.ativo = TRUE
-       GROUP BY p.id, p.nome, p.email, p.role
-       ORDER BY pontos DESC, tarefas_aprovadas DESC, ultima_aprovacao DESC NULLS LAST, p.nome ASC`,
-      [orgId, periodo]
+    const rawPeriodo = typeof req.query.periodo === 'string' ? req.query.periodo.trim().toLowerCase() : ''
+    const periodo = /^\d{4}-\d{2}$/.test(rawPeriodo) ? rawPeriodo : 'todos'
+    const periodoInicio = periodo !== 'todos' ? `${periodo}-01` : null
+    const periodoFim = periodoInicio
+      ? new Date(new Date(`${periodoInicio}T00:00:00.000Z`).setUTCMonth(new Date(`${periodoInicio}T00:00:00.000Z`).getUTCMonth() + 1)).toISOString().slice(0, 10)
+      : null
+
+    const membros = await query<any>(
+      `SELECT id, nome, email, role
+       FROM profiles
+       WHERE org_id = $1 AND ativo = TRUE
+       ORDER BY nome ASC`,
+      [orgId]
     )
+
+    const rankingMap = new Map<string, any>()
+    for (const m of membros) {
+      rankingMap.set(m.id, {
+        id: m.id,
+        nome: m.nome,
+        email: m.email,
+        role: m.role,
+        pontos: 0,
+        tarefas_aprovadas: 0,
+        subtarefas_executadas: 0,
+        tarefas_executadas: 0,
+        ultima_aprovacao: null,
+      })
+    }
+
+    const tarefasExecutadas = await query<any>(
+      `SELECT t.*
+       FROM tarefas t
+       WHERE t.org_id = $1
+         AND COALESCE(t.conta_ranking, TRUE) = TRUE
+         AND (
+           t.status IN ('concluida','aprovada')
+           OR COALESCE(t.checklist::text, '') <> ''
+         )
+       ORDER BY COALESCE(t.aprovada_em, t.data_conclusao, t.updated_at, t.created_at) DESC`,
+      [orgId]
+    )
+
+    const inPeriod = (value: unknown) => {
+      if (periodo === 'todos') return true
+      const raw = String(value || '').trim()
+      if (!raw || !periodoInicio || !periodoFim) return false
+      const date = raw.slice(0, 10)
+      return date >= periodoInicio && date < periodoFim
+    }
+
+    const touchMember = (usuarioId: string, pontos: number, tarefa: any, isChecklist: boolean) => {
+      const entry = rankingMap.get(usuarioId)
+      if (!entry) return
+      const when = tarefa.aprovada_em || tarefa.data_conclusao || tarefa.updated_at || tarefa.created_at || null
+      entry.pontos += Math.max(1, Math.min(25, Math.round(Number(pontos || 1))))
+      entry.tarefas_aprovadas += 1
+      if (isChecklist) entry.subtarefas_executadas += 1
+      else entry.tarefas_executadas += 1
+      if (when && (!entry.ultima_aprovacao || new Date(when).getTime() > new Date(entry.ultima_aprovacao).getTime())) {
+        entry.ultima_aprovacao = when
+      }
+    }
+
+    for (const tarefa of tarefasExecutadas) {
+      const dataBase = tarefa.aprovada_em || tarefa.data_conclusao || tarefa.updated_at || tarefa.created_at
+      if (!inPeriod(dataBase)) continue
+
+      const items = parseChecklistItems(tarefa.checklist)
+      const feitos = items.filter(item => !!item.feito)
+
+      if (feitos.length) {
+        for (const item of feitos) {
+          const participante = item.responsavel_id || tarefa.aceita_por || tarefa.responsavel_id
+          if (!participante) continue
+          touchMember(participante, calculateChecklistItemPoints(item, tarefa), tarefa, true)
+        }
+        continue
+      }
+
+      if (['concluida', 'aprovada'].includes(String(tarefa.status || ''))) {
+        const participante = tarefa.aceita_por || tarefa.responsavel_id
+        if (participante) {
+          touchMember(participante, calculateChecklistItemPoints({ texto: tarefa.titulo, descricao: tarefa.descricao, pontuacao: tarefa.pontuacao }, tarefa), tarefa, false)
+        }
+      }
+    }
+
+    const ranking = Array.from(rankingMap.values()).sort((a, b) => {
+      if (Number(b.pontos || 0) !== Number(a.pontos || 0)) return Number(b.pontos || 0) - Number(a.pontos || 0)
+      if (Number(b.subtarefas_executadas || 0) !== Number(a.subtarefas_executadas || 0)) return Number(b.subtarefas_executadas || 0) - Number(a.subtarefas_executadas || 0)
+      const bt = b.ultima_aprovacao ? new Date(b.ultima_aprovacao).getTime() : 0
+      const at = a.ultima_aprovacao ? new Date(a.ultima_aprovacao).getTime() : 0
+      if (bt !== at) return bt - at
+      return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+    })
+
     const livres = await queryOne<any>(
       `SELECT
          COUNT(*) FILTER (WHERE modo_distribuicao = 'livre_equipe' AND aceita_por IS NULL AND status IN ('pendente','em_progresso'))::int AS disponiveis,
@@ -707,7 +791,18 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
        FROM tarefas WHERE org_id = $1`,
       [orgId]
     )
-    res.json({ periodo, ranking, resumo: livres || { disponiveis: 0, em_execucao: 0, concluidas: 0 } })
+    const resumoBase = livres || { disponiveis: 0, em_execucao: 0, concluidas: 0 }
+    res.json({
+      periodo,
+      ranking,
+      resumo: {
+        ...resumoBase,
+        membros: ranking.length,
+        pontos: ranking.reduce((acc, item) => acc + Number(item.pontos || 0), 0),
+        subtarefas_executadas: ranking.reduce((acc, item) => acc + Number(item.subtarefas_executadas || 0), 0),
+        tarefas_executadas: ranking.reduce((acc, item) => acc + Number(item.tarefas_executadas || 0), 0),
+      },
+    })
   } catch (err) {
     console.error('[TAREFAS] Erro ao buscar ranking:', err)
     res.status(500).json({ error: 'Erro ao buscar ranking de tarefas.' })

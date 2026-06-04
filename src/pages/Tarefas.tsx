@@ -1824,7 +1824,7 @@ function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div>
             <strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}><Trophy size={17} /> Desafio da equipe</strong>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontua tarefas aprovadas no período {ranking?.periodo || 'atual'}. Tarefas mais complexas valem mais pontos.</span>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontua subtarefas/checklists já executados. Todos os membros ativos aparecem no ranking.</span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <span className="badge badge-primary">{Number(resumo.disponiveis || 0)} para pegar</span>
@@ -1836,11 +1836,11 @@ function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]
       <div style={{ display: 'grid', gap: 8 }}>
         {lista.length === 0 ? (
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 26, textAlign: 'center', color: 'var(--text3)' }}>
-            Ainda não há tarefas aprovadas no ranking deste mês.
+            Ainda não há subtarefas/checklists executados no ranking.
           </div>
         ) : lista.map((membro, index) => {
           const pontos = Number(membro.pontos || 0)
-          const aprovadas = Number(membro.tarefas_aprovadas || 0)
+          const aprovadas = Number(membro.subtarefas_executadas || membro.tarefas_aprovadas || 0)
           return (
             <div key={membro.id || index} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 12, alignItems: 'center' }}>
               <div style={{ width: 36, height: 36, borderRadius: '50%', background: index === 0 ? 'rgba(245,158,11,.16)' : 'var(--bg3)', color: index === 0 ? '#F59E0B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{index + 1}º</div>
@@ -1891,7 +1891,7 @@ export default function Tarefas() {
       const [ts, ms, rk] = await Promise.all([
         tarefasApi.list(),
         isGestor ? equipeApi.membros() : Promise.resolve([]),
-        tarefasApi.ranking().catch(() => null),
+        tarefasApi.ranking('todos').catch(() => null),
       ])
       setTarefas(Array.isArray(ts) ? ts : [])
       setMembros(Array.isArray(ms) ? ms : [])
