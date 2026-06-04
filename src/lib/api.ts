@@ -322,15 +322,38 @@ export interface HistoricoPessoa {
 
 
 
+export type AcaoInteligenteTipo =
+  | 'abrir_tarefa'
+  | 'ver_tarefas_atrasadas'
+  | 'ver_tarefas_sem_responsavel'
+  | 'ver_financeiro'
+  | 'ver_agenda'
+  | 'priorizar_tarefa'
+  | 'criar_tarefa_cobranca'
+  | 'cobrar_responsavel'
+
+export interface AcaoInteligente {
+  id: string
+  tipo: AcaoInteligenteTipo
+  titulo: string
+  detalhe: string
+  destino?: string
+  tarefa_id?: string
+  prioridade?: 'baixo' | 'medio' | 'alto' | 'critico'
+  executavel?: boolean
+  confirmacao?: string
+}
+
 export interface InteligenciaPainel {
   score: number
   nivel: 'baixo' | 'medio' | 'alto' | 'critico'
   resumo: string
   metricas: Record<string, number>
-  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
-  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string }>
+  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico'; destino?: string }>
+  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string; destino?: string }>
+  acoes?: AcaoInteligente[]
   sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
-  tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
+  tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'> & { updated_at?: string; data_reabertura?: string }>
   gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
   gerado_em: string
 }
@@ -465,6 +488,10 @@ export const destravaApi = {
 export const inteligenciaApi = {
   async painel(): Promise<InteligenciaPainel> {
     return apiJson('/inteligencia/painel')
+  },
+
+  async executarAcao(payload: { tipo: AcaoInteligenteTipo; tarefa_id?: string }): Promise<{ ok: boolean; mensagem: string; destino?: string; tarefa?: Tarefa }> {
+    return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }
 
