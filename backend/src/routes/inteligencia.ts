@@ -33,6 +33,19 @@ function dataCurta(value?: string | null) {
   return y && m && d ? `${d}/${m}/${y}` : raw
 }
 
+function somenteDigitos(value: unknown): string {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function whatsappUrlFor(contato: unknown, mensagem: string): string | null {
+  let phone = somenteDigitos(contato)
+  if (!phone) return null
+  // Se vier telefone brasileiro sem DDI, adiciona 55 para abrir corretamente no WhatsApp.
+  if (phone.length === 10 || phone.length === 11) phone = `55${phone}`
+  if (phone.length < 10) return null
+  return `https://wa.me/${phone}?text=${encodeURIComponent(mensagem)}`
+}
+
 function safeTaskChecklistLengthSql() {
   return `jsonb_array_length(CASE
     WHEN t.checklist IS NULL THEN '[]'::jsonb
@@ -53,6 +66,17 @@ async function destinatariosDaTarefa(tarefa: any, orgId: string, remetenteId: st
   recipients.delete(remetenteId)
   if (recipients.size === 0 && tarefa.criado_por) recipients.add(tarefa.criado_por)
   return Array.from(recipients)
+}
+
+
+function mensagemFinanceira(pagamento: any): string {
+  const pessoaNome = pagamento.pessoa_nome_atual || pagamento.pessoa_nome || 'cliente'
+  const valor = dinheiro(toNumber(pagamento.valor))
+  const vencimento = dataCurta(pagamento.vencimento)
+  if (pagamento.tipo === 'recebimento') {
+    return `Olá, ${pessoaNome}. Tudo bem? Identificamos um recebimento pendente no valor de ${valor}, com vencimento em ${vencimento}. Por favor, nos envie um retorno sobre a regularização ou o comprovante, para atualizarmos seu atendimento.`
+  }
+  return `Atenção: existe um pagamento pendente de ${valor}, vencimento ${vencimento}, referente a ${pagamento.titulo || 'lançamento financeiro'}. Verifique e atualize o financeiro.`
 }
 
 async function criarTarefaCobranca(input: { orgId: string; userId: string; pagamento: any }) {
@@ -144,6 +168,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
 
     const financeiroCriticoRows = await query<any>(`
       SELECT p.id, p.titulo, COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome,
+             pe.contato AS pessoa_contato, pe.email AS pessoa_email, pe.user_id AS pessoa_user_id,
              p.valor::numeric AS valor, p.vencimento::text AS vencimento, p.tipo, p.status,
              (p.vencimento::date - CURRENT_DATE)::int AS dias
       FROM pagamentos p
@@ -248,14 +273,19 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
       { titulo: 'Revisar agenda da semana', detalhe: `${metricas.agenda_7_dias} compromisso(s) nos próximos 7 dias.`, acao: 'Ver agenda', destino: '/agenda' },
     ]
 
-    const financeiroCritico: Array<{ id: string; titulo: string; pessoa_nome?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: Nivel; sugestao: string }> = financeiroCriticoRows.map((p: any) => {
+    const financeiroCritico: Array<{ id: string; titulo: string; pessoa_nome?: string; pessoa_contato?: string; pessoa_user_id?: string | null; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: Nivel; sugestao: string; canal: 'interno' | 'whatsapp' | 'sem_contato' }> = financeiroCriticoRows.map((p: any) => {
       const dias = Number(p.dias || 0)
       const vencido = dias < 0
       const isRecebimento = p.tipo === 'recebimento'
+      const canal = p.pessoa_user_id
+        ? 'interno'
+        : (whatsappUrlFor(p.pessoa_contato, mensagemFinanceira(p)) ? 'whatsapp' : 'sem_contato')
       return {
         id: p.id,
         titulo: p.titulo,
         pessoa_nome: p.pessoa_nome || undefined,
+        pessoa_contato: p.pessoa_contato || undefined,
+        pessoa_user_id: p.pessoa_user_id || undefined,
         valor: toNumber(p.valor),
         vencimento: p.vencimento,
         tipo: p.tipo,
@@ -263,8 +293,9 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         dias,
         nivel: vencido ? 'critico' : 'alto',
         sugestao: isRecebimento
-          ? (vencido ? 'Enviar cobrança e criar tarefa de recuperação.' : 'Preparar lembrete de recebimento.')
+          ? (canal === 'whatsapp' ? 'Abrir WhatsApp com mensagem pronta e criar tarefa de recuperação.' : (vencido ? 'Enviar cobrança e criar tarefa de recuperação.' : 'Preparar lembrete de recebimento.'))
           : (vencido ? 'Regularizar pagamento e anexar comprovante.' : 'Programar pagamento antes do vencimento.'),
+        canal,
       }
     })
 
@@ -353,7 +384,8 @@ router.post('/executar-acao', async (req: Request, res: Response): Promise<void>
 
     if (!pagamento_id) { res.status(400).json({ error: 'Informe o lançamento financeiro.' }); return }
     const pagamento = await queryOne<any>(
-      `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome_atual
+      `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome_atual,
+              pe.contato AS pessoa_contato, pe.email AS pessoa_email, pe.user_id AS pessoa_user_id
        FROM pagamentos p
        LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
        WHERE p.id = $1 AND p.org_id = $2`,
@@ -383,15 +415,30 @@ router.post('/executar-acao', async (req: Request, res: Response): Promise<void>
     }
 
     const recipients = new Set<string>()
+    if (pagamento.pessoa_user_id) recipients.add(pagamento.pessoa_user_id)
     if (pagamento.criado_por) recipients.add(pagamento.criado_por)
     recipients.add(userId)
+
+    const whatsappMessage = tipo === 'cobrar_devedor' ? mensagemFinanceira(pagamento) : body
+    const whatsappUrl = tipo === 'cobrar_devedor' && !pagamento.pessoa_user_id
+      ? whatsappUrlFor(pagamento.pessoa_contato, whatsappMessage)
+      : null
+
     let enviados = 0
     for (const destino of recipients) {
       await criarNotificacao({ orgId, userId: destino, tipo: pagamento.tipo === 'recebimento' ? 'financeiro_cobranca' : 'financeiro_vencimento', titulo, body, referenciaId: tarefaId || pagamento.id, referenciaTipo: tarefaId ? 'tarefa' : 'pagamento' })
       enviados++
     }
 
-    res.json({ ok: true, enviados, tarefa_id: tarefaId || undefined, pagamento_id: pagamento.id })
+    res.json({
+      ok: true,
+      enviados,
+      tarefa_id: tarefaId || undefined,
+      pagamento_id: pagamento.id,
+      whatsapp_url: whatsappUrl || undefined,
+      whatsapp_message: whatsappUrl ? whatsappMessage : undefined,
+      canal: whatsappUrl ? 'whatsapp' : 'interno',
+    })
   } catch (err) {
     console.error('[INTELIGENCIA] Erro ao executar ação:', err)
     res.status(500).json({ error: 'Erro ao executar ação inteligente.' })

@@ -11,6 +11,7 @@ import { useAuth } from '../lib/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
 import { NotificacaoToast } from './NotificacaoToast'
+import { GlobalMic } from './GlobalMic'
 import { isGestorLike, roleLabel } from '../lib/roles'
 import { useVisualTexts, type VisualTextKey } from '../hooks/useVisualTexts'
 
@@ -434,6 +435,7 @@ export default function Layout() {
         <main className="page-scroll">
           <Outlet />
         </main>
+        <GlobalMic />
       </div>
 
       {/* ── BOTTOM NAV (mobile) ──────────────────────────────────────── */}

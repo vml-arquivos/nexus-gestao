@@ -696,7 +696,7 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
     const membros = await query<any>(
       `SELECT id, nome, email, role
        FROM profiles
-       WHERE org_id = $1 AND ativo = TRUE
+       WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'
        ORDER BY nome ASC`,
       [orgId]
     )
@@ -721,6 +721,7 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
        FROM tarefas t
        WHERE t.org_id = $1
          AND COALESCE(t.conta_ranking, TRUE) = TRUE
+         AND COALESCE(t.escopo, 'pessoal') = 'equipe'
          AND (
            t.status IN ('concluida','aprovada')
            OR COALESCE(t.checklist::text, '') <> ''
@@ -738,6 +739,8 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
     }
 
     const touchMember = (usuarioId: string, pontos: number, tarefa: any, isChecklist: boolean) => {
+      // Ranking do desafio é exclusivo para membros executores.
+      // Gestor/admin/dev/subgestor, tarefas pessoais e tarefas do próprio gestor não pontuam.
       const entry = rankingMap.get(usuarioId)
       if (!entry) return
       const when = tarefa.aprovada_em || tarefa.data_conclusao || tarefa.updated_at || tarefa.created_at || null

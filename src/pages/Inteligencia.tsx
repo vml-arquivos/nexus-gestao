@@ -85,7 +85,12 @@ export default function Inteligencia() {
       setExecutando(chave)
       const result = await inteligenciaApi.executarAcao({ tipo: acao.tipo, tarefa_id: acao.tarefa_id, pagamento_id: acao.pagamento_id })
       const extra = result.tarefa_id ? `\nTarefa criada/identificada: ${result.tarefa_id}` : ''
-      alert(`Ação executada. Notificações enviadas: ${result.enviados || 0}.${extra}`)
+      if (result.whatsapp_url) {
+        window.open(result.whatsapp_url, '_blank', 'noopener,noreferrer')
+        alert(`Ação executada. Notificações internas enviadas: ${result.enviados || 0}.\nWhatsApp aberto com mensagem pronta para envio.${extra}`)
+      } else {
+        alert(`Ação executada. Notificações enviadas: ${result.enviados || 0}.${extra}`)
+      }
       await carregar()
     } catch (err: any) {
       alert(err?.message || 'Não foi possível executar a ação inteligente.')
@@ -234,6 +239,7 @@ export default function Inteligencia() {
                     <strong>{item.tipo === 'recebimento' ? 'A receber' : 'A pagar'} · {item.titulo}</strong>
                     <p>{item.pessoa_nome || 'Sem pessoa vinculada'} · {dinheiro(item.valor)} · {dataBR(item.vencimento)}</p>
                     <small>{item.sugestao}</small>
+                    {item.canal && <em className={`finance-channel ${item.canal}`}>{item.canal === 'whatsapp' ? 'WhatsApp externo' : item.canal === 'interno' ? 'Notificação interna' : 'Sem telefone cadastrado'}</em>}
                   </div>
                   <Link className="btn-secondary" to={`/financeiro?tipo=${item.tipo}&status=pendente&vencidos=true`}>Abrir financeiro</Link>
                 </div>

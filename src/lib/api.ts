@@ -335,7 +335,7 @@ export interface InteligenciaPainel {
   recomendacoes: Array<{ titulo: string; detalhe: string; acao: string; destino?: string; acao_tipo?: string }>
   sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
   tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
-  financeiro_critico?: Array<{ id: string; titulo: string; pessoa_nome?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: 'alto' | 'critico'; sugestao: string }>
+  financeiro_critico?: Array<{ id: string; titulo: string; pessoa_nome?: string; pessoa_contato?: string; pessoa_user_id?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: 'alto' | 'critico'; sugestao: string; canal?: 'interno' | 'whatsapp' | 'sem_contato' }>
   acoes_inteligentes?: Array<{ tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'; titulo: string; detalhe: string; tarefa_id?: string; pagamento_id?: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
   notificacoes?: { tempo_real: boolean; som: boolean; navegador: boolean; tipos: string[] }
   gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
@@ -479,7 +479,7 @@ export const inteligenciaApi = {
     tarefa_id?: string
     pagamento_id?: string
     mensagem?: string
-  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string }> {
+  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string; whatsapp_url?: string; whatsapp_message?: string; canal?: 'interno' | 'whatsapp' }> {
     return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }
