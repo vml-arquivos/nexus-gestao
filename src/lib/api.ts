@@ -336,7 +336,7 @@ export interface InteligenciaPainel {
   sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
   tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
   financeiro_critico?: Array<{ id: string; titulo: string; pessoa_nome?: string; pessoa_contato?: string; pessoa_user_id?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: 'alto' | 'critico'; sugestao: string; canal?: 'interno' | 'whatsapp' | 'sem_contato' }>
-  acoes_inteligentes?: Array<{ tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'; titulo: string; detalhe: string; tarefa_id?: string; pagamento_id?: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
+  acoes_inteligentes?: Array<{ tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro' | 'sincronizar_agenda'; titulo: string; detalhe: string; tarefa_id?: string; pagamento_id?: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
   notificacoes?: { tempo_real: boolean; som: boolean; navegador: boolean; tipos: string[] }
   gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
   gerado_em: string
@@ -475,11 +475,11 @@ export const inteligenciaApi = {
   },
 
   async executarAcao(payload: {
-    tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'
+    tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro' | 'sincronizar_agenda'
     tarefa_id?: string
     pagamento_id?: string
     mensagem?: string
-  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string; whatsapp_url?: string; whatsapp_message?: string; canal?: 'interno' | 'whatsapp' }> {
+  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string; whatsapp_url?: string; whatsapp_message?: string; canal?: 'interno' | 'whatsapp'; agenda?: { criados: number; existentes: number; tarefas: number; financeiros: number } }> {
     return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }

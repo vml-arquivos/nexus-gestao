@@ -8,7 +8,7 @@ const router = Router()
 router.use(authMiddleware)
 
 type Nivel = 'baixo' | 'medio' | 'alto' | 'critico'
-type AcaoTipo = 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'
+type AcaoTipo = 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro' | 'sincronizar_agenda'
 
 function toNumber(value: unknown): number {
   const n = Number(value || 0)
@@ -77,6 +77,102 @@ function mensagemFinanceira(pagamento: any): string {
     return `Olá, ${pessoaNome}. Tudo bem? Identificamos um recebimento pendente no valor de ${valor}, com vencimento em ${vencimento}. Por favor, nos envie um retorno sobre a regularização ou o comprovante, para atualizarmos seu atendimento.`
   }
   return `Atenção: existe um pagamento pendente de ${valor}, vencimento ${vencimento}, referente a ${pagamento.titulo || 'lançamento financeiro'}. Verifique e atualize o financeiro.`
+}
+
+
+async function criarEventoAgendaSeNaoExiste(input: {
+  orgId: string
+  userId: string
+  chave: string
+  titulo: string
+  descricao: string
+  dataInicio: string
+  tipo?: string
+  cor?: string
+}) {
+  const marcador = `[NEXUS_SYNC:${input.chave}]`
+  const existente = await queryOne<{ id: string }>(
+    `SELECT id FROM agenda
+     WHERE org_id = $1 AND criado_por = $2 AND descricao ILIKE $3
+     LIMIT 1`,
+    [input.orgId, input.userId, `%${marcador}%`]
+  ).catch(() => null)
+  if (existente?.id) return { id: existente.id, created: false }
+
+  const evento = await queryOne<{ id: string }>(
+    `INSERT INTO agenda (org_id, criado_por, titulo, descricao, data_inicio, data_fim, local, tipo, participantes, lembrete_minutos, cor)
+     VALUES ($1,$2,$3,$4,$5,NULL,NULL,$6,'[]'::jsonb,60,$7)
+     RETURNING id`,
+    [input.orgId, input.userId, input.titulo, `${input.descricao}\n\n${marcador}`, input.dataInicio, input.tipo || 'prazo', input.cor || '#6C3BFF']
+  )
+  return { id: evento?.id || '', created: true }
+}
+
+function agendaDate(value: unknown, hour = '09:00:00') {
+  const raw = String(value || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  return `${raw}T${hour}`
+}
+
+async function sincronizarAgendaOperacional(input: { orgId: string; userId: string }) {
+  const tarefas = await query<any>(
+    `SELECT id, titulo, prazo, data, prioridade, status, responsavel_nome
+     FROM tarefas
+     WHERE org_id = $1
+       AND status IN ('pendente','em_progresso','devolvida','reenviada')
+       AND COALESCE(prazo, data) IS NOT NULL
+     ORDER BY COALESCE(prazo, data) ASC
+     LIMIT 80`,
+    [input.orgId]
+  ).catch(() => [])
+
+  const financeiros = await query<any>(
+    `SELECT id, titulo, tipo, valor, vencimento, status, pessoa_nome
+     FROM pagamentos
+     WHERE org_id = $1
+       AND status = 'pendente'
+       AND vencimento IS NOT NULL
+     ORDER BY vencimento ASC
+     LIMIT 80`,
+    [input.orgId]
+  ).catch(() => [])
+
+  let criados = 0
+  let existentes = 0
+
+  for (const t of tarefas) {
+    const dataInicio = agendaDate(t.prazo || t.data, t.prioridade === 'alta' ? '08:30:00' : '09:00:00')
+    if (!dataInicio) continue
+    const result = await criarEventoAgendaSeNaoExiste({
+      orgId: input.orgId,
+      userId: input.userId,
+      chave: `tarefa:${t.id}`,
+      titulo: `Tarefa: ${t.titulo}`,
+      descricao: `Prazo sincronizado automaticamente pelo Nexus.\nStatus: ${t.status}.\nPrioridade: ${t.prioridade}.\nResponsável: ${t.responsavel_nome || 'sem responsável'}.`,
+      dataInicio,
+      tipo: 'prazo',
+      cor: t.prioridade === 'alta' ? '#ef4444' : '#6C3BFF',
+    })
+    result.created ? criados++ : existentes++
+  }
+
+  for (const f of financeiros) {
+    const dataInicio = agendaDate(f.vencimento, f.tipo === 'recebimento' ? '10:00:00' : '11:00:00')
+    if (!dataInicio) continue
+    const result = await criarEventoAgendaSeNaoExiste({
+      orgId: input.orgId,
+      userId: input.userId,
+      chave: `financeiro:${f.id}`,
+      titulo: `${f.tipo === 'recebimento' ? 'Receber' : 'Pagar'}: ${f.titulo}`,
+      descricao: `Lançamento financeiro sincronizado automaticamente pelo Nexus.\nPessoa: ${f.pessoa_nome || 'não informada'}.\nValor: ${dinheiro(toNumber(f.valor))}.\nStatus: ${f.status}.`,
+      dataInicio,
+      tipo: 'prazo',
+      cor: f.tipo === 'recebimento' ? '#059669' : '#d97706',
+    })
+    result.created ? criados++ : existentes++
+  }
+
+  return { criados, existentes, tarefas: tarefas.length, financeiros: financeiros.length }
 }
 
 async function criarTarefaCobranca(input: { orgId: string; userId: string; pagamento: any }) {
@@ -321,6 +417,15 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
       })
     }
 
+    if (metricas.tarefas_abertas > 0 || metricas.financeiro_vence_7_dias > 0) {
+      acoesInteligentes.unshift({
+        tipo: 'sincronizar_agenda',
+        titulo: 'Sincronizar operação com agenda',
+        detalhe: 'Cria eventos na agenda para prazos de tarefas, recebimentos e pagamentos pendentes, sem duplicar eventos já sincronizados.',
+        nivel: metricas.tarefas_atrasadas > 0 || metricas.pagamentos_vencidos > 0 || metricas.recebimentos_vencidos > 0 ? 'alto' : 'medio',
+      })
+    }
+
     const resumo = `Saúde operacional ${score}/100. ${metricas.tarefas_abertas} tarefa(s) abertas, ${metricas.tarefas_atrasadas} atrasada(s), saldo pago ${dinheiro(saldoPago)} e saldo previsto ${dinheiro(saldoPrevisto)}.`
     const gemini = await gerarAnaliseGemini({ score, resumo, metricas, riscos, recomendacoes, financeiroCritico, acoesInteligentes })
 
@@ -357,8 +462,23 @@ router.post('/executar-acao', async (req: Request, res: Response): Promise<void>
     if (!gestorLike) { res.status(403).json({ error: 'Somente gestor, admin, dev ou subgestor pode executar ações inteligentes.' }); return }
 
     const { tipo, tarefa_id, pagamento_id, mensagem } = req.body || {}
-    const acoesValidas: AcaoTipo[] = ['cobrar_tarefa', 'cobrar_devedor', 'lembrar_pagamento', 'criar_tarefa_cobranca', 'notificar_financeiro']
+    const acoesValidas: AcaoTipo[] = ['cobrar_tarefa', 'cobrar_devedor', 'lembrar_pagamento', 'criar_tarefa_cobranca', 'notificar_financeiro', 'sincronizar_agenda']
     if (!acoesValidas.includes(tipo)) { res.status(400).json({ error: 'Ação inteligente inválida.' }); return }
+
+
+    if (tipo === 'sincronizar_agenda') {
+      const result = await sincronizarAgendaOperacional({ orgId, userId })
+      await criarNotificacao({
+        orgId,
+        userId,
+        tipo: 'agenda_lembrete',
+        titulo: '🤖 Agenda sincronizada pela Central Inteligente',
+        body: `Foram criados ${result.criados} evento(s) e preservados ${result.existentes} já sincronizado(s).`,
+        referenciaTipo: 'agenda',
+      }).catch(() => {})
+      res.json({ ok: true, enviados: 1, agenda: result })
+      return
+    }
 
     if (tipo === 'cobrar_tarefa') {
       if (!tarefa_id) { res.status(400).json({ error: 'Informe a tarefa para cobrança.' }); return }
