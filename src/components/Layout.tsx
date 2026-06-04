@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../lib/AuthContext'
 import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
+import { apiJson } from '../lib/api'
 import { NotificacaoToast } from './NotificacaoToast'
 import { GlobalMic } from './GlobalMic'
 import { isGestorLike, roleLabel } from '../lib/roles'
@@ -50,6 +51,23 @@ function tempoRelativo(iso: string) {
   return `${Math.floor(h / 24)}d`
 }
 
+
+type AtrasoResumoItem = {
+  id: string
+  tipo: string
+  titulo: string
+  detalhe: string
+  destino?: string
+  nivel?: string
+}
+
+type AtrasosResumo = {
+  total: number
+  tarefas: AtrasoResumoItem[]
+  financeiro: AtrasoResumoItem[]
+  agenda: AtrasoResumoItem[]
+}
+
 // ── Componente ────────────────────────────────────────────────────────────────
 export default function Layout() {
   const { pathname }           = useLocation()
@@ -63,6 +81,8 @@ export default function Layout() {
   const [moreOpen, setMoreOpen]       = useState(false)
   const [fabOpen, setFabOpen]         = useState(false)
   const [notifOpen, setNotifOpen]     = useState(false)
+  const [atrasosResumo, setAtrasosResumo] = useState<AtrasosResumo | null>(null)
+  const [atrasosPopupOpen, setAtrasosPopupOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
 
   const initials = user?.nome
@@ -119,6 +139,33 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [notifOpen])
 
+  // Popup diário de atrasos ao acessar o sistema.
+  useEffect(() => {
+    if (!user?.id) return
+    const hoje = new Date().toISOString().slice(0, 10)
+    const storageKey = `nexus:atrasos-popup:${user.id}:${hoje}`
+    if (localStorage.getItem(storageKey) === 'ok') return
+    let mounted = true
+    apiJson<AtrasosResumo>('/notificacoes/atrasos-pendentes')
+      .then(data => {
+        if (!mounted) return
+        if (Number(data?.total || 0) > 0) {
+          setAtrasosResumo(data)
+          setAtrasosPopupOpen(true)
+        }
+      })
+      .catch(() => undefined)
+    return () => { mounted = false }
+  }, [user?.id])
+
+  function fecharPopupAtrasos() {
+    if (user?.id) {
+      const hoje = new Date().toISOString().slice(0, 10)
+      localStorage.setItem(`nexus:atrasos-popup:${user.id}:${hoje}`, 'ok')
+    }
+    setAtrasosPopupOpen(false)
+  }
+
   const isActive = (path: string) =>
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
@@ -126,6 +173,43 @@ export default function Layout() {
     <div className={`app-shell${sidebarOpen ? ' sidebar-is-open' : ''}`}>
       {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
       <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
+
+      {atrasosPopupOpen && atrasosResumo && (
+        <div className="daily-overdue-overlay" role="dialog" aria-modal="true">
+          <div className="daily-overdue-modal">
+            <div className="daily-overdue-head">
+              <div>
+                <strong>⚠️ Pendências atrasadas exigem atenção</strong>
+                <span>Ao acessar o sistema, o Nexus mostra tudo que passou do prazo para não deixar nada escondido.</span>
+              </div>
+              <button type="button" className="btn btn-ghost" onClick={fecharPopupAtrasos}>Fechar</button>
+            </div>
+            <div className="daily-overdue-stats">
+              <span><b>{atrasosResumo.tarefas?.length || 0}</b> tarefas</span>
+              <span><b>{atrasosResumo.financeiro?.length || 0}</b> financeiro</span>
+              <span><b>{atrasosResumo.agenda?.length || 0}</b> agenda</span>
+            </div>
+            <div className="daily-overdue-list">
+              {[...(atrasosResumo.tarefas || []), ...(atrasosResumo.financeiro || []), ...(atrasosResumo.agenda || [])].slice(0, 12).map(item => (
+                <button
+                  key={`${item.tipo}-${item.id}`}
+                  type="button"
+                  className="daily-overdue-item"
+                  onClick={() => { fecharPopupAtrasos(); if (item.destino) navigate(item.destino) }}
+                >
+                  <span>{item.tipo === 'tarefa' ? '📋' : item.tipo === 'agenda' ? '📅' : '💰'}</span>
+                  <div><strong>{item.titulo}</strong><em>{item.detalhe}</em></div>
+                </button>
+              ))}
+            </div>
+            <div className="daily-overdue-actions">
+              <button type="button" className="btn btn-primary" onClick={fecharPopupAtrasos}>Entendi</button>
+              <button type="button" className="btn btn-secondary" onClick={() => { fecharPopupAtrasos(); navigate('/inteligencia') }}>Abrir Central Inteligente</button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* ── SIDEBAR ───────────────────────────────────────────────────── */}
       {sidebarOpen && (

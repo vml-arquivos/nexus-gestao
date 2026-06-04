@@ -60,20 +60,53 @@ export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
   }
 }
 
+
+
+async function notificacaoRecente(input: { orgId: string; userId: string; referenciaId: string; tipo: string; minutos: number }) {
+  const row = await query<{ id: string }>(
+    `SELECT id FROM notificacoes
+     WHERE org_id = $1
+       AND user_id = $2
+       AND referencia_id = $3
+       AND tipo = $4
+       AND created_at >= NOW() - ($5::text || ' minutes')::interval
+     LIMIT 1`,
+    [input.orgId, input.userId, input.referenciaId, input.tipo, input.minutos]
+  ).catch(() => [])
+  return Array.isArray(row) && row.length > 0
+}
+
+async function destinatariosTarefa(t: { org_id: string; responsavel_id?: string | null; criado_por?: string | null; aceita_por?: string | null; modo_distribuicao?: string | null }) {
+  const recipients = new Set<string>()
+  if (t.responsavel_id) recipients.add(t.responsavel_id)
+  if (t.aceita_por) recipients.add(t.aceita_por)
+  if (t.criado_por) recipients.add(t.criado_por)
+
+  // Tarefa livre/sem responsável: toda a equipe ativa recebe o alerta.
+  if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') {
+    const equipe = await query<{ id: string }>(
+      `SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE`,
+      [t.org_id]
+    ).catch(() => [])
+    for (const m of equipe) recipients.add(m.id)
+  }
+  return Array.from(recipients).filter(Boolean)
+}
+
 // ── Job de vencimento e lembrete diário ──────────────────────────────────────
 async function jobVencimentos() {
   try {
-    // Notifica automaticamente tarefas vencidas e vencendo hoje.
-    // Regras:
-    // - se tem responsável, notifica o responsável e o criador;
-    // - se é tarefa livre da equipe sem responsável, notifica toda a equipe da organização;
-    // - deduplicação diária para não gerar spam.
+    // Regras automáticas de cobrança de tarefas:
+    // - tarefa que vence hoje: mensagem a cada 2 horas enquanto não for concluída;
+    // - tarefa atrasada: mensagem a cada 30 minutos enquanto continuar atrasada;
+    // - tarefa sem responsável/livre: envia para todos os usuários ativos da organização;
+    // - tarefa com responsável: envia para responsável/executor e criador/gestor.
     const tarefas = await query<{
-      id: string; org_id: string; responsavel_id: string | null; criado_por: string
+      id: string; org_id: string; responsavel_id: string | null; criado_por: string | null; aceita_por: string | null
       titulo: string; prazo: string; responsavel_nome: string; modo_distribuicao: string
       dias: string
     }>(
-      `SELECT t.id, t.org_id, t.responsavel_id, t.criado_por,
+      `SELECT t.id, t.org_id, t.responsavel_id, t.criado_por, t.aceita_por,
               t.titulo, t.prazo, COALESCE(p.nome,'') AS responsavel_nome,
               COALESCE(t.modo_distribuicao, 'normal') AS modo_distribuicao,
               (t.prazo::date - CURRENT_DATE)::text AS dias
@@ -81,47 +114,36 @@ async function jobVencimentos() {
        LEFT JOIN profiles p ON p.id = t.responsavel_id
        WHERE t.status IN ('pendente','em_progresso','devolvida','reenviada')
          AND t.prazo IS NOT NULL
-         AND t.prazo::date <= CURRENT_DATE
-         AND NOT EXISTS (
-           SELECT 1 FROM notificacoes n
-           WHERE n.referencia_id = t.id
-             AND n.tipo = 'tarefa_vencida'
-             AND n.created_at::date = CURRENT_DATE
-         )`,
+         AND t.prazo::date <= CURRENT_DATE`,
       []
     )
 
+    let enviados = 0
     for (const t of tarefas) {
       const dias = parseInt(t.dias || '0', 10)
       const atrasada = dias < 0
-      const recipients = new Set<string>()
-      if (t.responsavel_id) recipients.add(t.responsavel_id)
-      if (t.criado_por) recipients.add(t.criado_por)
-
-      if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') {
-        const equipe = await query<{ id: string }>(
-          `SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE`,
-          [t.org_id]
-        ).catch(() => [])
-        for (const m of equipe) recipients.add(m.id)
-      }
+      const tipo = atrasada ? 'tarefa_atrasada' : 'tarefa_prazo_hoje'
+      const intervaloMinutos = atrasada ? 30 : 120
+      const recipients = await destinatariosTarefa(t)
 
       for (const userId of recipients) {
+        if (await notificacaoRecente({ orgId: t.org_id, userId, referenciaId: t.id, tipo, minutos: intervaloMinutos })) continue
         await criarNotificacao({
           orgId: t.org_id,
           userId,
-          tipo: 'tarefa_vencida',
-          titulo: atrasada ? '🚨 Tarefa atrasada precisa de ação' : '⚠️ Tarefa vence hoje',
+          tipo,
+          titulo: atrasada ? '🚨 Tarefa atrasada — ação imediata' : '⚠️ Tarefa vence hoje',
           body: atrasada
-            ? `A tarefa "${t.titulo}" está atrasada há ${Math.abs(dias)} dia(s). Execute, assuma uma subtarefa ou regularize o andamento.`
-            : `A tarefa "${t.titulo}" vence hoje e ainda não foi concluída.`,
+            ? `A tarefa "${t.titulo}" está atrasada há ${Math.abs(dias)} dia(s). Regularize agora, execute sua parte ou cobre a equipe responsável.`
+            : `A tarefa "${t.titulo}" vence hoje e ainda não foi concluída. Este lembrete será reenviado a cada 2 horas até a execução.`,
           referenciaId: t.id,
           referenciaTipo: 'tarefa',
         })
+        enviados++
       }
     }
-    if (tarefas.length > 0) {
-      console.log(`[NOTIF] ${tarefas.length} tarefa(s) vencidas/vencendo notificadas automaticamente.`)
+    if (enviados > 0) {
+      console.log(`[NOTIF] ${enviados} lembrete(s) automático(s) de tarefa enviados.`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de vencimentos:', err)
@@ -211,13 +233,10 @@ async function jobLembretes() {
 // ── Job: vencimentos financeiros ─────────────────────────────────────────────
 async function jobFinanceiroVencimento() {
   try {
-    // Financeiro inteligente:
-    // - avisa 1 dia antes;
-    // - avisa no dia;
-    // - avisa quando já venceu;
-    // - recebimento vencido vira alerta de cobrança;
-    // - pagamento vencido vira alerta de regularização;
-    // - deduplicação diária por lançamento, usuário e tipo para evitar spam.
+    // Vencimentos financeiros seguem a mesma lógica de urgência:
+    // - vencendo hoje: lembrete a cada 2 horas;
+    // - vencido: lembrete a cada 30 minutos;
+    // - vencendo amanhã: lembrete preventivo diário.
     const pagamentos = await query<{
       id: string; org_id: string; criado_por: string; titulo: string
       pessoa_nome: string; valor: string; vencimento: string; tipo: string; dias_para_vencer: string
@@ -230,16 +249,10 @@ async function jobFinanceiroVencimento() {
        LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
        WHERE p.status = 'pendente'
          AND p.vencimento IS NOT NULL
-         AND p.vencimento::date <= CURRENT_DATE + INTERVAL '1 day'
-         AND NOT EXISTS (
-           SELECT 1 FROM notificacoes n
-           WHERE n.referencia_id = p.id
-             AND n.user_id = p.criado_por
-             AND n.tipo IN ('financeiro_vencimento','financeiro_vencido','financeiro_cobranca')
-             AND n.created_at::date = CURRENT_DATE
-         )`,
+         AND p.vencimento::date <= CURRENT_DATE + INTERVAL '1 day'`,
       []
     )
+    let enviados = 0
     for (const p of pagamentos) {
       const valor = parseFloat(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
       const dias = parseInt(p.dias_para_vencer || '0', 10)
@@ -250,6 +263,8 @@ async function jobFinanceiroVencimento() {
       const tipo = isRecebimento
         ? (vencido ? 'financeiro_cobranca' : 'financeiro_vencimento')
         : (vencido ? 'financeiro_vencido' : 'financeiro_vencimento')
+      const intervaloMinutos = vencido ? 30 : venceHoje ? 120 : 24 * 60
+      if (await notificacaoRecente({ orgId: p.org_id, userId: p.criado_por, referenciaId: p.id, tipo, minutos: intervaloMinutos })) continue
       const titulo = isRecebimento
         ? (vencido ? `🚨 Cobrar devedor: ${p.titulo}` : `💰 Recebimento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
         : (vencido ? `🚨 Pagamento vencido: ${p.titulo}` : `💰 Pagamento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
@@ -269,9 +284,10 @@ async function jobFinanceiroVencimento() {
         referenciaId: p.id,
         referenciaTipo: 'pagamento',
       })
+      enviados++
     }
-    if (pagamentos.length > 0) {
-      console.log(`[NOTIF] ${pagamentos.length} alerta(s) financeiro(s) inteligente(s) enviado(s).`)
+    if (enviados > 0) {
+      console.log(`[NOTIF] ${enviados} alerta(s) financeiro(s) automático(s) enviado(s).`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de vencimentos financeiros:', err)
@@ -321,8 +337,8 @@ async function jobAgendaLembrete() {
 
 // ── Inicializar jobs ──────────────────────────────────────────────────────────
 export function iniciarJobsNotificacao() {
-  // Verifica vencimentos a cada hora
-  setInterval(jobVencimentos, 60 * 60 * 1000)
+  // Verifica tarefas vencendo/atrasadas a cada 30 minutos
+  setInterval(jobVencimentos, 30 * 60 * 1000)
 
   // Lembrete diário: verifica a cada 5 minutos se já passou das 08:00
   let lembreteEnviadoHoje = ''
@@ -339,8 +355,8 @@ export function iniciarJobsNotificacao() {
   // Lembretes personalizados: verifica a cada 2 minutos
   setInterval(jobLembretes, 2 * 60 * 1000)
 
-  // Vencimentos financeiros: verifica a cada hora
-  setInterval(jobFinanceiroVencimento, 60 * 60 * 1000)
+  // Vencimentos financeiros: verifica a cada 30 minutos
+  setInterval(jobFinanceiroVencimento, 30 * 60 * 1000)
 
   // Lembretes de agenda: verifica a cada 5 minutos
   setInterval(jobAgendaLembrete, 5 * 60 * 1000)

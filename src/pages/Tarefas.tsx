@@ -1213,7 +1213,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 }
 
 
-function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento }: {
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   isGestor: boolean
@@ -1225,6 +1225,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   onApprove: (t: Tarefa) => void
   onReturn: (t: Tarefa) => void
   onComplemento: (t: Tarefa) => void
+  onReminder: (t: Tarefa) => void
 }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa.checklist))
   const [obs, setObs] = useState(tarefa.observacao_conclusao || tarefa.resposta_membro || '')
@@ -1494,6 +1495,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
           </div>
           <div className="task-detail-hero-actions">
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => setEditMode(v => !v)}><Edit3 size={14} /> {editMode ? 'Ocultar edição' : 'Editar / incluir subtarefa'}</button>}
+            {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
           </div>
         </section>
@@ -1689,6 +1691,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
         )}
 
         <div className="modal-actions task-detail-actions" data-modal-actions>
+          {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
           {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
           {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
@@ -1702,7 +1705,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos }: {
+function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -1717,6 +1720,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   onComplemento: (t: Tarefa) => void
   onHistory: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
+  onReminder: (t: Tarefa) => void
 }) {
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
@@ -1802,6 +1806,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
         <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
+        {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReminder(tarefa)} type="button"><MessageSquare size={12} /> Lembrete</button>}
         {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
         {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
@@ -2067,6 +2072,17 @@ export default function Tarefas() {
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao devolver.', 'error') }
   }
 
+  async function enviarLembreteManual(t: Tarefa) {
+    const mensagem = prompt('Mensagem do lembrete para responsável/equipe:', `A tarefa "${t.titulo}" precisa de atenção. Verifique o prazo e execute ou atualize sua parte.`)
+    if (mensagem === null) return
+    try {
+      const result = await tarefasApi.enviarLembrete(t.id, mensagem.trim())
+      toast(`Lembrete enviado para ${result.enviados || 0} destinatário(s).`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao enviar lembrete.', 'error')
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm('Apagar esta tarefa definitivamente?')) return
     try { await tarefasApi.remove(id); setTarefas(prev => prev.filter(t => t.id !== id)); toast('Tarefa apagada.') }
@@ -2209,6 +2225,7 @@ export default function Tarefas() {
               onComplemento={setComplemento}
               onHistory={setHistorico}
               onAnexos={setAnexos}
+              onReminder={enviarLembreteManual}
             />
           ))}
         </div>
@@ -2217,7 +2234,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} />}
       {complemento && <ComplementoModal tarefa={complemento} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>

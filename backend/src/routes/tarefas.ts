@@ -516,6 +516,26 @@ async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) 
   return false
 }
 
+
+
+async function getTaskReminderRecipients(task: any) {
+  const recipients = new Set<string>()
+  if (task.responsavel_id) recipients.add(task.responsavel_id)
+  if (task.aceita_por) recipients.add(task.aceita_por)
+  if (task.criado_por) recipients.add(task.criado_por)
+  for (const item of parseChecklistItems(task.checklist)) {
+    if (item.responsavel_id) recipients.add(item.responsavel_id)
+  }
+  if (!task.responsavel_id || isFreeTeamTask(task)) {
+    const equipe = await query<{ id: string }>(
+      `SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE`,
+      [task.org_id]
+    ).catch(() => [])
+    for (const m of equipe) recipients.add(m.id)
+  }
+  return Array.from(recipients).filter(Boolean)
+}
+
 async function getTaskForAccess(id: string, orgId: string) {
   return queryOne<any>(
     `SELECT t.*, p.nome AS responsavel_nome_perfil, p.cargo AS responsavel_cargo,
@@ -1099,6 +1119,43 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
   }
 })
 
+
+
+// ── ENVIAR LEMBRETE MANUAL DA TAREFA ────────────────────────────────────────
+router.post('/:id/lembrete', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const existing = await getTaskForAccess(req.params.id, orgId)
+    if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    if (!(await userCanAccessTask(existing, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
+    if (role === 'membro' && existing.criado_por !== userId) {
+      res.status(403).json({ error: 'Somente gestor, criador ou responsável administrativo pode cobrar manualmente esta tarefa.' })
+      return
+    }
+
+    const mensagem = String(req.body?.mensagem || '').trim()
+    const recipients = await getTaskReminderRecipients(existing)
+    const autor = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId]).catch(() => null)
+    let enviados = 0
+    for (const destinatario of recipients) {
+      await criarNotificacao({
+        orgId,
+        userId: destinatario,
+        tipo: 'tarefa_lembrete_manual',
+        titulo: '🔔 Lembrete manual de tarefa',
+        body: mensagem || `${autor?.nome || 'Gestor'} enviou um lembrete para a tarefa "${existing.titulo}". Verifique o prazo, execute sua parte ou regularize o andamento.`,
+        referenciaId: existing.id,
+        referenciaTipo: 'tarefa',
+      })
+      enviados++
+    }
+    await addHistorico({ orgId, tarefaId: existing.id, userId, acao: 'lembrete_manual', statusAnterior: existing.status, statusNovo: existing.status, observacao: mensagem || `Lembrete enviado para ${enviados} destinatário(s).` })
+    res.json({ ok: true, enviados })
+  } catch (err) {
+    console.error('[TAREFAS] Erro ao enviar lembrete manual:', err)
+    res.status(500).json({ error: 'Erro ao enviar lembrete manual da tarefa.' })
+  }
+})
 
 // ── REGISTRAR PARTE DO EXECUTOR ──────────────────────────────────────────────
 router.post('/:id/parte-concluida', async (req: Request, res: Response): Promise<void> => {

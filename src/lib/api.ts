@@ -587,6 +587,10 @@ export const tarefasApi = {
     return data.tarefa
   },
 
+  async enviarLembrete(id: string, mensagem?: string): Promise<{ ok: boolean; enviados: number }> {
+    return apiJson(`/tarefas/${id}/lembrete`, { method: 'POST', body: JSON.stringify({ mensagem }) })
+  },
+
   async ranking(periodo?: string): Promise<{ periodo: string; ranking: any[]; resumo: any }> {
     const qs = periodo ? `?periodo=${encodeURIComponent(periodo)}` : ''
     return apiJson(`/tarefas/ranking${qs}`)

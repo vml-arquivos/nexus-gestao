@@ -79,6 +79,9 @@ function tipoParaSom(tipo: string): 'nova_tarefa' | 'concluida' | 'alerta' | 'le
   if (
     tipo === 'tarefa_nao_concluida' ||
     tipo === 'tarefa_vencida' ||
+    tipo === 'tarefa_atrasada' ||
+    tipo === 'tarefa_prazo_hoje' ||
+    tipo === 'tarefa_lembrete_manual' ||
     tipo === 'tarefa_devolvida' ||
     tipo === 'financeiro_cobranca' ||
     tipo === 'financeiro_vencido' ||

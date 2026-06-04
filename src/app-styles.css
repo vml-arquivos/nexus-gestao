@@ -5938,3 +5938,129 @@ button:disabled,
   .compact-intelligence .hero-actions { flex-wrap: wrap; }
   .compact-intelligence .hero-actions a { flex: 1 1 140px; justify-content: center; }
 }
+
+/* Popup diário de atrasos / cobranças automáticas */
+.daily-overdue-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(15, 23, 42, 0.56);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+}
+.daily-overdue-modal {
+  width: min(620px, 100%);
+  max-height: min(86dvh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  box-shadow: 0 26px 90px rgba(0,0,0,.34);
+  padding: 18px;
+}
+.daily-overdue-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.daily-overdue-head strong {
+  display: block;
+  font-size: clamp(17px, 4vw, 22px);
+  line-height: 1.16;
+}
+.daily-overdue-head span {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text3);
+  line-height: 1.4;
+}
+.daily-overdue-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.daily-overdue-stats span {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text3);
+}
+.daily-overdue-stats b {
+  display: block;
+  color: var(--danger, #ef4444);
+  font-size: 20px;
+  line-height: 1;
+  margin-bottom: 3px;
+}
+.daily-overdue-list {
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 2px;
+}
+.daily-overdue-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+.daily-overdue-item > span {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239,68,68,.12);
+}
+.daily-overdue-item strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.daily-overdue-item em {
+  display: block;
+  font-style: normal;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text3);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.daily-overdue-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+@media (max-width: 640px) {
+  .daily-overdue-modal { max-height: 92dvh; border-radius: 18px; padding: 14px; }
+  .daily-overdue-head { flex-direction: column; }
+  .daily-overdue-stats { grid-template-columns: 1fr; }
+  .daily-overdue-actions .btn { flex: 1; justify-content: center; }
+}

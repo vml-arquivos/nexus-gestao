@@ -56,6 +56,99 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
+
+
+// GET /api/notificacoes/atrasos-pendentes
+// Resumo diário para popup ao acessar o sistema: tarefas, financeiro e compromissos atrasados.
+router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId, orgId, role } = req.user!
+    const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(String(role || ''))
+
+    const tarefasRows = await query<any>(
+      `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por, checklist,
+              COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao,
+              (CURRENT_DATE - prazo::date)::int AS dias_atraso
+       FROM tarefas
+       WHERE org_id = $1
+         AND prazo IS NOT NULL
+         AND prazo::date < CURRENT_DATE
+         AND status IN ('pendente','em_progresso','devolvida','reenviada')
+       ORDER BY prazo ASC
+       LIMIT 80`,
+      [orgId]
+    )
+    const tarefas = tarefasRows.filter(t => {
+      if (gestorLike) return true
+      if (t.responsavel_id === userId || t.criado_por === userId || t.aceita_por === userId) return true
+      if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') return true
+      const raw = Array.isArray(t.checklist) ? t.checklist : []
+      return raw.some((i: any) => i?.responsavel_id === userId)
+    }).slice(0, 30).map(t => ({
+      id: t.id,
+      tipo: 'tarefa',
+      titulo: t.titulo,
+      detalhe: `Atrasada há ${Number(t.dias_atraso || 1)} dia(s).`,
+      destino: `/tarefas?task=${t.id}`,
+      dias_atraso: Number(t.dias_atraso || 1),
+      nivel: Number(t.dias_atraso || 0) >= 3 ? 'critico' : 'alto',
+    }))
+
+    const financeiros = await query<any>(
+      `SELECT p.id, p.titulo, p.tipo, p.valor::text, p.vencimento,
+              COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome,
+              (CURRENT_DATE - p.vencimento::date)::int AS dias_atraso
+       FROM pagamentos p
+       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+       WHERE p.org_id = $1
+         AND p.status = 'pendente'
+         AND p.vencimento IS NOT NULL
+         AND p.vencimento::date < CURRENT_DATE
+         ${gestorLike ? '' : 'AND p.criado_por = $2'}
+       ORDER BY p.vencimento ASC
+       LIMIT 50`,
+      gestorLike ? [orgId] : [orgId, userId]
+    )
+
+    const financeiro = financeiros.map(f => ({
+      id: f.id,
+      tipo: f.tipo === 'recebimento' ? 'recebimento' : 'pagamento',
+      titulo: f.titulo,
+      detalhe: `${f.tipo === 'recebimento' ? 'A receber' : 'A pagar'}${f.pessoa_nome ? ` · ${f.pessoa_nome}` : ''} · ${Number(f.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} · atrasado há ${Number(f.dias_atraso || 1)} dia(s).`,
+      destino: '/financeiro',
+      dias_atraso: Number(f.dias_atraso || 1),
+      nivel: Number(f.dias_atraso || 0) >= 3 ? 'critico' : 'alto',
+    }))
+
+    const eventos = await query<any>(
+      `SELECT id, titulo, data_inicio,
+              EXTRACT(EPOCH FROM (NOW() - data_inicio))/3600 AS horas_atraso
+       FROM agenda
+       WHERE org_id = $1
+         AND data_inicio < NOW()
+         AND data_inicio >= NOW() - INTERVAL '7 days'
+         ${gestorLike ? '' : 'AND criado_por = $2'}
+       ORDER BY data_inicio ASC
+       LIMIT 30`,
+      gestorLike ? [orgId] : [orgId, userId]
+    )
+
+    const agenda = eventos.map(e => ({
+      id: e.id,
+      tipo: 'agenda',
+      titulo: e.titulo,
+      detalhe: `Compromisso passou há ${Math.max(1, Math.round(Number(e.horas_atraso || 1)))} hora(s).`,
+      destino: '/agenda',
+      nivel: Number(e.horas_atraso || 0) >= 24 ? 'alto' : 'medio',
+    }))
+
+    res.json({ total: tarefas.length + financeiro.length + agenda.length, tarefas, financeiro, agenda, gerado_em: new Date().toISOString() })
+  } catch (err) {
+    console.error('[NOTIF] Erro ao buscar atrasos pendentes:', err)
+    res.status(500).json({ error: 'Erro ao buscar atrasos pendentes.' })
+  }
+})
+
 // PATCH /api/notificacoes/ler-todas
 router.patch('/ler-todas', async (req: Request, res: Response): Promise<void> => {
   try {
