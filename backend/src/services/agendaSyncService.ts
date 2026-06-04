@@ -24,20 +24,28 @@ function agendaDate(value: unknown, hour = '09:00:00') {
   return `${raw}T${hour}`
 }
 
-function asDateTime(value: unknown) {
-  const raw = String(value || '')
-  if (!raw) return null
-  const date = new Date(raw)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toISOString()
-}
-
 function dinheiro(v: unknown): string {
   const n = Number(v || 0)
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number.isFinite(n) ? n : 0)
 }
 
-async function ensureAgendaSyncSchema() {
+function isFinalTask(status: unknown) {
+  return ['concluida', 'aprovada', 'cancelada'].includes(String(status || ''))
+}
+
+function safeJsonArray(value: unknown): any[] {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  }
+  if (value && typeof value === 'object') return Array.isArray(value) ? value : []
+  return []
+}
+
+export async function ensureAgendaSyncSchema() {
   if (schemaReady) return
   await query(`
     ALTER TABLE agenda
@@ -77,30 +85,35 @@ async function upsertAgendaLocal(input: {
   )
 
   if (existente?.id) {
+    const dataInicioChanged = new Date(existente.data_inicio).toISOString() !== new Date(input.dataInicio).toISOString()
+    const dataFimAtual = existente.data_fim ? new Date(existente.data_fim).toISOString() : ''
+    const dataFimNova = input.dataFim ? new Date(input.dataFim).toISOString() : ''
     const changed =
       String(existente.titulo || '') !== input.titulo ||
       String(existente.descricao || '') !== input.descricao ||
-      new Date(existente.data_inicio).toISOString() !== new Date(input.dataInicio).toISOString() ||
-      String(existente.data_fim || '') !== String(input.dataFim || '') ||
-      String(existente.cor || '') !== String(input.cor || '')
+      dataInicioChanged ||
+      dataFimAtual !== dataFimNova ||
+      String(existente.cor || '') !== String(input.cor || '') ||
+      String(existente.criado_por || '') !== String(input.criadoPor || '')
     if (!changed) return { evento: existente, created: false, updated: false }
     const atualizado = await queryOne<any>(
       `UPDATE agenda SET
-         titulo = $1,
-         descricao = $2,
-         data_inicio = $3,
-         data_fim = $4,
-         local = $5,
-         tipo = $6,
-         cor = $7,
+         criado_por = $1,
+         titulo = $2,
+         descricao = $3,
+         data_inicio = $4,
+         data_fim = $5,
+         local = $6,
+         tipo = $7,
+         cor = $8,
          origem_sistema = 'nexus',
-         origem_tipo = $8,
-         origem_id = $9,
+         origem_tipo = $9,
+         origem_id = $10,
          auto_sync = TRUE,
          updated_at = NOW()
-       WHERE id = $10 AND org_id = $11
+       WHERE id = $11 AND org_id = $12
        RETURNING *`,
-      [input.titulo, input.descricao, input.dataInicio, input.dataFim || null, input.local || null, input.tipo || 'prazo', input.cor || '#6C3BFF', input.origemTipo, input.origemId, existente.id, input.orgId]
+      [input.criadoPor, input.titulo, input.descricao, input.dataInicio, input.dataFim || null, input.local || null, input.tipo || 'prazo', input.cor || '#6C3BFF', input.origemTipo, input.origemId, existente.id, input.orgId]
     )
     return { evento: atualizado || existente, created: false, updated: true }
   }
@@ -157,13 +170,18 @@ async function syncManualAgendaToGoogle(orgId: string | null, result: AgendaSync
   const eventos = await query<any>(
     `SELECT * FROM agenda
      ${where}
-       AND (sync_key IS NULL OR auto_sync = FALSE)
        AND (google_calendar_sync_at IS NULL OR updated_at > google_calendar_sync_at)
      ORDER BY data_inicio ASC
-     LIMIT 500`,
+     LIMIT 1000`,
     params
   ).catch(() => [])
   for (const evento of eventos) await syncGoogle(evento, result)
+}
+
+async function applyLocalCount(result: AgendaSyncResult, row: { created: boolean; updated: boolean }) {
+  if (row.created) result.locaisCriados++
+  else if (row.updated) result.locaisAtualizados++
+  else result.locaisExistentes++
 }
 
 export async function sincronizarAgendaOperacional(input?: { orgId?: string; userId?: string; forceGoogle?: boolean }): Promise<AgendaSyncResult> {
@@ -191,37 +209,65 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
     if (input?.orgId) { params.push(input.orgId); orgFilter = `AND t.org_id = $${params.length}` }
 
     const tarefas = await query<any>(
-      `SELECT t.id, t.org_id, t.criado_por, t.titulo, t.descricao, t.prazo, t.data, t.prioridade, t.status, t.responsavel_nome,
+      `SELECT t.id, t.org_id, t.criado_por, t.responsavel_id, t.aceita_por, t.modo_distribuicao,
+              t.titulo, t.descricao, t.prazo, t.data, t.prioridade, t.status, t.responsavel_nome, t.checklist,
               COALESCE(p.nome, t.responsavel_nome, '') AS responsavel_nome_atual
        FROM tarefas t
        LEFT JOIN profiles p ON p.id = t.responsavel_id
        WHERE t.status <> 'cancelada'
-         AND COALESCE(t.prazo, t.data) IS NOT NULL
+         AND (COALESCE(t.prazo, t.data) IS NOT NULL OR t.checklist IS NOT NULL)
          ${orgFilter}
-       ORDER BY COALESCE(t.prazo, t.data) ASC
-       LIMIT 2000`,
+       ORDER BY COALESCE(t.updated_at, t.created_at) DESC
+       LIMIT 3000`,
       params
     ).catch((err) => { result.erros.push(`Tarefas: ${(err as Error).message}`); return [] })
 
     for (const t of tarefas) {
+      const owner = t.responsavel_id || t.aceita_por || t.criado_por || input?.userId
+      if (!owner) continue
+
       const when = agendaDate(t.prazo || t.data, t.prioridade === 'alta' ? '08:30:00' : '09:00:00')
-      if (!when) continue
-      const { evento, created, updated } = await upsertAgendaLocal({
-        orgId: t.org_id,
-        criadoPor: t.criado_por || input?.userId,
-        syncKey: `tarefa:${t.id}`,
-        origemTipo: 'tarefa',
-        origemId: t.id,
-        titulo: `${t.status === 'concluida' || t.status === 'aprovada' ? '✅' : '📋'} Tarefa: ${t.titulo}`,
-        descricao: `Sincronizado automaticamente pelo Nexus.\nStatus: ${t.status}.\nPrioridade: ${t.prioridade}.\nResponsável: ${t.responsavel_nome_atual || 'sem responsável'}.\n\n${t.descricao || ''}`,
-        dataInicio: when,
-        tipo: 'prazo',
-        cor: t.prioridade === 'alta' ? '#ef4444' : '#6C3BFF',
-      })
-      if (created) result.locaisCriados++
-      else if (updated) result.locaisAtualizados++
-      else result.locaisExistentes++
-      if (evento) await syncGoogle(evento, result)
+      if (when) {
+        const row = await upsertAgendaLocal({
+          orgId: t.org_id,
+          criadoPor: owner,
+          syncKey: `tarefa:${t.id}`,
+          origemTipo: 'tarefa',
+          origemId: t.id,
+          titulo: `${isFinalTask(t.status) ? '✅' : '📋'} Tarefa: ${t.titulo}`,
+          descricao: `Sincronizado automaticamente pelo Nexus.\nOrigem: tarefa.\nStatus: ${t.status}.\nPrioridade: ${t.prioridade}.\nResponsável: ${t.responsavel_nome_atual || 'sem responsável'}.\n\n${t.descricao || ''}`,
+          dataInicio: when,
+          tipo: 'prazo',
+          cor: isFinalTask(t.status) ? '#22c55e' : t.prioridade === 'alta' ? '#ef4444' : '#6C3BFF',
+        })
+        await applyLocalCount(result, row)
+        if (row.evento) await syncGoogle(row.evento, result)
+      }
+
+      const checklist = safeJsonArray(t.checklist)
+      for (const item of checklist) {
+        const itemId = String(item?.id || item?.texto || '').slice(0, 120)
+        const itemDate = agendaDate(item?.data || item?.prazo || item?.date, '09:30:00')
+        if (!itemId || !itemDate) continue
+        const itemOwner = item?.responsavel_id || t.responsavel_id || t.aceita_por || t.criado_por || input?.userId
+        if (!itemOwner) continue
+        const itemText = String(item?.texto || item?.label || item?.title || 'Subtarefa').trim()
+        const done = !!item?.feito
+        const row = await upsertAgendaLocal({
+          orgId: t.org_id,
+          criadoPor: itemOwner,
+          syncKey: `checklist:${t.id}:${itemId}`,
+          origemTipo: 'checklist',
+          origemId: `${t.id}:${itemId}`,
+          titulo: `${done ? '✅' : '☑️'} Subtarefa: ${itemText}`,
+          descricao: `Sincronizado automaticamente pelo Nexus.\nOrigem: checklist/subtarefa.\nTarefa mãe: ${t.titulo}.\nStatus: ${done ? 'concluída' : 'pendente'}.\nPontuação: ${item?.pontuacao || 1}.\nDificuldade: ${item?.dificuldade || 'não definida'}.\n\n${item?.descricao || ''}`,
+          dataInicio: itemDate,
+          tipo: 'prazo',
+          cor: done ? '#22c55e' : '#8b5cf6',
+        })
+        await applyLocalCount(result, row)
+        if (row.evento) await syncGoogle(row.evento, result)
+      }
     }
 
     const pParams: unknown[] = []
@@ -236,7 +282,7 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
          AND p.vencimento IS NOT NULL
          ${pOrgFilter}
        ORDER BY p.vencimento ASC
-       LIMIT 2000`,
+       LIMIT 3000`,
       pParams
     ).catch((err) => { result.erros.push(`Financeiro: ${(err as Error).message}`); return [] })
 
@@ -244,22 +290,20 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
       const when = agendaDate(f.vencimento, f.tipo === 'recebimento' ? '10:00:00' : '11:00:00')
       if (!when) continue
       const isReceber = f.tipo === 'recebimento'
-      const { evento, created, updated } = await upsertAgendaLocal({
+      const row = await upsertAgendaLocal({
         orgId: f.org_id,
         criadoPor: f.criado_por || input?.userId,
         syncKey: `financeiro:${f.id}`,
         origemTipo: 'financeiro',
         origemId: f.id,
         titulo: `${f.status === 'pago' ? '✅' : isReceber ? '💰' : '💸'} ${isReceber ? 'Receber' : 'Pagar'}: ${f.titulo}`,
-        descricao: `Sincronizado automaticamente pelo Nexus.\nTipo: ${isReceber ? 'Conta a receber' : 'Conta a pagar'}.\nStatus: ${f.status}.\nPessoa: ${f.pessoa_nome_atual || 'não informada'}.\nValor: ${dinheiro(f.valor)}.\n\n${f.descricao || ''}`,
+        descricao: `Sincronizado automaticamente pelo Nexus.\nOrigem: financeiro.\nTipo: ${isReceber ? 'Conta a receber' : 'Conta a pagar'}.\nStatus: ${f.status}.\nPessoa: ${f.pessoa_nome_atual || 'não informada'}.\nValor: ${dinheiro(f.valor)}.\n\n${f.descricao || ''}`,
         dataInicio: when,
         tipo: 'prazo',
-        cor: isReceber ? '#059669' : '#d97706',
+        cor: f.status === 'pago' ? '#22c55e' : isReceber ? '#059669' : '#d97706',
       })
-      if (created) result.locaisCriados++
-      else if (updated) result.locaisAtualizados++
-      else result.locaisExistentes++
-      if (evento) await syncGoogle(evento, result)
+      await applyLocalCount(result, row)
+      if (row.evento) await syncGoogle(row.evento, result)
     }
 
     await syncManualAgendaToGoogle(input?.orgId || null, result)
@@ -287,6 +331,6 @@ export function iniciarAgendaAutoSync() {
   }
   const intervalMinutes = Math.max(1, Math.min(1440, Number(process.env.AGENDA_AUTO_SYNC_INTERVAL_MINUTES || 10)))
   setInterval(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no job:', err)), intervalMinutes * 60 * 1000)
-  setTimeout(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no primeiro job:', err)), 30_000)
+  setTimeout(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no primeiro job:', err)), 10_000)
   console.log(`[AGENDA_SYNC] Sincronização automática iniciada a cada ${intervalMinutes} minuto(s).`)
 }

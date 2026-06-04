@@ -172,6 +172,12 @@ export interface Evento {
   participantes?: { id: string; nome: string }[]
   lembrete_minutos?: number
   cor?: string
+  origem_sistema?: string
+  origem_tipo?: string
+  origem_id?: string
+  sync_key?: string
+  auto_sync?: boolean
+  google_calendar_status?: string
   created_at: string
 }
 
@@ -697,6 +703,10 @@ export const agendaApi = {
     const qs = mes && ano ? `?mes=${mes}&ano=${ano}` : ''
     const data = await apiJson<{ eventos: Evento[] }>(`/agenda${qs}`)
     return data.eventos
+  },
+
+  async sync(): Promise<{ ok: boolean; result?: unknown }> {
+    return apiJson<{ ok: boolean; result?: unknown }>('/agenda/sincronizar', { method: 'POST' })
   },
 
   async create(payload: Partial<Evento>): Promise<Evento> {

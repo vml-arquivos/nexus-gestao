@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader, RefreshCw } from 'lucide-react'
 import { agendaApi, type Evento } from '../lib/api'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 
@@ -109,6 +109,7 @@ export default function Agenda() {
   const { t } = useVisualTexts()
   const [eventos, setEventos]       = useState<Evento[]>([])
   const [loading, setLoading]       = useState(true)
+  const [syncing, setSyncing]       = useState(false)
   const [viewDate, setViewDate]     = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(today())
   const [modalOpen, setModalOpen]   = useState(false)
@@ -152,6 +153,19 @@ export default function Agenda() {
     catch (e) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }
 
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      await agendaApi.sync()
+      await load()
+      toast('Agenda sincronizada com tarefas, financeiro e compromissos.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao sincronizar agenda', 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -159,7 +173,16 @@ export default function Agenda() {
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('agenda.pageTitle')}</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>{eventos.length} evento{eventos.length !== 1 ? 's' : ''}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEditando(null); setModalOpen(true) }} style={{ gap: 6 }}><Plus size={16} /> Novo</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={handleSync} disabled={syncing || loading} style={{ gap: 6 }}>
+            {syncing ? <Loader size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={15} />} Sincronizar
+          </button>
+          <button className="btn btn-primary" onClick={() => { setEditando(null); setModalOpen(true) }} style={{ gap: 6 }}><Plus size={16} /> Novo</button>
+        </div>
+      </div>
+
+      <div style={{ background: 'rgba(108,59,255,0.10)', border: '1px solid rgba(108,59,255,0.22)', color: 'var(--text2)', borderRadius: 14, padding: '10px 12px', fontSize: 12, marginBottom: 14, lineHeight: 1.45 }}>
+        A agenda é sincronizada automaticamente com tarefas, subtarefas/checklists com data, contas a receber e contas a pagar. Use <b>Sincronizar</b> para atualizar imediatamente.
       </div>
 
       {loading ? (
@@ -221,6 +244,8 @@ export default function Agenda() {
                       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={10} /> {fmtTime(e.data_inicio)}{e.data_fim && ` - ${fmtTime(e.data_fim)}`}</span>
                         {e.local && <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={10} /> {e.local}</span>}
+                        {e.origem_tipo && <span style={{ fontSize: 11, color: 'var(--primary-light)', background: 'rgba(108,59,255,0.12)', border: '1px solid rgba(108,59,255,0.22)', padding: '2px 7px', borderRadius: 999 }}>{e.origem_tipo === 'financeiro' ? 'Financeiro' : e.origem_tipo === 'checklist' ? 'Subtarefa' : e.origem_tipo === 'tarefa' ? 'Tarefa' : e.origem_tipo}</span>}
+                        {e.google_calendar_status === 'ok' && <span style={{ fontSize: 11, color: '#16a34a', background: 'rgba(34,197,94,0.12)', padding: '2px 7px', borderRadius: 999 }}>Google Agenda</span>}
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: 4 }}>
