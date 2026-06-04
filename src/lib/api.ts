@@ -331,10 +331,13 @@ export interface InteligenciaPainel {
   nivel: 'baixo' | 'medio' | 'alto' | 'critico'
   resumo: string
   metricas: Record<string, number>
-  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
-  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string }>
+  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico'; destino?: string; acao_tipo?: string }>
+  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string; destino?: string; acao_tipo?: string }>
   sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
   tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
+  financeiro_critico?: Array<{ id: string; titulo: string; pessoa_nome?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: 'alto' | 'critico'; sugestao: string }>
+  acoes_inteligentes?: Array<{ tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'; titulo: string; detalhe: string; tarefa_id?: string; pagamento_id?: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
+  notificacoes?: { tempo_real: boolean; som: boolean; navegador: boolean; tipos: string[] }
   gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
   gerado_em: string
 }
@@ -471,7 +474,12 @@ export const inteligenciaApi = {
     return apiJson('/inteligencia/painel')
   },
 
-  async executarAcao(payload: { tipo: 'cobrar_tarefa'; tarefa_id: string; mensagem?: string }): Promise<{ ok: boolean; enviados: number }> {
+  async executarAcao(payload: {
+    tipo: 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'
+    tarefa_id?: string
+    pagamento_id?: string
+    mensagem?: string
+  }): Promise<{ ok: boolean; enviados: number; tarefa_id?: string; pagamento_id?: string; mensagem?: string }> {
     return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }

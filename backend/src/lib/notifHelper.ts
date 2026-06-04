@@ -211,24 +211,31 @@ async function jobLembretes() {
 // ── Job: vencimentos financeiros ─────────────────────────────────────────────
 async function jobFinanceiroVencimento() {
   try {
-    // Pagamentos/recebimentos pendentes notificam 1 dia antes e no próprio dia.
-    // A deduplicação é diária por registro, então o usuário não recebe spam a cada hora.
+    // Financeiro inteligente:
+    // - avisa 1 dia antes;
+    // - avisa no dia;
+    // - avisa quando já venceu;
+    // - recebimento vencido vira alerta de cobrança;
+    // - pagamento vencido vira alerta de regularização;
+    // - deduplicação diária por lançamento, usuário e tipo para evitar spam.
     const pagamentos = await query<{
       id: string; org_id: string; criado_por: string; titulo: string
       pessoa_nome: string; valor: string; vencimento: string; tipo: string; dias_para_vencer: string
     }>(
       `SELECT p.id, p.org_id, p.criado_por, p.titulo,
-              COALESCE(p.pessoa_nome,'') AS pessoa_nome,
+              COALESCE(pe.nome, p.pessoa_nome,'') AS pessoa_nome,
               p.valor::text, p.vencimento::text, p.tipo,
               (p.vencimento::date - CURRENT_DATE)::text AS dias_para_vencer
        FROM pagamentos p
+       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
        WHERE p.status = 'pendente'
          AND p.vencimento IS NOT NULL
-         AND p.vencimento::date IN (CURRENT_DATE, CURRENT_DATE + INTERVAL '1 day')
+         AND p.vencimento::date <= CURRENT_DATE + INTERVAL '1 day'
          AND NOT EXISTS (
            SELECT 1 FROM notificacoes n
            WHERE n.referencia_id = p.id
-             AND n.tipo = 'financeiro_vencimento'
+             AND n.user_id = p.criado_por
+             AND n.tipo IN ('financeiro_vencimento','financeiro_vencido','financeiro_cobranca')
              AND n.created_at::date = CURRENT_DATE
          )`,
       []
@@ -237,21 +244,34 @@ async function jobFinanceiroVencimento() {
       const valor = parseFloat(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
       const dias = parseInt(p.dias_para_vencer || '0', 10)
       const isRecebimento = p.tipo === 'recebimento'
-      const acao = isRecebimento ? 'receber' : 'pagar'
+      const pessoa = p.pessoa_nome ? `${p.pessoa_nome} — ` : ''
+      const vencido = dias < 0
+      const venceHoje = dias === 0
+      const tipo = isRecebimento
+        ? (vencido ? 'financeiro_cobranca' : 'financeiro_vencimento')
+        : (vencido ? 'financeiro_vencido' : 'financeiro_vencimento')
+      const titulo = isRecebimento
+        ? (vencido ? `🚨 Cobrar devedor: ${p.titulo}` : `💰 Recebimento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
+        : (vencido ? `🚨 Pagamento vencido: ${p.titulo}` : `💰 Pagamento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
+      const body = isRecebimento
+        ? (vencido
+            ? `${pessoa}${valor} está vencido há ${Math.abs(dias)} dia(s). Envie cobrança, registre retorno e atualize o financeiro.`
+            : `${pessoa}${valor} para receber ${venceHoje ? 'vence hoje' : 'vence amanhã'}. Prepare a cobrança preventiva.`)
+        : (vencido
+            ? `${pessoa}${valor} está vencido há ${Math.abs(dias)} dia(s). Regularize ou registre a decisão.`
+            : `${pessoa}${valor} para pagar ${venceHoje ? 'vence hoje' : 'vence amanhã'}.`)
       await criarNotificacao({
         orgId: p.org_id,
         userId: p.criado_por,
-        tipo: 'financeiro_vencimento',
-        titulo: dias === 0
-          ? `💰 Vence hoje: ${p.titulo}`
-          : `💰 Vencimento amanhã: ${p.titulo}`,
-        body: `${p.pessoa_nome ? p.pessoa_nome + ' — ' : ''}${valor} para ${acao} ${dias === 0 ? 'vence hoje' : 'vence amanhã'}.`,
+        tipo,
+        titulo,
+        body,
         referenciaId: p.id,
         referenciaTipo: 'pagamento',
       })
     }
     if (pagamentos.length > 0) {
-      console.log(`[NOTIF] ${pagamentos.length} vencimento(s) financeiro(s) notificado(s).`)
+      console.log(`[NOTIF] ${pagamentos.length} alerta(s) financeiro(s) inteligente(s) enviado(s).`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de vencimentos financeiros:', err)

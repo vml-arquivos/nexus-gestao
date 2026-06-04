@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
-import { query } from '../db/pool'
+import { query, queryOne } from '../db/pool'
 import { gerarAnaliseGemini } from '../services/geminiService'
 import { criarNotificacao } from '../lib/notifHelper'
 
@@ -8,6 +8,7 @@ const router = Router()
 router.use(authMiddleware)
 
 type Nivel = 'baixo' | 'medio' | 'alto' | 'critico'
+type AcaoTipo = 'cobrar_tarefa' | 'cobrar_devedor' | 'lembrar_pagamento' | 'criar_tarefa_cobranca' | 'notificar_financeiro'
 
 function toNumber(value: unknown): number {
   const n = Number(value || 0)
@@ -25,14 +26,94 @@ function dinheiro(v: number): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0)
 }
 
+function dataCurta(value?: string | null) {
+  if (!value) return 'sem vencimento'
+  const raw = String(value).slice(0, 10)
+  const [y, m, d] = raw.split('-')
+  return y && m && d ? `${d}/${m}/${y}` : raw
+}
+
+function safeTaskChecklistLengthSql() {
+  return `jsonb_array_length(CASE
+    WHEN t.checklist IS NULL THEN '[]'::jsonb
+    WHEN jsonb_typeof(t.checklist::jsonb) = 'array' THEN t.checklist::jsonb
+    ELSE '[]'::jsonb
+  END)`
+}
+
+async function destinatariosDaTarefa(tarefa: any, orgId: string, remetenteId: string) {
+  const recipients = new Set<string>()
+  if (tarefa.responsavel_id) recipients.add(tarefa.responsavel_id)
+  if (tarefa.aceita_por) recipients.add(tarefa.aceita_por)
+  if (tarefa.criado_por) recipients.add(tarefa.criado_por)
+  if (!tarefa.responsavel_id || tarefa.modo_distribuicao === 'livre_equipe') {
+    const equipe = await query<{ id: string }>('SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE', [orgId]).catch(() => [])
+    for (const membro of equipe) recipients.add(membro.id)
+  }
+  recipients.delete(remetenteId)
+  if (recipients.size === 0 && tarefa.criado_por) recipients.add(tarefa.criado_por)
+  return Array.from(recipients)
+}
+
+async function criarTarefaCobranca(input: { orgId: string; userId: string; pagamento: any }) {
+  const p = input.pagamento
+  const isRecebimento = p.tipo === 'recebimento'
+  const titulo = isRecebimento
+    ? `Cobrar recebimento vencido — ${p.pessoa_nome || p.titulo}`
+    : `Regularizar pagamento vencido — ${p.titulo}`
+  const descricao = isRecebimento
+    ? `A Central Inteligente identificou um valor a receber vencido.\n\nDevedor/cliente: ${p.pessoa_nome || 'Não informado'}\nTítulo: ${p.titulo}\nValor: ${dinheiro(toNumber(p.valor))}\nVencimento: ${dataCurta(p.vencimento)}\n\nAção recomendada: entrar em contato, registrar retorno e atualizar o financeiro.`
+    : `A Central Inteligente identificou um pagamento vencido ou próximo do vencimento.\n\nCredor/fornecedor: ${p.pessoa_nome || 'Não informado'}\nTítulo: ${p.titulo}\nValor: ${dinheiro(toNumber(p.valor))}\nVencimento: ${dataCurta(p.vencimento)}\n\nAção recomendada: regularizar, anexar comprovante ou registrar decisão.`
+
+  const existente = await queryOne<any>(
+    `SELECT id FROM tarefas
+     WHERE org_id = $1
+       AND criado_por = $2
+       AND origem_sistema = 'nexus_financeiro'
+       AND origem_id = $3
+       AND status IN ('pendente','em_progresso','devolvida','reenviada')
+     LIMIT 1`,
+    [input.orgId, input.userId, p.id]
+  ).catch(() => null)
+  if (existente?.id) return existente.id
+
+  const tarefa = await queryOne<{ id: string }>(
+    `INSERT INTO tarefas
+       (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
+     VALUES ($1,$2,$2,NULL,$3,$4,CURRENT_DATE,$5,'alta',$6,$7,'equipe','normal',10,TRUE,TRUE,'pendente','aguardando','nexus_financeiro',$8,$9,$10,NULL,$11)
+     RETURNING id`,
+    [
+      input.orgId,
+      input.userId,
+      titulo,
+      descricao,
+      p.vencimento || null,
+      JSON.stringify([
+        { texto: isRecebimento ? 'Entrar em contato com o devedor/cliente' : 'Conferir dados do pagamento', feito: false, pontuacao: 5, dificuldade: 'facil' },
+        { texto: isRecebimento ? 'Registrar retorno da cobrança' : 'Realizar pagamento ou registrar decisão', feito: false, pontuacao: 10, dificuldade: 'medio' },
+        { texto: 'Atualizar o financeiro e anexar comprovante/evidência', feito: false, pontuacao: 10, dificuldade: 'medio' },
+      ]),
+      'Gerada pela Central Inteligente a partir do financeiro.',
+      p.tipo,
+      p.id,
+      p.pessoa_nome || p.titulo,
+      JSON.stringify({ pagamento_id: p.id, tipo: p.tipo, valor: toNumber(p.valor), vencimento: p.vencimento }),
+    ]
+  )
+  return tarefa?.id || null
+}
+
 router.get('/painel', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(role)
     const personalFilter = gestorLike ? '' : ' AND (t.criado_por = $2 OR t.responsavel_id = $2 OR t.aceita_por = $2)'
     const taskParams = gestorLike ? [orgId] : [orgId, userId]
-    const paymentFilter = ' AND p.criado_por = $2'
-    const agendaFilter = ' AND a.criado_por = $2'
+    const paymentFilter = gestorLike ? '' : ' AND p.criado_por = $2'
+    const paymentParams = gestorLike ? [orgId] : [orgId, userId]
+    const agendaFilter = gestorLike ? '' : ' AND a.criado_por = $2'
+    const agendaParams = gestorLike ? [orgId] : [orgId, userId]
+    const checklistLen = safeTaskChecklistLengthSql()
 
     const tarefasRows = await query<any>(`
       SELECT
@@ -41,9 +122,9 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         COUNT(*) FILTER (WHERE status IN ('concluida','aprovada'))::int AS concluidas,
         COUNT(*) FILTER (WHERE status IN ('pendente','em_progresso','devolvida','reenviada') AND COALESCE(prazo, data) < CURRENT_DATE)::int AS atrasadas,
         COUNT(*) FILTER (WHERE prioridade = 'alta' AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS alta_abertas,
-        COUNT(*) FILTER (WHERE responsavel_id IS NULL AND modo_distribuicao <> 'livre_equipe' AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS sem_responsavel,
-        COUNT(*) FILTER (WHERE jsonb_array_length(COALESCE(checklist, '[]'::jsonb)) > 0)::int AS com_checklist,
-        COUNT(*) FILTER (WHERE jsonb_array_length(COALESCE(checklist, '[]'::jsonb)) = 0 AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS sem_checklist
+        COUNT(*) FILTER (WHERE responsavel_id IS NULL AND COALESCE(modo_distribuicao, 'normal') <> 'livre_equipe' AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS sem_responsavel,
+        COUNT(*) FILTER (WHERE ${checklistLen} > 0)::int AS com_checklist,
+        COUNT(*) FILTER (WHERE ${checklistLen} = 0 AND status IN ('pendente','em_progresso','devolvida','reenviada'))::int AS sem_checklist
       FROM tarefas t
       WHERE t.org_id = $1${personalFilter}
     `, taskParams)
@@ -59,7 +140,24 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         COUNT(*) FILTER (WHERE status = 'pendente' AND vencimento BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days')::int AS vence_7_dias
       FROM pagamentos p
       WHERE p.org_id = $1${paymentFilter}
-    `, [orgId, userId])
+    `, paymentParams)
+
+    const financeiroCriticoRows = await query<any>(`
+      SELECT p.id, p.titulo, COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome,
+             p.valor::numeric AS valor, p.vencimento::text AS vencimento, p.tipo, p.status,
+             (p.vencimento::date - CURRENT_DATE)::int AS dias
+      FROM pagamentos p
+      LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+      WHERE p.org_id = $1${paymentFilter}
+        AND p.status = 'pendente'
+        AND p.vencimento IS NOT NULL
+        AND p.vencimento::date <= CURRENT_DATE + INTERVAL '7 days'
+      ORDER BY
+        CASE WHEN p.vencimento::date < CURRENT_DATE THEN 0 ELSE 1 END,
+        p.vencimento ASC,
+        p.valor DESC
+      LIMIT 10
+    `, paymentParams)
 
     const agendaRows = await query<any>(`
       SELECT
@@ -68,7 +166,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         COUNT(*) FILTER (WHERE data_inicio < NOW())::int AS passados
       FROM agenda a
       WHERE a.org_id = $1${agendaFilter}
-    `, [orgId, userId])
+    `, agendaParams)
 
     const sobrecargaRows = gestorLike ? await query<any>(`
       SELECT
@@ -92,6 +190,7 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
         CASE WHEN COALESCE(prazo, data) < CURRENT_DATE THEN 0 ELSE 1 END,
         CASE prioridade WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END,
         COALESCE(prazo, data) ASC NULLS LAST,
+        updated_at DESC NULLS LAST,
         created_at ASC
       LIMIT 8
     `, taskParams)
@@ -132,25 +231,67 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
     score -= saldoPrevisto < 0 ? 12 : 0
     score = Math.max(0, Math.min(100, score))
 
-    const riscos: Array<{ titulo: string; detalhe: string; nivel: Nivel }> = []
-    if (metricas.tarefas_atrasadas > 0) riscos.push({ titulo: 'Tarefas atrasadas', detalhe: `${metricas.tarefas_atrasadas} tarefa(s) fora do prazo precisam de ação.`, nivel: metricas.tarefas_atrasadas >= 5 ? 'critico' : 'alto' })
-    if (metricas.tarefas_alta_prioridade > 0) riscos.push({ titulo: 'Prioridades críticas abertas', detalhe: `${metricas.tarefas_alta_prioridade} tarefa(s) de alta prioridade ainda abertas.`, nivel: 'alto' })
-    if (metricas.tarefas_sem_responsavel > 0) riscos.push({ titulo: 'Tarefas sem responsável', detalhe: `${metricas.tarefas_sem_responsavel} tarefa(s) precisam de dono definido.`, nivel: 'medio' })
-    if (metricas.pagamentos_vencidos > 0) riscos.push({ titulo: 'Pagamentos vencidos', detalhe: `${dinheiro(metricas.pagamentos_vencidos)} em contas a pagar vencidas.`, nivel: 'critico' })
-    if (metricas.recebimentos_vencidos > 0) riscos.push({ titulo: 'Recebimentos atrasados', detalhe: `${dinheiro(metricas.recebimentos_vencidos)} em contas a receber vencidas.`, nivel: 'alto' })
-    if (saldoPrevisto < 0) riscos.push({ titulo: 'Saldo previsto negativo', detalhe: `Previsão do caixa está em ${dinheiro(saldoPrevisto)}.`, nivel: 'critico' })
+    const riscos: Array<{ titulo: string; detalhe: string; nivel: Nivel; destino?: string; acao_tipo?: string }> = []
+    if (metricas.tarefas_atrasadas > 0) riscos.push({ titulo: 'Tarefas atrasadas', detalhe: `${metricas.tarefas_atrasadas} tarefa(s) fora do prazo precisam de ação.`, nivel: metricas.tarefas_atrasadas >= 5 ? 'critico' : 'alto', destino: '/tarefas?status=atrasadas', acao_tipo: 'cobrar_tarefa' })
+    if (metricas.tarefas_alta_prioridade > 0) riscos.push({ titulo: 'Prioridades críticas abertas', detalhe: `${metricas.tarefas_alta_prioridade} tarefa(s) de alta prioridade ainda abertas.`, nivel: 'alto', destino: '/tarefas?prioridade=alta' })
+    if (metricas.tarefas_sem_responsavel > 0) riscos.push({ titulo: 'Tarefas sem responsável', detalhe: `${metricas.tarefas_sem_responsavel} tarefa(s) precisam de dono definido.`, nivel: 'medio', destino: '/tarefas?responsavel=sem' })
+    if (metricas.pagamentos_vencidos > 0) riscos.push({ titulo: 'Pagamentos vencidos', detalhe: `${dinheiro(metricas.pagamentos_vencidos)} em contas a pagar vencidas.`, nivel: 'critico', destino: '/financeiro?tipo=pagamento&status=pendente&vencidos=true', acao_tipo: 'lembrar_pagamento' })
+    if (metricas.recebimentos_vencidos > 0) riscos.push({ titulo: 'Recebimentos atrasados', detalhe: `${dinheiro(metricas.recebimentos_vencidos)} em contas a receber vencidas.`, nivel: 'alto', destino: '/financeiro?tipo=recebimento&status=pendente&vencidos=true', acao_tipo: 'cobrar_devedor' })
+    if (saldoPrevisto < 0) riscos.push({ titulo: 'Saldo previsto negativo', detalhe: `Previsão do caixa está em ${dinheiro(saldoPrevisto)}.`, nivel: 'critico', destino: '/financeiro' })
     if (riscos.length === 0) riscos.push({ titulo: 'Operação controlada', detalhe: 'Nenhum risco crítico encontrado nos dados atuais.', nivel: 'baixo' })
 
     const recomendacoes = [
-      ...(metricas.tarefas_atrasadas > 0 ? [{ titulo: 'Resolver atrasos primeiro', detalhe: 'Comece pelas tarefas vencidas e de alta prioridade.', acao: 'Abrir tarefas críticas' }] : []),
-      ...(metricas.tarefas_sem_responsavel > 0 ? [{ titulo: 'Distribuir responsabilidades', detalhe: 'Toda tarefa aberta precisa ter responsável claro.', acao: 'Atribuir responsáveis' }] : []),
-      ...(metricas.pagamentos_vencidos > 0 ? [{ titulo: 'Regularizar contas vencidas', detalhe: 'Reduza risco financeiro tratando pagamentos vencidos hoje.', acao: 'Abrir financeiro' }] : []),
-      ...(metricas.recebimentos_vencidos > 0 ? [{ titulo: 'Cobrar recebimentos atrasados', detalhe: 'Transforme recebimentos vencidos em tarefa de cobrança.', acao: 'Criar cobrança' }] : []),
-      { titulo: 'Revisar agenda da semana', detalhe: `${metricas.agenda_7_dias} compromisso(s) nos próximos 7 dias.`, acao: 'Ver agenda' },
+      ...(metricas.tarefas_atrasadas > 0 ? [{ titulo: 'Resolver atrasos primeiro', detalhe: 'Comece pelas tarefas vencidas e de alta prioridade.', acao: 'Abrir tarefas críticas', destino: '/tarefas?status=atrasadas' }] : []),
+      ...(metricas.tarefas_sem_responsavel > 0 ? [{ titulo: 'Distribuir responsabilidades', detalhe: 'Toda tarefa aberta precisa ter responsável claro.', acao: 'Atribuir responsáveis', destino: '/tarefas?responsavel=sem' }] : []),
+      ...(metricas.pagamentos_vencidos > 0 ? [{ titulo: 'Regularizar contas vencidas', detalhe: 'Reduza risco financeiro tratando pagamentos vencidos hoje.', acao: 'Abrir financeiro', destino: '/financeiro?tipo=pagamento&status=pendente&vencidos=true' }] : []),
+      ...(metricas.recebimentos_vencidos > 0 ? [{ titulo: 'Cobrar recebimentos atrasados', detalhe: 'Transforme recebimentos vencidos em tarefa de cobrança e notificação interna.', acao: 'Criar cobrança', destino: '/financeiro?tipo=recebimento&status=pendente&vencidos=true' }] : []),
+      { titulo: 'Revisar agenda da semana', detalhe: `${metricas.agenda_7_dias} compromisso(s) nos próximos 7 dias.`, acao: 'Ver agenda', destino: '/agenda' },
     ]
 
+    const financeiroCritico: Array<{ id: string; titulo: string; pessoa_nome?: string; valor: number; vencimento?: string; tipo: 'pagamento' | 'recebimento'; status: string; dias: number; nivel: Nivel; sugestao: string }> = financeiroCriticoRows.map((p: any) => {
+      const dias = Number(p.dias || 0)
+      const vencido = dias < 0
+      const isRecebimento = p.tipo === 'recebimento'
+      return {
+        id: p.id,
+        titulo: p.titulo,
+        pessoa_nome: p.pessoa_nome || undefined,
+        valor: toNumber(p.valor),
+        vencimento: p.vencimento,
+        tipo: p.tipo,
+        status: p.status,
+        dias,
+        nivel: vencido ? 'critico' : 'alto',
+        sugestao: isRecebimento
+          ? (vencido ? 'Enviar cobrança e criar tarefa de recuperação.' : 'Preparar lembrete de recebimento.')
+          : (vencido ? 'Regularizar pagamento e anexar comprovante.' : 'Programar pagamento antes do vencimento.'),
+      }
+    })
+
+    const acoesInteligentes: Array<{ tipo: AcaoTipo; titulo: string; detalhe: string; tarefa_id?: string; pagamento_id?: string; nivel: Nivel }> = []
+    for (const tarefa of topCriticas.slice(0, 3)) {
+      acoesInteligentes.push({ tipo: 'cobrar_tarefa', tarefa_id: tarefa.id, titulo: `Cobrar tarefa: ${tarefa.titulo}`, detalhe: 'Envia aviso interno com som para responsável/criador/equipe.', nivel: 'alto' })
+    }
+    for (const fin of financeiroCritico.slice(0, 5)) {
+      const tipoAcao: AcaoTipo = fin.tipo === 'recebimento' ? 'cobrar_devedor' : 'lembrar_pagamento'
+      acoesInteligentes.push({
+        tipo: tipoAcao,
+        pagamento_id: fin.id,
+        titulo: fin.tipo === 'recebimento' ? `Cobrar devedor: ${fin.pessoa_nome || fin.titulo}` : `Avisar pagamento: ${fin.titulo}`,
+        detalhe: `${dinheiro(fin.valor)} · vence ${dataCurta(fin.vencimento)} · ${fin.sugestao}`,
+        nivel: fin.nivel,
+      })
+      acoesInteligentes.push({
+        tipo: 'criar_tarefa_cobranca',
+        pagamento_id: fin.id,
+        titulo: fin.tipo === 'recebimento' ? `Criar tarefa de cobrança: ${fin.pessoa_nome || fin.titulo}` : `Criar tarefa financeira: ${fin.titulo}`,
+        detalhe: 'Cria uma tarefa da equipe com checklist operacional para resolver essa pendência.',
+        nivel: fin.nivel,
+      })
+    }
+
     const resumo = `Saúde operacional ${score}/100. ${metricas.tarefas_abertas} tarefa(s) abertas, ${metricas.tarefas_atrasadas} atrasada(s), saldo pago ${dinheiro(saldoPago)} e saldo previsto ${dinheiro(saldoPrevisto)}.`
-    const gemini = await gerarAnaliseGemini({ score, resumo, metricas, riscos, recomendacoes })
+    const gemini = await gerarAnaliseGemini({ score, resumo, metricas, riscos, recomendacoes, financeiroCritico, acoesInteligentes })
 
     res.json({
       score,
@@ -161,6 +302,14 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
       recomendacoes,
       sobrecarga: sobrecargaRows,
       tarefas_criticas: topCriticas,
+      financeiro_critico: financeiroCritico,
+      acoes_inteligentes: acoesInteligentes,
+      notificacoes: {
+        tempo_real: true,
+        som: true,
+        navegador: true,
+        tipos: ['tarefa atrasada', 'tarefa vencendo', 'cobrança de devedor', 'pagamento vencendo', 'agenda', 'ação da IA'],
+      },
       gemini,
       gerado_em: new Date().toISOString(),
     })
@@ -170,50 +319,79 @@ router.get('/painel', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-
 router.post('/executar-acao', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(role)
     if (!gestorLike) { res.status(403).json({ error: 'Somente gestor, admin, dev ou subgestor pode executar ações inteligentes.' }); return }
-    const { tipo, tarefa_id, mensagem } = req.body || {}
-    if (tipo !== 'cobrar_tarefa') { res.status(400).json({ error: 'Ação inteligente inválida.' }); return }
-    if (!tarefa_id) { res.status(400).json({ error: 'Informe a tarefa para cobrança.' }); return }
 
-    const tarefa = await query<any>(
-      `SELECT t.*, COALESCE(p.nome, t.responsavel_nome, '') AS responsavel_nome
-       FROM tarefas t
-       LEFT JOIN profiles p ON p.id = t.responsavel_id
-       WHERE t.id = $1 AND t.org_id = $2`,
-      [tarefa_id, orgId]
-    ).then(rows => rows[0])
-    if (!tarefa) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+    const { tipo, tarefa_id, pagamento_id, mensagem } = req.body || {}
+    const acoesValidas: AcaoTipo[] = ['cobrar_tarefa', 'cobrar_devedor', 'lembrar_pagamento', 'criar_tarefa_cobranca', 'notificar_financeiro']
+    if (!acoesValidas.includes(tipo)) { res.status(400).json({ error: 'Ação inteligente inválida.' }); return }
 
-    const recipients = new Set<string>()
-    if (tarefa.responsavel_id) recipients.add(tarefa.responsavel_id)
-    if (tarefa.aceita_por) recipients.add(tarefa.aceita_por)
-    if (tarefa.criado_por && tarefa.criado_por !== userId) recipients.add(tarefa.criado_por)
-    if (!tarefa.responsavel_id || tarefa.modo_distribuicao === 'livre_equipe') {
-      const equipe = await query<{ id: string }>('SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE', [orgId]).catch(() => [])
-      for (const membro of equipe) if (membro.id !== userId) recipients.add(membro.id)
+    if (tipo === 'cobrar_tarefa') {
+      if (!tarefa_id) { res.status(400).json({ error: 'Informe a tarefa para cobrança.' }); return }
+      const tarefa = await queryOne<any>(
+        `SELECT t.*, COALESCE(p.nome, t.responsavel_nome, '') AS responsavel_nome
+         FROM tarefas t
+         LEFT JOIN profiles p ON p.id = t.responsavel_id
+         WHERE t.id = $1 AND t.org_id = $2`,
+        [tarefa_id, orgId]
+      )
+      if (!tarefa) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
+
+      const recipients = await destinatariosDaTarefa(tarefa, orgId, userId)
+      const texto = String(mensagem || '').trim() || `A Central Inteligente identificou que a tarefa "${tarefa.titulo}" precisa de atenção. Verifique prazo, subtarefas, arquivos e execução.`
+      let enviados = 0
+      for (const destino of recipients) {
+        await criarNotificacao({ orgId, userId: destino, tipo: 'tarefa_vencida', titulo: '🤖 Cobrança da Central Inteligente', body: texto, referenciaId: tarefa.id, referenciaTipo: 'tarefa' })
+        enviados++
+      }
+      res.json({ ok: true, enviados })
+      return
     }
 
-    const texto = String(mensagem || '').trim() || `A Central Inteligente identificou que a tarefa "${tarefa.titulo}" precisa de atenção. Verifique prazo, subtarefas e execução.`
+    if (!pagamento_id) { res.status(400).json({ error: 'Informe o lançamento financeiro.' }); return }
+    const pagamento = await queryOne<any>(
+      `SELECT p.*, COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome_atual
+       FROM pagamentos p
+       LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
+       WHERE p.id = $1 AND p.org_id = $2`,
+      [pagamento_id, orgId]
+    )
+    if (!pagamento) { res.status(404).json({ error: 'Lançamento financeiro não encontrado.' }); return }
+
+    const pessoaNome = pagamento.pessoa_nome_atual || pagamento.pessoa_nome || 'Sem pessoa vinculada'
+    const valor = dinheiro(toNumber(pagamento.valor))
+    const vencimento = dataCurta(pagamento.vencimento)
+    let titulo = '🤖 Ação financeira da Central Inteligente'
+    let body = String(mensagem || '').trim()
+    let tarefaId: string | null = null
+
+    if (tipo === 'cobrar_devedor') {
+      titulo = '🤖 Cobrança de recebimento atrasado'
+      body = body || `Existe um recebimento pendente de ${pessoaNome}: ${valor}, vencimento ${vencimento}. Faça a cobrança, registre o retorno e atualize o financeiro.`
+    } else if (tipo === 'lembrar_pagamento') {
+      titulo = '🤖 Pagamento precisa de atenção'
+      body = body || `Pagamento pendente: ${pagamento.titulo} — ${valor}, vencimento ${vencimento}. Regularize ou registre a decisão.`
+    } else if (tipo === 'criar_tarefa_cobranca') {
+      tarefaId = await criarTarefaCobranca({ orgId, userId, pagamento })
+      titulo = pagamento.tipo === 'recebimento' ? '🤖 Tarefa de cobrança criada' : '🤖 Tarefa financeira criada'
+      body = body || `A Central Inteligente criou uma tarefa para resolver: ${pagamento.titulo} — ${valor}, vencimento ${vencimento}.`
+    } else {
+      body = body || `Lançamento financeiro precisa de atenção: ${pagamento.titulo} — ${valor}, vencimento ${vencimento}.`
+    }
+
+    const recipients = new Set<string>()
+    if (pagamento.criado_por) recipients.add(pagamento.criado_por)
+    recipients.add(userId)
     let enviados = 0
     for (const destino of recipients) {
-      await criarNotificacao({
-        orgId,
-        userId: destino,
-        tipo: 'tarefa_vencida',
-        titulo: '🤖 Cobrança da Central Inteligente',
-        body: texto,
-        referenciaId: tarefa.id,
-        referenciaTipo: 'tarefa',
-      })
+      await criarNotificacao({ orgId, userId: destino, tipo: pagamento.tipo === 'recebimento' ? 'financeiro_cobranca' : 'financeiro_vencimento', titulo, body, referenciaId: tarefaId || pagamento.id, referenciaTipo: tarefaId ? 'tarefa' : 'pagamento' })
       enviados++
     }
 
-    res.json({ ok: true, enviados })
+    res.json({ ok: true, enviados, tarefa_id: tarefaId || undefined, pagamento_id: pagamento.id })
   } catch (err) {
     console.error('[INTELIGENCIA] Erro ao executar ação:', err)
     res.status(500).json({ error: 'Erro ao executar ação inteligente.' })

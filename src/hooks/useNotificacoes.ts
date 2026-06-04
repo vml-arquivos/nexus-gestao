@@ -79,12 +79,36 @@ function tipoParaSom(tipo: string): 'nova_tarefa' | 'concluida' | 'alerta' | 'le
   if (
     tipo === 'tarefa_nao_concluida' ||
     tipo === 'tarefa_vencida' ||
-    tipo === 'tarefa_devolvida'
+    tipo === 'tarefa_devolvida' ||
+    tipo === 'financeiro_cobranca' ||
+    tipo === 'financeiro_vencido' ||
+    tipo === 'financeiro_vencimento' ||
+    tipo === 'agenda_lembrete'
   ) {
     return 'alerta'
   }
 
   return 'lembrete'
+}
+
+function notificarNavegador(n: Notificacao) {
+  try {
+    if (!('Notification' in window)) return
+    if (document.visibilityState === 'visible' && window.innerWidth > 768) return
+    if (Notification.permission !== 'granted') return
+    const title = n.titulo || 'Nexus Gestão'
+    const body = n.body || 'Você recebeu uma nova notificação.'
+    const notification = new Notification(title, { body, tag: n.id, silent: false })
+    notification.onclick = () => {
+      window.focus()
+      if (n.referencia_tipo === 'tarefa' && n.referencia_id) window.location.href = `/tarefas?task=${n.referencia_id}`
+      else if (n.referencia_tipo === 'pagamento') window.location.href = '/financeiro'
+      else if (n.referencia_tipo === 'agenda') window.location.href = '/agenda'
+      notification.close()
+    }
+  } catch {
+    // Navegador/PWA sem permissão ou suporte.
+  }
 }
 
 // ── Hook principal ────────────────────────────────────────────────────────────
@@ -94,6 +118,18 @@ export function useNotificacoes() {
   const [toasts, setToasts] = useState<Notificacao[]>([])
   const sseRef = useRef<EventSource | null>(null)
   const reconectarRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Desbloqueia áudio no primeiro toque/clique. Em mobile/PWA o navegador só
+  // permite som depois de uma interação real do usuário.
+  useEffect(() => {
+    const unlock = () => tocarSom('lembrete')
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
 
   // Carrega notificações iniciais
   const carregar = useCallback(async () => {
@@ -130,8 +166,9 @@ export function useNotificacoes() {
       setToasts(prev => prev.filter(t => t.id !== n.id))
     }, 6000)
 
-    // Som
+    // Som e notificação do navegador/PWA
     tocarSom(tipoParaSom(n.tipo))
+    notificarNavegador(n)
   }, [])
 
   // Conecta SSE
