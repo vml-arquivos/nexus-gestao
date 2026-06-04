@@ -172,6 +172,40 @@ function normalizeTextForScore(value: unknown) {
     .toLowerCase()
 }
 
+
+type ChecklistDifficulty = 'iniciante' | 'facil' | 'medio' | 'dificil' | 'hard'
+
+const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
+  iniciante: 1,
+  facil: 5,
+  medio: 10,
+  dificil: 17,
+  hard: 25,
+}
+
+function normalizeChecklistDifficulty(value: unknown, fallback: ChecklistDifficulty = 'medio'): ChecklistDifficulty {
+  const raw = normalizeTextForScore(value).replace(/\s+/g, '_')
+  if (raw === 'iniciante' || raw === 'leve' || raw === 'basico' || raw === 'básico') return 'iniciante'
+  if (raw === 'facil' || raw === 'fácil') return 'facil'
+  if (raw === 'medio' || raw === 'médio' || raw === 'normal') return 'medio'
+  if (raw === 'dificil' || raw === 'difícil') return 'dificil'
+  if (raw === 'hard' || raw === 'super_dificil' || raw === 'super_difícil' || raw === 'super_dificil_hard' || raw === 'nivel_hard' || raw === 'nível_hard') return 'hard'
+  return fallback
+}
+
+function scoreToDifficulty(score: unknown): ChecklistDifficulty {
+  const n = Number(score || 0)
+  if (n <= 1) return 'iniciante'
+  if (n <= 5) return 'facil'
+  if (n <= 10) return 'medio'
+  if (n <= 17) return 'dificil'
+  return 'hard'
+}
+
+function pointsForDifficulty(value: unknown, fallback: ChecklistDifficulty = 'medio') {
+  return CHECKLIST_DIFFICULTY_POINTS[normalizeChecklistDifficulty(value, fallback)]
+}
+
 function calculateTaskComplexityPoints(input: {
   titulo?: unknown
   descricao?: unknown
@@ -223,26 +257,13 @@ function calculateTaskComplexityPoints(input: {
   return Math.max(1, Math.min(999, Math.round(points)))
 }
 
-function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string; pontuacao?: number }, task: any) {
+function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty | string }, task: any) {
+  const dificuldade = normalizeChecklistDifficulty((item as any)?.dificuldade, scoreToDifficulty((item as any)?.pontuacao || 10))
   const manual = Number((item as any)?.pontuacao || 0)
-  if (Number.isFinite(manual) && manual > 0) return Math.max(1, Math.min(999, Math.round(manual)))
-  const itemText = `${item?.texto || ''} ${item?.descricao || ''}`
-  const taskText = `${task?.titulo || ''} ${task?.descricao || ''} ${task?.origem_nome || ''} ${task?.origem_tipo || ''}`
-  const base = calculateTaskComplexityPoints({
-    titulo: itemText || task?.titulo,
-    descricao: taskText,
-    prioridade: task?.prioridade,
-    checklist: [item],
-    origem_sistema: task?.origem_sistema,
-    origem_tipo: task?.origem_tipo,
-    origem_nome: task?.origem_nome,
-    origem_payload: task?.origem_payload,
-    manual: 0,
-  })
-  // A pontuação do ranking agora é por subtarefa/checklist. Mantemos uma faixa
-  // clara: subtarefa simples vale menos; análise/documento/financeiro/Destrava
-  // pode valer mais, sem transformar uma tarefa inteira em um único bloco de pontos.
-  return Math.max(3, Math.min(80, Math.round(base / 2)))
+  // Regra do ranking: a pontuação é da subtarefa/checklist, definida manualmente
+  // por quem cadastrou, com faixa objetiva de 1 a 25 pontos.
+  if (Number.isFinite(manual) && manual > 0) return Math.max(1, Math.min(25, Math.round(manual)))
+  return pointsForDifficulty(dificuldade)
 }
 
 function statusShouldReturnToExecution(status: unknown) {
@@ -271,8 +292,8 @@ function normalizePriority(value: unknown, fallback: string = 'media'): 'baixa' 
 
 function normalizePositiveScore(value: unknown, fallback = 1) {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(999, Number(fallback || 1)))
-  return Math.max(1, Math.min(999, parsed))
+  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(25, Math.round(Number(fallback || 1))))
+  return Math.max(1, Math.min(25, Math.round(parsed)))
 }
 
 function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
@@ -297,7 +318,7 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -318,9 +339,11 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
 
   return raw
     .map((item: any) => {
-      if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
+      if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false, dificuldade: 'medio' as ChecklistDifficulty, pontuacao: 10 }
       const rawDate = String(item?.data || item?.date || item?.prazo || '').slice(0, 10)
       const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined
+      const dificuldade = normalizeChecklistDifficulty(item?.dificuldade, scoreToDifficulty(item?.pontuacao || 10))
+      const pontuacao = normalizePositiveScore(item?.pontuacao, pointsForDifficulty(dificuldade))
       return {
         id: isUuid(item?.id) ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
@@ -328,7 +351,8 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         data: safeDate,
         responsavel_id: isUuid(item?.responsavel_id) ? item.responsavel_id : undefined,
         responsavel_nome: String(item?.responsavel_nome || '').trim() || undefined,
-        pontuacao: normalizePositiveScore(item?.pontuacao, 1),
+        dificuldade,
+        pontuacao,
         feito: !!item?.feito,
       }
     })

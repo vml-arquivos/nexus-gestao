@@ -16,6 +16,7 @@ import {
   Filter,
   CalendarDays,
   ListChecks,
+  Trophy,
 } from 'lucide-react'
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -61,6 +62,8 @@ function monthKeyFromDate(date: Date) {
 }
 
 type PainelTipo = 'tarefas' | 'agenda' | 'financeiro'
+type RankingPayload = { periodo: string; ranking: any[]; resumo: any }
+
 type PainelItem = {
   id: string
   tipo: PainelTipo
@@ -209,6 +212,7 @@ export default function Dashboard() {
   const [agenda, setAgenda] = useState<Evento[]>([])
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
   const [membros, setMembros] = useState<MembroEquipe[]>([])
+  const [ranking, setRanking] = useState<RankingPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [mesFiltro, setMesFiltro] = useState(monthKeyFromDate(now))
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | PainelTipo>('todos')
@@ -218,16 +222,18 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [t, a, p, m] = await Promise.all([
+        const [t, a, p, m, r] = await Promise.all([
           tarefasApi.list(),
           agendaApi.list(),
           pagamentosApi.list(),
           isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
+          tarefasApi.ranking().catch(() => null),
         ])
         setTarefas(t)
         setAgenda(a)
         setPagamentos(p)
         setMembros(m)
+        setRanking(r)
       } catch (e) {
         console.warn('Dashboard load error:', e)
       } finally {
@@ -504,6 +510,34 @@ export default function Dashboard() {
         <div><span>Entradas</span><strong className="positive">{fmt(filteredSummary.entradas)}</strong></div>
         <div><span>Saídas</span><strong className="negative">{fmt(filteredSummary.saidas)}</strong></div>
         <div><span>Saldo filtrado</span><strong className={filteredSummary.saldo >= 0 ? 'positive' : 'negative'}>{fmt(filteredSummary.saldo)}</strong></div>
+      </section>
+
+      <section className="dash-ranking-panel">
+        <div className="dash-section-head">
+          <div>
+            <h2><Trophy size={18} /> Ranking de execução da equipe</h2>
+            <p>Pontuação por subtarefa/checklist aprovado no mês. Quanto maior a dificuldade, maior a pontuação.</p>
+          </div>
+          <Link to="/tarefas" className="dash-inline-link">Ver ranking completo <ArrowRight size={13} /></Link>
+        </div>
+        <div className="dash-ranking-grid">
+          {(ranking?.ranking || []).slice(0, 5).map((r: any, index: number) => {
+            const max = Math.max(1, Number((ranking?.ranking || [])[0]?.pontos || 1))
+            const width = Math.max(6, Math.round((Number(r.pontos || 0) / max) * 100))
+            return (
+              <div className="dash-ranking-row" key={r.id || r.email || index}>
+                <span className="dash-ranking-pos">#{index + 1}</span>
+                <div className="dash-ranking-main">
+                  <strong>{r.nome || 'Membro'}</strong>
+                  <small>{Number(r.tarefas_aprovadas || 0)} subtarefa(s)/aprovação(ões)</small>
+                  <div className="dash-ranking-bar"><i style={{ width: `${width}%` }} /></div>
+                </div>
+                <b>{Number(r.pontos || 0)} pts</b>
+              </div>
+            )
+          })}
+          {(!ranking?.ranking || ranking.ranking.length === 0) && <div className="dash-empty">Ainda não há pontuação de tarefas neste mês.</div>}
+        </div>
       </section>
 
       <section className="dash-workspace">

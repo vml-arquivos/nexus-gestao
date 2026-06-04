@@ -6,7 +6,7 @@ import {
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
   Paperclip, Upload, Download, FileText, Copy, Trophy,
 } from 'lucide-react'
-import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem } from '../lib/api'
+import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
@@ -34,6 +34,32 @@ const PRIORIDADE_CONFIG: Record<string, { label: string; color: string }> = {
   baixa: { label: 'Baixa', color: '#10B981' },
   media: { label: 'Média', color: '#F59E0B' },
   alta: { label: 'Alta', color: '#EF4444' },
+}
+
+
+const CHECKLIST_DIFFICULTY_OPTIONS: Array<{ value: ChecklistDifficulty; label: string; points: number; hint: string }> = [
+  { value: 'iniciante', label: 'Iniciante', points: 1, hint: 'Ação simples e rápida' },
+  { value: 'facil', label: 'Fácil', points: 5, hint: 'Baixa complexidade' },
+  { value: 'medio', label: 'Médio', points: 10, hint: 'Exige atenção e conferência' },
+  { value: 'dificil', label: 'Difícil', points: 17, hint: 'Exige análise ou validação detalhada' },
+  { value: 'hard', label: 'Super difícil / Hard', points: 25, hint: 'Alta complexidade e impacto' },
+]
+
+function difficultyPoints(value?: ChecklistDifficulty | string) {
+  return CHECKLIST_DIFFICULTY_OPTIONS.find(opt => opt.value === value)?.points || 10
+}
+
+function difficultyLabel(value?: ChecklistDifficulty | string) {
+  return CHECKLIST_DIFFICULTY_OPTIONS.find(opt => opt.value === value)?.label || 'Médio'
+}
+
+function difficultyFromPoints(points?: number): ChecklistDifficulty {
+  const n = Number(points || 0)
+  if (n <= 1) return 'iniciante'
+  if (n <= 5) return 'facil'
+  if (n <= 10) return 'medio'
+  if (n <= 17) return 'dificil'
+  return 'hard'
 }
 
 const ACCEPTED_EVIDENCE_TYPES = ".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv"
@@ -151,7 +177,8 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
     data: item.data ? String(item.data).slice(0, 10) : undefined,
     responsavel_id: item.responsavel_id || undefined,
     responsavel_nome: item.responsavel_nome || undefined,
-    pontuacao: Math.max(1, Math.min(999, Number((item as any).pontuacao || 1))),
+    dificuldade: (item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao || 10)),
+    pontuacao: Math.max(1, Math.min(25, Number((item as any).pontuacao || difficultyPoints((item as any).dificuldade)))),
     feito: Boolean(item.feito),
   }))
 }
@@ -424,6 +451,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemData, setNovoItemData] = useState('')
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
   const [novoItemPontuacao, setNovoItemPontuacao] = useState('10')
+  const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('medio')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
   const [destravaLoading, setDestravaLoading] = useState(false)
@@ -484,6 +512,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (!id) return undefined
     return responsaveisChecklist.find(m => m.id === id)?.nome
   }
+  function applyNovoItemDifficulty(next: ChecklistDifficulty) {
+    setNovoItemDificuldade(next)
+    setNovoItemPontuacao(String(difficultyPoints(next)))
+  }
+
 
   function addItem() {
     if (!novoItem.trim()) { toast('Informe a ação do checklist.', 'error'); return }
@@ -495,13 +528,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       data: novoItemData || undefined,
       responsavel_id: novoItemResponsavelId || undefined,
       responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
-      pontuacao: Math.max(1, Math.min(999, Number(novoItemPontuacao || 10))),
+      dificuldade: novoItemDificuldade,
+      pontuacao: Math.max(1, Math.min(25, Number(novoItemPontuacao || 10))),
       feito: false,
     }])
     setNovoItem('')
     setNovoItemDescricao('')
     setNovoItemData('')
     setNovoItemResponsavelId('')
+    setNovoItemDificuldade('medio')
     setNovoItemPontuacao('10')
   }
 
@@ -682,7 +717,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Pontuação no ranking</label>
-              <input className="form-input" type="number" min="1" max="999" value={pontuacao} onChange={e => setPontuacao(e.target.value)} />
+              <input className="form-input" type="number" min="1" max="25" value={pontuacao} onChange={e => setPontuacao(e.target.value)} />
             </div>
             <label className="form-group" style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 22 }}>
               <input type="checkbox" checked={contaRanking} onChange={e => setContaRanking(e.target.checked)} />
@@ -736,6 +771,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
                 </select>
               </div>
+              <div className="form-group">
+                <label className="form-label">Grau de dificuldade *</label>
+                <select className="form-input" value={novoItemDificuldade} onChange={e => applyNovoItemDifficulty(e.target.value as ChecklistDifficulty)}>
+                  {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Pontuação *</label>
+                <input className="form-input" type="number" min="1" max="25" value={novoItemPontuacao} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 1))) }} />
+              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Descrição/instrução da ação</label>
@@ -784,13 +829,24 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))}
                   placeholder="Ação do checklist"
                 />
+                <select
+                  className="form-input"
+                  value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao || 10))}
+                  onChange={e => {
+                    const dificuldade = e.target.value as ChecklistDifficulty
+                    setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i))
+                  }}
+                  title="Grau de dificuldade"
+                >
+                  {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                </select>
                 <input
                   className="form-input"
                   type="number"
                   min="1"
-                  max="999"
+                  max="25"
                   value={(item as any).pontuacao || 1}
-                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(999, Number(e.target.value || 1))) } : i))}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))}
                   title="Pontuação obrigatória desta subtarefa"
                 />
                 <input
@@ -1185,6 +1241,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const [newSubtaskDate, setNewSubtaskDate] = useState('')
   const [newSubtaskResp, setNewSubtaskResp] = useState('')
   const [newSubtaskPoints, setNewSubtaskPoints] = useState('10')
+  const [newSubtaskDifficulty, setNewSubtaskDifficulty] = useState<ChecklistDifficulty>('medio')
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
   const isCriador = tarefa.criado_por === userId
@@ -1212,6 +1269,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
     if (!id) return undefined
     return responsaveisChecklist.find(m => m.id === id)?.nome
   }
+  function applyNewSubtaskDifficulty(next: ChecklistDifficulty) {
+    setNewSubtaskDifficulty(next)
+    setNewSubtaskPoints(String(difficultyPoints(next)))
+  }
+
 
   function addInlineSubtask() {
     if (!newSubtask.trim()) { toast('Informe a ação do checklist.', 'error'); return }
@@ -1223,13 +1285,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
       data: newSubtaskDate || undefined,
       responsavel_id: newSubtaskResp || undefined,
       responsavel_nome: checklistResponsibleName(newSubtaskResp),
-      pontuacao: Math.max(1, Math.min(999, Number(newSubtaskPoints || 10))),
+      dificuldade: newSubtaskDifficulty,
+      pontuacao: Math.max(1, Math.min(25, Number(newSubtaskPoints || 10))),
       feito: false,
     }])
     setNewSubtask('')
     setNewSubtaskDesc('')
     setNewSubtaskDate('')
     setNewSubtaskResp('')
+    setNewSubtaskDifficulty('medio')
     setNewSubtaskPoints('10')
     setEditMode(true)
   }
@@ -1305,7 +1369,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
 
     const texto = [
       `Checklist da tarefa: ${tarefa.titulo}`,
-      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${(item as any).pontuacao ? `\n   Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${(item as any).pontuacao ? `\n   Dificuldade: ${difficultyLabel((item as any).dificuldade)} · Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
     ].join('\n')
 
     try {
@@ -1471,8 +1535,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                 <input className="form-input" value={newSubtask} onChange={e => setNewSubtask(e.target.value)} placeholder="Ex.: Conferir contrato social" />
               </div>
               <div className="form-group">
+                <label className="form-label">Grau de dificuldade *</label>
+                <select className="form-input" value={newSubtaskDifficulty} onChange={e => applyNewSubtaskDifficulty(e.target.value as ChecklistDifficulty)}>
+                  {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                </select>
+              </div>
+              <div className="form-group">
                 <label className="form-label">Pontuação *</label>
-                <input className="form-input" type="number" min="1" max="999" value={newSubtaskPoints} onChange={e => setNewSubtaskPoints(e.target.value)} />
+                <input className="form-input" type="number" min="1" max="25" value={newSubtaskPoints} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 1))) }} />
               </div>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
@@ -1496,7 +1566,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               {checklist.map(item => (
                 <div key={item.id} className="task-inline-checklist-row">
                   <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Ação do checklist" />
-                  <input className="form-input" type="number" min="1" max="999" value={(item as any).pontuacao || 1} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(999, Number(e.target.value || 1))) } : i))} title="Pontuação" />
+                  <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao || 10))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
+                    {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                  </select>
+                  <input className="form-input" type="number" min="1" max="25" value={(item as any).pontuacao || 1} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))} title="Pontuação" />
                   <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
                   <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                     <option value="">Livre / responsável principal</option>
@@ -1558,7 +1631,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                           <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           <span className="task-check-content">
                             <span className="task-check-text">{item.texto}</span>
-                            <span className="task-check-points">{(item as any).pontuacao || 1} ponto(s)</span>
+                            <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao || difficultyPoints((item as any).dificuldade)} ponto(s)</span>
                             <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
                             {item.descricao && <span className="task-check-desc">{item.descricao}</span>}

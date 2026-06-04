@@ -2,9 +2,8 @@ export interface GeminiInsightInput {
   score: number
   resumo: string
   metricas: Record<string, number>
-  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico'; destino?: string }>
-  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string; destino?: string }>
-  acoes?: Array<{ titulo: string; detalhe: string; tipo?: string; destino?: string; executavel?: boolean }>
+  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
+  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string }>
 }
 
 export interface GeminiInsightResult {

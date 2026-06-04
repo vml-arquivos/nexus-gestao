@@ -37,6 +37,8 @@ export interface UserProfile {
   ativo?: boolean
 }
 
+export type ChecklistDifficulty = 'iniciante' | 'facil' | 'medio' | 'dificil' | 'hard'
+
 export interface ChecklistItem {
   id: string
   texto: string
@@ -46,6 +48,8 @@ export interface ChecklistItem {
   /** Responsável específico por executar este item do checklist. */
   responsavel_id?: string
   responsavel_nome?: string
+  /** Grau de dificuldade da subtarefa: controla a pontuação base de 1 a 25. */
+  dificuldade?: ChecklistDifficulty
   /** Pontos manuais desta subtarefa/checklist. Obrigatório para ranking por checklist. */
   pontuacao?: number
 }
@@ -322,38 +326,15 @@ export interface HistoricoPessoa {
 
 
 
-export type AcaoInteligenteTipo =
-  | 'abrir_tarefa'
-  | 'ver_tarefas_atrasadas'
-  | 'ver_tarefas_sem_responsavel'
-  | 'ver_financeiro'
-  | 'ver_agenda'
-  | 'priorizar_tarefa'
-  | 'criar_tarefa_cobranca'
-  | 'cobrar_responsavel'
-
-export interface AcaoInteligente {
-  id: string
-  tipo: AcaoInteligenteTipo
-  titulo: string
-  detalhe: string
-  destino?: string
-  tarefa_id?: string
-  prioridade?: 'baixo' | 'medio' | 'alto' | 'critico'
-  executavel?: boolean
-  confirmacao?: string
-}
-
 export interface InteligenciaPainel {
   score: number
   nivel: 'baixo' | 'medio' | 'alto' | 'critico'
   resumo: string
   metricas: Record<string, number>
-  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico'; destino?: string }>
-  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string; destino?: string }>
-  acoes?: AcaoInteligente[]
+  riscos: Array<{ titulo: string; detalhe: string; nivel: 'baixo' | 'medio' | 'alto' | 'critico' }>
+  recomendacoes: Array<{ titulo: string; detalhe: string; acao: string }>
   sobrecarga: Array<{ nome: string; abertas: number; atrasadas: number }>
-  tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'> & { updated_at?: string; data_reabertura?: string }>
+  tarefas_criticas: Array<Pick<Tarefa, 'id' | 'titulo' | 'prioridade' | 'status' | 'prazo' | 'data' | 'responsavel_nome'>>
   gemini: { enabled: boolean; provider: string; model: string; texto: string; erro?: string }
   gerado_em: string
 }
@@ -490,7 +471,7 @@ export const inteligenciaApi = {
     return apiJson('/inteligencia/painel')
   },
 
-  async executarAcao(payload: { tipo: AcaoInteligenteTipo; tarefa_id?: string }): Promise<{ ok: boolean; mensagem: string; destino?: string; tarefa?: Tarefa }> {
+  async executarAcao(payload: { tipo: 'cobrar_tarefa'; tarefa_id: string; mensagem?: string }): Promise<{ ok: boolean; enviados: number }> {
     return apiJson('/inteligencia/executar-acao', { method: 'POST', body: JSON.stringify(payload) })
   },
 }

@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   Activity, AlertTriangle, BrainCircuit, CalendarDays, CheckCircle2,
-  DollarSign, ExternalLink, PlayCircle, RefreshCw, Route, ShieldCheck,
-  Sparkles, Target, Users, Zap,
+  DollarSign, RefreshCw, Route, ShieldCheck, Sparkles, Target, Users,
 } from 'lucide-react'
-import { inteligenciaApi, type AcaoInteligente, type InteligenciaPainel } from '../lib/api'
+import { inteligenciaApi, type InteligenciaPainel } from '../lib/api'
 
 function dinheiro(value?: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0)
@@ -13,14 +12,6 @@ function dinheiro(value?: number) {
 
 function numero(value?: number) {
   return new Intl.NumberFormat('pt-BR').format(value || 0)
-}
-
-function dataCurta(value?: string) {
-  if (!value) return 'Sem data'
-  const raw = String(value).slice(0, 10)
-  const [y, m, d] = raw.split('-')
-  if (y && m && d) return `${d}/${m}/${y}`
-  return raw
 }
 
 function nivelLabel(nivel: InteligenciaPainel['nivel']) {
@@ -37,46 +28,17 @@ function riscoClass(nivel: string) {
   return 'success'
 }
 
-function MetricaCard({ icon: Icon, label, value, hint, to }: { icon: any; label: string; value: string; hint: string; to?: string }) {
-  const content = (
-    <>
+function MetricaCard({ icon: Icon, label, value, hint }: { icon: any; label: string; value: string; hint: string }) {
+  return (
+    <div className="intel-card metric-card">
       <div className="metric-icon"><Icon size={18} /></div>
       <div>
         <strong>{value}</strong>
         <span>{label}</span>
         <small>{hint}</small>
       </div>
-    </>
+    </div>
   )
-  if (to) return <Link to={to} className="intel-card metric-card metric-card-action">{content}<ExternalLink size={15} /></Link>
-  return <div className="intel-card metric-card">{content}</div>
-}
-
-function AcaoCard({ acao, running, onExecute }: { acao: AcaoInteligente; running: boolean; onExecute: (acao: AcaoInteligente) => void }) {
-  const prioridade = riscoClass(acao.prioridade || 'medio')
-  const body = (
-    <>
-      <div className="action-card-main">
-        <span className={`risk-pill ${prioridade}`}>{acao.prioridade || 'ação'}</span>
-        <strong>{acao.titulo}</strong>
-        <p>{acao.detalhe}</p>
-      </div>
-      <div className="action-card-footer">
-        {acao.executavel ? (
-          <button type="button" className="btn-primary btn-sm" disabled={running} onClick={(e) => { e.preventDefault(); e.stopPropagation(); onExecute(acao) }}>
-            <PlayCircle size={14} /> {running ? 'Executando…' : 'Executar'}
-          </button>
-        ) : (
-          <span className="action-open-label"><ExternalLink size={14} /> Abrir</span>
-        )}
-      </div>
-    </>
-  )
-
-  if (acao.destino && !acao.executavel) {
-    return <Link to={acao.destino} className="action-card">{body}</Link>
-  }
-  return <div className="action-card">{body}</div>
 }
 
 export default function Inteligencia() {
@@ -84,8 +46,6 @@ export default function Inteligencia() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [executando, setExecutando] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<string | null>(null)
-  const navigate = useNavigate()
 
   async function carregar() {
     try {
@@ -100,24 +60,21 @@ export default function Inteligencia() {
     }
   }
 
-  async function executarAcao(acao: AcaoInteligente) {
-    const ok = window.confirm(acao.confirmacao || `Executar ação: ${acao.titulo}?`)
-    if (!ok) return
+  useEffect(() => { carregar() }, [])
+
+  async function cobrarTarefa(tarefaId: string, titulo: string) {
+    if (!confirm(`Enviar notificação de cobrança para a tarefa "${titulo}"?`)) return
     try {
-      setExecutando(acao.id)
-      setFeedback(null)
-      const result = await inteligenciaApi.executarAcao({ tipo: acao.tipo, tarefa_id: acao.tarefa_id })
-      setFeedback(result.mensagem || 'Ação executada com sucesso.')
-      await carregar()
-      if (result.destino) navigate(result.destino)
+      setExecutando(tarefaId)
+      const result = await inteligenciaApi.executarAcao({ tipo: 'cobrar_tarefa', tarefa_id: tarefaId })
+      alert(`Cobrança enviada para ${result.enviados || 0} destinatário(s).`)
     } catch (err: any) {
-      setFeedback(err?.message || 'Não foi possível executar a ação.')
+      alert(err?.message || 'Não foi possível enviar a cobrança inteligente.')
     } finally {
       setExecutando(null)
     }
   }
 
-  useEffect(() => { carregar() }, [])
 
   const scoreStyle = useMemo(() => ({
     background: `conic-gradient(var(--primary) ${(painel?.score || 0) * 3.6}deg, var(--bg3) 0deg)`,
@@ -142,22 +99,19 @@ export default function Inteligencia() {
   }
 
   if (!painel) return null
-  const acoes = painel.acoes || []
 
   return (
     <div className="page-container inteligencia-page">
       <div className="page-header inteligencia-header">
         <div>
-          <span className="eyebrow"><BrainCircuit size={14} /> Copiloto de ação</span>
+          <span className="eyebrow"><BrainCircuit size={14} /> Copiloto de gestão</span>
           <h1>Central inteligente</h1>
-          <p>Diagnóstico com ações clicáveis para resolver tarefas, financeiro e agenda.</p>
+          <p>Diagnóstico automático da operação, tarefas, agenda e financeiro.</p>
         </div>
         <button className="btn-secondary" onClick={carregar}><RefreshCw size={15} /> Atualizar análise</button>
       </div>
 
-      {feedback && <div className="intel-feedback"><Zap size={16} /> {feedback}</div>}
-
-      <section className="intel-hero action-hero">
+      <section className="intel-hero">
         <div className="health-score" style={scoreStyle}>
           <div>
             <strong>{painel.score}</strong>
@@ -166,10 +120,10 @@ export default function Inteligencia() {
         </div>
         <div className="health-copy">
           <span className={`risk-pill ${riscoClass(painel.nivel)}`}>{nivelLabel(painel.nivel)}</span>
-          <h2>O que precisa de ação agora</h2>
+          <h2>Saúde da empresa agora</h2>
           <p>{painel.resumo}</p>
           <div className="hero-actions">
-            <Link to="/tarefas?filtro=criticas" className="btn-primary"><Target size={15} /> Abrir fila crítica</Link>
+            <Link to="/tarefas" className="btn-primary"><Target size={15} /> Resolver tarefas</Link>
             <Link to="/financeiro" className="btn-secondary"><DollarSign size={15} /> Ver financeiro</Link>
             <Link to="/agenda" className="btn-secondary"><CalendarDays size={15} /> Ver agenda</Link>
           </div>
@@ -177,61 +131,53 @@ export default function Inteligencia() {
       </section>
 
       <section className="intel-grid metrics-grid">
-        <MetricaCard to="/tarefas?status=abertas" icon={CheckCircle2} label="Tarefas abertas" value={numero(painel.metricas.tarefas_abertas)} hint={`${numero(painel.metricas.tarefas_atrasadas)} atrasadas`} />
-        <MetricaCard to="/tarefas?prioridade=alta" icon={Target} label="Alta prioridade" value={numero(painel.metricas.tarefas_alta_prioridade)} hint="Clique para focar primeiro" />
-        <MetricaCard to="/financeiro" icon={DollarSign} label="Saldo previsto" value={dinheiro(painel.metricas.saldo_previsto)} hint="Receitas previstas menos despesas" />
-        <MetricaCard to="/agenda" icon={CalendarDays} label="Agenda da semana" value={numero(painel.metricas.agenda_7_dias)} hint="Compromissos próximos" />
-      </section>
-
-      <section className="intel-card action-panel">
-        <div className="section-title"><Zap size={18} /><div><h3>Ações inteligentes</h3><p>Clique para abrir a tela correta ou executar uma ação com confirmação.</p></div></div>
-        {acoes.length === 0 ? (
-          <div className="soft-empty"><ShieldCheck size={20} /> Nenhuma ação urgente sugerida agora.</div>
-        ) : (
-          <div className="action-grid">
-            {acoes.map((acao) => <AcaoCard key={acao.id} acao={acao} running={executando === acao.id} onExecute={executarAcao} />)}
-          </div>
-        )}
+        <MetricaCard icon={CheckCircle2} label="Tarefas abertas" value={numero(painel.metricas.tarefas_abertas)} hint={`${numero(painel.metricas.tarefas_atrasadas)} atrasadas`} />
+        <MetricaCard icon={Target} label="Alta prioridade" value={numero(painel.metricas.tarefas_alta_prioridade)} hint="Precisa de foco primeiro" />
+        <MetricaCard icon={DollarSign} label="Saldo previsto" value={dinheiro(painel.metricas.saldo_previsto)} hint="Receitas previstas menos despesas" />
+        <MetricaCard icon={CalendarDays} label="Agenda da semana" value={numero(painel.metricas.agenda_7_dias)} hint="Compromissos próximos" />
       </section>
 
       <section className="intel-two-columns">
         <div className="intel-card">
-          <div className="section-title"><AlertTriangle size={18} /><div><h3>Riscos detectados</h3><p>Cada risco agora leva para uma tela de resolução.</p></div></div>
+          <div className="section-title"><AlertTriangle size={18} /><div><h3>Riscos detectados</h3><p>O que pode virar problema se não for tratado.</p></div></div>
           <div className="risk-list">
-            {painel.riscos.map((risco, idx) => {
-              const row = (
-                <>
-                  <span className={`risk-dot ${riscoClass(risco.nivel)}`} />
-                  <div><strong>{risco.titulo}</strong><p>{risco.detalhe}</p></div>
-                  <small className={`risk-pill ${riscoClass(risco.nivel)}`}>{risco.nivel}</small>
-                </>
-              )
-              return risco.destino ? <Link to={risco.destino} className="risk-row risk-row-action" key={`${risco.titulo}-${idx}`}>{row}</Link> : <div className="risk-row" key={`${risco.titulo}-${idx}`}>{row}</div>
-            })}
+            {painel.riscos.map((risco, idx) => (
+              <div className="risk-row" key={`${risco.titulo}-${idx}`}>
+                <span className={`risk-dot ${riscoClass(risco.nivel)}`} />
+                <div><strong>{risco.titulo}</strong><p>{risco.detalhe}</p></div>
+                <small className={`risk-pill ${riscoClass(risco.nivel)}`}>{risco.nivel}</small>
+              </div>
+            ))}
           </div>
         </div>
 
         <div className="intel-card">
-          <div className="section-title"><Route size={18} /><div><h3>Plano recomendado</h3><p>Plano operacional com direcionamento claro.</p></div></div>
+          <div className="section-title"><Route size={18} /><div><h3>Plano recomendado</h3><p>Ações práticas para organizar a operação.</p></div></div>
           <div className="recommendation-list">
-            {painel.recomendacoes.map((rec, idx) => {
-              const content = <><span>{idx + 1}</span><div><strong>{rec.titulo}</strong><p>{rec.detalhe}</p><small>{rec.acao}</small></div></>
-              return rec.destino ? <Link to={rec.destino} className="recommendation-row recommendation-row-action" key={`${rec.titulo}-${idx}`}>{content}</Link> : <div className="recommendation-row" key={`${rec.titulo}-${idx}`}>{content}</div>
-            })}
+            {painel.recomendacoes.map((rec, idx) => (
+              <div className="recommendation-row" key={`${rec.titulo}-${idx}`}>
+                <span>{idx + 1}</span>
+                <div><strong>{rec.titulo}</strong><p>{rec.detalhe}</p><small>{rec.acao}</small></div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       <section className="intel-two-columns">
         <div className="intel-card">
-          <div className="section-title"><Sparkles size={18} /><div><h3>Análise Gemini</h3><p>Usada como copiloto de leitura; as ações vêm estruturadas pelo sistema.</p></div></div>
+          <div className="section-title"><Sparkles size={18} /><div><h3>Análise Gemini</h3><p>LLM configurável por GEMINI_API_KEY e GEMINI_MODEL.</p></div></div>
           <div className="gemini-box">
             <div className="gemini-status">
               <span className={painel.gemini.enabled ? 'online' : 'offline'} />
               {painel.gemini.enabled ? `Gemini ativo · ${painel.gemini.model}` : 'Análise local ativa'}
             </div>
             <p>{painel.gemini.texto}</p>
-            {painel.gemini.erro && <div className="gemini-error"><strong>Detalhe técnico:</strong> {painel.gemini.erro}</div>}
+            {painel.gemini.erro && (
+              <div className="gemini-error">
+                <strong>Detalhe técnico:</strong> {painel.gemini.erro}
+              </div>
+            )}
           </div>
         </div>
 
@@ -253,14 +199,19 @@ export default function Inteligencia() {
       </section>
 
       <section className="intel-card">
-        <div className="section-title"><Activity size={18} /><div><h3>Fila crítica inteligente</h3><p>Clique em qualquer linha para abrir a tarefa diretamente.</p></div></div>
+        <div className="section-title"><Activity size={18} /><div><h3>Fila crítica inteligente</h3><p>Ordem sugerida para resolver primeiro.</p></div></div>
         <div className="critical-table">
           {painel.tarefas_criticas.map((tarefa) => (
-            <Link to={`/tarefas?task=${encodeURIComponent(tarefa.id)}`} className="critical-row" key={tarefa.id}>
-              <div><strong>{tarefa.titulo}</strong><p>{tarefa.responsavel_nome || 'Sem responsável'} · {tarefa.status}</p></div>
-              <span>{tarefa.prioridade}</span>
-              <small>{dataCurta(tarefa.data_reabertura || tarefa.updated_at || tarefa.prazo || tarefa.data)}</small>
-            </Link>
+            <div className="critical-row critical-row-action" key={tarefa.id}>
+              <Link to={`/tarefas?task=${tarefa.id}`}>
+                <div><strong>{tarefa.titulo}</strong><p>{tarefa.responsavel_nome || 'Sem responsável'} · {tarefa.status}</p></div>
+                <span>{tarefa.prioridade}</span>
+                <small>{tarefa.prazo || tarefa.data || 'Sem data'}</small>
+              </Link>
+              <button className="btn-secondary" type="button" disabled={executando === tarefa.id} onClick={() => cobrarTarefa(tarefa.id, tarefa.titulo)}>
+                {executando === tarefa.id ? 'Enviando…' : 'Cobrar agora'}
+              </button>
+            </div>
           ))}
           {painel.tarefas_criticas.length === 0 && <div className="soft-empty"><CheckCircle2 size={20} /> Nenhuma tarefa crítica aberta.</div>}
         </div>

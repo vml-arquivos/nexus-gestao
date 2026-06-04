@@ -63,18 +63,25 @@ export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
 // ── Job de vencimento e lembrete diário ──────────────────────────────────────
 async function jobVencimentos() {
   try {
-    // Busca tarefas que venceram hoje e ainda não foram notificadas (pendente)
+    // Notifica automaticamente tarefas vencidas e vencendo hoje.
+    // Regras:
+    // - se tem responsável, notifica o responsável e o criador;
+    // - se é tarefa livre da equipe sem responsável, notifica toda a equipe da organização;
+    // - deduplicação diária para não gerar spam.
     const tarefas = await query<{
-      id: string; org_id: string; responsavel_id: string; criado_por: string
-      titulo: string; prazo: string; responsavel_nome: string
+      id: string; org_id: string; responsavel_id: string | null; criado_por: string
+      titulo: string; prazo: string; responsavel_nome: string; modo_distribuicao: string
+      dias: string
     }>(
       `SELECT t.id, t.org_id, t.responsavel_id, t.criado_por,
-              t.titulo, t.prazo, COALESCE(p.nome,'') AS responsavel_nome
+              t.titulo, t.prazo, COALESCE(p.nome,'') AS responsavel_nome,
+              COALESCE(t.modo_distribuicao, 'normal') AS modo_distribuicao,
+              (t.prazo::date - CURRENT_DATE)::text AS dias
        FROM tarefas t
        LEFT JOIN profiles p ON p.id = t.responsavel_id
-       WHERE t.status = 'pendente'
+       WHERE t.status IN ('pendente','em_progresso','devolvida','reenviada')
          AND t.prazo IS NOT NULL
-         AND t.prazo::date = CURRENT_DATE
+         AND t.prazo::date <= CURRENT_DATE
          AND NOT EXISTS (
            SELECT 1 FROM notificacoes n
            WHERE n.referencia_id = t.id
@@ -83,30 +90,38 @@ async function jobVencimentos() {
          )`,
       []
     )
+
     for (const t of tarefas) {
-      // Notifica responsável
-      if (t.responsavel_id) {
-        await criarNotificacao({
-          orgId: t.org_id, userId: t.responsavel_id,
-          tipo: 'tarefa_vencida',
-          titulo: '⚠️ Tarefa vence hoje!',
-          body: `A tarefa "${t.titulo}" vence hoje e ainda está pendente.`,
-          referenciaId: t.id, referenciaTipo: 'tarefa',
-        })
+      const dias = parseInt(t.dias || '0', 10)
+      const atrasada = dias < 0
+      const recipients = new Set<string>()
+      if (t.responsavel_id) recipients.add(t.responsavel_id)
+      if (t.criado_por) recipients.add(t.criado_por)
+
+      if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') {
+        const equipe = await query<{ id: string }>(
+          `SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE`,
+          [t.org_id]
+        ).catch(() => [])
+        for (const m of equipe) recipients.add(m.id)
       }
-      // Notifica criador (se diferente do responsável)
-      if (t.criado_por && t.criado_por !== t.responsavel_id) {
+
+      for (const userId of recipients) {
         await criarNotificacao({
-          orgId: t.org_id, userId: t.criado_por,
+          orgId: t.org_id,
+          userId,
           tipo: 'tarefa_vencida',
-          titulo: '⚠️ Tarefa vence hoje!',
-          body: `A tarefa "${t.titulo}" (${t.responsavel_nome || 'sem responsável'}) vence hoje e ainda está pendente.`,
-          referenciaId: t.id, referenciaTipo: 'tarefa',
+          titulo: atrasada ? '🚨 Tarefa atrasada precisa de ação' : '⚠️ Tarefa vence hoje',
+          body: atrasada
+            ? `A tarefa "${t.titulo}" está atrasada há ${Math.abs(dias)} dia(s). Execute, assuma uma subtarefa ou regularize o andamento.`
+            : `A tarefa "${t.titulo}" vence hoje e ainda não foi concluída.`,
+          referenciaId: t.id,
+          referenciaTipo: 'tarefa',
         })
       }
     }
     if (tarefas.length > 0) {
-      console.log(`[NOTIF] ${tarefas.length} tarefa(s) vencendo hoje notificadas.`)
+      console.log(`[NOTIF] ${tarefas.length} tarefa(s) vencidas/vencendo notificadas automaticamente.`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de vencimentos:', err)
