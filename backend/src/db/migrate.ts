@@ -574,6 +574,130 @@ CREATE INDEX IF NOT EXISTS idx_lembretes_data ON lembretes(data_lembrete) WHERE 
 CREATE INDEX IF NOT EXISTS idx_lembretes_org  ON lembretes(org_id);
 CREATE INDEX IF NOT EXISTS idx_lembretes_dest ON lembretes(destinatario_id);
 
+-- ── PUSH SUBSCRIPTIONS (notificações PWA) ────────────────────
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id       UUID NOT NULL,
+  user_id      UUID NOT NULL,
+  endpoint     TEXT NOT NULL,
+  p256dh       TEXT NOT NULL,
+  auth         TEXT NOT NULL,
+  user_agent   TEXT,
+  device_label TEXT,
+  active       BOOLEAN NOT NULL DEFAULT TRUE,
+  last_seen_at TIMESTAMPTZ DEFAULT NOW(),
+  last_sent_at TIMESTAMPTZ,
+  fail_count   INTEGER NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, endpoint)
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user     ON push_subscriptions(org_id, user_id, active);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint ON push_subscriptions(endpoint);
+
+-- ── COLUNAS ADICIONAIS EM TAREFAS (idempotente) ──────────────
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_reabertura   TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reaberto_por      UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_sistema    TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_tipo       TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_id         TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_nome       TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_url        TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_payload    JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS external_key      TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status   TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs      TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em       TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro   TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor     TEXT NOT NULL DEFAULT 'aguardando';
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS escopo            TEXT NOT NULL DEFAULT 'pessoal';
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS modo_distribuicao TEXT NOT NULL DEFAULT 'normal';
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por        UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em         TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao         INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking     BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor   TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em       TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por      UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em      TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio       TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao    TIMESTAMPTZ;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reenviada_em      TIMESTAMPTZ;
+
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check
+  CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','reenviada','aprovada','cancelada'));
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check
+  CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_escopo_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_escopo_check
+  CHECK (escopo IN ('pessoal','equipe'));
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_modo_distribuicao_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_modo_distribuicao_check
+  CHECK (modo_distribuicao IN ('normal','livre_equipe'));
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe  ON tarefas(org_id, modo_distribuicao, aceita_por, status);
+CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
+CREATE INDEX IF NOT EXISTS idx_tarefas_escopo        ON tarefas(org_id, escopo);
+CREATE INDEX IF NOT EXISTS idx_tarefas_external_key  ON tarefas(external_key);
+CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel   ON tarefas(responsavel_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
+
+-- ── LINKS EXTERNOS (integração Destrava) ─────────────────────
+CREATE TABLE IF NOT EXISTS nexus_external_links (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        UUID NOT NULL,
+  source_system TEXT NOT NULL DEFAULT 'destrava',
+  external_type TEXT NOT NULL,
+  external_id   TEXT NOT NULL,
+  external_name TEXT,
+  nexus_type    TEXT NOT NULL,
+  nexus_id      UUID NOT NULL,
+  source_url    TEXT,
+  metadata      JSONB DEFAULT '{}',
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_nexus_external_links_lookup
+  ON nexus_external_links(source_system, external_type, external_id);
+CREATE INDEX IF NOT EXISTS idx_nexus_external_links_nexus
+  ON nexus_external_links(nexus_type, nexus_id);
+
+-- ── COLUNAS ADICIONAIS EM PROFILES (idempotente) ─────────────
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS primeiro_acesso    BOOLEAN DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS convite_token      TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS convite_expira_em  TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_profiles_ativo         ON profiles(ativo);
+CREATE INDEX IF NOT EXISTS idx_profiles_convite_token ON profiles(convite_token) WHERE convite_token IS NOT NULL;
+
+-- ── COLUNAS ADICIONAIS EM PAGAMENTOS (idempotente) ───────────
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS grupo_id      UUID;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS num_parcelas  INT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS num_parcela   INT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pessoa_id     UUID;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pessoa_nome   TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pessoa_user_id     UUID;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pessoa_contato     TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pessoa_nome_atual  TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS pago_em       TIMESTAMPTZ;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS forma_pagamento TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS modelo        TEXT DEFAULT 'unico';
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS titulo        TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ DEFAULT NOW();
+CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
+
+-- ── NOTIFICAÇÕES — constraint ampliada (idempotente) ─────────
+ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
+ALTER TABLE notificacoes ADD CONSTRAINT notificacoes_tipo_check
+  CHECK (tipo IN ('info','tarefa_criada','tarefa_atualizada','tarefa_concluida','tarefa_aprovada',
+                  'tarefa_devolvida','tarefa_reenviada','tarefa_atrasada','tarefa_reaberta',
+                  'financeiro_cobranca','financeiro_vencido','agenda_lembrete',
+                  'reaberta','excluida','comentario'));
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================
