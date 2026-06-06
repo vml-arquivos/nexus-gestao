@@ -518,7 +518,8 @@ export default function Dashboard() {
             <h2><Trophy size={18} /> Ranking de execução da equipe</h2>
             <p>Pontuação geral por subtarefa/checklist já executado. Todos os membros aparecem, mesmo com zero pontos.</p>
           </div>
-          <Link to="/tarefas" className="dash-inline-link">Ver ranking completo <ArrowRight size={13} /></Link>
+          {/* Link direto para aba de ranking dentro de tarefas */}
+          <Link to="/tarefas?tab=ranking" className="dash-inline-link">Ver ranking completo <ArrowRight size={13} /></Link>
         </div>
         <div className="dash-ranking-grid">
           {(ranking?.ranking || []).slice(0, 5).map((r: any, index: number) => {

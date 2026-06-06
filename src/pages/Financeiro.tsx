@@ -154,7 +154,15 @@ function DateListEditor({ dates, setDates }: { dates: string[]; setDates: (dates
     <div className="form-group">
       <label className="form-label">Datas personalizadas</label>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <input
+          className="form-input"
+          type="date"
+          value={date}
+          onFocus={e => {
+            try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+          }}
+          onChange={e => setDate(e.target.value)}
+        />
         <button type="button" className="btn btn-secondary" onClick={addDate} style={{ whiteSpace: 'nowrap' }}>
           <Plus size={14} /> Data
         </button>
@@ -1031,12 +1039,28 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           <div style={{ display: 'grid', gridTemplateColumns: modo === 'abatimento' ? '1fr 1fr' : '1fr', gap: 10 }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">{modo === 'abatimento' ? `Valor do ${nomeOperacao} / abatimento (R$)` : 'Valor a acrescentar (R$)'}</label>
-              <input className="form-input" type="text" inputMode="decimal" placeholder="" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
+              <input
+                className="form-input"
+                type="text"
+                inputMode="decimal"
+                placeholder=""
+                value={valor}
+                onWheel={e => e.preventDefault()}
+                onChange={e => setValor(moneyInputValue(e.target.value))}
+              />
             </div>
             {modo === 'abatimento' && (
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">Data do pagamento</label>
-                <input className="form-input" type="date" value={data} onChange={e => setData(e.target.value)} />
+                <input
+                  className="form-input"
+                  type="date"
+                  value={data}
+                  onFocus={e => {
+                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                  }}
+                  onChange={e => setData(e.target.value)}
+                />
               </div>
             )}
           </div>
@@ -1316,7 +1340,15 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">{scheduleMode === 'parcelado' ? 'Valor total da dívida (R$) *' : 'Valor (R$) *'}</label>
-              <input className="form-input" type="text" inputMode="decimal" placeholder="" value={valor} onChange={e => setValor(moneyInputValue(e.target.value))} />
+              <input
+                className="form-input"
+                type="text"
+                inputMode="decimal"
+                placeholder=""
+                value={valor}
+                onWheel={e => e.preventDefault()}
+                onChange={e => setValor(moneyInputValue(e.target.value))}
+              />
             </div>
             <div className="form-group"><label className="form-label">Status</label>
               <select className="form-input" value={status} onChange={e => setStatus(e.target.value as 'pendente' | 'pago' | 'cancelado')}>
@@ -1386,7 +1418,15 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               <label className="form-label">
                 {scheduleMode === 'recorrente' ? 'Primeira data' : scheduleMode === 'parcelado' ? 'Data da 1ª parcela' : 'Data de vencimento'}
               </label>
-              <input className="form-input" type="date" value={vencimento} onChange={e => setVencimento(e.target.value)} />
+              <input
+                className="form-input"
+                type="date"
+                value={vencimento}
+                onFocus={e => {
+                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                }}
+                onChange={e => setVencimento(e.target.value)}
+              />
             </div>
           )}
 
@@ -1465,14 +1505,35 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               </div>
               <div className="form-group">
                 <label className="form-label">Repetir até</label>
-                <input className="form-input" type="date" value={recorrenciaFim} onChange={e => setRecorrenciaFim(e.target.value)} />
+                <input
+                  className="form-input"
+                  type="date"
+                  value={recorrenciaFim}
+                  onFocus={e => {
+                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                  }}
+                  onChange={e => setRecorrenciaFim(e.target.value)}
+                />
               </div>
             </div>
           )}
 
           {scheduleMode === 'personalizado' && <DateListEditor dates={datasPersonalizadas} setDates={setDatasPersonalizadas} />}
 
-          {status === 'pago' && <div className="form-group"><label className="form-label">Data do pagamento</label><input className="form-input" type="date" value={pagoEm} onChange={e => setPagoEm(e.target.value)} /></div>}
+          {status === 'pago' && (
+            <div className="form-group">
+              <label className="form-label">Data do pagamento</label>
+              <input
+                className="form-input"
+                type="date"
+                value={pagoEm}
+                onFocus={e => {
+                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                }}
+                onChange={e => setPagoEm(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Observações</label>
@@ -1537,11 +1598,31 @@ function PessoaCard({ r, onClick, onAddPagamento, onAddRecebimento }: {
 // ── Card usando GrupoPagamento do backend ─────────────────────────────────────
 
 function normalizeDateValue(value: unknown): string | null {
+  // Normaliza diferentes formatos de data em YYYY-MM-DD.
+  // Retorna null quando não for possível converter.
   if (!value) return null
+  // Se for um objeto Date válido, utiliza o formato ISO.
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10)
   if (typeof value === 'string') {
     const v = value.trim()
-    return v ? v.slice(0, 10) : null
+    if (!v) return null
+    // Aceita formatos DD/MM/AAAA ou DD-MM-AAAA e converte para ISO (AAAA-MM-DD)
+    const brMatch = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+    if (brMatch) {
+      const day = brMatch[1].padStart(2, '0')
+      const month = brMatch[2].padStart(2, '0')
+      const year = brMatch[3]
+      return `${year}-${month}-${day}`
+    }
+    // Aceita formato ISO parcial (AAAA-MM-DD) e retorna os primeiros 10 caracteres.
+    const isoMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
+    }
+    // Tenta converter via Date; se falhar retorna null
+    const d = new Date(v)
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+    return null
   }
   try {
     const d = new Date(value as any)

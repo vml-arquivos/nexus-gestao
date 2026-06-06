@@ -627,7 +627,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Prazo</label>
-            <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
+            <input
+              className="form-input"
+              type="date"
+              value={prazo}
+              onFocus={e => {
+                try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+              }}
+              onChange={e => setPrazo(e.target.value)}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Prioridade</label>
@@ -756,6 +764,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   type="date"
                   value={novoItemData}
+                  onFocus={e => {
+                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                  }}
                   onChange={e => setNovoItemData(e.target.value)}
                   title="Data desta ação"
                 />
@@ -853,6 +864,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   type="date"
                   value={item.data || ''}
+                  onFocus={e => {
+                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                  }}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
                   title="Data desta ação opcional"
                 />
@@ -990,7 +1004,15 @@ function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClos
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Novo prazo</label>
-            <input className="form-input" type="date" value={prazo} onChange={e => setPrazo(e.target.value)} />
+            <input
+              className="form-input"
+              type="date"
+              value={prazo}
+              onFocus={e => {
+                try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+              }}
+              onChange={e => setPrazo(e.target.value)}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Prioridade</label>
@@ -1514,7 +1536,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               <div className="grid-2">
                 <div className="form-group">
                   <label className="form-label">Prazo</label>
-                  <input className="form-input" type="date" value={editPrazo} onChange={e => setEditPrazo(e.target.value)} />
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={editPrazo}
+                    onFocus={e => {
+                      try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                    }}
+                    onChange={e => setEditPrazo(e.target.value)}
+                  />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Prioridade</label>
@@ -1548,7 +1578,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               </div>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
-                <input className="form-input" type="date" value={newSubtaskDate} onChange={e => setNewSubtaskDate(e.target.value)} />
+                <input
+                  className="form-input"
+                  type="date"
+                  value={newSubtaskDate}
+                  onFocus={e => {
+                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                  }}
+                  onChange={e => setNewSubtaskDate(e.target.value)}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Executor <span>(opcional)</span></label>
@@ -1889,6 +1927,15 @@ export default function Tarefas() {
   const [anoFiltro, setAnoFiltro] = useState('todos')
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
+
+  // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const tab = params.get('tab') || params.get('escopo')
+    if (tab === 'ranking') {
+      setEscopo('ranking')
+    }
+  }, [location.search])
 
   const load = useCallback(async () => {
     setLoading(true)

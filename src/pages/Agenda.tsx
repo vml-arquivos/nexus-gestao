@@ -79,8 +79,30 @@ function EventoModal({ initial, onSave, onClose }: {
             </select>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="form-group"><label className="form-label">Inicio *</label><input className="form-input" type="datetime-local" value={form.data_inicio} onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))} /></div>
-            <div className="form-group"><label className="form-label">Fim</label><input className="form-input" type="datetime-local" value={form.data_fim} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} /></div>
+            <div className="form-group">
+              <label className="form-label">Inicio *</label>
+              <input
+                className="form-input"
+                type="datetime-local"
+                value={form.data_inicio}
+                onFocus={e => {
+                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                }}
+                onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Fim</label>
+              <input
+                className="form-input"
+                type="datetime-local"
+                value={form.data_fim}
+                onFocus={e => {
+                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
+                }}
+                onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))}
+              />
+            </div>
           </div>
           <div className="form-group"><label className="form-label">Local</label><input className="form-input" placeholder="Endereco ou link" value={form.local} onChange={e => setForm(f => ({ ...f, local: e.target.value }))} /></div>
           <div className="form-group"><label className="form-label">Descricao</label><textarea className="form-input" rows={2} placeholder="Detalhes..." value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} style={{ resize: 'vertical' }} /></div>
