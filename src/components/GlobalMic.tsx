@@ -3,7 +3,7 @@ import { Mic, MicOff } from 'lucide-react'
 
 type EditableTarget = HTMLInputElement | HTMLTextAreaElement | HTMLElement
 
-const BLOCKED_INPUT_TYPES = new Set(['button', 'submit', 'checkbox', 'radio', 'file', 'range', 'color', 'hidden'])
+const BLOCKED_INPUT_TYPES = new Set(['button', 'submit', 'checkbox', 'radio', 'file', 'range', 'color', 'hidden', 'date', 'datetime-local', 'time', 'month', 'week'])
 
 function isEditable(el: Element | null): el is EditableTarget {
   if (!el) return false

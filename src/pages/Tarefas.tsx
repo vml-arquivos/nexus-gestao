@@ -725,7 +725,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Pontuação no ranking</label>
-              <input className="form-input" type="number" min="1" max="25" value={pontuacao} onChange={e => setPontuacao(e.target.value)} />
+              <input className="form-input" type="number" min="1" max="25" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(e.target.value)} />
             </div>
             <label className="form-group" style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 22 }}>
               <input type="checkbox" checked={contaRanking} onChange={e => setContaRanking(e.target.checked)} />
@@ -790,7 +790,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               </div>
               <div className="form-group">
                 <label className="form-label">Pontuação *</label>
-                <input className="form-input" type="number" min="1" max="25" value={novoItemPontuacao} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 1))) }} />
+                <input className="form-input" type="number" min="1" max="25" value={novoItemPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 1))) }} />
               </div>
             </div>
             <div className="form-group">
@@ -857,6 +857,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   min="1"
                   max="25"
                   value={(item as any).pontuacao || 1}
+                  onWheel={e => (e.target as HTMLInputElement).blur()}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))}
                   title="Pontuação obrigatória desta subtarefa"
                 />
@@ -1574,7 +1575,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               </div>
               <div className="form-group">
                 <label className="form-label">Pontuação *</label>
-                <input className="form-input" type="number" min="1" max="25" value={newSubtaskPoints} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 1))) }} />
+                <input className="form-input" type="number" min="1" max="25" value={newSubtaskPoints} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 1))) }} />
               </div>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
@@ -1609,7 +1610,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                   <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao || 10))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
-                  <input className="form-input" type="number" min="1" max="25" value={(item as any).pontuacao || 1} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))} title="Pontuação" />
+                  <input className="form-input" type="number" min="1" max="25" value={(item as any).pontuacao || 1} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))} title="Pontuação" />
                   <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
                   <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                     <option value="">Livre / responsável principal</option>
@@ -1798,7 +1799,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
 
   return (
     <article
-      className="task-report-row"
+      className={`task-report-row${tarefa.data_reabertura && tarefa.status !== 'concluida' && tarefa.status !== 'aprovada' ? ' task-report-row--reaberta' : ''}`}
       onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
       title="Clique para abrir a tarefa"
     >
@@ -1806,6 +1807,10 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>
           <Icon size={16} color={sc.color} />
           <span>{tarefa.titulo}</span>
+          {taskScope(tarefa) === 'equipe'
+            ? <span className="task-scope-badge task-scope-badge--equipe">Equipe</span>
+            : <span className="task-scope-badge task-scope-badge--pessoal">Pessoal</span>
+          }
         </button>
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>

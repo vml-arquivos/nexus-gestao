@@ -217,9 +217,9 @@ function ModalParcelas({ grupo, onClose, onMarcarPago, onExcluirParcela }: {
   const sorted = [...grupo.itens].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || ''))
   const now = hoje()
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>{grupo.titulo}</h2>
@@ -290,9 +290,9 @@ function ModalUpload({ pessoaId, onClose, onSaved }: { pessoaId: string; onClose
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Enviar documento</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
@@ -380,9 +380,9 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Editar contato</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={18} /></button>
@@ -436,7 +436,7 @@ function ModalEditPessoa({ pessoa, onClose, onSaved }: { pessoa: Pessoa; onClose
           {(tipo === 'credor' || tipo === 'devedor' || tipo === 'funcionario') && (
             <div className="form-group">
               <label className="form-label">Valor de referência (R$)</label>
-              <input className="form-input" type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} />
+              <input className="form-input" type="number" step="0.01" value={valor} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setValor(e.target.value)} />
             </div>
           )}
           <div className="form-group">
@@ -510,11 +510,11 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div
-        style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'visible', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}
+        style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 540, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>Nova tarefa para {pessoaNome}</h2>

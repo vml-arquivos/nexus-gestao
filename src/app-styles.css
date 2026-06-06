@@ -6096,3 +6096,162 @@ button:disabled,
   .push-permission-banner { flex-direction: column; align-items: stretch; bottom: calc(88px + env(safe-area-inset-bottom)); }
   .push-permission-banner .btn { width: 100%; }
 }
+
+/* ── FIX CRÍTICO: Date/datetime picker nativo ─────────────────────────────── */
+/* Garante que o calendário nativo apareça acima de qualquer overlay/modal     */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"],
+input[type="week"] {
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  /* Garante que o ícone do calendário seja clicável em toda a área do input */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+  filter: invert(var(--picker-invert, 0));
+  width: 20px;
+  height: 20px;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+/* Força o body a permitir overflow somente quando um date picker está aberto */
+body:has(input[type="date"]:focus),
+body:has(input[type="datetime-local"]:focus),
+body:has(input[type="time"]:focus) {
+  overflow: visible !important;
+}
+
+/* ── FIX: Scroll visível em modais longas ─────────────────────────────────── */
+/* Indicador visual de scroll com fade nos modais que têm conteúdo oculto      */
+.modal-box,
+.modal-card,
+[role="dialog"] > div,
+[aria-modal="true"] > div,
+[data-modal="true"] > div,
+[data-sheet="true"] > div {
+  /* Scrollbar sempre visível quando há overflow */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(91,124,250,0.4) transparent;
+}
+
+.modal-box::-webkit-scrollbar,
+.modal-card::-webkit-scrollbar,
+[role="dialog"] > div::-webkit-scrollbar,
+[aria-modal="true"] > div::-webkit-scrollbar,
+[data-modal="true"] > div::-webkit-scrollbar,
+[data-sheet="true"] > div::-webkit-scrollbar {
+  width: 5px;
+}
+
+.modal-box::-webkit-scrollbar-thumb,
+.modal-card::-webkit-scrollbar-thumb,
+[role="dialog"] > div::-webkit-scrollbar-thumb,
+[aria-modal="true"] > div::-webkit-scrollbar-thumb,
+[data-modal="true"] > div::-webkit-scrollbar-thumb,
+[data-sheet="true"] > div::-webkit-scrollbar-thumb {
+  background: rgba(91,124,250,0.45);
+  border-radius: 9999px;
+}
+
+/* Modais inline (sem classe modal-box) - Financeiro, Agenda, Pessoas */
+div[style*="overflowY: auto"][style*="borderRadius: 24px"],
+div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(91,124,250,0.4) transparent;
+}
+
+/* ── FIX: Botão "Adicionar ao checklist" sempre visível ──────────────────── */
+/* Evita que o botão fique oculto abaixo da área visível do modal             */
+.task-checklist-builder > .btn {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg2);
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.08);
+}
+
+/* Indicador visual de "há mais conteúdo abaixo" nas modais inline */
+.modal-content[data-scroll],
+[data-sheet="true"] > div,
+[aria-modal="true"] > div {
+  scroll-behavior: smooth;
+}
+
+/* ── FIX: Destaque visual para tarefas reabertas ─────────────────────────── */
+.task-report-row--reaberta {
+  border-left: 3px solid #F59E0B !important;
+  background: color-mix(in srgb, var(--bg2) 96%, #F59E0B 4%) !important;
+}
+.task-report-row--reaberta .task-report-title {
+  color: var(--text) !important;
+}
+
+/* ── FIX: Badge de escopo (pessoal vs equipe) nas tarefas ─────────────────── */
+.task-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.task-scope-badge--equipe {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563EB;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+}
+.task-scope-badge--pessoal {
+  background: rgba(16, 185, 129, 0.10);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+[data-theme="dark"] .task-scope-badge--equipe {
+  background: rgba(37, 99, 235, 0.18);
+  color: #93C5FD;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+[data-theme="dark"] .task-scope-badge--pessoal {
+  background: rgba(16, 185, 129, 0.16);
+  color: #6EE7B7;
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+/* ── FIX: Scrollbar sempre visível em modais com overflow-y: auto ──────────── */
+/* Captura todos os divs inline que agem como modal no Financeiro, Agenda etc. */
+.modal-overlay > div,
+.modal-backdrop > div {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(91,124,250,0.45) transparent;
+}
+.modal-overlay > div::-webkit-scrollbar,
+.modal-backdrop > div::-webkit-scrollbar {
+  width: 5px;
+}
+.modal-overlay > div::-webkit-scrollbar-thumb,
+.modal-backdrop > div::-webkit-scrollbar-thumb {
+  background: rgba(91,124,250,0.45);
+  border-radius: 9999px;
+}
