@@ -16,7 +16,7 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY backend/ .
-RUN npx tsc --skipLibCheck
+RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
 
 # ── STAGE 2: Build do Frontend ─────────────────────────────
 FROM node:20-alpine AS frontend-builder
@@ -37,7 +37,7 @@ RUN rm -rf backend
 # Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
 # consumindo muita memória na VPS e derrubando o deploy sem mostrar erro TypeScript claro.
 COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
-RUN rm -rf /tmp/backend-build-check && npm run build
+RUN rm -rf /tmp/backend-build-check && NODE_OPTIONS="--max-old-space-size=512" npm run build
 
 # ── STAGE 3: Produção ──────────────────────────────────────
 FROM node:20-alpine AS production
