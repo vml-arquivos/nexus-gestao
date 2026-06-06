@@ -282,17 +282,55 @@ export default function Inteligencia() {
       <section className="intel-card compact-list-card">
         <div className="section-title"><Users size={18} /><div><h3>Carga da equipe</h3><p>Visão resumida para redistribuir demanda.</p></div></div>
         {painel.sobrecarga.length === 0 ? (
-          <div className="soft-empty"><ShieldCheck size={20} /> Sem sobrecarga relevante.</div>
+          <div className="soft-empty"><ShieldCheck size={20} /> Sem sobrecarga relevante detectada.</div>
         ) : (
           <div className="workload-list compact">
-            {painel.sobrecarga.map((item) => (
-              <div className="workload-row compact" key={item.nome}>
-                <div><strong>{item.nome}</strong><p>{item.abertas} aberta(s) · {item.atrasadas} atrasada(s)</p></div>
-                <div className="workload-bar"><span style={{ width: `${Math.min(100, item.abertas * 10)}%` }} /></div>
-              </div>
-            ))}
+            {painel.sobrecarga.map((item) => {
+              const pct = Math.min(100, item.abertas * 10)
+              const critico = item.atrasadas >= 3 || item.abertas >= 8
+              return (
+                <div className="workload-row compact" key={item.nome} style={{ borderLeft: critico ? '3px solid #EF4444' : '3px solid transparent', paddingLeft: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <strong>{item.nome}</strong>
+                    <p style={{ color: item.atrasadas > 0 ? '#EF4444' : 'var(--text3)' }}>
+                      {item.abertas} aberta(s) · {item.atrasadas > 0 ? <span style={{ fontWeight: 700 }}>{item.atrasadas} atrasada(s) ⚠️</span> : '0 atrasadas'}
+                    </p>
+                  </div>
+                  <div className="workload-bar" style={{ flex: 1 }}>
+                    <span style={{ width: `${pct}%`, background: critico ? '#EF4444' : 'var(--primary)' }} />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
+      </section>
+
+      {/* Score de saúde operacional visual */}
+      <section className="intel-card" style={{ textAlign: 'center' }}>
+        <div style={{ marginBottom: 8 }}>
+          <strong style={{ fontSize: 14 }}>Saúde operacional geral</strong>
+          <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>Score calculado com base em tarefas, finanças e agenda.</p>
+        </div>
+        <div style={{ position: 'relative', width: 100, height: 100, margin: '0 auto 8px' }}>
+          <svg viewBox="0 0 100 100" style={{ width: 100, height: 100, transform: 'rotate(-90deg)' }}>
+            <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border)" strokeWidth="10" />
+            <circle cx="50" cy="50" r="42" fill="none"
+              stroke={painel.score >= 80 ? '#10B981' : painel.score >= 60 ? '#F59E0B' : '#EF4444'}
+              strokeWidth="10"
+              strokeDasharray={`${(painel.score / 100) * 264} 264`}
+              strokeLinecap="round"
+              style={{ transition: 'stroke-dasharray .6s ease' }}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+            <strong style={{ fontSize: 22, lineHeight: 1, color: painel.score >= 80 ? '#10B981' : painel.score >= 60 ? '#F59E0B' : '#EF4444' }}>{painel.score}</strong>
+            <span style={{ fontSize: 10, color: 'var(--text3)' }}>/ 100</span>
+          </div>
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 600, color: painel.score >= 80 ? '#10B981' : painel.score >= 60 ? '#F59E0B' : '#EF4444' }}>
+          {nivelLabel(painel.nivel)}
+        </span>
       </section>
     </div>
   )

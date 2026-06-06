@@ -1821,6 +1821,11 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
           {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo(s)</span>}
           {ultimaEvidencia && <span>Envio {fmtDateTime(ultimaEvidencia)}</span>}
+          {(tarefa as any).origem_sistema === 'destrava' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#7C3AED', background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.25)', borderRadius: 999, padding: '1px 7px' }}>
+              ⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}
+            </span>
+          )}
         </div>
         {distributedTask && isGestor && executorSummary.length > 0 && (
           <div className="task-report-team-line">Equipe: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>
@@ -1863,41 +1868,114 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   )
 }
 
-function RankingEquipe({ ranking }: { ranking: { periodo: string; ranking: any[]; resumo: any } | null }) {
+const MEDALHAS = ['🥇', '🥈', '🥉']
+
+function RankingEquipe({ ranking, onChangePeriodo }: {
+  ranking: { periodo: string; ranking: any[]; resumo: any } | null
+  onChangePeriodo: (p: string) => void
+}) {
   const lista = Array.isArray(ranking?.ranking) ? ranking!.ranking : []
   const resumo = ranking?.resumo || {}
+  const maxPontos = Math.max(1, ...lista.map((m: any) => Number(m.pontos || 0)))
+
+  // Gerar opções de meses retroativos (últimos 6 + todos)
+  const mesesOpcoes = (() => {
+    const opts: { value: string; label: string }[] = [{ value: 'todos', label: 'Todo o período' }]
+    const now = new Date()
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) })
+    }
+    return opts
+  })()
+
   return (
     <section style={{ display: 'grid', gap: 12 }}>
+      {/* cabeçalho com filtro */}
       <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 14 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div>
             <strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}><Trophy size={17} /> Desafio da equipe</strong>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontua subtarefas/checklists já executados. Todos os membros ativos aparecem no ranking.</span>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontuação por subtarefas executadas. Todos os membros aparecem, mesmo com zero pontos.</span>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <span className="badge badge-primary">{Number(resumo.disponiveis || 0)} para pegar</span>
-            <span className="badge badge-warning">{Number(resumo.em_execucao || 0)} em execução</span>
-            <span className="badge badge-success">{Number(resumo.concluidas || 0)} concluídas</span>
-          </div>
+          <select
+            className="form-input"
+            style={{ width: 'auto', minWidth: 180, fontSize: 13 }}
+            value={ranking?.periodo || 'todos'}
+            onChange={e => onChangePeriodo(e.target.value)}
+          >
+            {mesesOpcoes.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        {/* resumo de atividade */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <span className="badge badge-primary">{Number(resumo.disponiveis || 0)} para pegar</span>
+          <span className="badge badge-warning">{Number(resumo.em_execucao || 0)} em execução</span>
+          <span className="badge badge-success">{Number(resumo.concluidas || 0)} concluídas</span>
+          {Number(resumo.pontos || 0) > 0 && (
+            <span className="badge badge-primary">{Number(resumo.pontos || 0)} pts no total</span>
+          )}
         </div>
       </div>
+
+      {/* lista */}
       <div style={{ display: 'grid', gap: 8 }}>
         {lista.length === 0 ? (
           <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 26, textAlign: 'center', color: 'var(--text3)' }}>
-            Ainda não há subtarefas/checklists executados no ranking.
+            Ainda não há subtarefas executadas no período selecionado.
           </div>
-        ) : lista.map((membro, index) => {
+        ) : lista.map((membro: any, index: number) => {
           const pontos = Number(membro.pontos || 0)
-          const aprovadas = Number(membro.subtarefas_executadas || membro.tarefas_aprovadas || 0)
+          const subtarefas = Number(membro.subtarefas_executadas || 0)
+          const tarefas = Number(membro.tarefas_executadas || 0)
+          const pct = Math.max(4, Math.round((pontos / maxPontos) * 100))
+          const isTop3 = index < 3
+          const medalha = MEDALHAS[index] || null
+
           return (
-            <div key={membro.id || index} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12, display: 'grid', gridTemplateColumns: '44px 1fr auto', gap: 12, alignItems: 'center' }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: index === 0 ? 'rgba(245,158,11,.16)' : 'var(--bg3)', color: index === 0 ? '#F59E0B' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{index + 1}º</div>
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro da equipe'}</strong>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{aprovadas} tarefa(s) aprovada(s)</span>
+            <div key={membro.id || index} style={{
+              background: 'var(--bg2)',
+              border: `1px solid ${isTop3 && pontos > 0 ? 'rgba(245,158,11,.35)' : 'var(--border)'}`,
+              borderRadius: 14,
+              padding: '12px 14px',
+              display: 'grid',
+              gridTemplateColumns: '48px 1fr auto',
+              gap: 12,
+              alignItems: 'center',
+            }}>
+              {/* posição */}
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%',
+                background: isTop3 && pontos > 0 ? 'rgba(245,158,11,.14)' : 'var(--bg3)',
+                color: isTop3 && pontos > 0 ? '#F59E0B' : 'var(--text3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 700, fontSize: medalha ? 18 : 13,
+              }}>
+                {medalha && pontos > 0 ? medalha : `${index + 1}º`}
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <strong style={{ display: 'block', fontSize: 18, color: pontos > 0 ? 'var(--success)' : 'var(--text3)' }}>{pontos}</strong>
+
+              {/* nome + barra */}
+              <div style={{ minWidth: 0 }}>
+                <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro'}</strong>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>
+                  {subtarefas > 0 ? `${subtarefas} subtarefa(s)` : ''}{subtarefas > 0 && tarefas > 0 ? ' · ' : ''}{tarefas > 0 ? `${tarefas} tarefa(s)` : ''}{subtarefas === 0 && tarefas === 0 ? 'Nenhuma execução no período' : ''}
+                </span>
+                {/* barra de progresso */}
+                <div style={{ marginTop: 6, height: 5, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', width: `${pct}%`,
+                    background: pontos > 0 ? 'linear-gradient(90deg, var(--primary), #10B981)' : 'var(--border)',
+                    borderRadius: 999,
+                    transition: 'width .4s ease',
+                  }} />
+                </div>
+              </div>
+
+              {/* pontos */}
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <strong style={{ display: 'block', fontSize: 20, color: pontos > 0 ? 'var(--success)' : 'var(--text3)', lineHeight: 1 }}>{pontos}</strong>
                 <span style={{ color: 'var(--text3)', fontSize: 11 }}>pontos</span>
               </div>
             </div>
@@ -1932,6 +2010,7 @@ export default function Tarefas() {
   const [anoFiltro, setAnoFiltro] = useState('todos')
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
+  const [periodoRanking, setPeriodoRanking] = useState('todos')
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -1942,13 +2021,20 @@ export default function Tarefas() {
     }
   }, [location.search])
 
+  const loadRanking = useCallback(async (periodo: string) => {
+    try {
+      const rk = await tarefasApi.ranking(periodo).catch(() => null)
+      setRanking(rk)
+    } catch {}
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const [ts, ms, rk] = await Promise.all([
         tarefasApi.list(),
         isGestor ? equipeApi.membros() : Promise.resolve([]),
-        tarefasApi.ranking('todos').catch(() => null),
+        tarefasApi.ranking(periodoRanking).catch(() => null),
       ])
       setTarefas(Array.isArray(ts) ? ts : [])
       setMembros(Array.isArray(ms) ? ms : [])
@@ -1956,7 +2042,7 @@ export default function Tarefas() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
     } finally { setLoading(false) }
-  }, [isGestor])
+  }, [isGestor, periodoRanking])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -2264,7 +2350,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div className="task-report-list">
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}

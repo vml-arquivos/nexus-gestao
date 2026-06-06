@@ -438,6 +438,16 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Banner do sub_gestor — mostra escopo de gestão */}
+      {user?.role === 'sub_gestor' && membros.length > 0 && (
+        <div style={{ margin: '0 0 12px', padding: '12px 16px', background: 'rgba(37,99,235,.07)', border: '1px solid rgba(37,99,235,.2)', borderRadius: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Users size={16} color="#2563EB" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: 'var(--text2)' }}>
+            Você gerencia <strong style={{ color: '#2563EB' }}>{membros.length} membro{membros.length > 1 ? 's' : ''}</strong> no seu setor. As tarefas, ranking e financeiro exibem apenas sua equipe.
+          </span>
+        </div>
+      )}
+
       {metrics.vencidos.length > 0 && (
         <div className="dash-alert">
           <AlertTriangle size={16} />
@@ -516,30 +526,74 @@ export default function Dashboard() {
         <div className="dash-section-head">
           <div>
             <h2><Trophy size={18} /> Ranking de execução da equipe</h2>
-            <p>Pontuação geral por subtarefa/checklist já executado. Todos os membros aparecem, mesmo com zero pontos.</p>
+            <p>Top 5 por pontuação. <Link to="/tarefas?tab=ranking" style={{ color: 'var(--primary)', fontWeight: 600 }}>Ver ranking completo com filtro por período →</Link></p>
           </div>
-          {/* Link direto para aba de ranking dentro de tarefas */}
-          <Link to="/tarefas?tab=ranking" className="dash-inline-link">Ver ranking completo <ArrowRight size={13} /></Link>
         </div>
         <div className="dash-ranking-grid">
           {(ranking?.ranking || []).slice(0, 5).map((r: any, index: number) => {
             const max = Math.max(1, Number((ranking?.ranking || [])[0]?.pontos || 1))
-            const width = Math.max(6, Math.round((Number(r.pontos || 0) / max) * 100))
+            const width = Math.max(4, Math.round((Number(r.pontos || 0) / max) * 100))
+            const medalhas = ['🥇', '🥈', '🥉']
+            const pontos = Number(r.pontos || 0)
             return (
-              <div className="dash-ranking-row" key={r.id || r.email || index}>
-                <span className="dash-ranking-pos">#{index + 1}</span>
+              <div className="dash-ranking-row" key={r.id || r.email || index} style={{ borderColor: index < 3 && pontos > 0 ? 'rgba(245,158,11,.3)' : undefined }}>
+                <span className="dash-ranking-pos" style={{ fontSize: index < 3 && pontos > 0 ? 18 : 12 }}>
+                  {index < 3 && pontos > 0 ? medalhas[index] : `#${index + 1}`}
+                </span>
                 <div className="dash-ranking-main">
                   <strong>{r.nome || 'Membro'}</strong>
                   <small>{Number(r.subtarefas_executadas || r.tarefas_aprovadas || 0)} subtarefa(s) executada(s)</small>
-                  <div className="dash-ranking-bar"><i style={{ width: `${width}%` }} /></div>
+                  <div className="dash-ranking-bar"><i style={{ width: `${width}%`, background: pontos > 0 ? 'linear-gradient(90deg,var(--primary),#10B981)' : undefined }} /></div>
                 </div>
-                <b>{Number(r.pontos || 0)} pts</b>
+                <b style={{ color: pontos > 0 ? 'var(--success)' : 'var(--text3)' }}>{pontos} pts</b>
               </div>
             )
           })}
           {(!ranking?.ranking || ranking.ranking.length === 0) && <div className="dash-empty">Ainda não há subtarefas executadas pontuadas.</div>}
         </div>
       </section>
+
+      {/* painel de sobrecarga — só para gestores */}
+      {isGestorLike(user?.role) && membros.length > 0 && (() => {
+        const comSobrecarga = tarefas.reduce<Record<string, { nome: string; total: number; atrasadas: number }>>((acc, t) => {
+          const rid = t.responsavel_id
+          if (!rid) return acc
+          if (!acc[rid]) {
+            const m = membros.find(m => m.id === rid)
+            if (!m) return acc
+            acc[rid] = { nome: m.nome, total: 0, atrasadas: 0 }
+          }
+          if (!['concluida', 'aprovada', 'cancelada'].includes(t.status)) {
+            acc[rid].total++
+            if (t.prazo && new Date(t.prazo + 'T00:00:00') < new Date()) acc[rid].atrasadas++
+          }
+          return acc
+        }, {})
+        const lista = Object.values(comSobrecarga).filter(m => m.total > 0).sort((a, b) => b.atrasadas - a.atrasadas || b.total - a.total).slice(0, 4)
+        if (lista.length === 0) return null
+        return (
+          <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 18, padding: 18, boxShadow: 'var(--shadow-sm)' }}>
+            <div className="dash-section-head" style={{ marginBottom: 12 }}>
+              <div>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Users size={18} /> Carga de trabalho da equipe</h2>
+                <p>Membros com mais tarefas abertas no momento.</p>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {lista.map(m => (
+                <div key={m.nome} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{m.nome}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text3)' }}>{m.total} abertas</span>
+                  {m.atrasadas > 0
+                    ? <span style={{ fontSize: 12, fontWeight: 700, color: '#EF4444', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 999, padding: '2px 8px' }}>{m.atrasadas} atrasadas</span>
+                    : <span style={{ fontSize: 12, color: '#059669', background: 'rgba(5,150,105,.08)', border: '1px solid rgba(5,150,105,.2)', borderRadius: 999, padding: '2px 8px' }}>Em dia</span>
+                  }
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      })()}
 
       <section className="dash-workspace">
         <div className="dash-section-head">
