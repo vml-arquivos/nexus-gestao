@@ -6255,3 +6255,19 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
   background: rgba(91,124,250,0.45);
   border-radius: 9999px;
 }
+
+/* ── FIX: Push banner com botão X para fechar ────────────────────────────── */
+.push-permission-banner {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+.push-permission-banner > button:last-child {
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity .15s;
+}
+.push-permission-banner > button:last-child:hover {
+  opacity: 1;
+}

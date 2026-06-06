@@ -83,7 +83,15 @@ export default function Layout() {
   const [notifOpen, setNotifOpen]     = useState(false)
   const [atrasosResumo, setAtrasosResumo] = useState<AtrasosResumo | null>(null)
   const [atrasosPopupOpen, setAtrasosPopupOpen] = useState(false)
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(() =>
+    localStorage.getItem('nexus:push-banner-dismissed') === 'true'
+  )
   const notifRef = useRef<HTMLDivElement>(null)
+
+  function dismissPushBanner() {
+    localStorage.setItem('nexus:push-banner-dismissed', 'true')
+    setPushBannerDismissed(true)
+  }
 
   const initials = user?.nome
     ? user.nome.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
@@ -174,7 +182,7 @@ export default function Layout() {
       {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
       <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
 
-      {user && pushStatus?.supported && pushStatus.configured && pushStatus.permission !== 'granted' && (
+      {user && pushStatus?.supported && pushStatus.configured && pushStatus.permission !== 'granted' && !pushBannerDismissed && (
         <div className="push-permission-banner">
           <div>
             <strong>🔔 Receba alertas mesmo com o Nexus fechado</strong>
@@ -182,6 +190,9 @@ export default function Layout() {
           </div>
           <button type="button" className="btn btn-primary" disabled={ativandoPush} onClick={() => ativarPush().catch(() => undefined)}>
             {ativandoPush ? 'Ativando...' : 'Ativar notificações'}
+          </button>
+          <button type="button" onClick={dismissPushBanner} title="Fechar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', padding: '4px', flexShrink: 0 }}>
+            <X size={16} />
           </button>
         </div>
       )}

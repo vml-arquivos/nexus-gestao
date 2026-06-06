@@ -1732,8 +1732,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
         <div className="modal-actions task-detail-actions" data-modal-actions>
           {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
-          {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
-          {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
+          {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
+          {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
           {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
@@ -1859,8 +1859,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
         {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
         {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
-        {canReviewTask && !distributedTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {canReviewTask && !distributedTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+        {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+        {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
         {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={12} /> Complementar</button>}
         {canDeleteTarefa(tarefa, userId, isGestor) && !isFreeTeamTask(tarefa) && !['concluida','aprovada'].includes(String(tarefa.status)) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
       </div>
@@ -1898,7 +1898,7 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <div>
             <strong style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15 }}><Trophy size={17} /> Desafio da equipe</strong>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontuação por subtarefas executadas. Todos os membros aparecem, mesmo com zero pontos.</span>
+            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Pontuação por subtarefas <strong style={{ color: 'var(--text2)' }}>aprovadas pelo gestor</strong>. Todos os membros aparecem, mesmo com zero pontos.</span>
           </div>
           <select
             className="form-input"
@@ -2010,7 +2010,9 @@ export default function Tarefas() {
   const [anoFiltro, setAnoFiltro] = useState('todos')
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
-  const [periodoRanking, setPeriodoRanking] = useState('todos')
+  const [periodoRanking, setPeriodoRanking] = useState(() =>
+    localStorage.getItem('nexus:ranking-periodo') || 'todos'
+  )
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -2350,7 +2352,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div className="task-report-list">
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}

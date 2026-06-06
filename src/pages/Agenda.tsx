@@ -85,7 +85,7 @@ function EventoModal({ initial, onSave, onClose }: {
                 className="form-input"
                 type="datetime-local"
                 value={form.data_inicio}
-                onFocus={e => {
+                onClick={e => {
                   try { (e.target as HTMLInputElement).showPicker?.() } catch {}
                 }}
                 onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))}
@@ -97,7 +97,7 @@ function EventoModal({ initial, onSave, onClose }: {
                 className="form-input"
                 type="datetime-local"
                 value={form.data_fim}
-                onFocus={e => {
+                onClick={e => {
                   try { (e.target as HTMLInputElement).showPicker?.() } catch {}
                 }}
                 onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))}
