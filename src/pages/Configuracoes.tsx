@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Settings, Save, Bell, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone } from 'lucide-react'
+import { Settings, Save, Bell, BellOff, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone, CheckCircle2, Loader } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { isGestorLike, roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import {
+  browserSupportsPush,
+  enablePushNotifications,
+  disablePushNotifications,
+  getPushNotificationStatus,
+  registerNexusServiceWorker,
+} from '../lib/pushNotifications'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -27,8 +34,24 @@ export default function Configuracoes() {
   const [confirmSenha, setConfirmSenha] = useState('')
   const [savingPerfil, setSavingPerfil]   = useState(false)
   const [savingSenha, setSavingSenha]     = useState(false)
-  const [notifEnabled, setNotifEnabled]   = useState(Notification.permission === 'granted')
   const [gerandoBackup, setGerandoBackup] = useState(false)
+
+  // Push notifications — estado completo
+  const [pushStatus, setPushStatus] = useState<{
+    supported: boolean
+    configured: boolean
+    permission: string
+    subscriptions?: number
+    error?: string
+  } | null>(null)
+  const [pushLoading, setPushLoading] = useState(false)
+  const notifEnabled = pushStatus?.permission === 'granted' && (pushStatus?.subscriptions ?? 0) > 0
+
+  useEffect(() => {
+    // Registrar SW e carregar status push ao abrir configurações
+    registerNexusServiceWorker().catch(() => {})
+    getPushNotificationStatus().then(setPushStatus).catch(() => {})
+  }, [])
 
   function aplicarTema(t: 'dark' | 'light') {
     setTheme(t)
@@ -60,14 +83,33 @@ export default function Configuracoes() {
   }
 
   async function ativarNotificacoes() {
-    if (!('Notification' in window)) { toast('Notificações não suportadas neste dispositivo', 'error'); return }
-    const perm = await Notification.requestPermission()
-    if (perm === 'granted') {
-      setNotifEnabled(true)
-      toast('Notificações ativadas!')
-    } else {
-      toast('Permissão negada. Ative nas configurações do navegador.', 'error')
-    }
+    if (!browserSupportsPush()) { toast('Push não suportado neste navegador. Use Chrome/Edge no celular ou PC.', 'error'); return }
+    setPushLoading(true)
+    try {
+      const status = await enablePushNotifications()
+      setPushStatus(status)
+      if (status.permission === 'granted' && (status.subscriptions ?? 0) > 0) {
+        toast('Notificações push ativadas! Você receberá alertas mesmo com o app fechado.')
+      } else if (status.permission === 'denied') {
+        toast('Permissão negada. Ative nas configurações do navegador/sistema.', 'error')
+      } else if (!status.configured) {
+        toast('Servidor de push não configurado. Fale com o administrador.', 'error')
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao ativar notificações', 'error')
+    } finally { setPushLoading(false) }
+  }
+
+  async function desativarNotificacoes() {
+    setPushLoading(true)
+    try {
+      await disablePushNotifications()
+      const status = await getPushNotificationStatus()
+      setPushStatus(status)
+      toast('Notificações push desativadas neste dispositivo.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao desativar', 'error')
+    } finally { setPushLoading(false) }
   }
 
   async function gerarBackup() {
@@ -178,26 +220,72 @@ export default function Configuracoes() {
           )}
         </div>
 
-        {/* Notificações */}
+        {/* Notificações Push PWA */}
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Bell size={16} color="#F59E0B" />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Notificações Push</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
-            Receba alertas para tarefas com prazo próximo, compromissos do dia e pagamentos vencidos.
+            Alertas em tempo real no celular e no PC — mesmo com o app fechado. Tarefas vencendo, aprovações, cobranças e mais.
           </p>
-          <div style={{ padding: '10px 14px', background: 'var(--bg3)', borderRadius: 10, marginBottom: 12, fontSize: 13 }}>
-            Status: {notifEnabled
-              ? <span style={{ color: '#10B981' }}>✅ Ativadas</span>
-              : <span style={{ color: 'var(--text3)' }}>⭕ Não ativadas</span>
-            }
+
+          {/* Status detalhado */}
+          <div style={{ padding: '10px 14px', background: 'var(--bg3)', borderRadius: 10, marginBottom: 14, fontSize: 13, display: 'grid', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text3)' }}>Suporte no navegador</span>
+              <span style={{ fontWeight: 600, color: browserSupportsPush() ? '#10B981' : '#EF4444' }}>
+                {browserSupportsPush() ? '✓ Suportado' : '✗ Não suportado'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text3)' }}>Permissão</span>
+              <span style={{ fontWeight: 600, color: pushStatus?.permission === 'granted' ? '#10B981' : pushStatus?.permission === 'denied' ? '#EF4444' : 'var(--text3)' }}>
+                {pushStatus?.permission === 'granted' ? '✓ Concedida' : pushStatus?.permission === 'denied' ? '✗ Bloqueada' : '⏳ Não solicitada'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text3)' }}>Servidor VAPID</span>
+              <span style={{ fontWeight: 600, color: pushStatus?.configured ? '#10B981' : '#EF4444' }}>
+                {pushStatus === null ? '...' : pushStatus.configured ? '✓ Configurado' : '✗ Não configurado'}
+              </span>
+            </div>
+            {(pushStatus?.subscriptions ?? 0) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text3)' }}>Dispositivos inscritos</span>
+                <span style={{ fontWeight: 600, color: '#10B981' }}>{pushStatus?.subscriptions} dispositivo(s)</span>
+              </div>
+            )}
           </div>
-          {!notifEnabled && (
-            <button className="btn btn-secondary" style={{ width: '100%' }} onClick={ativarNotificacoes}>
-              <Bell size={14} /> Ativar Notificações
-            </button>
+
+          {pushStatus?.permission === 'denied' && (
+            <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 10, marginBottom: 14, fontSize: 12, color: '#EF4444' }}>
+              Permissão bloqueada no navegador. Para ativar: clique no cadeado na barra de endereço → Notificações → Permitir.
+            </div>
           )}
+
+          {!pushStatus?.configured && pushStatus !== null && (
+            <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, marginBottom: 14, fontSize: 12, color: '#D97706' }}>
+              Configure VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no Coolify para ativar push.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            {!notifEnabled ? (
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={ativarNotificacoes} disabled={pushLoading || !browserSupportsPush()}>
+                {pushLoading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Ativando...</> : <><Bell size={14} /> Ativar notificações</>}
+              </button>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, fontSize: 13, fontWeight: 600, color: '#10B981' }}>
+                  <CheckCircle2 size={16} /> Push ativo neste dispositivo
+                </div>
+                <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={desativarNotificacoes} disabled={pushLoading}>
+                  {pushLoading ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <BellOff size={13} />} Desativar
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
 
