@@ -414,7 +414,7 @@ function ModalBase({ title, children, onClose }: { title: string; children: Reac
         role="dialog"
         aria-modal="true"
         data-modal="true"
-        style={{ width: 'min(100%, 720px)' }}
+        style={{ width: 'min(96vw, 980px)', maxWidth: '96vw' }}
       >
         <div className="modal-header">
           <div className="modal-title">{title}</div>
