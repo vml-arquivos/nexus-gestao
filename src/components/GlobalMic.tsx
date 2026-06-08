@@ -175,10 +175,20 @@ export function GlobalMic() {
     }
   }
 
-  const inlineStyle = activeRect ? {
-    top: Math.max(74, activeRect.top + activeRect.height / 2 - 17),
-    left: Math.min(window.innerWidth - 92, Math.max(10, activeRect.right - 86)),
-  } : undefined
+  const inlineStyle = activeRect ? (() => {
+    const size = 34
+    const gap = 8
+    const top = Math.max(74, activeRect.top + activeRect.height / 2 - size / 2)
+    // O botão contextual fica fora do campo sempre que houver espaço.
+    // Se o campo estiver colado na direita, ele vai para a esquerda do campo,
+    // nunca por cima do texto digitado.
+    const rightSide = activeRect.right + gap
+    const leftSide = activeRect.left - size - gap
+    const left = rightSide + size < window.innerWidth - 8
+      ? rightSide
+      : Math.max(8, leftSide)
+    return { top, left }
+  })() : undefined
 
   return (
     <>
@@ -193,7 +203,7 @@ export function GlobalMic() {
           title={listening ? 'Parar ditado' : 'Ditar neste campo'}
           aria-label={listening ? 'Parar ditado' : 'Ditar neste campo'}
         >
-          {listening ? <MicOff size={15} /> : <Mic size={15} />}
+          {listening ? <MicOff size={14} /> : <Mic size={14} />}
           <span>{listening ? 'Ouvindo' : 'Ditar'}</span>
         </button>
       )}
@@ -207,7 +217,7 @@ export function GlobalMic() {
         title={listening ? 'Parar ditado' : 'Ditar no campo ativo'}
         aria-label={listening ? 'Parar ditado' : 'Ditar no campo ativo'}
       >
-        {listening ? <MicOff size={21} /> : <Mic size={21} />}
+        {listening ? <MicOff size={18} /> : <Mic size={18} />}
         <span>{listening ? 'Ouvindo' : 'Ditar'}</span>
       </button>
       {erro && <div className="global-mic-hint">{erro}</div>}

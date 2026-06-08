@@ -6411,3 +6411,127 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     scroll-snap-align: start;
   }
 }
+
+/* ── Correção final: microfone pequeno e fora dos campos ─────────────────── */
+.global-mic {
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  gap: 0 !important;
+  bottom: calc(118px + env(safe-area-inset-bottom)) !important;
+  right: calc(18px + env(safe-area-inset-right)) !important;
+  z-index: 2147483000 !important;
+}
+.global-mic span { display: none !important; }
+.field-mic {
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  gap: 0 !important;
+  z-index: 2147483001 !important;
+}
+.field-mic span { display: none !important; }
+@media (max-width: 720px) {
+  .global-mic {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+  }
+  .field-mic {
+    width: 32px !important;
+    min-width: 32px !important;
+    height: 32px !important;
+  }
+}
+
+/* ── Correção final: modal de tarefa sem corte horizontal ────────────────── */
+.tarefa-modal-box,
+.modal-box[data-modal="true"].tarefa-modal-box,
+.modal-box[aria-modal="true"].tarefa-modal-box {
+  width: min(96vw, 920px) !important;
+  max-width: 96vw !important;
+}
+.tarefa-modal-box .modal-content,
+.tarefa-modal-box [data-scroll] {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  max-height: min(78vh, 820px) !important;
+  padding-right: 10px !important;
+}
+.tarefa-modal-box input,
+.tarefa-modal-box textarea,
+.tarefa-modal-box select,
+.tarefa-modal-box .form-input {
+  min-width: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+.task-inline-add-subtask {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+  gap: 10px !important;
+  align-items: end !important;
+  overflow: visible !important;
+}
+.task-inline-add-subtask .task-inline-desc,
+.task-inline-add-subtask > .btn {
+  grid-column: 1 / -1 !important;
+}
+.task-inline-checklist-row {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(150px, .85fr) minmax(92px, .45fr) minmax(140px, .7fr) minmax(150px, .8fr) 42px !important;
+  gap: 8px !important;
+  align-items: center !important;
+  overflow: visible !important;
+}
+.task-inline-row-desc {
+  grid-column: 1 / -1 !important;
+  min-height: 48px !important;
+  resize: vertical !important;
+}
+.task-detail-hero {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+}
+.task-detail-hero-actions {
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+}
+.task-detail-actions {
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 10 !important;
+  background: color-mix(in srgb, var(--bg2) 94%, transparent) !important;
+  backdrop-filter: blur(10px) !important;
+}
+@media (max-width: 860px) {
+  .task-inline-checklist-row {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .task-inline-checklist-row > button,
+  .task-inline-row-desc { grid-column: 1 / -1 !important; }
+  .task-detail-hero { grid-template-columns: 1fr !important; }
+  .task-detail-hero-actions { justify-content: stretch !important; }
+  .task-detail-hero-actions .btn { flex: 1 1 160px !important; }
+}
+@media (max-width: 560px) {
+  .tarefa-modal-box,
+  .modal-box[data-modal="true"].tarefa-modal-box,
+  .modal-box[aria-modal="true"].tarefa-modal-box {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-radius: 18px 18px 0 0 !important;
+  }
+  .tarefa-modal-box .modal-content,
+  .tarefa-modal-box [data-scroll] {
+    max-height: calc(100dvh - 98px) !important;
+  }
+  .task-inline-add-subtask,
+  .task-inline-checklist-row { grid-template-columns: 1fr !important; }
+  .task-detail-actions .btn { width: 100% !important; }
+}

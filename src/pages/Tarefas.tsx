@@ -1282,7 +1282,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const distributedTask = taskHasDistributedChecklist({ ...tarefa, checklist })
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
   const canToggleChecklist = canExecuteTask && !isTaskFinalizada
-  const canReviewTask = isGestor && !canExecuteTask
+  // Gestor precisa aprovar/devolver mesmo quando também é criador/responsável.
+  // A aprovação do gestor é a etapa que libera pontuação no ranking.
+  const canReviewTask = isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
@@ -1783,7 +1785,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
-  const canReviewTask = isGestor && !canExecuteTask
+  const canReviewTask = isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
   const responsavelLabel = livreDisponivel
     ? 'Livre para assumir'
@@ -2231,7 +2233,7 @@ export default function Tarefas() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas' : escopo === 'equipe' ? 'Tarefas do time' : escopo === 'recentes' ? 'Últimas movimentações' : 'Todas as tarefas'}</p>
+          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas' : escopo === 'equipe' ? 'Tarefas do time' : escopo === 'recentes' ? 'Últimas movimentações' : escopo === 'ranking' ? 'Histórico e pontuação dos membros' : 'Todas as tarefas'}</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
@@ -2241,6 +2243,7 @@ export default function Tarefas() {
           { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas' },
           { id: 'equipe', label: 'Tarefas do time', count: equipeCount, hint: 'Equipe' },
           { id: 'recentes', label: 'Últimas tarefas', count: recentesCount, hint: 'Recentes' },
+          { id: 'ranking', label: 'Ranking', count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },
           { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Geral' },
         ].map(tab => {
           const active = escopo === tab.id
