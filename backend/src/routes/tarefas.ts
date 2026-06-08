@@ -314,6 +314,31 @@ function periodMonth(value = new Date()) {
   return d.toISOString().slice(0, 7)
 }
 
+function periodRange(periodo: string): { inicio: string | null; fim: string | null; label: string } {
+  const hoje = new Date()
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  if (periodo === 'semana') {
+    const d = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()))
+    const day = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() - day + 1)
+    const fim = new Date(d)
+    fim.setUTCDate(fim.getUTCDate() + 7)
+    return { inicio: iso(d), fim: iso(fim), label: 'semana' }
+  }
+  if (periodo === 'mes') {
+    const inicio = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth(), 1))
+    const fim = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth() + 1, 1))
+    return { inicio: iso(inicio), fim: iso(fim), label: 'mes' }
+  }
+  if (/^\d{4}-\d{2}$/.test(periodo)) {
+    const inicio = new Date(`${periodo}-01T00:00:00.000Z`)
+    const fim = new Date(inicio)
+    fim.setUTCMonth(fim.getUTCMonth() + 1)
+    return { inicio: iso(inicio), fim: iso(fim), label: periodo }
+  }
+  return { inicio: null, fim: null, label: 'todos' }
+}
+
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -706,12 +731,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!
-    const rawPeriodo = typeof req.query.periodo === 'string' ? req.query.periodo.trim().toLowerCase() : ''
-    const periodo = /^\d{4}-\d{2}$/.test(rawPeriodo) ? rawPeriodo : 'todos'
-    const periodoInicio = periodo !== 'todos' ? `${periodo}-01` : null
-    const periodoFim = periodoInicio
-      ? new Date(new Date(`${periodoInicio}T00:00:00.000Z`).setUTCMonth(new Date(`${periodoInicio}T00:00:00.000Z`).getUTCMonth() + 1)).toISOString().slice(0, 10)
-      : null
+    const rawPeriodo = typeof req.query.periodo === 'string' ? req.query.periodo.trim().toLowerCase() : 'todos'
+    const range = periodRange(rawPeriodo || 'todos')
+    const periodo = range.label
+    const periodoInicio = range.inicio
+    const periodoFim = range.fim
 
     const membros = await query<any>(
       `SELECT id, nome, email, role
@@ -733,6 +757,7 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         subtarefas_executadas: 0,
         tarefas_executadas: 0,
         ultima_aprovacao: null,
+        historico: [],
       })
     }
 
@@ -742,11 +767,8 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
        WHERE t.org_id = $1
          AND COALESCE(t.conta_ranking, TRUE) = TRUE
          AND COALESCE(t.escopo, 'pessoal') = 'equipe'
-         AND (
-           t.status IN ('concluida','aprovada')
-           OR COALESCE(t.checklist::text, '') <> ''
-         )
-       ORDER BY COALESCE(t.aprovada_em, t.data_conclusao, t.updated_at, t.created_at) DESC`,
+         AND t.status = 'aprovada'
+       ORDER BY COALESCE(t.aprovada_em, t.updated_at, t.created_at) DESC`,
       [orgId]
     )
 
@@ -763,11 +785,19 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       // Gestor/admin/dev/subgestor, tarefas pessoais e tarefas do próprio gestor não pontuam.
       const entry = rankingMap.get(usuarioId)
       if (!entry) return
-      const when = tarefa.aprovada_em || tarefa.data_conclusao || tarefa.updated_at || tarefa.created_at || null
-      entry.pontos += Math.max(1, Math.min(25, Math.round(Number(pontos || 1))))
+      const when = tarefa.aprovada_em || tarefa.updated_at || tarefa.created_at || null
+      const pontosValidos = Math.max(1, Math.min(25, Math.round(Number(pontos || 1))))
+      entry.pontos += pontosValidos
       entry.tarefas_aprovadas += 1
       if (isChecklist) entry.subtarefas_executadas += 1
       else entry.tarefas_executadas += 1
+      entry.historico.push({
+        tarefa_id: tarefa.id,
+        tarefa_titulo: tarefa.titulo,
+        checklist: isChecklist,
+        pontos: pontosValidos,
+        aprovado_em: when,
+      })
       if (when && (!entry.ultima_aprovacao || new Date(when).getTime() > new Date(entry.ultima_aprovacao).getTime())) {
         entry.ultima_aprovacao = when
       }
@@ -784,12 +814,12 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         for (const item of feitos) {
           const participante = item.responsavel_id || tarefa.aceita_por || tarefa.responsavel_id
           if (!participante) continue
-          touchMember(participante, calculateChecklistItemPoints(item, tarefa), tarefa, true)
+          touchMember(participante, calculateChecklistItemPoints(item, tarefa), { ...tarefa, titulo: `${tarefa.titulo} — ${item.texto}` }, true)
         }
         continue
       }
 
-      if (['concluida', 'aprovada'].includes(String(tarefa.status || ''))) {
+      if (String(tarefa.status || '') === 'aprovada') {
         const participante = tarefa.aceita_por || tarefa.responsavel_id
         if (participante) {
           touchMember(participante, calculateChecklistItemPoints({ texto: tarefa.titulo, descricao: tarefa.descricao, pontuacao: tarefa.pontuacao }, tarefa), tarefa, false)
@@ -1947,10 +1977,6 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     const existing = await getTaskForAccess(req.params.id, orgId)
     if (!existing) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     const canDeleteAny = canDeleteOrgRecords(role)
-    if (['concluida','aprovada'].includes(String(existing.status)) || isFreeTeamTask(existing)) {
-      res.status(403).json({ error: 'Tarefas livres ou concluídas não podem ser apagadas. Cancele ou arquive em vez de excluir.' })
-      return
-    }
     if (role === 'membro' && existing.criado_por !== userId) { res.status(403).json({ error: 'Membro só exclui tarefas pessoais criadas por ele.' }); return }
     if (!canDeleteAny && role !== 'membro' && existing.criado_por !== userId && existing.responsavel_id !== userId) { res.status(403).json({ error: 'Acesso negado.' }); return }
 
@@ -1961,6 +1987,8 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
       await query('DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
       await query('DELETE FROM tarefas_historico WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
       await query('DELETE FROM tarefa_historico WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      await query('DELETE FROM tarefas_pontuacao WHERE tarefa_id = $1 AND org_id = $2', [req.params.id, orgId]).catch(() => {})
+      await query("DELETE FROM agenda WHERE org_id = $2 AND origem_id = $1 AND origem_tipo IN ('tarefa','checklist')", [req.params.id, orgId]).catch(() => {})
       const deleted = await query('DELETE FROM tarefas WHERE id = $1 AND org_id = $2 RETURNING id', [req.params.id, orgId]) as any[]
       if (deleted.length === 0) throw new Error('Tarefa não encontrada para exclusão.')
       await query('COMMIT')

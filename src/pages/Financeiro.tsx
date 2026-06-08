@@ -25,7 +25,6 @@ import {
   Eye,
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, destravaApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro, type DestravaCatalogoItem } from '../lib/api'
-import { MicBtn } from '../components/ui'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 
@@ -814,7 +813,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const [modo, setModo]     = useState<'abatimento' | 'acrescimo'>('abatimento')
   const [valor, setValor]   = useState('')
   const [acao, setAcao]     = useState<'recalcular' | 'proximas'>('recalcular')
-  const [tipoAbatimento, setTipoAbatimento] = useState<'antecipacao' | 'desconto'>('antecipacao')
+  const [tipoAbatimento, setTipoAbatimento] = useState<'pagamento' | 'antecipacao' | 'desconto'>('pagamento')
   const [data, setData]     = useState(new Date().toISOString().slice(0, 10))
   const [forma, setForma]   = useState('')
   const [motivo, setMotivo] = useState('')
@@ -831,6 +830,28 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
   const extrato = calcExtratoGrupo(parcelas, historicoCompleto)
   const nomeOperacao = tipo === 'recebimento' ? 'recebimento' : 'pagamento'
+  const primeiraDataPendente = saldo.pendentes[0]?.vencimento?.slice(0, 10) || ''
+  const permiteAntecipacao = !!primeiraDataPendente && !!data && data < primeiraDataPendente
+
+  useEffect(() => {
+    // Regra financeira: se o pagamento/recebimento é no dia do vencimento ou depois,
+    // é baixa/pagamento normal. Antecipação só pode ser usada antes do vencimento.
+    if (modo !== 'abatimento') return
+    if (tipoAbatimento === 'desconto') return
+    if (permiteAntecipacao) {
+      if (tipoAbatimento === 'pagamento') setTipoAbatimento('antecipacao')
+    } else if (tipoAbatimento === 'antecipacao') {
+      setTipoAbatimento('pagamento')
+    }
+  }, [modo, permiteAntecipacao, tipoAbatimento])
+
+  useEffect(() => {
+    if (modo !== 'abatimento') return
+    // Pagamento/recebimento baixa as próximas parcelas por padrão.
+    // Desconto mantém o padrão de recalcular o saldo.
+    if (tipoAbatimento === 'pagamento' || tipoAbatimento === 'antecipacao') setAcao('proximas')
+    if (tipoAbatimento === 'desconto') setAcao('recalcular')
+  }, [modo, tipoAbatimento])
 
   const novoSaldoCents = modo === 'abatimento'
     ? Math.max(0, saldo.totalPendenteCents - valorCents)
@@ -859,8 +880,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     setSaving(true)
     try {
       const ehAntecipacao = modo === 'abatimento' && tipoAbatimento === 'antecipacao'
+      const ehPagamento = modo === 'abatimento' && tipoAbatimento === 'pagamento'
       const rotuloMovimento = modo === 'abatimento'
-        ? (ehAntecipacao ? 'Antecipação de pagamento' : 'Abatimento / desconto')
+        ? (ehPagamento ? (tipo === 'recebimento' ? 'Recebimento registrado' : 'Pagamento registrado') : ehAntecipacao ? 'Antecipação de pagamento' : 'Abatimento / desconto')
         : 'Acréscimo'
       const obsMovimento = [
         modo === 'abatimento' ? `Tipo: ${rotuloMovimento}` : '',
@@ -878,8 +900,8 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
       const eventoHistorico = await pagamentosApi.addHistorico({
         pagamento_id: ref?.id,
         grupo_id: ref?.grupo_id || null,
-        tipo_evento: modo === 'abatimento' ? 'abatimento' : 'acrescimo',
-        titulo: modo === 'abatimento' ? `${rotuloMovimento} registrado` : 'Acréscimo registrado',
+        tipo_evento: modo === 'abatimento' ? (ehPagamento ? 'pagamento' : 'abatimento') : 'acrescimo',
+        titulo: modo === 'abatimento' ? `${rotuloMovimento}` : 'Acréscimo registrado',
         descricao: obsMovimento,
         valor: fromCents(valorCents),
         data_evento: data,
@@ -894,7 +916,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           pessoa_nome: ref?.pessoa_nome || ref?.pessoa_nome_atual,
           valor_parcela: Number(ref?.valor || 0),
         },
-        metadata: { acao, modo, tipo_abatimento: tipoAbatimento, antecipacao_pagamento: ehAntecipacao, parcelas_pendentes: saldo.numPendentes, valor_centavos: valorCents, saldo_anterior_centavos: saldo.totalPendenteCents, saldo_posterior_centavos: novoSaldoCents },
+        metadata: { acao, modo, tipo_abatimento: tipoAbatimento, pagamento_normal: ehPagamento, antecipacao_pagamento: ehAntecipacao, parcelas_pendentes: saldo.numPendentes, valor_centavos: valorCents, saldo_anterior_centavos: saldo.totalPendenteCents, saldo_posterior_centavos: novoSaldoCents },
       })
 
       setHistoricoLocal(prev => [eventoHistorico as HistoricoFinanceiroItem, ...prev])
@@ -902,9 +924,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
       if (quitado) {
         for (const p of saldo.pendentes) {
           await pagamentosApi.update(p.id, {
-            status: ehAntecipacao ? 'pago' : 'cancelado',
-            pago_em: ehAntecipacao ? data : undefined,
-            obs   : `${p.obs ? p.obs + ' | ' : ''}${ehAntecipacao ? 'Quitado por antecipação de pagamento' : 'Quitado por abatimento/desconto'}`,
+            status: (ehAntecipacao || ehPagamento) ? 'pago' : 'cancelado',
+            pago_em: (ehAntecipacao || ehPagamento) ? data : undefined,
+            obs   : `${p.obs ? p.obs + ' | ' : ''}${ehPagamento ? 'Quitado por pagamento' : ehAntecipacao ? 'Quitado por antecipação de pagamento' : 'Quitado por abatimento/desconto'}`, 
           })
         }
       } else if (saldo.numPendentes > 0) {
@@ -920,9 +942,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
               if (restanteCents <= 0) break
               if (restanteCents >= atualCents) {
                 await pagamentosApi.update(p.id, {
-                  status: ehAntecipacao ? 'pago' : 'cancelado',
-                  pago_em: ehAntecipacao ? data : undefined,
-                  obs: `${p.obs ? p.obs + ' | ' : ''}${ehAntecipacao ? 'Baixado por antecipação de pagamento' : 'Baixado por abatimento/desconto'}`,
+                  status: (ehAntecipacao || ehPagamento) ? 'pago' : 'cancelado',
+                  pago_em: (ehAntecipacao || ehPagamento) ? data : undefined,
+                  obs: `${p.obs ? p.obs + ' | ' : ''}${ehPagamento ? 'Baixado por pagamento' : ehAntecipacao ? 'Baixado por antecipação de pagamento' : 'Baixado por abatimento/desconto'}`, 
                 })
                 restanteCents -= atualCents
               } else {
@@ -939,7 +961,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
       toast(
         quitado
-          ? (ehAntecipacao ? 'Dívida quitada por antecipação!' : 'Dívida quitada por abatimento/desconto!')
+          ? (ehPagamento ? 'Dívida quitada por pagamento!' : ehAntecipacao ? 'Dívida quitada por antecipação!' : 'Dívida quitada por abatimento/desconto!')
           : modo === 'abatimento'
             ? `${rotuloMovimento} registrado. Novo saldo: ${fmt(novoSaldo)}.`
             : `Acréscimo registrado. Novo saldo: ${fmt(novoSaldo)}.`
@@ -1078,8 +1100,11 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           {modo === 'abatimento' && (
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Tipo do abatimento</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <button type="button" className={`btn ${tipoAbatimento === 'antecipacao' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('antecipacao')} style={{ fontSize: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                <button type="button" className={`btn ${tipoAbatimento === 'pagamento' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('pagamento')} style={{ fontSize: 12 }}>
+                  Pagamento
+                </button>
+                <button type="button" className={`btn ${tipoAbatimento === 'antecipacao' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => permiteAntecipacao ? setTipoAbatimento('antecipacao') : setTipoAbatimento('pagamento')} disabled={!permiteAntecipacao} style={{ fontSize: 12, opacity: permiteAntecipacao ? 1 : .55 }}>
                   Antecipação
                 </button>
                 <button type="button" className={`btn ${tipoAbatimento === 'desconto' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('desconto')} style={{ fontSize: 12 }}>
@@ -1087,7 +1112,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                 </button>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-                Antecipação marca parcelas pagas. Desconto reduz ou cancela saldo sem criar lançamento separado.
+                Pagamento baixa parcelas vencidas/no vencimento. Antecipação só aparece antes do vencimento. Desconto reduz ou cancela saldo sem marcar pagamento.
               </div>
             </div>
           )}
@@ -1129,7 +1154,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
                   {[
                     { label: 'Saldo atual',                                       value: saldo.totalPendente, sign: '',  color: 'var(--text1)' },
-                    { label: modo === 'abatimento' ? (tipoAbatimento === 'antecipacao' ? '− Antecipação' : '− Desconto') : '+ Acréscimo', value: fromCents(valorCents), sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
+                    { label: modo === 'abatimento' ? (tipoAbatimento === 'pagamento' ? '− Pagamento' : tipoAbatimento === 'antecipacao' ? '− Antecipação' : '− Desconto') : '+ Acréscimo', value: fromCents(valorCents), sign: modo === 'abatimento' ? '−' : '+', color: modo === 'abatimento' ? '#10B981' : '#F59E0B' },
                   ].map(({ label, value, sign, color }) => (
                     <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--text3)' }}>{label}</span>
@@ -1171,7 +1196,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
               : quitado
                 ? <><Check size={14} /> Quitar dívida</>
                 : modo === 'abatimento'
-                  ? <><Check size={14} /> Registrar {tipoAbatimento === 'antecipacao' ? 'antecipação' : 'abatimento'}</>
+                  ? <><Check size={14} /> Registrar {tipoAbatimento === 'pagamento' ? 'pagamento' : tipoAbatimento === 'antecipacao' ? 'antecipação' : 'desconto'}</>
                   : <><Plus size={14} /> Registrar acréscimo</>
             }
           </button>
@@ -1331,10 +1356,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">Título *</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input className="form-input" style={{ flex: 1 }} placeholder="Ex: Consultoria, parcela, aluguel..." value={titulo} onChange={e => setTitulo(e.target.value)} />
-              <MicBtn onResult={t => setTitulo(prev => (prev + ' ' + t).trim())} />
-            </div>
+            <input className="form-input" placeholder="Ex: Consultoria, parcela, aluguel..." value={titulo} onChange={e => setTitulo(e.target.value)} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -1539,10 +1561,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
 
           <div className="form-group">
             <label className="form-label">Observações</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <textarea className="form-input" rows={2} placeholder="Notas adicionais..." value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical' }} />
-              <MicBtn onResult={t => setObs(prev => (prev + ' ' + t).trim())} />
-            </div>
+            <textarea className="form-input" rows={3} placeholder="Notas adicionais..." value={obs} onChange={e => setObs(e.target.value)} style={{ resize: 'vertical', maxHeight: 180, overflowY: 'auto' }} />
           </div>
         </div>
 
