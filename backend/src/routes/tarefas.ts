@@ -73,6 +73,7 @@ async function ensureTaskRuntimeSchema() {
           org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
           tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
           usuario_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+          checklist_id TEXT,
           pontos INTEGER NOT NULL DEFAULT 1,
           motivo TEXT,
           aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
@@ -81,6 +82,7 @@ async function ensureTaskRuntimeSchema() {
           created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
           UNIQUE (tarefa_id, usuario_id, motivo)
         );
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS checklist_id TEXT;
         CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
@@ -266,6 +268,32 @@ function calculateChecklistItemPoints(item: { texto?: string; descricao?: string
   return pointsForDifficulty(dificuldade)
 }
 
+function checklistExecutorId(item: any, task: any): string | null {
+  const candidates = [
+    item?.responsavel_id,
+    item?.concluido_por,
+    item?.feito_por,
+    item?.executor_id,
+    item?.assumido_por,
+    item?.aceita_por,
+    task?.aceita_por,
+    task?.responsavel_id,
+  ]
+  for (const candidate of candidates) {
+    if (isUuid(candidate)) return candidate
+  }
+  return null
+}
+
+function rankingChecklistKey(item: any, motivo?: unknown, checklistId?: unknown) {
+  const explicit = String(checklistId || '').trim()
+  if (explicit) return explicit
+  const rawMotivo = String(motivo || '').trim()
+  if (rawMotivo.includes(':')) return rawMotivo.split(':').slice(1).join(':').trim() || rawMotivo
+  if (rawMotivo) return rawMotivo
+  return String(item?.id || item?.texto || item?.titulo || '').trim()
+}
+
 function statusShouldReturnToExecution(status: unknown) {
   return ['concluida', 'aprovada'].includes(String(status || ''))
 }
@@ -343,7 +371,7 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty; concluido_por?: string; feito_por?: string; executor_id?: string; assumido_por?: string }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -376,6 +404,10 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         data: safeDate,
         responsavel_id: isUuid(item?.responsavel_id) ? item.responsavel_id : undefined,
         responsavel_nome: String(item?.responsavel_nome || '').trim() || undefined,
+        concluido_por: isUuid(item?.concluido_por) ? item.concluido_por : undefined,
+        feito_por: isUuid(item?.feito_por) ? item.feito_por : undefined,
+        executor_id: isUuid(item?.executor_id) ? item.executor_id : undefined,
+        assumido_por: isUuid(item?.assumido_por) ? item.assumido_por : undefined,
         dificuldade,
         pontuacao,
         feito: !!item?.feito,
@@ -761,6 +793,23 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       })
     }
 
+    const pontuacoesRegistradas = await query<any>(
+      `SELECT tp.*, t.titulo AS tarefa_titulo, t.checklist, t.aprovada_em AS tarefa_aprovada_em,
+              t.updated_at AS tarefa_updated_at, t.created_at AS tarefa_created_at, t.status, t.escopo,
+              t.conta_ranking, p.role AS usuario_role
+       FROM tarefas_pontuacao tp
+       JOIN tarefas t ON t.id = tp.tarefa_id AND t.org_id = tp.org_id
+       JOIN profiles p ON p.id = tp.usuario_id AND p.org_id = tp.org_id
+       WHERE tp.org_id = $1
+         AND p.ativo = TRUE
+         AND p.role = 'membro'
+         AND COALESCE(t.conta_ranking, TRUE) = TRUE
+         AND COALESCE(t.escopo, 'pessoal') = 'equipe'
+         AND t.status = 'aprovada'
+       ORDER BY COALESCE(tp.aprovado_em, t.aprovada_em, t.updated_at, t.created_at) DESC`,
+      [orgId]
+    ).catch(() => [])
+
     const tarefasExecutadas = await query<any>(
       `SELECT t.*
        FROM tarefas t
@@ -780,20 +829,24 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       return date >= periodoInicio && date < periodoFim
     }
 
-    const touchMember = (usuarioId: string, pontos: number, tarefa: any, isChecklist: boolean) => {
+    const scoreKeys = new Set<string>()
+    const touchMember = (usuarioId: string, pontos: number, tarefa: any, isChecklist: boolean, keySeed?: string) => {
       // Ranking do desafio é exclusivo para membros executores.
       // Gestor/admin/dev/subgestor, tarefas pessoais e tarefas do próprio gestor não pontuam.
       const entry = rankingMap.get(usuarioId)
       if (!entry) return
-      const when = tarefa.aprovada_em || tarefa.updated_at || tarefa.created_at || null
+      const when = tarefa.aprovado_em || tarefa.tarefa_aprovada_em || tarefa.updated_at || tarefa.tarefa_updated_at || tarefa.created_at || tarefa.tarefa_created_at || null
+      const uniqueKey = `${tarefa.id || tarefa.tarefa_id}:${usuarioId}:${keySeed || (isChecklist ? tarefa.subtarefa_titulo : 'tarefa')}`
+      if (scoreKeys.has(uniqueKey)) return
+      scoreKeys.add(uniqueKey)
       const pontosValidos = Math.max(1, Math.min(25, Math.round(Number(pontos || 1))))
       entry.pontos += pontosValidos
       entry.tarefas_aprovadas += 1
       if (isChecklist) entry.subtarefas_executadas += 1
       else entry.tarefas_executadas += 1
       entry.historico.push({
-        tarefa_id: tarefa.id,
-        tarefa_titulo: tarefa.titulo,
+        tarefa_id: tarefa.id || tarefa.tarefa_id,
+        tarefa_titulo: tarefa.titulo || tarefa.tarefa_titulo,
         subtarefa_titulo: tarefa.subtarefa_titulo || null,
         dificuldade: tarefa.subtarefa_dificuldade || tarefa.dificuldade || null,
         checklist: isChecklist,
@@ -805,6 +858,29 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Fonte 1: pontuação já registrada no ato de aprovação do gestor.
+    // É a fonte mais segura para refletir imediatamente a aprovação recém-feita.
+    for (const row of pontuacoesRegistradas) {
+      const dataBase = row.aprovado_em || row.tarefa_aprovada_em || row.tarefa_updated_at || row.tarefa_created_at
+      if (!inPeriod(dataBase)) continue
+      const items = parseChecklistItems(row.checklist)
+      const key = rankingChecklistKey(null, row.motivo, row.checklist_id)
+      const matched = items.find(item => rankingChecklistKey(item) === key || item.id === key || item.texto === key)
+      touchMember(row.usuario_id, Number(row.pontos || 1), {
+        id: row.tarefa_id,
+        tarefa_id: row.tarefa_id,
+        titulo: row.tarefa_titulo,
+        tarefa_titulo: row.tarefa_titulo,
+        subtarefa_titulo: matched?.texto || (String(row.motivo || '').startsWith('checklist_aprovado:') ? key : null),
+        subtarefa_dificuldade: matched?.dificuldade || null,
+        aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
+        updated_at: row.tarefa_updated_at,
+        created_at: row.tarefa_created_at,
+      }, String(row.motivo || '').startsWith('checklist_aprovado'), key || String(row.motivo || 'tarefa'))
+    }
+
+    // Fonte 2: cálculo de segurança a partir das tarefas aprovadas e checklists feitos.
+    // Garante histórico antigo e cobre aprovações onde a inserção em tarefas_pontuacao falhou.
     for (const tarefa of tarefasExecutadas) {
       const dataBase = tarefa.aprovada_em || tarefa.data_conclusao || tarefa.updated_at || tarefa.created_at
       if (!inPeriod(dataBase)) continue
@@ -814,13 +890,14 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
 
       if (feitos.length) {
         for (const item of feitos) {
-          const participante = item.responsavel_id || tarefa.aceita_por || tarefa.responsavel_id
+          const participante = checklistExecutorId(item, tarefa)
           if (!participante) continue
+          const key = rankingChecklistKey(item)
           touchMember(participante, calculateChecklistItemPoints(item, tarefa), {
             ...tarefa,
             subtarefa_titulo: item.texto,
             subtarefa_dificuldade: item.dificuldade,
-          }, true)
+          }, true, key)
         }
         continue
       }
@@ -828,7 +905,7 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       if (String(tarefa.status || '') === 'aprovada') {
         const participante = tarefa.aceita_por || tarefa.responsavel_id
         if (participante) {
-          touchMember(participante, calculateChecklistItemPoints({ texto: tarefa.titulo, descricao: tarefa.descricao, pontuacao: tarefa.pontuacao }, tarefa), tarefa, false)
+          touchMember(participante, calculateChecklistItemPoints({ texto: tarefa.titulo, descricao: tarefa.descricao, pontuacao: tarefa.pontuacao }, tarefa), tarefa, false, 'tarefa_sem_checklist')
         }
       }
     }
@@ -1326,21 +1403,21 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           if (!participante) continue
           const pontosItem = calculateChecklistItemPoints(item, existing)
           await query(
-            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-             VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7)
+            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8)
              ON CONFLICT DO NOTHING`,
-            [orgId, req.params.id, participante, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
-          ).catch(() => {})
+            [orgId, req.params.id, participante, item.id || item.texto || null, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
+          ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de checklist:', (err as Error)?.message || err))
         }
       } else {
         const participante = existing.aceita_por || existing.responsavel_id
         if (participante) {
           await query(
-            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-             VALUES ($1,$2,$3,$4,'tarefa_sem_checklist_aprovada',$5,NOW(),$6)
+            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+             VALUES ($1,$2,$3,NULL,$4,'tarefa_sem_checklist_aprovada',$5,NOW(),$6)
              ON CONFLICT DO NOTHING`,
             [orgId, req.params.id, participante, calculateChecklistItemPoints({ texto: existing.titulo, descricao: existing.descricao }, existing), userId, periodo]
-          ).catch(() => {})
+          ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de tarefa:', (err as Error)?.message || err))
         }
       }
     }

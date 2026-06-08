@@ -2200,7 +2200,11 @@ export default function Tarefas() {
 
   async function approve(t: Tarefa) {
     if (!confirm('Aprovar esta tarefa? Verifique os arquivos da tarefa antes de aprovar.')) return
-    try { updateSaved(await tarefasApi.aprovar(t.id)); toast('Tarefa aprovada.') }
+    try {
+      updateSaved(await tarefasApi.aprovar(t.id))
+      await Promise.all([load(), loadRanking(periodoRanking)])
+      toast('Tarefa aprovada e pontuação do ranking atualizada.')
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao aprovar.', 'error') }
   }
 
