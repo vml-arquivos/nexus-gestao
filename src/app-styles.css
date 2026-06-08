@@ -6750,3 +6750,222 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     bottom: calc(92px + env(safe-area-inset-bottom)) !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   HOTFIX DEFINITIVO — Mobile Nova tarefa / Editar tarefa
+   Corrige campos quebrando letra por letra no celular e impede estouro horizontal.
+   Regras somente visuais; não altera negócio.
+────────────────────────────────────────────────────────────────────────── */
+.tarefa-modal-box,
+.tarefa-modal-box * {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+.tarefa-modal-box .form-label,
+.tarefa-modal-box label,
+.tarefa-modal-box .task-type-option strong,
+.tarefa-modal-box .task-type-option span,
+.tarefa-modal-box .btn,
+.tarefa-modal-box button,
+.tarefa-modal-box option {
+  white-space: normal !important;
+  letter-spacing: .035em;
+}
+
+/* Evita a grade de 5 colunas que espremia campos e transformava texto em coluna. */
+.tarefa-modal-box .task-checklist-builder-fields,
+.tarefa-modal-box .task-inline-add-subtask {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  align-items: end !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+
+.tarefa-modal-box .task-checklist-builder-fields > .form-group:first-child,
+.tarefa-modal-box .task-inline-add-subtask > .form-group:first-child,
+.tarefa-modal-box .task-inline-add-subtask .task-inline-desc,
+.tarefa-modal-box .task-inline-add-subtask > .btn {
+  grid-column: 1 / -1 !important;
+}
+
+.tarefa-modal-box .task-checklist-builder,
+.tarefa-modal-box .task-checklist-edit-card,
+.tarefa-modal-box .task-inline-editor {
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+}
+
+/* Edição de checklists: no desktop fica organizado, no mobile vira uma coluna limpa. */
+.tarefa-modal-box .task-checklist-edit-row,
+.tarefa-modal-box .task-inline-checklist-row {
+  display: grid !important;
+  grid-template-columns: 34px minmax(0, 1.2fr) minmax(0, .8fr) minmax(84px, .45fr) minmax(0, .7fr) minmax(0, .8fr) 42px !important;
+  gap: 10px !important;
+  align-items: center !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+
+.tarefa-modal-box .task-inline-checklist-row {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr) minmax(84px, .45fr) minmax(0, .7fr) minmax(0, .8fr) 42px !important;
+}
+
+.tarefa-modal-box .task-checklist-edit-card > textarea,
+.tarefa-modal-box .task-inline-row-desc {
+  display: block !important;
+  width: 100% !important;
+  grid-column: 1 / -1 !important;
+}
+
+.tarefa-modal-box textarea.form-input {
+  overflow-y: auto !important;
+  resize: vertical !important;
+  min-height: 96px !important;
+  max-height: 240px !important;
+}
+
+/* Microfone: nunca sobre campo. */
+.field-mic,
+.tarefa-modal-box .field-mic,
+.tarefa-modal-box button.field-mic {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.global-mic {
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+  right: calc(12px + env(safe-area-inset-right, 0px)) !important;
+  bottom: calc(82px + env(safe-area-inset-bottom, 0px)) !important;
+  opacity: .82 !important;
+}
+.global-mic span { display: none !important; }
+.global-mic svg { width: 15px !important; height: 15px !important; }
+
+@media (max-width: 900px) {
+  .modal-overlay .tarefa-modal-box,
+  .tarefa-modal-box {
+    width: 100dvw !important;
+    max-width: 100dvw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .tarefa-modal-box .modal-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 40 !important;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px !important;
+    margin: 0 !important;
+    background: var(--bg2) !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .tarefa-modal-box .modal-content,
+  .tarefa-modal-box [data-scroll] {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: calc(100dvh - 68px) !important;
+    max-height: calc(100dvh - 68px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 14px 14px calc(132px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .tarefa-modal-box .grid-2,
+  .tarefa-modal-box .grid-3,
+  .tarefa-modal-box .task-type-selector,
+  .tarefa-modal-box .task-checklist-builder-fields,
+  .tarefa-modal-box .task-inline-add-subtask,
+  .tarefa-modal-box .task-checklist-edit-row,
+  .tarefa-modal-box .task-inline-checklist-row,
+  .tarefa-modal-box .task-detail-hero,
+  .tarefa-modal-box .task-detail-hero-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+    gap: 10px !important;
+  }
+
+  .tarefa-modal-box .task-checklist-builder-fields > *,
+  .tarefa-modal-box .task-inline-add-subtask > *,
+  .tarefa-modal-box .task-checklist-edit-row > *,
+  .tarefa-modal-box .task-inline-checklist-row > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .tarefa-modal-box .task-checklist-edit-row > button,
+  .tarefa-modal-box .task-inline-checklist-row > button {
+    width: 100% !important;
+    min-height: 42px !important;
+  }
+
+  .tarefa-modal-box .modal-actions,
+  .tarefa-modal-box [data-modal-actions],
+  .tarefa-modal-box .task-detail-actions {
+    position: sticky !important;
+    bottom: 0 !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    margin: 10px 0 0 !important;
+    background: var(--bg2) !important;
+  }
+
+  .tarefa-modal-box .modal-actions .btn,
+  .tarefa-modal-box [data-modal-actions] .btn,
+  .tarefa-modal-box .task-detail-actions .btn,
+  .tarefa-modal-box .task-detail-hero-actions .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: center !important;
+    white-space: normal !important;
+  }
+
+  .tarefa-modal-box input,
+  .tarefa-modal-box select,
+  .tarefa-modal-box textarea,
+  .tarefa-modal-box .form-input {
+    font-size: 16px !important;
+    min-height: 48px !important;
+  }
+
+  .tarefa-modal-box .form-label {
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+  }
+}
+
+
+.personal-task-note {
+  border: 1px solid rgba(59,130,246,.22);
+  background: rgba(59,130,246,.08);
+  color: var(--text2);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .personal-task-note {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+}

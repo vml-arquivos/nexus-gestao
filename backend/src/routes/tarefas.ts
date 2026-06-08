@@ -175,10 +175,9 @@ function normalizeTextForScore(value: unknown) {
 }
 
 
-type ChecklistDifficulty = 'iniciante' | 'facil' | 'medio' | 'dificil' | 'hard'
+type ChecklistDifficulty = 'facil' | 'medio' | 'dificil' | 'hard'
 
 const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
-  iniciante: 1,
   facil: 5,
   medio: 10,
   dificil: 17,
@@ -187,7 +186,7 @@ const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
 
 function normalizeChecklistDifficulty(value: unknown, fallback: ChecklistDifficulty = 'medio'): ChecklistDifficulty {
   const raw = normalizeTextForScore(value).replace(/\s+/g, '_')
-  if (raw === 'iniciante' || raw === 'leve' || raw === 'basico' || raw === 'básico') return 'iniciante'
+  if (raw === 'iniciante' || raw === 'leve' || raw === 'basico' || raw === 'básico') return 'facil'
   if (raw === 'facil' || raw === 'fácil') return 'facil'
   if (raw === 'medio' || raw === 'médio' || raw === 'normal') return 'medio'
   if (raw === 'dificil' || raw === 'difícil') return 'dificil'
@@ -197,7 +196,6 @@ function normalizeChecklistDifficulty(value: unknown, fallback: ChecklistDifficu
 
 function scoreToDifficulty(score: unknown): ChecklistDifficulty {
   const n = Number(score || 0)
-  if (n <= 1) return 'iniciante'
   if (n <= 5) return 'facil'
   if (n <= 10) return 'medio'
   if (n <= 17) return 'dificil'
@@ -318,10 +316,10 @@ function normalizePriority(value: unknown, fallback: string = 'media'): 'baixa' 
   return normalizePriority(fallback || 'media', 'media')
 }
 
-function normalizePositiveScore(value: unknown, fallback = 1) {
+function normalizePositiveScore(value: unknown, fallback = 5) {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return Math.max(1, Math.min(25, Math.round(Number(fallback || 1))))
-  return Math.max(1, Math.min(25, Math.round(parsed)))
+  if (!Number.isFinite(parsed)) return Math.max(5, Math.min(25, Math.round(Number(fallback || 5))))
+  return Math.max(5, Math.min(25, Math.round(parsed)))
 }
 
 function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
@@ -493,6 +491,60 @@ function hasChecklistAssignedTo(task: any, userId: string) {
   return parseChecklistItems(task?.checklist).some(item => item.responsavel_id === userId)
 }
 
+function hasChecklistAssignedToOther(task: any, userId: string) {
+  return parseChecklistItems(task?.checklist).some(item => item.responsavel_id && item.responsavel_id !== userId)
+}
+
+function hasUnassignedOpenChecklist(task: any) {
+  return parseChecklistItems(task?.checklist).some(item => !item.feito && !item.responsavel_id)
+}
+
+function isPersonalScope(task: any) {
+  return normalizeTaskScope(task?.escopo) === 'pessoal'
+}
+
+function isTaskPersonalOwner(task: any, userId: string) {
+  return task?.criado_por === userId || task?.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
+}
+
+function filterChecklistForUser(task: any, user: NonNullable<Request['user']>) {
+  const { userId, role } = user
+  const items = parseChecklistItems(task?.checklist)
+  if (!items.length) return items
+  // Gestores veem o checklist completo das tarefas de equipe que gerenciam.
+  if (canDeleteOrgRecords(role)) return items
+  if (isPersonalScope(task)) return isTaskPersonalOwner(task, userId) ? items : []
+  // Membros só veem subtarefas livres ou atribuídas a eles.
+  // Subtarefas assumidas/atribuídas a outra pessoa ficam ocultas.
+  return items.filter(item => !item.responsavel_id || item.responsavel_id === userId)
+}
+
+function sanitizeTaskForUser(task: any, user: NonNullable<Request['user']>) {
+  const checklist = filterChecklistForUser(task, user)
+  return { ...task, checklist }
+}
+
+function canListTaskForUser(task: any, user: NonNullable<Request['user']>, comandados = new Set<string>()) {
+  const { userId, role } = user
+  if (isPersonalScope(task)) {
+    // Tarefa pessoal é privada: nem vínculo com Destrava nem cargo de equipe expõe para terceiros.
+    return isTaskPersonalOwner(task, userId)
+  }
+
+  // Tarefas de equipe são visíveis para gestores/admin/dev/subgestores conforme o painel de gestão.
+  if (canDeleteOrgRecords(role)) return true
+
+  if (role === 'sub_gestor') {
+    if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
+    if (task.responsavel_id && comandados.has(task.responsavel_id)) return true
+    return false
+  }
+
+  // Membro vê somente o que recebeu, assumiu, criou para si/equipe, ou tarefas livres com subtarefa livre para assumir.
+  if (task.responsavel_id === userId || task.criado_por === userId || task.aceita_por === userId || hasChecklistAssignedTo(task, userId)) return true
+  if (isFreeTeamTask(task) && (!task.aceita_por || hasUnassignedOpenChecklist(task))) return true
+  return false
+}
 
 function checklistProgress(task: any) {
   const items = parseChecklistItems(task?.checklist)
@@ -558,19 +610,18 @@ async function addHistorico(input: {
 }
 
 async function userCanAccessTask(task: any, user: NonNullable<Request['user']>) {
-  const { userId, role } = user
+  const { userId, role, orgId } = user
+  if (isPersonalScope(task)) return isTaskPersonalOwner(task, userId)
   if (canDeleteOrgRecords(role)) return true
-  if (isFreeTeamTask(task) && !task.aceita_por) return true
-  if (isFreeTeamTask(task) && task.aceita_por === userId) return true
-  if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId || hasChecklistAssignedTo(task, userId)
-  if (role === 'gestor') return task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
   if (role === 'sub_gestor') {
     if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
     if (!task.responsavel_id) return false
-    const resp = await queryOne('SELECT id FROM profiles WHERE id = $1 AND criado_por = $2', [task.responsavel_id, userId])
+    const resp = await queryOne('SELECT id FROM profiles WHERE org_id = $1 AND id = $2 AND criado_por = $3', [orgId, task.responsavel_id, userId])
     return !!resp
   }
-  return false
+  if (isFreeTeamTask(task) && (!task.aceita_por || task.aceita_por === userId || hasUnassignedOpenChecklist(task))) return true
+  if (role === 'membro') return task.responsavel_id === userId || task.criado_por === userId || task.aceita_por === userId || hasChecklistAssignedTo(task, userId)
+  return task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
 }
 
 
@@ -632,24 +683,19 @@ async function listTasksForUser(user: NonNullable<Request['user']>) {
     [orgId]
   )
 
-  if (canDeleteOrgRecords(role)) return rows
-
   let comandados = new Set<string>()
   if (role === 'sub_gestor') {
     const subs = await query<{ id: string }>('SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE', [orgId, userId])
     comandados = new Set(subs.map(s => s.id))
   }
 
-  return rows.filter(task => {
-    if (isFreeTeamTask(task) && !task.aceita_por) return true
-    if (isFreeTeamTask(task) && task.aceita_por === userId) return true
-    if (task.criado_por === userId || task.responsavel_id === userId || hasChecklistAssignedTo(task, userId)) return true
-    if (role === 'sub_gestor' && task.responsavel_id && comandados.has(task.responsavel_id)) return true
-    return false
-  })
+  return rows
+    .filter(task => canListTaskForUser(task, user, comandados))
+    .map(task => sanitizeTaskForUser(task, user))
 }
 
 function taskMatchesMember(task: any, memberId: string) {
+  if (isPersonalScope(task)) return task.criado_por === memberId || task.responsavel_id === memberId || hasChecklistAssignedTo(task, memberId)
   return task.responsavel_id === memberId || task.criado_por === memberId || task.aceita_por === memberId || hasChecklistAssignedTo(task, memberId)
 }
 
@@ -981,7 +1027,7 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
     if (existing.criado_por && existing.criado_por !== userId) {
       await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: '🙋 Tarefa selecionada', body: `${profile?.nome || 'Um membro'} assumiu a tarefa "${existing.titulo}".`, referenciaId: tarefa.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao pegar tarefa:', err)
     res.status(500).json({ error: 'Erro ao pegar tarefa.' })
@@ -1028,7 +1074,7 @@ router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response
     if (existing.criado_por && existing.criado_por !== userId) {
       await criarNotificacao({ orgId, userId: existing.criado_por, tipo: 'tarefa_atualizada', titulo: 'Subtarefa assumida', body: `${profile?.nome || 'Um membro'} assumiu "${item.texto}" em "${existing.titulo}".`, referenciaId: existing.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao assumir subtarefa:', err)
     res.status(500).json({ error: 'Erro ao assumir subtarefa.' })
@@ -1043,7 +1089,6 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
     const modoDistribuicao = normalizeTaskDistribution((req.body as any).modo_distribuicao)
     const pontuacaoManual = Number((req.body as any).pontuacao || 0)
-    const contaRanking = (req.body as any).conta_ranking !== false
 
     if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!['baixa','media','alta'].includes(prioridade)) { res.status(400).json({ error: 'Prioridade inválida.' }); return }
@@ -1083,10 +1128,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    const contaRanking = escopo === 'equipe' && (req.body as any).conta_ranking !== false
     const responsavel = responsavelId ? await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [responsavelId, orgId]) : null
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
-    const checklistNormalizado = await normalizeChecklistForOrg(checklist, orgId, userId, role)
-    const pontuacao = calculateTaskComplexityPoints({ titulo, descricao, prioridade, checklist: checklistNormalizado, origem_sistema, origem_tipo, origem_nome, origem_payload, manual: pontuacaoManual })
+    const checklistNormalizado = escopo === 'equipe' ? await normalizeChecklistForOrg(checklist, orgId, userId, role) : '[]'
+    const pontuacao = escopo === 'equipe' ? calculateTaskComplexityPoints({ titulo, descricao, prioridade, checklist: checklistNormalizado, origem_sistema, origem_tipo, origem_nome, origem_payload, manual: pontuacaoManual }) : 0
 
     // Proteção contra duplo clique/envio repetido: se a mesma tarefa foi criada
     // há poucos segundos pelo mesmo usuário, devolve a existente em vez de criar
@@ -1225,7 +1271,7 @@ router.patch('/:id/status', async (req: Request, res: Response): Promise<void> =
       }).catch(() => {})
     }
 
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao atualizar status:', err)
     res.status(500).json({ error: 'Erro ao atualizar status da tarefa.' })
@@ -1425,7 +1471,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
       await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_aprovada', titulo: '✅ Tarefa aprovada', body: `"${existing.titulo}" foi aprovada.`, referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao aprovar:', err)
     res.status(500).json({ error: 'Erro ao aprovar tarefa.' })
@@ -1453,7 +1499,7 @@ router.patch('/:id/devolver', async (req: Request, res: Response): Promise<void>
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
       await criarNotificacao({ orgId, userId: existing.responsavel_id, tipo: 'tarefa_devolvida', titulo: '↩️ Tarefa devolvida', body: String(ressalva_gestor).trim(), referenciaId: req.params.id, referenciaTipo: 'tarefa' }).catch(() => {})
     }
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao devolver:', err)
     res.status(500).json({ error: 'Erro ao devolver tarefa.' })
@@ -1556,7 +1602,7 @@ router.patch('/:id/reabrir', async (req: Request, res: Response): Promise<void> 
       }).catch(() => {})
     }
 
-    res.json({ tarefa: updated })
+    res.json({ tarefa: sanitizeTaskForUser(updated, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao reabrir/complementar:', err)
     res.status(500).json({ error: 'Erro ao reabrir tarefa.' })
@@ -1605,7 +1651,7 @@ router.patch('/:id/reenviar', async (req: Request, res: Response): Promise<void>
       }).catch(() => {})
     }
 
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao reenviar:', err)
     res.status(500).json({ error: 'Erro ao reenviar tarefa.' })
@@ -1805,7 +1851,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const tarefa = await getTaskForAccess(req.params.id, orgId)
     if (!tarefa) { res.status(404).json({ error: 'Tarefa não encontrada.' }); return }
     if (!(await userCanAccessTask(tarefa, req.user!))) { res.status(403).json({ error: 'Acesso negado.' }); return }
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao buscar:', err)
     res.status(500).json({ error: 'Erro ao buscar tarefa.' })
@@ -1938,8 +1984,8 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
           setValue('devolvida_em', null)
           setRaw('data_reabertura', 'NOW()')
           setValue('reaberto_por', userId)
-          setValue('conta_ranking', true)
-          setValue('pontuacao', calculateTaskComplexityPoints({
+          setValue('conta_ranking', normalizeTaskScope(existing.escopo) === 'equipe')
+          setValue('pontuacao', normalizeTaskScope(existing.escopo) === 'equipe' ? calculateTaskComplexityPoints({
             titulo: (req.body as any).titulo || existing.titulo,
             descricao: (req.body as any).descricao || existing.descricao,
             prioridade: (req.body as any).prioridade || existing.prioridade,
@@ -1949,10 +1995,30 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
             origem_nome: existing.origem_nome,
             origem_payload: existing.origem_payload,
             manual: (req.body as any).pontuacao || existing.pontuacao,
-          }))
+          }) : 0)
         }
         continue
       }
+    }
+
+    const finalEscopo = normalizeTaskScope(setMap.get('escopo')?.value ?? existing.escopo)
+    if (finalEscopo === 'pessoal') {
+      setValue('escopo', 'pessoal')
+      setValue('modo_distribuicao', 'normal')
+      setValue('conta_ranking', false)
+      setValue('pontuacao', 0)
+      setValue('checklist', '[]')
+      nextChecklistForSync = '[]'
+      setValue('aceita_por', null)
+      setValue('aceita_em', null)
+      // Tarefa pessoal fica privada para o próprio usuário/criador.
+      if (existing.criado_por === userId || !existing.responsavel_id) {
+        setValue('responsavel_id', userId)
+        const me = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [userId, orgId]).catch(() => null)
+        setValue('responsavel_nome', me?.nome || null)
+      }
+    } else if (setMap.get('conta_ranking')?.value === undefined) {
+      setValue('conta_ranking', true)
     }
 
     if (!setMap.size) { res.status(400).json({ error: 'Nenhum campo para atualizar.' }); return }
@@ -2007,7 +2073,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'atualizada', statusAnterior: existing.status, statusNovo: tarefa.status })
     }
 
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao atualizar:', err)
     const statusCode = Number((err as any)?.statusCode || 0)
@@ -2046,7 +2112,7 @@ router.post('/:id/resposta', async (req: Request, res: Response): Promise<void> 
       [status, resposta_status, resposta_obs || null, req.params.id, orgId]
     )
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: status, statusAnterior: existing.status, statusNovo: status, observacao: resposta_obs || null })
-    res.json({ tarefa })
+    res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) })
   } catch (err) {
     console.error('[TAREFAS] Erro ao responder:', err)
     res.status(500).json({ error: 'Erro ao registrar resposta.' })

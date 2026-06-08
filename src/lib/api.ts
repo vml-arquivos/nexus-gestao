@@ -37,7 +37,7 @@ export interface UserProfile {
   ativo?: boolean
 }
 
-export type ChecklistDifficulty = 'iniciante' | 'facil' | 'medio' | 'dificil' | 'hard'
+export type ChecklistDifficulty = 'facil' | 'medio' | 'dificil' | 'hard'
 
 export interface ChecklistItem {
   id: string

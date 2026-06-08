@@ -38,7 +38,6 @@ const PRIORIDADE_CONFIG: Record<string, { label: string; color: string }> = {
 
 
 const CHECKLIST_DIFFICULTY_OPTIONS: Array<{ value: ChecklistDifficulty; label: string; points: number; hint: string }> = [
-  { value: 'iniciante', label: 'Iniciante', points: 1, hint: 'Ação simples e rápida' },
   { value: 'facil', label: 'Fácil', points: 5, hint: 'Baixa complexidade' },
   { value: 'medio', label: 'Médio', points: 10, hint: 'Exige atenção e conferência' },
   { value: 'dificil', label: 'Difícil', points: 17, hint: 'Exige análise ou validação detalhada' },
@@ -55,7 +54,6 @@ function difficultyLabel(value?: ChecklistDifficulty | string) {
 
 function difficultyFromPoints(points?: number): ChecklistDifficulty {
   const n = Number(points || 0)
-  if (n <= 1) return 'iniciante'
   if (n <= 5) return 'facil'
   if (n <= 10) return 'medio'
   if (n <= 17) return 'dificil'
@@ -442,7 +440,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
-  const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao || 1))
+  const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao || 5))
   const [contaRanking, setContaRanking] = useState(tarefa?.conta_ranking !== false)
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
@@ -520,7 +518,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function addItem() {
     if (!novoItem.trim()) { toast('Informe a ação do checklist.', 'error'); return }
-    if (!Number(novoItemPontuacao) || Number(novoItemPontuacao) < 1) { toast('Informe a pontuação desta subtarefa.', 'error'); return }
+    if (!Number(novoItemPontuacao) || Number(novoItemPontuacao) < 5) { toast('Informe a pontuação desta subtarefa entre 5 e 25 pontos.', 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -529,7 +527,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       responsavel_id: novoItemResponsavelId || undefined,
       responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
       dificuldade: novoItemDificuldade,
-      pontuacao: Math.max(1, Math.min(25, Number(novoItemPontuacao || 10))),
+      pontuacao: Math.max(5, Math.min(25, Number(novoItemPontuacao || 10))),
       feito: false,
     }])
     setNovoItem('')
@@ -563,9 +561,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : (isMemberRequest ? responsavelId : user?.id),
         escopo: isGestor ? tipoTarefa : (isMemberRequest ? 'equipe' : 'pessoal'),
         modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
-        pontuacao: Number(pontuacao || 1),
-        conta_ranking: contaRanking,
-        checklist,
+        pontuacao: tipoTarefa === 'equipe' ? Number(pontuacao || 5) : 0,
+        conta_ranking: tipoTarefa === 'equipe' ? contaRanking : false,
+        checklist: tipoTarefa === 'equipe' ? checklist : [],
         obs: obs.trim() || undefined,
         origem_sistema: destravaSelecionado ? 'destrava' : undefined,
         origem_tipo: destravaSelecionado?.tipo || undefined,
@@ -725,7 +723,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Pontuação no ranking</label>
-              <input className="form-input" type="number" min="1" max="25" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(e.target.value)} />
+              <input className="form-input" type="number" min="5" max="25" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(e.target.value)} />
             </div>
             <label className="form-group" style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 22 }}>
               <input type="checkbox" checked={contaRanking} onChange={e => setContaRanking(e.target.checked)} />
@@ -744,8 +742,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>A função antiga de direcionar a tarefa para um membro continua disponível. Você também pode deixar sem responsável principal e direcionar apenas os checklists.</div>
           </div>
         )}
+        {tipoTarefa === 'equipe' && (
         <div className="form-group">
-          <label className="form-label">Checklist</label>
+          <label className="form-label">Checklist / subtarefas da equipe</label>
           <div className="task-checklist-builder">
             <div className="task-checklist-builder-fields">
               <div className="form-group">
@@ -790,7 +789,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               </div>
               <div className="form-group">
                 <label className="form-label">Pontuação *</label>
-                <input className="form-input" type="number" min="1" max="25" value={novoItemPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 1))) }} />
+                <input className="form-input" type="number" min="5" max="25" value={novoItemPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 5))) }} />
               </div>
             </div>
             <div className="form-group">
@@ -854,11 +853,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <input
                   className="form-input"
                   type="number"
-                  min="1"
+                  min="5"
                   max="25"
-                  value={(item as any).pontuacao || 1}
+                  value={(item as any).pontuacao || 5}
                   onWheel={e => (e.target as HTMLInputElement).blur()}
-                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))}
+                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(5, Math.min(25, Number(e.target.value || 5))), dificuldade: difficultyFromPoints(Number(e.target.value || 5)) } : i))}
                   title="Pontuação obrigatória desta subtarefa"
                 />
                 <input
@@ -892,6 +891,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
           ))}
         </div>
+        )}
+        {tipoTarefa === 'pessoal' && (
+          <div className="personal-task-note">Tarefa pessoal: privada para você, sem pontuação e sem ranking. Mesmo vinculada ao Destrava, não aparece para membros da equipe.</div>
+        )}
         <div className="form-group">
           <label className="form-label">Observação interna</label>
           <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} />
@@ -1273,6 +1276,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
+  const isPersonal = taskScope(tarefa) === 'pessoal'
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -1284,7 +1288,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const canToggleChecklist = canExecuteTask && !isTaskFinalizada
   // Gestor precisa aprovar/devolver mesmo quando também é criador/responsável.
   // A aprovação do gestor é a etapa que libera pontuação no ranking.
-  const canReviewTask = isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
+  const canReviewTask = !isPersonal && isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
@@ -1577,7 +1581,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               </div>
               <div className="form-group">
                 <label className="form-label">Pontuação *</label>
-                <input className="form-input" type="number" min="1" max="25" value={newSubtaskPoints} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 1))) }} />
+                <input className="form-input" type="number" min="5" max="25" value={newSubtaskPoints} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 5))) }} />
               </div>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
@@ -1612,7 +1616,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                   <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao || 10))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
-                  <input className="form-input" type="number" min="1" max="25" value={(item as any).pontuacao || 1} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(1, Math.min(25, Number(e.target.value || 1))), dificuldade: difficultyFromPoints(Number(e.target.value || 1)) } : i))} title="Pontuação" />
+                  <input className="form-input" type="number" min="5" max="25" value={(item as any).pontuacao || 5} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(5, Math.min(25, Number(e.target.value || 5))), dificuldade: difficultyFromPoints(Number(e.target.value || 5)) } : i))} title="Pontuação" />
                   <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
                   <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                     <option value="">Livre / responsável principal</option>
@@ -1780,12 +1784,13 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
+  const isPersonal = taskScope(tarefa) === 'pessoal'
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)
   const canExecuteTask = (isResponsavel || isCriadorSemResponsavel || hasChecklistForMe) && !isTaskFinalizada
-  const canReviewTask = isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
+  const canReviewTask = !isPersonal && isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
   const responsavelLabel = livreDisponivel
     ? 'Livre para assumir'
@@ -1817,7 +1822,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
-          {isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 1)} ponto(s)</span>}
+          {!isPersonal && isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 5)} ponto(s)</span>}
           {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
           {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
@@ -1855,16 +1860,25 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           : <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir</button>
         )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
-        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
-        {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReminder(tarefa)} type="button"><MessageSquare size={12} /> Lembrete</button>}
-        {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
-        {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
-        {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-        {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
-        {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-        {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-        {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={12} /> Complementar</button>}
-        {canDeleteTarefa(tarefa, userId, isGestor) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+        {isPersonal ? (
+          <>
+            <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
+            {canDeleteTarefa(tarefa, userId, isGestor) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+          </>
+        ) : (
+          <>
+            <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
+            {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReminder(tarefa)} type="button"><MessageSquare size={12} /> Lembrete</button>}
+            {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
+            {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
+            {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
+            {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
+            {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
+            {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
+            {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={12} /> Complementar</button>}
+            {canDeleteTarefa(tarefa, userId, isGestor) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+          </>
+        )}
       </div>
     </article>
   )
