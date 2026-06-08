@@ -1942,10 +1942,14 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
                   <details style={{ marginTop: 8 }}>
                     <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontSize: 12, fontWeight: 600 }}>Ver histórico de pontos</summary>
                     <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
-                      {historico.slice(0, 10).map((h: any, i: number) => (
-                        <div key={`${h.tarefa_id || i}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text2)', borderTop: i ? '1px dashed var(--border)' : 'none', paddingTop: i ? 4 : 0 }}>
-                          <span style={{ overflowWrap: 'anywhere' }}>{h.tarefa_titulo || 'Tarefa aprovada'}</span>
-                          <strong style={{ whiteSpace: 'nowrap', color: 'var(--success)' }}>+{Number(h.pontos || 0)} pts</strong>
+                      {historico.slice(0, 12).map((h: any, i: number) => (
+                        <div key={`${h.tarefa_id || i}-${i}`} className="ranking-history-item">
+                          <div className="ranking-history-main">
+                            <strong>{h.subtarefa_titulo || h.tarefa_titulo || 'Tarefa aprovada'}</strong>
+                            {h.subtarefa_titulo && <span>{h.tarefa_titulo}</span>}
+                            <em>{[h.dificuldade ? `Dificuldade: ${String(h.dificuldade)}` : '', h.aprovado_em ? `Aprovada em ${fmtDateTime(h.aprovado_em)}` : ''].filter(Boolean).join(' · ')}</em>
+                          </div>
+                          <strong className="ranking-history-points">+{Number(h.pontos || 0)} pts</strong>
                         </div>
                       ))}
                     </div>
@@ -1987,6 +1991,7 @@ export default function Tarefas() {
   const [mesFiltro, setMesFiltro] = useState('todos')
   const [anoFiltro, setAnoFiltro] = useState('todos')
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
+  const [statusTab, setStatusTab] = useState<'todos' | 'pendentes' | 'execucao' | 'concluidas' | 'atrasadas' | 'ultimas'>('todos')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
   const [periodoRanking, setPeriodoRanking] = useState(() =>
     localStorage.getItem('nexus:ranking-periodo') || 'todos'
@@ -2098,6 +2103,11 @@ export default function Tarefas() {
   }, [tarefasVisiveis])
 
   const filtered = useMemo(() => scoped.filter(t => {
+    if (statusTab === 'pendentes' && !['pendente', 'devolvida', 'reenviada'].includes(String(t.status))) return false
+    if (statusTab === 'execucao' && String(t.status) !== 'em_progresso') return false
+    if (statusTab === 'concluidas' && !['concluida', 'aprovada'].includes(String(t.status))) return false
+    if (statusTab === 'atrasadas' && !isOverdue(t.prazo, t.status)) return false
+    if (statusTab === 'ultimas' && !recentesIds.has(t.id)) return false
     if (status !== 'todos' && t.status !== status) return false
     if (prioridade !== 'todos' && t.prioridade !== prioridade) return false
     if (membroFiltro !== 'todos' && !memberMatchesTask(t, membroFiltro)) return false
@@ -2110,12 +2120,20 @@ export default function Tarefas() {
     const q = search.trim().toLowerCase()
     if (q && !`${t.titulo} ${t.descricao || ''} ${t.criado_por_nome || ''} ${t.responsavel_nome_perfil || t.responsavel_nome || ''} ${t.origem_nome || ''} ${(t.checklist || []).map(i => `${i.texto} ${i.descricao || ''} ${i.responsavel_nome || ''}`).join(' ')}`.toLowerCase().includes(q)) return false
     return true
-  }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, prioridade, membroFiltro, mesFiltro, anoFiltro])
+  }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, statusTab, prioridade, membroFiltro, mesFiltro, anoFiltro, recentesIds])
 
   const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
   const equipeCount = useMemo(() => tarefasVisiveis.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasVisiveis, isTeamAssignedTask])
   const recentesCount = recentesIds.size
   const disponiveisCount = useMemo(() => tarefasVisiveis.filter(isAvailableFreeTask).length, [tarefasVisiveis])
+  const quickCounts = useMemo(() => ({
+    todos: scoped.length,
+    pendentes: scoped.filter(t => ['pendente', 'devolvida', 'reenviada'].includes(String(t.status))).length,
+    execucao: scoped.filter(t => t.status === 'em_progresso').length,
+    concluidas: scoped.filter(t => ['concluida', 'aprovada'].includes(String(t.status))).length,
+    atrasadas: scoped.filter(t => isOverdue(t.prazo, t.status)).length,
+    ultimas: scoped.filter(t => recentesIds.has(t.id)).length,
+  }), [scoped, recentesIds])
 
   const stats = [
     ['Total', scoped.length, 'var(--text)'],
@@ -2147,6 +2165,7 @@ export default function Tarefas() {
   function limparFiltros() {
     setSearch('')
     setStatus('todos')
+    setStatusTab('todos')
     setPrioridade('todos')
     setMembroFiltro('todos')
     setMesFiltro('todos')
@@ -2242,6 +2261,33 @@ export default function Tarefas() {
         })}
       </section>
 
+      <section className="task-flow-tabs" aria-label="Visão rápida das tarefas">
+        {[
+          { id: 'todos', label: 'Todas', count: quickCounts.todos, hint: 'Visão geral' },
+          { id: 'pendentes', label: 'Pendentes', count: quickCounts.pendentes, hint: 'Aguardando ação' },
+          { id: 'execucao', label: 'Em execução', count: quickCounts.execucao, hint: 'Em andamento' },
+          { id: 'concluidas', label: 'Concluídas', count: quickCounts.concluidas, hint: 'Entregues/aprovadas' },
+          { id: 'atrasadas', label: 'Atrasadas', count: quickCounts.atrasadas, hint: 'Cobrança' },
+          { id: 'ultimas', label: 'Últimas', count: quickCounts.ultimas, hint: 'Movimentadas' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            className={statusTab === tab.id ? 'task-flow-tab active' : 'task-flow-tab'}
+            onClick={() => {
+              setStatusTab(tab.id as typeof statusTab)
+              setStatus('todos')
+              if (tab.id === 'ultimas') setEscopo('recentes')
+              if (tab.id !== 'ultimas' && escopo === 'recentes') setEscopo('todas')
+            }}
+          >
+            <strong>{tab.label}</strong>
+            <span>{tab.count}</span>
+            <em>{tab.hint}</em>
+          </button>
+        ))}
+      </section>
+
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 14 }}>
         {stats.map(([label, value, color]) => <div key={String(label)} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
           <div style={{ fontSize: 21, fontWeight: 600, color: String(color) }}>{String(value)}</div>
@@ -2330,7 +2376,7 @@ export default function Tarefas() {
 
       {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
         <div className="task-report-list">
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
+          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : statusTab !== 'todos' ? 'Nenhuma tarefa encontrada nesta aba.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
             <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}

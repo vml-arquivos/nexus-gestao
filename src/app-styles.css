@@ -6271,3 +6271,143 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
 .push-permission-banner > button:last-child:hover {
   opacity: 1;
 }
+
+/* Etapa: tarefas mais limpas, abas rápidas e histórico do ranking detalhado */
+.task-flow-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: -4px 0 14px;
+}
+
+.task-flow-tab {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text2);
+  border-radius: 14px;
+  padding: 10px 11px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "label count" "hint hint";
+  gap: 3px 8px;
+  transition: border-color .18s ease, transform .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.task-flow-tab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(16,185,129,.38);
+  box-shadow: 0 8px 20px rgba(15,23,42,.06);
+}
+
+.task-flow-tab.active {
+  border-color: rgba(16,185,129,.62);
+  background: color-mix(in srgb, var(--bg2) 82%, rgba(16,185,129,.16));
+}
+
+.task-flow-tab strong {
+  grid-area: label;
+  font-size: 12.5px;
+  font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-flow-tab span {
+  grid-area: count;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-flow-tab.active span {
+  background: rgba(16,185,129,.18);
+  color: #059669;
+}
+
+.task-flow-tab em {
+  grid-area: hint;
+  font-style: normal;
+  color: var(--text3);
+  font-size: 10.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ranking-history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border-top: 1px dashed var(--border);
+  padding: 8px 0 0;
+  margin-top: 8px;
+}
+
+.ranking-history-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 6px;
+}
+
+.ranking-history-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ranking-history-main strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ranking-history-main span,
+.ranking-history-main em {
+  color: var(--text3);
+  font-size: 11px;
+  line-height: 1.25;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.ranking-history-points {
+  white-space: nowrap;
+  color: var(--success);
+  font-size: 12px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(16,185,129,.11);
+}
+
+@media (max-width: 1080px) {
+  .task-flow-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .task-flow-tabs {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  .task-flow-tab {
+    min-width: 150px;
+    scroll-snap-align: start;
+  }
+}

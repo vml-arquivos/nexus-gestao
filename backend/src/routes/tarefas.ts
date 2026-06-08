@@ -794,6 +794,8 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       entry.historico.push({
         tarefa_id: tarefa.id,
         tarefa_titulo: tarefa.titulo,
+        subtarefa_titulo: tarefa.subtarefa_titulo || null,
+        dificuldade: tarefa.subtarefa_dificuldade || tarefa.dificuldade || null,
         checklist: isChecklist,
         pontos: pontosValidos,
         aprovado_em: when,
@@ -814,7 +816,11 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         for (const item of feitos) {
           const participante = item.responsavel_id || tarefa.aceita_por || tarefa.responsavel_id
           if (!participante) continue
-          touchMember(participante, calculateChecklistItemPoints(item, tarefa), { ...tarefa, titulo: `${tarefa.titulo} — ${item.texto}` }, true)
+          touchMember(participante, calculateChecklistItemPoints(item, tarefa), {
+            ...tarefa,
+            subtarefa_titulo: item.texto,
+            subtarefa_dificuldade: item.dificuldade,
+          }, true)
         }
         continue
       }
