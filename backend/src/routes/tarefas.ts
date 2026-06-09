@@ -175,35 +175,44 @@ function normalizeTextForScore(value: unknown) {
 }
 
 
-type ChecklistDifficulty = 'facil' | 'medio' | 'dificil' | 'hard'
+type ChecklistDifficulty = 'nivel_1' | 'nivel_2' | 'nivel_3' | 'nivel_4' | 'nivel_5'
 
 const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
-  facil: 5,
-  medio: 10,
-  dificil: 17,
-  hard: 25,
+  nivel_1: 0,
+  nivel_2: 1,
+  nivel_3: 3,
+  nivel_4: 5,
+  nivel_5: 20,
 }
 
-function normalizeChecklistDifficulty(value: unknown, fallback: ChecklistDifficulty = 'medio'): ChecklistDifficulty {
+function normalizeChecklistDifficulty(value: unknown, fallback: ChecklistDifficulty = 'nivel_3'): ChecklistDifficulty {
   const raw = normalizeTextForScore(value).replace(/\s+/g, '_')
-  if (raw === 'iniciante' || raw === 'leve' || raw === 'basico' || raw === 'básico') return 'facil'
-  if (raw === 'facil' || raw === 'fácil') return 'facil'
-  if (raw === 'medio' || raw === 'médio' || raw === 'normal') return 'medio'
-  if (raw === 'dificil' || raw === 'difícil') return 'dificil'
-  if (raw === 'hard' || raw === 'super_dificil' || raw === 'super_difícil' || raw === 'super_dificil_hard' || raw === 'nivel_hard' || raw === 'nível_hard') return 'hard'
+  if (raw === 'nivel_1' || raw === 'nível_1' || raw === 'n1' || raw === '1' || raw === 'iniciante' || raw === 'leve' || raw === 'basico' || raw === 'básico') return 'nivel_1'
+  if (raw === 'nivel_2' || raw === 'nível_2' || raw === 'n2' || raw === '2') return 'nivel_2'
+  if (raw === 'nivel_3' || raw === 'nível_3' || raw === 'n3' || raw === '3') return 'nivel_3'
+  if (raw === 'nivel_4' || raw === 'nível_4' || raw === 'n4' || raw === '4' || raw === 'facil' || raw === 'fácil' || raw === 'medio' || raw === 'médio' || raw === 'normal') return 'nivel_4'
+  if (raw === 'nivel_5' || raw === 'nível_5' || raw === 'n5' || raw === '5' || raw === 'dificil' || raw === 'difícil' || raw === 'hard' || raw === 'super_dificil' || raw === 'super_difícil' || raw === 'super_dificil_hard' || raw === 'nivel_hard' || raw === 'nível_hard') return 'nivel_5'
   return fallback
 }
 
 function scoreToDifficulty(score: unknown): ChecklistDifficulty {
   const n = Number(score || 0)
-  if (n <= 5) return 'facil'
-  if (n <= 10) return 'medio'
-  if (n <= 17) return 'dificil'
-  return 'hard'
+  if (n <= 0) return 'nivel_1'
+  if (n <= 1) return 'nivel_2'
+  if (n <= 3) return 'nivel_3'
+  if (n <= 5) return 'nivel_4'
+  return 'nivel_5'
 }
 
-function pointsForDifficulty(value: unknown, fallback: ChecklistDifficulty = 'medio') {
+function pointsForDifficulty(value: unknown, fallback: ChecklistDifficulty = 'nivel_3') {
   return CHECKLIST_DIFFICULTY_POINTS[normalizeChecklistDifficulty(value, fallback)]
+}
+
+function normalizeChecklistScore(value: unknown, fallback = 3) {
+  const raw = typeof value === 'string' ? value.replace(',', '.') : value
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return Math.max(0, Math.min(20, Math.round(Number(fallback) || 0)))
+  return Math.max(0, Math.min(20, Math.round(n)))
 }
 
 function calculateTaskComplexityPoints(input: {
@@ -254,15 +263,15 @@ function calculateTaskComplexityPoints(input: {
   if (String(input.origem_sistema || '').toLowerCase() === 'destrava') points += 10
   if (manual > 1) points = Math.max(points, manual)
 
-  return Math.max(1, Math.min(999, Math.round(points)))
+  return Math.max(0, Math.min(20, Math.round(points)))
 }
 
 function calculateChecklistItemPoints(item: { texto?: string; descricao?: string; data?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty | string }, task: any) {
-  const dificuldade = normalizeChecklistDifficulty((item as any)?.dificuldade, scoreToDifficulty((item as any)?.pontuacao || 10))
+  const dificuldade = normalizeChecklistDifficulty((item as any)?.dificuldade, scoreToDifficulty((item as any)?.pontuacao ?? 3))
   const manual = Number((item as any)?.pontuacao || 0)
   // Regra do ranking: a pontuação é da subtarefa/checklist, definida manualmente
-  // por quem cadastrou, com faixa objetiva de 1 a 25 pontos.
-  if (Number.isFinite(manual) && manual > 0) return Math.max(1, Math.min(25, Math.round(manual)))
+  // por quem cadastrou, com a escala objetiva Nível 1 a 5: 0, 1, 3, 5 e 20 pontos.
+  if (Number.isFinite(manual) && manual >= 0) return Math.max(0, Math.min(20, Math.round(manual)))
   return pointsForDifficulty(dificuldade)
 }
 
@@ -316,10 +325,10 @@ function normalizePriority(value: unknown, fallback: string = 'media'): 'baixa' 
   return normalizePriority(fallback || 'media', 'media')
 }
 
-function normalizePositiveScore(value: unknown, fallback = 5) {
+function normalizePositiveScore(value: unknown, fallback = 3) {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return Math.max(5, Math.min(25, Math.round(Number(fallback || 5))))
-  return Math.max(5, Math.min(25, Math.round(parsed)))
+  if (!Number.isFinite(parsed)) return Math.max(0, Math.min(20, Math.round(Number(fallback) || 0)))
+  return Math.max(0, Math.min(20, Math.round(parsed)))
 }
 
 function normalizeTaskScope(value: unknown): 'pessoal' | 'equipe' {
@@ -390,11 +399,11 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
 
   return raw
     .map((item: any) => {
-      if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false, dificuldade: 'medio' as ChecklistDifficulty, pontuacao: 10 }
+      if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false, dificuldade: 'nivel_3' as ChecklistDifficulty, pontuacao: 3 }
       const rawDate = String(item?.data || item?.date || item?.prazo || '').slice(0, 10)
       const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : undefined
-      const dificuldade = normalizeChecklistDifficulty(item?.dificuldade, scoreToDifficulty(item?.pontuacao || 10))
-      const pontuacao = normalizePositiveScore(item?.pontuacao, pointsForDifficulty(dificuldade))
+      const dificuldade = normalizeChecklistDifficulty(item?.dificuldade, scoreToDifficulty(item?.pontuacao ?? 3))
+      const pontuacao = normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(dificuldade))
       return {
         id: isUuid(item?.id) ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
@@ -885,7 +894,7 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       const uniqueKey = `${tarefa.id || tarefa.tarefa_id}:${usuarioId}:${keySeed || (isChecklist ? tarefa.subtarefa_titulo : 'tarefa')}`
       if (scoreKeys.has(uniqueKey)) return
       scoreKeys.add(uniqueKey)
-      const pontosValidos = Math.max(1, Math.min(25, Math.round(Number(pontos || 1))))
+      const pontosValidos = Math.max(0, Math.min(20, Math.round(Number(pontos ?? 0))))
       entry.pontos += pontosValidos
       entry.tarefas_aprovadas += 1
       if (isChecklist) entry.subtarefas_executadas += 1

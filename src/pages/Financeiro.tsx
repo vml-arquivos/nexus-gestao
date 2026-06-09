@@ -830,6 +830,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     .sort((a, b) => new Date(b.created_at || b.data_evento || 0).getTime() - new Date(a.created_at || a.data_evento || 0).getTime())
   const extrato = calcExtratoGrupo(parcelas, historicoCompleto)
   const nomeOperacao = tipo === 'recebimento' ? 'recebimento' : 'pagamento'
+  const isRecurringDebt = parcelas.some(p => p.recorrencia && p.recorrencia !== 'nenhum')
   const primeiraDataPendente = saldo.pendentes[0]?.vencimento?.slice(0, 10) || ''
   const permiteAntecipacao = !!primeiraDataPendente && !!data && data < primeiraDataPendente
 
@@ -847,11 +848,14 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
   useEffect(() => {
     if (modo !== 'abatimento') return
+    // Recorrência mensal/salário/contrato contínuo nunca recalcula parcelas automaticamente.
+    // Pagamento normal baixa a parcela do período e mantém as próximas com o mesmo valor.
+    if (isRecurringDebt) { setAcao('proximas'); return }
     // Pagamento/recebimento baixa as próximas parcelas por padrão.
-    // Desconto mantém o padrão de recalcular o saldo.
+    // Desconto em dívida parcelada pode recalcular, se o usuário escolher.
     if (tipoAbatimento === 'pagamento' || tipoAbatimento === 'antecipacao') setAcao('proximas')
     if (tipoAbatimento === 'desconto') setAcao('recalcular')
-  }, [modo, tipoAbatimento])
+  }, [modo, tipoAbatimento, isRecurringDebt])
 
   const novoSaldoCents = modo === 'abatimento'
     ? Math.max(0, saldo.totalPendenteCents - valorCents)
@@ -879,6 +883,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     if (modo === 'abatimento' && !data) { toast('Informe a data', 'error'); return }
     setSaving(true)
     try {
+      const effectiveAcao = isRecurringDebt && acao === 'recalcular' ? 'proximas' : acao
       const ehAntecipacao = modo === 'abatimento' && tipoAbatimento === 'antecipacao'
       const ehPagamento = modo === 'abatimento' && tipoAbatimento === 'pagamento'
       const rotuloMovimento = modo === 'abatimento'
@@ -916,7 +921,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           pessoa_nome: ref?.pessoa_nome || ref?.pessoa_nome_atual,
           valor_parcela: Number(ref?.valor || 0),
         },
-        metadata: { acao, modo, tipo_abatimento: tipoAbatimento, pagamento_normal: ehPagamento, antecipacao_pagamento: ehAntecipacao, parcelas_pendentes: saldo.numPendentes, valor_centavos: valorCents, saldo_anterior_centavos: saldo.totalPendenteCents, saldo_posterior_centavos: novoSaldoCents },
+        metadata: { acao: effectiveAcao, modo, tipo_abatimento: tipoAbatimento, pagamento_normal: ehPagamento, antecipacao_pagamento: ehAntecipacao, parcelas_pendentes: saldo.numPendentes, valor_centavos: valorCents, saldo_anterior_centavos: saldo.totalPendenteCents, saldo_posterior_centavos: novoSaldoCents },
       })
 
       setHistoricoLocal(prev => [eventoHistorico as HistoricoFinanceiroItem, ...prev])
@@ -930,7 +935,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           })
         }
       } else if (saldo.numPendentes > 0) {
-        if (acao === 'recalcular') {
+        if (effectiveAcao === 'recalcular') {
           for (let i = 0; i < saldo.pendentes.length; i++) {
             await pagamentosApi.update(saldo.pendentes[i].id, { valor: fromCents(novosValoresCents[i] || 0) })
           }
@@ -1131,17 +1136,25 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Como aplicar?</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <button type="button" className={`btn ${acao === 'recalcular' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAcao('recalcular')} style={{ fontSize: 12 }}>
-                Recalcular todas
-              </button>
-              <button type="button" className={`btn ${acao === 'proximas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAcao('proximas')} style={{ fontSize: 12 }}>
-                Abater próximas
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-              O sistema calcula automaticamente o novo saldo. Você escolhe se quer redistribuir nas parcelas restantes ou baixar nas próximas parcelas.
-            </div>
+            {isRecurringDebt ? (
+              <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.22)', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.45 }}>
+                Registro recorrente: o pagamento baixa apenas a parcela do período. As próximas parcelas continuam com o mesmo valor e não são recalculadas automaticamente.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button type="button" className={`btn ${acao === 'recalcular' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAcao('recalcular')} style={{ fontSize: 12 }}>
+                    Recalcular todas
+                  </button>
+                  <button type="button" className={`btn ${acao === 'proximas' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAcao('proximas')} style={{ fontSize: 12 }}>
+                    Abater próximas
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                  Você escolhe se quer redistribuir nas parcelas restantes ou baixar/abater nas próximas parcelas.
+                </div>
+              </>
+            )}
           </div>
 
           {/* Prévia do recálculo */}
@@ -1528,7 +1541,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Repetir até</label>
+                <label className="form-label">Repetir até <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(opcional)</span></label>
                 <input
                   className="form-input"
                   type="date"
@@ -1538,6 +1551,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                   }}
                   onChange={e => setRecorrenciaFim(e.target.value)}
                 />
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>Deixe vazio quando for salário, mensalidade ou custo contínuo sem data final definida.</div>
               </div>
             </div>
           )}

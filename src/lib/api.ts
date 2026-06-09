@@ -37,7 +37,7 @@ export interface UserProfile {
   ativo?: boolean
 }
 
-export type ChecklistDifficulty = 'facil' | 'medio' | 'dificil' | 'hard'
+export type ChecklistDifficulty = 'nivel_1' | 'nivel_2' | 'nivel_3' | 'nivel_4' | 'nivel_5' | 'facil' | 'medio' | 'dificil' | 'hard'
 
 export interface ChecklistItem {
   id: string
@@ -48,7 +48,7 @@ export interface ChecklistItem {
   /** Responsável específico por executar este item do checklist. */
   responsavel_id?: string
   responsavel_nome?: string
-  /** Grau de dificuldade da subtarefa: controla a pontuação base de 1 a 25. */
+  /** Grau de dificuldade da subtarefa: controla a pontuação base definida por nível: 0, 1, 3, 5 ou 20 pontos. */
   dificuldade?: ChecklistDifficulty
   /** Pontos manuais desta subtarefa/checklist. Obrigatório para ranking por checklist. */
   pontuacao?: number
