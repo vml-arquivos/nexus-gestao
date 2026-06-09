@@ -544,6 +544,35 @@ function shouldRevealTaskToUser(task: any, user: NonNullable<Request['user']>) {
   return false
 }
 
+function isTaskOwnedByAnotherExecutor(task: any, userId: string) {
+  const owner = task?.aceita_por || task?.responsavel_id
+  return Boolean(owner && owner !== userId)
+}
+
+function shouldHideTeamTaskContentFromUser(task: any, user: NonNullable<Request['user']>) {
+  const { userId, role } = user
+  if (canDeleteOrgRecords(role)) return false
+  if (isPersonalScope(task)) return !isTaskPersonalOwner(task, userId)
+  if (task?.criado_por === userId || task?.responsavel_id === userId || task?.aceita_por === userId) return false
+  // Quando a tarefa livre já foi assumida por outro membro, o restante da equipe
+  // só pode enxergar as subtarefas livres/atribuídas a si, sem detalhes da tarefa-mãe.
+  return isTaskOwnedByAnotherExecutor(task, userId)
+}
+
+function maskParentTaskContentForMember(task: any, user: NonNullable<Request['user']>, checklist: any[]) {
+  if (!shouldHideTeamTaskContentFromUser(task, user)) return task
+  const freeCount = checklist.filter(item => !item.feito && !item.responsavel_id).length
+  const assignedCount = checklist.filter(item => item.responsavel_id === user.userId || item.assumido_por === user.userId || item.executor_id === user.userId).length
+  const pontos = Math.max(0, Math.min(20, Math.round(Number(task?.pontuacao || 0))))
+  return {
+    ...task,
+    titulo: assignedCount > 0 ? 'Tarefa da equipe — veja somente sua parte' : `Tarefa da equipe com ${freeCount || 'subtarefa'} disponível — assuma para ver sua parte`,
+    descricao: null,
+    obs: null,
+    origem_payload: { ...parseOriginPayloadSafe(task?.origem_payload), conteudo_restrito_por_privacidade: true, pontos },
+  }
+}
+
 function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   const assignedToUser = item?.responsavel_id === userId || item?.assumido_por === userId || item?.executor_id === userId
   // Em subtarefa surpresa, nem o responsável principal da tarefa revela tudo automaticamente.
@@ -587,7 +616,8 @@ function sanitizeTaskForUser(task: any, user: NonNullable<Request['user']>) {
       origem_payload: { ...parseOriginPayloadSafe(task?.origem_payload), nexus_tarefa_surpresa: true },
     }
   }
-  return { ...task, checklist }
+  const protectedTask = maskParentTaskContentForMember(task, user, checklist)
+  return { ...protectedTask, checklist }
 }
 
 function canListTaskForUser(task: any, user: NonNullable<Request['user']>, comandados = new Set<string>()) {
@@ -609,6 +639,8 @@ function canListTaskForUser(task: any, user: NonNullable<Request['user']>, coman
   // Membro vê somente o que recebeu/assumiu ou tarefas livres com subtarefa livre para assumir.
   // Criar uma tarefa de equipe não dá acesso às subtarefas de outros membros.
   if (task.responsavel_id === userId || task.aceita_por === userId || hasChecklistAssignedTo(task, userId)) return true
+  if (task.criado_por === userId) return true
+  if (isFreeTeamTask(task) && !task.aceita_por) return true
   if (isFreeTeamTask(task) && hasUnassignedOpenChecklist(task)) return true
   return false
 }
@@ -909,10 +941,11 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
     const pontuacoesRegistradas = await query<any>(
       `SELECT tp.*, t.titulo AS tarefa_titulo, t.checklist, t.aprovada_em AS tarefa_aprovada_em,
               t.updated_at AS tarefa_updated_at, t.created_at AS tarefa_created_at, t.status, t.escopo,
-              t.conta_ranking, p.role AS usuario_role
+              t.conta_ranking, p.role AS usuario_role, aprovador.nome AS aprovado_por_nome
        FROM tarefas_pontuacao tp
        JOIN tarefas t ON t.id = tp.tarefa_id AND t.org_id = tp.org_id
        JOIN profiles p ON p.id = tp.usuario_id AND p.org_id = tp.org_id
+       LEFT JOIN profiles aprovador ON aprovador.id = tp.aprovado_por AND aprovador.org_id = tp.org_id
        WHERE tp.org_id = $1
          AND p.ativo = TRUE
          AND p.role = 'membro'
@@ -954,9 +987,11 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
       scoreKeys.add(uniqueKey)
       const pontosValidos = Math.max(0, Math.min(20, Math.round(Number(pontos ?? 0))))
       entry.pontos += pontosValidos
-      entry.tarefas_aprovadas += 1
       if (isChecklist) entry.subtarefas_executadas += 1
-      else entry.tarefas_executadas += 1
+      else {
+        entry.tarefas_executadas += 1
+        entry.tarefas_aprovadas += 1
+      }
       entry.historico.push({
         tarefa_id: tarefa.id || tarefa.tarefa_id,
         tarefa_titulo: tarefa.titulo || tarefa.tarefa_titulo,
@@ -965,6 +1000,9 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         checklist: isChecklist,
         pontos: pontosValidos,
         aprovado_em: when,
+        aprovado_por: tarefa.aprovado_por || null,
+        aprovado_por_nome: tarefa.aprovado_por_nome || null,
+        motivo: tarefa.motivo || (isChecklist ? 'Subtarefa/checklist aprovada pelo gestor' : 'Tarefa aprovada pelo gestor'),
       })
       if (when && (!entry.ultima_aprovacao || new Date(when).getTime() > new Date(entry.ultima_aprovacao).getTime())) {
         entry.ultima_aprovacao = when
@@ -989,6 +1027,9 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         subtarefa_titulo: isChecklistScore ? (matched?.texto || key || 'Subtarefa aprovada') : null,
         subtarefa_dificuldade: matched?.dificuldade || null,
         aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
+        aprovado_por: row.aprovado_por || null,
+        aprovado_por_nome: row.aprovado_por_nome || null,
+        motivo: isChecklistScore ? 'Subtarefa/checklist aprovada pelo gestor' : 'Tarefa aprovada pelo gestor',
         updated_at: row.tarefa_updated_at,
         created_at: row.tarefa_created_at,
       }, isChecklistScore, key || String(row.motivo || 'pontuacao'))
@@ -1012,13 +1053,15 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
             ...tarefa,
             subtarefa_titulo: item.texto,
             subtarefa_dificuldade: item.dificuldade,
+            aprovado_por: tarefa.aprovada_por || null,
+            motivo: 'Subtarefa/checklist aprovada pelo gestor',
           }, true, key)
         }
       }
       const participanteTarefa = tarefa.aceita_por || tarefa.responsavel_id
       const pontosTarefa = Math.max(0, Math.min(20, Math.round(Number(tarefa.pontuacao || 0))))
       if (participanteTarefa && pontosTarefa > 0) {
-        touchMember(participanteTarefa, pontosTarefa, tarefa, false, '__tarefa__')
+        touchMember(participanteTarefa, pontosTarefa, { ...tarefa, motivo: 'Tarefa aprovada pelo gestor', aprovado_por: tarefa.aprovada_por || null }, false, '__tarefa__')
       }
     }
 
@@ -1080,6 +1123,12 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
       return
     }
 
+    const tarefaAtribuidaAberta = await findOpenTaskAssignedToUser(orgId, userId, req.params.id)
+    if (tarefaAtribuidaAberta) {
+      res.status(409).json({ error: `Você já tem a tarefa "${tarefaAtribuidaAberta.titulo || 'outra tarefa'}" em aberto. Conclua e envie sua parte antes de assumir outra.` })
+      return
+    }
+
     const active = await findOpenChecklistAssignedToUser(orgId, userId, req.params.id)
     if (active) {
       res.status(409).json({ error: `Você já assumiu uma subtarefa em aberto em "${active.task?.titulo || 'outra tarefa'}". Conclua e envie sua parte antes de assumir outra.` })
@@ -1124,6 +1173,22 @@ async function findOpenChecklistAssignedToUser(orgId: string, userId: string, ex
   return null
 }
 
+async function findOpenTaskAssignedToUser(orgId: string, userId: string, excludeTaskId?: string) {
+  return queryOne<any>(
+    `SELECT id, titulo
+       FROM tarefas
+      WHERE org_id = $1
+        AND COALESCE(escopo, 'pessoal') = 'equipe'
+        AND COALESCE(status, 'pendente') IN ('pendente','em_progresso','devolvida','reenviada')
+        AND COALESCE(bloquear_nova_livre_ate_concluir, TRUE) = TRUE
+        AND ($3::uuid IS NULL OR id <> $3::uuid)
+        AND (responsavel_id = $2 OR aceita_por = $2)
+      ORDER BY COALESCE(data_inicio, updated_at, created_at) DESC
+      LIMIT 1`,
+    [orgId, userId, excludeTaskId || null]
+  )
+}
+
 // ── ASSUMIR SUBTAREFA/CHECKLIST DE TAREFA LIVRE ─────────────────────────────
 router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1137,6 +1202,12 @@ router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response
     }
     if (['aprovada','cancelada'].includes(String(existing.status))) {
       res.status(400).json({ error: 'Tarefa finalizada não permite assumir subtarefa.' })
+      return
+    }
+
+    const tarefaAtribuidaAberta = await findOpenTaskAssignedToUser(orgId, userId, req.params.id)
+    if (tarefaAtribuidaAberta) {
+      res.status(409).json({ error: `Você já tem a tarefa "${tarefaAtribuidaAberta.titulo || 'outra tarefa'}" em aberto. Conclua e envie sua parte antes de assumir outra.` })
       return
     }
 
@@ -1548,7 +1619,8 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
       if (participanteTarefa && pontosTarefa > 0 && normalizeTaskScope(existing.escopo) === 'equipe') {
         await query(
           `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-           VALUES ($1,$2,$3,$4,$5,'tarefa_aprovada',$6,NOW(),$7)
+           SELECT $1,$2,$3,$4,$5,'tarefa_aprovada',$6,NOW(),$7
+           WHERE EXISTS (SELECT 1 FROM profiles p WHERE p.id = $3 AND p.org_id = $1 AND p.ativo = TRUE AND p.role = 'membro')
            ON CONFLICT DO NOTHING`,
           [orgId, req.params.id, participanteTarefa, '__tarefa__', pontosTarefa, userId, periodo]
         ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação da tarefa:', (err as Error)?.message || err))
@@ -1561,7 +1633,8 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           const pontosItem = calculateChecklistItemPoints(item, existing)
           await query(
             `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8)
+             SELECT $1,$2,$3,$4,$5,$6,$7,NOW(),$8
+             WHERE EXISTS (SELECT 1 FROM profiles p WHERE p.id = $3 AND p.org_id = $1 AND p.ativo = TRUE AND p.role = 'membro')
              ON CONFLICT DO NOTHING`,
             [orgId, req.params.id, participante, item.id || item.texto || null, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
           ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de checklist:', (err as Error)?.message || err))
