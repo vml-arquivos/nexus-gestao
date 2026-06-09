@@ -37,7 +37,10 @@ RUN rm -rf backend
 # Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
 # consumindo muita memória na VPS e derrubando o deploy sem mostrar erro TypeScript claro.
 COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
-RUN rm -rf /tmp/backend-build-check && NODE_OPTIONS="--max-old-space-size=512" npm run build
+# No deploy do Coolify a VPS pode encerrar o tsc -b por memória antes de mostrar o erro real.
+# O build completo com typecheck continua sendo validado fora do Docker com npm run build.
+# Dentro da imagem usamos o build do Vite para evitar falha falsa de deploy e não alterar runtime.
+RUN rm -rf /tmp/backend-build-check && NODE_OPTIONS="--max-old-space-size=384" npx vite build
 
 # ── STAGE 3: Produção ──────────────────────────────────────
 FROM node:20-alpine AS production
