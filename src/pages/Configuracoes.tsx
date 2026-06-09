@@ -43,6 +43,9 @@ export default function Configuracoes() {
     permission: string
     subscriptions?: number
     error?: string
+    instructions?: string
+    platform?: string
+    canRequest?: boolean
   } | null>(null)
   const [pushLoading, setPushLoading] = useState(false)
   const notifEnabled = pushStatus?.permission === 'granted' && (pushStatus?.subscriptions ?? 0) > 0
@@ -83,17 +86,30 @@ export default function Configuracoes() {
   }
 
   async function ativarNotificacoes() {
-    if (!browserSupportsPush()) { toast('Push não suportado neste navegador. Use Chrome/Edge no celular ou PC.', 'error'); return }
     setPushLoading(true)
     try {
+      const statusInicial = await getPushNotificationStatus()
+      setPushStatus(statusInicial)
+
+      if (!statusInicial.supported) {
+        toast(statusInicial.error || statusInicial.instructions || 'Este navegador ainda não permite push neste modo.', 'error')
+        return
+      }
+      if (!statusInicial.configured) {
+        toast('Servidor de push não configurado. Confira WEB_PUSH_PUBLIC_KEY e WEB_PUSH_PRIVATE_KEY no Coolify.', 'error')
+        return
+      }
+
       const status = await enablePushNotifications()
       setPushStatus(status)
       if (status.permission === 'granted' && (status.subscriptions ?? 0) > 0) {
         toast('Notificações push ativadas! Você receberá alertas mesmo com o app fechado.')
       } else if (status.permission === 'denied') {
         toast('Permissão negada. Ative nas configurações do navegador/sistema.', 'error')
-      } else if (!status.configured) {
-        toast('Servidor de push não configurado. Fale com o administrador.', 'error')
+      } else if (status.error) {
+        toast(status.error, 'error')
+      } else {
+        toast(status.instructions || 'Permissão não concluída. Verifique as configurações do navegador.', 'error')
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao ativar notificações', 'error')
@@ -258,22 +274,29 @@ export default function Configuracoes() {
             )}
           </div>
 
+          {pushStatus?.instructions && pushStatus.permission !== 'granted' && (
+            <div className="push-safari-help">
+              <strong>{pushStatus.platform === 'ios-safari-browser' ? 'Safari no iPhone/iPad precisa do app instalado' : 'Como ativar neste dispositivo'}</strong>
+              <span>{pushStatus.instructions}</span>
+            </div>
+          )}
+
           {pushStatus?.permission === 'denied' && (
             <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 10, marginBottom: 14, fontSize: 12, color: '#EF4444' }}>
-              Permissão bloqueada no navegador. Para ativar: clique no cadeado na barra de endereço → Notificações → Permitir.
+              Permissão bloqueada no navegador. Para ativar: clique no cadeado/barra de endereço ou abra as configurações do app no sistema e permita notificações.
             </div>
           )}
 
           {!pushStatus?.configured && pushStatus !== null && (
             <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, marginBottom: 14, fontSize: 12, color: '#D97706' }}>
-              Configure VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY no Coolify para ativar push.
+              Configure WEB_PUSH_PUBLIC_KEY e WEB_PUSH_PRIVATE_KEY no Coolify para ativar push.
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
             {!notifEnabled ? (
-              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={ativarNotificacoes} disabled={pushLoading || !browserSupportsPush()}>
-                {pushLoading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Ativando...</> : <><Bell size={14} /> Ativar notificações</>}
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={ativarNotificacoes} disabled={pushLoading || pushStatus?.platform === 'ios-safari-browser'}>
+                {pushLoading ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Ativando...</> : <><Bell size={14} /> {pushStatus?.platform === 'ios-safari-browser' ? 'Instale na Tela de Início' : 'Ativar notificações'}</>}
               </button>
             ) : (
               <>
