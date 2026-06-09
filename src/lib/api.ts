@@ -81,6 +81,9 @@ export interface Tarefa {
   aceita_por_nome?: string
   aceita_em?: string
   pontuacao?: number
+  /** Define onde a pontuação será contabilizada: tarefa, subtarefas/checklists ou ambos. */
+  pontuacao_escopo?: 'tarefa' | 'subtarefas' | 'ambos'
+  pontuacao_tipo?: 'tarefa' | 'subtarefas' | 'ambos'
   conta_ranking?: boolean
   bloquear_nova_livre_ate_concluir?: boolean
   status: 'pendente' | 'em_progresso' | 'concluida' | 'nao_concluida' | 'devolvida' | 'reenviada' | 'aprovada' | 'cancelada'
