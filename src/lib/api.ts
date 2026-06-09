@@ -39,6 +39,12 @@ export interface UserProfile {
 
 export type ChecklistDifficulty = 'nivel_1' | 'nivel_2' | 'nivel_3' | 'nivel_4' | 'nivel_5' | 'facil' | 'medio' | 'dificil' | 'hard'
 
+export interface ObjectiveSubtask {
+  id: string
+  texto: string
+  feito?: boolean
+}
+
 export interface ChecklistItem {
   id: string
   texto: string
@@ -50,9 +56,11 @@ export interface ChecklistItem {
   responsavel_nome?: string
   /** Grau de dificuldade da subtarefa: controla a pontuação base definida por nível: 0, 1, 3, 5 ou 20 pontos. */
   dificuldade?: ChecklistDifficulty
-  /** Pontos manuais desta subtarefa/checklist. Obrigatório para ranking por checklist. */
+  /** Pontos manuais deste objetivo. Obrigatório quando o ranking pontua objetivos. */
   pontuacao?: number
-  /** Quando verdadeiro, a subtarefa aparece para a equipe só com pontuação; título e instruções são revelados apenas para quem assumir. */
+  /** Subtarefas internas deste objetivo. Não pontuam separadamente; servem para detalhar a execução. */
+  subtarefas?: ObjectiveSubtask[]
+  /** Quando verdadeiro, o objetivo aparece para a equipe só com pontuação; título e instruções são revelados apenas para quem assumir. */
   revelar_apos_assumir?: boolean
   /** Indica que o backend mascarou o conteúdo para o usuário atual. */
   oculta_ate_assumir?: boolean
@@ -81,7 +89,7 @@ export interface Tarefa {
   aceita_por_nome?: string
   aceita_em?: string
   pontuacao?: number
-  /** Define onde a pontuação será contabilizada: tarefa, subtarefas/checklists ou ambos. */
+  /** Define onde a pontuação será contabilizada: tarefa, objetivos ou ambos. */
   pontuacao_escopo?: 'tarefa' | 'subtarefas' | 'ambos'
   pontuacao_tipo?: 'tarefa' | 'subtarefas' | 'ambos'
   conta_ranking?: boolean
@@ -159,6 +167,7 @@ export interface MembroEquipe {
   role_na_equipe?: 'membro' | 'sub_gestor' | 'gestor' | string
   cargo?: string
   avatar_url?: string
+  ativo?: boolean
   tarefas_pendentes: number
   tarefas_concluidas: number
   tarefas_nao_concluidas?: number

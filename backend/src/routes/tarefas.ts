@@ -226,6 +226,8 @@ type ChecklistDifficulty =
   | "nivel_4"
   | "nivel_5";
 
+const SCORE_MAX = 9999;
+
 const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
   nivel_1: 0,
   nivel_2: 1,
@@ -306,8 +308,8 @@ function normalizeChecklistScore(value: unknown, fallback = 3) {
   const raw = typeof value === "string" ? value.replace(",", ".") : value;
   const n = Number(raw);
   if (!Number.isFinite(n))
-    return Math.max(0, Math.min(20, Math.round(Number(fallback) || 0)));
-  return Math.max(0, Math.min(20, Math.round(n)));
+    return Math.max(0, Math.min(SCORE_MAX, Math.round(Number(fallback) || 0)));
+  return Math.max(0, Math.min(SCORE_MAX, Math.round(n)));
 }
 
 function calculateTaskComplexityPoints(input: {
@@ -381,7 +383,7 @@ function calculateTaskComplexityPoints(input: {
     points += 10;
   if (manual > 1) points = Math.max(points, manual);
 
-  return Math.max(0, Math.min(20, Math.round(points)));
+  return Math.max(0, Math.min(SCORE_MAX, Math.round(points)));
 }
 
 function calculateChecklistItemPoints(
@@ -402,7 +404,7 @@ function calculateChecklistItemPoints(
   // Regra do ranking: a pontuação é da subtarefa/checklist, definida manualmente
   // por quem cadastrou, com a escala objetiva Nível 1 a 5: 0, 1, 3, 5 e 20 pontos.
   if (Number.isFinite(manual) && manual >= 0)
-    return Math.max(0, Math.min(20, Math.round(manual)));
+    return Math.max(0, Math.min(SCORE_MAX, Math.round(manual)));
   return pointsForDifficulty(dificuldade);
 }
 
@@ -467,8 +469,8 @@ function normalizePriority(
 function normalizePositiveScore(value: unknown, fallback = 3) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed))
-    return Math.max(0, Math.min(20, Math.round(Number(fallback) || 0)));
-  return Math.max(0, Math.min(20, Math.round(parsed)));
+    return Math.max(0, Math.min(SCORE_MAX, Math.round(Number(fallback) || 0)));
+  return Math.max(0, Math.min(SCORE_MAX, Math.round(parsed)));
 }
 
 function normalizeTaskScope(value: unknown): "pessoal" | "equipe" {
@@ -529,6 +531,17 @@ function isUuid(value: unknown): value is string {
   );
 }
 
+function parseObjectiveSubitems(value: unknown): Array<{ id: string; texto: string; feito?: boolean }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item: any) => ({
+      id: isUuid(item?.id) ? item.id : uuidv4(),
+      texto: String(item?.texto || item?.title || item?.label || '').trim(),
+      feito: Boolean(item?.feito),
+    }))
+    .filter((item) => item.texto);
+}
+
 function parseChecklistItems(
   value: unknown,
 ): Array<{
@@ -547,6 +560,7 @@ function parseChecklistItems(
   assumido_por?: string;
   revelar_apos_assumir?: boolean;
   oculta_ate_assumir?: boolean;
+  subtarefas?: Array<{ id: string; texto: string; feito?: boolean }>;
 }> {
   const raw = (() => {
     if (Array.isArray(value)) return value;
@@ -626,6 +640,7 @@ function parseChecklistItems(
           : undefined,
         dificuldade,
         pontuacao,
+        subtarefas: parseObjectiveSubitems(item?.subtarefas || item?.subtasks),
         revelar_apos_assumir: Boolean(
           item?.revelar_apos_assumir ||
           item?.surpresa ||
@@ -667,12 +682,12 @@ async function normalizeChecklistForOrg(
     const profile = byId.get(id);
     if (!profile)
       throw Object.assign(
-        new Error("Responsável do checklist não encontrado."),
+        new Error("Responsável do objetivo não encontrado."),
         { statusCode: 404 },
       );
     if (role === "membro" && id !== userId) {
       throw Object.assign(
-        new Error("Membro só pode atribuir checklist para si mesmo."),
+        new Error("Membro só pode atribuir objetivo para si mesmo."),
         { statusCode: 403 },
       );
     }
@@ -683,7 +698,7 @@ async function normalizeChecklistForOrg(
     ) {
       throw Object.assign(
         new Error(
-          "Sub-gestor só pode atribuir checklist para si ou seus comandados diretos.",
+          "Sub-gestor só pode atribuir objetivo para si ou seus comandados diretos.",
         ),
         { statusCode: 403 },
       );
@@ -706,7 +721,7 @@ function checklistStructureKey(value: unknown) {
   return parseChecklistItems(value)
     .map(
       (item) =>
-        `${item.id || ""}:${item.texto}:${item.data || ""}:${item.descricao || ""}:${item.responsavel_id || ""}`,
+        `${item.id || ""}:${item.texto}:${item.data || ""}:${item.descricao || ""}:${item.responsavel_id || ""}:${JSON.stringify((item as any).subtarefas || [])}`,
     )
     .join("|");
 }
@@ -850,7 +865,7 @@ function pontuacaoIncluiSubtarefas(scope: PontuacaoEscopo) {
 function taskVisibleSurprisePoints(task: any) {
   const scope = taskPontuacaoEscopo(task);
   const taskPoints = pontuacaoIncluiTarefa(scope)
-    ? Math.max(0, Math.min(20, Math.round(Number(task?.pontuacao || 0))))
+    ? Math.max(0, Math.min(SCORE_MAX, Math.round(Number(task?.pontuacao || 0))))
     : 0;
   const checklistPoints = pontuacaoIncluiSubtarefas(scope)
     ? parseChecklistItems(task?.checklist).reduce(
@@ -919,14 +934,14 @@ function maskParentTaskContentForMember(
   ).length;
   const pontos = Math.max(
     0,
-    Math.min(20, Math.round(Number(task?.pontuacao || 0))),
+    Math.min(SCORE_MAX, Math.round(Number(task?.pontuacao || 0))),
   );
   return {
     ...task,
     titulo:
       assignedCount > 0
         ? "Tarefa da equipe — veja somente sua parte"
-        : `Tarefa da equipe com ${freeCount || "subtarefa"} disponível — assuma para ver sua parte`,
+        : `Tarefa da equipe com ${freeCount || "objetivo"} disponível — assuma para ver sua parte`,
     descricao: null,
     obs: null,
     origem_payload: {
@@ -947,7 +962,7 @@ function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   if (!item?.revelar_apos_assumir || item?.feito || assignedToUser) return item;
   return {
     ...item,
-    texto: `Tarefa valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
+    texto: `Objetivo valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
     descricao: undefined,
     oculta_ate_assumir: true,
   };
@@ -1497,7 +1512,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
       scoreKeys.add(uniqueKey);
       const pontosValidos = Math.max(
         0,
-        Math.min(20, Math.round(Number(pontos ?? 0))),
+        Math.min(SCORE_MAX, Math.round(Number(pontos ?? 0))),
       );
       entry.pontos += pontosValidos;
       if (isChecklist) entry.subtarefas_executadas += 1;
@@ -1518,7 +1533,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
         motivo:
           tarefa.motivo ||
           (isChecklist
-            ? "Subtarefa/checklist aprovada pelo gestor"
+            ? "Objetivo aprovado pelo gestor"
             : "Tarefa aprovada pelo gestor"),
       });
       if (
@@ -1565,14 +1580,14 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
           titulo: row.tarefa_titulo,
           tarefa_titulo: row.tarefa_titulo,
           subtarefa_titulo: isChecklistScore
-            ? matched?.texto || key || "Subtarefa aprovada"
+            ? matched?.texto || key || "Objetivo aprovado"
             : null,
           subtarefa_dificuldade: matched?.dificuldade || null,
           aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
           aprovado_por: row.aprovado_por || null,
           aprovado_por_nome: row.aprovado_por_nome || null,
           motivo: isChecklistScore
-            ? "Subtarefa/checklist aprovada pelo gestor"
+            ? "Objetivo aprovado pelo gestor"
             : "Tarefa aprovada pelo gestor",
           updated_at: row.tarefa_updated_at,
           created_at: row.tarefa_created_at,
@@ -1609,7 +1624,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
               subtarefa_titulo: item.texto,
               subtarefa_dificuldade: item.dificuldade,
               aprovado_por: tarefa.aprovada_por || null,
-              motivo: "Subtarefa/checklist aprovada pelo gestor",
+              motivo: "Objetivo aprovado pelo gestor",
             },
             true,
             key,
@@ -1618,7 +1633,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
       }
       const participanteTarefa = tarefa.aceita_por || tarefa.responsavel_id;
       const pontosTarefa = pontuacaoIncluiTarefa(scoreScope)
-        ? Math.max(0, Math.min(20, Math.round(Number(tarefa.pontuacao || 0))))
+        ? Math.max(0, Math.min(SCORE_MAX, Math.round(Number(tarefa.pontuacao || 0))))
         : 0;
       if (participanteTarefa && pontosTarefa > 0) {
         touchMember(
@@ -1767,7 +1782,7 @@ router.post(
         res
           .status(409)
           .json({
-            error: `Você já assumiu uma subtarefa em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
+            error: `Você já assumiu um objetivo em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
           });
         return;
       }
@@ -1880,14 +1895,14 @@ router.post(
         res
           .status(400)
           .json({
-            error: "Somente tarefas da equipe permitem assumir subtarefa.",
+            error: "Somente tarefas da equipe permitem assumir objetivo.",
           });
         return;
       }
       if (["aprovada", "cancelada"].includes(String(existing.status))) {
         res
           .status(400)
-          .json({ error: "Tarefa finalizada não permite assumir subtarefa." });
+          .json({ error: "Tarefa finalizada não permite assumir objetivo." });
         return;
       }
 
@@ -1910,7 +1925,7 @@ router.post(
         res
           .status(409)
           .json({
-            error: `Você já assumiu uma subtarefa em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
+            error: `Você já assumiu um objetivo em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
           });
         return;
       }
@@ -1926,7 +1941,7 @@ router.post(
       if (index < 0) {
         res
           .status(404)
-          .json({ error: "Subtarefa não encontrada no checklist." });
+          .json({ error: "Objetivo não encontrado." });
         return;
       }
       const item = items[index];
@@ -1982,7 +1997,7 @@ router.post(
       res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
     } catch (err) {
       console.error("[TAREFAS] Erro ao assumir subtarefa:", err);
-      res.status(500).json({ error: "Erro ao assumir subtarefa." });
+      res.status(500).json({ error: "Erro ao assumir objetivo." });
     }
   },
 );
@@ -2514,7 +2529,7 @@ router.post(
           .status(403)
           .json({
             error:
-              "Você não possui checklist ou execução atribuída nesta tarefa.",
+              "Você não possui objetivo ou execução atribuída nesta tarefa.",
           });
         return;
       }
@@ -2594,7 +2609,7 @@ router.post(
         orgId,
         tarefaId: req.params.id,
         userId,
-        acao: geral.completo ? "checklist_completo" : "parte_enviada",
+        acao: geral.completo ? "objetivos_completos" : "parte_enviada",
         statusAnterior: existing.status,
         statusNovo: geral.completo ? "concluida" : tarefaAtualizada.status,
         observacao:
@@ -2604,7 +2619,7 @@ router.post(
 
       await enviarEventoDestrava(
         tarefaAtualizada || existing,
-        geral.completo ? "tarefa.checklist_completo" : "tarefa.parte_enviada",
+        geral.completo ? "tarefa.objetivos_completos" : "tarefa.parte_enviada",
         {
           observacao: String(observacao || "").trim() || null,
           progresso: {
@@ -2687,7 +2702,7 @@ router.patch(
         const pontosTarefa = pontuacaoIncluiTarefa(scoreScope)
           ? Math.max(
               0,
-              Math.min(20, Math.round(Number(existing.pontuacao || 0))),
+              Math.min(SCORE_MAX, Math.round(Number(existing.pontuacao || 0))),
             )
           : 0;
         if (
@@ -3398,7 +3413,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           .status(403)
           .json({
             error:
-              "Apenas o executor de cada checklist pode marcar o próprio item.",
+              "Apenas o executor de cada objetivo pode marcar o próprio objetivo.",
           });
         return;
       }
@@ -3675,7 +3690,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           userId: tarefa.responsavel_id,
           tipo: "tarefa_atualizada",
           titulo: "Tarefa reaberta para complemento",
-          body: `A tarefa "${tarefa.titulo}" recebeu nova ação no checklist e voltou para execução.`,
+          body: `A tarefa "${tarefa.titulo}" recebeu novo objetivo e voltou para execução.`,
           referenciaId: tarefa.id,
           referenciaTipo: "tarefa",
         }).catch(() => {});
@@ -3707,7 +3722,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
         .status(400)
         .json({
           error:
-            "Não foi possível salvar: revise data, prioridade, responsável e checklist. Se acabou de atualizar, faça um novo deploy para preparar o banco.",
+            "Não foi possível salvar: revise data, prioridade, responsável e objetivos. Se acabou de atualizar, faça um novo deploy para preparar o banco.",
         });
       return;
     }

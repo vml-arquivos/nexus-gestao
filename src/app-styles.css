@@ -7539,3 +7539,56 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     opacity: .78 !important;
   }
 }
+
+/* Objetivos da tarefa: subtarefas internas sem quebrar o mobile */
+.objective-subtasks-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg2);
+  min-width: 0;
+}
+.objective-subtasks-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text2);
+}
+.objective-subtask-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.objective-subtasks-view {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg3);
+  color: var(--text2);
+  overflow-wrap: anywhere;
+}
+.objective-subtasks-view strong {
+  font-size: 12px;
+  color: var(--text2);
+}
+.objective-subtasks-view em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text3);
+}
+@media (max-width: 640px) {
+  .objective-subtask-row {
+    grid-template-columns: 1fr;
+  }
+  .objective-subtask-row > .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

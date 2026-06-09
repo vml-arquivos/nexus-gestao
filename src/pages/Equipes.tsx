@@ -46,7 +46,7 @@ function MembersModal({ equipe, onClose }: { equipe: Equipe; onClose: () => void
     try {
       const [ms, disponiveis] = await Promise.all([teamsApi.members(equipe.id), equipeApi.membros()])
       setMembros(ms)
-      setTodos(disponiveis.filter(m => !['admin','dev'].includes(m.role)))
+      setTodos(disponiveis.filter(m => m.ativo !== false))
     } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar membros.', 'error') }
     finally { setLoading(false) }
   }
