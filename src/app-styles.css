@@ -7022,3 +7022,92 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
   .task-surprise-toggle { width: 100%; justify-content: flex-start; }
   .task-surprise-toggle.compact { justify-content: flex-start; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   ETAPA MOTIVAÇÃO — subtarefa/checklist mais simples e legível
+   Mantém regra surpresa: pontos visíveis, conteúdo revelado após assumir.
+────────────────────────────────────────────────────────────────────────── */
+.tarefa-modal-box .form-input,
+.tarefa-modal-box input,
+.tarefa-modal-box select,
+.tarefa-modal-box textarea {
+  background: color-mix(in srgb, var(--bg2) 92%, #e8eef8 8%) !important;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, #94a3b8 28%) !important;
+  color: var(--text) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.38) !important;
+}
+[data-theme="light"] .tarefa-modal-box .form-input,
+[data-theme="light"] .tarefa-modal-box input,
+[data-theme="light"] .tarefa-modal-box select,
+[data-theme="light"] .tarefa-modal-box textarea {
+  background: #f3f6fb !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+.tarefa-modal-box .form-input:focus,
+.tarefa-modal-box input:focus,
+.tarefa-modal-box select:focus,
+.tarefa-modal-box textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent) !important;
+}
+.task-checklist-builder {
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)) !important;
+  background: color-mix(in srgb, var(--bg2) 86%, var(--primary) 7%) !important;
+  border-radius: 18px !important;
+  padding: 14px !important;
+  gap: 12px !important;
+}
+.task-checklist-builder::before {
+  content: 'Checklist / subtarefas';
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: -2px;
+}
+.tarefa-modal-box .task-checklist-builder-fields {
+  grid-template-columns: minmax(0, 1.35fr) minmax(160px, .7fr) minmax(190px, .9fr) minmax(150px, .7fr) minmax(100px, .45fr) !important;
+  align-items: end !important;
+}
+.tarefa-modal-box .task-checklist-builder .form-group:first-child,
+.tarefa-modal-box .task-checklist-builder > .form-group {
+  grid-column: 1 / -1 !important;
+}
+.tarefa-modal-box .task-checklist-builder > .form-group textarea {
+  min-height: 86px !important;
+}
+.tarefa-modal-box .task-checklist-builder > .btn {
+  min-height: 44px !important;
+  border-radius: 14px !important;
+  font-weight: 900 !important;
+}
+.task-active-lock {
+  border: 1px solid rgba(245,158,11,.35);
+  background: rgba(245,158,11,.12);
+  color: #b45309;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.task-check-item .task-check-main-button[disabled] {
+  cursor: default !important;
+}
+.task-check-assume:disabled {
+  opacity: .72 !important;
+  cursor: not-allowed !important;
+}
+@media (max-width: 900px) {
+  .tarefa-modal-box .task-checklist-builder-fields {
+    grid-template-columns: 1fr !important;
+  }
+  .tarefa-modal-box .task-checklist-builder .form-group:first-child,
+  .tarefa-modal-box .task-checklist-builder > .form-group,
+  .tarefa-modal-box .task-checklist-builder-fields > * {
+    grid-column: 1 / -1 !important;
+  }
+}

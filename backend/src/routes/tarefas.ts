@@ -523,7 +523,7 @@ function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   if (!item?.revelar_apos_assumir || item?.feito || assignedToUser || isPrimaryExecutor) return item
   return {
     ...item,
-    texto: 'Subtarefa surpresa — assuma para revelar',
+    texto: `Tarefa valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
     descricao: undefined,
     oculta_ate_assumir: true,
   }
@@ -1036,6 +1036,12 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
       return
     }
 
+    const active = await findOpenChecklistAssignedToUser(orgId, userId, req.params.id)
+    if (active) {
+      res.status(409).json({ error: `Você já assumiu uma subtarefa em aberto em "${active.task?.titulo || 'outra tarefa'}". Conclua e envie sua parte antes de assumir outra.` })
+      return
+    }
+
     const profile = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE', [userId, orgId])
     const tarefa = await queryOne<any>(
       `UPDATE tarefas SET aceita_por = $1, aceita_em = NOW(), responsavel_id = $1, responsavel_nome = $2,
@@ -1056,6 +1062,24 @@ router.post('/:id/pegar', async (req: Request, res: Response): Promise<void> => 
   }
 })
 
+
+async function findOpenChecklistAssignedToUser(orgId: string, userId: string, excludeTaskId?: string) {
+  const rows = await query<any>(
+    `SELECT id, titulo, checklist, status
+       FROM tarefas
+      WHERE org_id = $1
+        AND COALESCE(escopo, 'pessoal') = 'equipe'
+        AND COALESCE(status, 'pendente') NOT IN ('concluida','aprovada','cancelada')
+        AND ($2::uuid IS NULL OR id <> $2::uuid)`,
+    [orgId, excludeTaskId || null]
+  )
+  for (const row of rows) {
+    const item = parseChecklistItems(row.checklist).find(check => check.responsavel_id === userId && !check.feito)
+    if (item) return { task: row, item }
+  }
+  return null
+}
+
 // ── ASSUMIR SUBTAREFA/CHECKLIST DE TAREFA LIVRE ─────────────────────────────
 router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1069,6 +1093,12 @@ router.post('/:id/checklist/:itemId/assumir', async (req: Request, res: Response
     }
     if (['aprovada','cancelada'].includes(String(existing.status))) {
       res.status(400).json({ error: 'Tarefa finalizada não permite assumir subtarefa.' })
+      return
+    }
+
+    const active = await findOpenChecklistAssignedToUser(orgId, userId)
+    if (active) {
+      res.status(409).json({ error: `Você já assumiu uma subtarefa em aberto em "${active.task?.titulo || 'outra tarefa'}". Conclua e envie sua parte antes de assumir outra.` })
       return
     }
 
@@ -1112,7 +1142,6 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const modoDistribuicao = normalizeTaskDistribution((req.body as any).modo_distribuicao)
     const pontuacaoManual = Number((req.body as any).pontuacao || 0)
 
-    if (!titulo?.trim()) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
     if (!['baixa','media','alta'].includes(prioridade)) { res.status(400).json({ error: 'Prioridade inválida.' }); return }
 
     const hasResponsavelField = Object.prototype.hasOwnProperty.call(req.body, 'responsavel_id')
@@ -1150,6 +1179,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    const tituloFinal = String(titulo || '').trim() || (escopo === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
     const contaRanking = escopo === 'equipe' && (req.body as any).conta_ranking !== false
     const responsavel = responsavelId ? await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1 AND org_id = $2', [responsavelId, orgId]) : null
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
@@ -1172,7 +1202,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          AND created_at >= NOW() - INTERVAL '12 seconds'
        ORDER BY created_at DESC
        LIMIT 1`,
-      [orgId, userId, responsavelId, titulo.trim(), descricao || '', prazo || '', escopo, modoFinal]
+      [orgId, userId, responsavelId, tituloFinal, descricao || '', prazo || '', escopo, modoFinal]
     )
     if (duplicate) {
       res.status(200).json({ tarefa: duplicate })
@@ -1184,7 +1214,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,TRUE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
        RETURNING *`,
-      [orgId, userId, modoFinal === 'livre_equipe' ? null : responsavelId, modoFinal === 'livre_equipe' ? null : (responsavel?.nome || null), titulo.trim(), descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, modoFinal, pontuacao, contaRanking, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
+      [orgId, userId, modoFinal === 'livre_equipe' ? null : responsavelId, modoFinal === 'livre_equipe' ? null : (responsavel?.nome || null), tituloFinal, descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, modoFinal, pontuacao, contaRanking, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
     )
 
     await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
@@ -1197,7 +1227,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         orgId, userId: responsavelId,
         tipo: 'nova_tarefa',
         titulo: '📋 Nova tarefa atribuída a você!',
-        body: `"${titulo.trim()}" por ${criador?.nome || 'Gestor'}${prazoFmt}`,
+        body: `"${tituloFinal}" por ${criador?.nome || 'Gestor'}${prazoFmt}`,
         referenciaId: tarefa.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -1210,7 +1240,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         userId: item.responsavel_id!,
         tipo: 'nova_tarefa',
         titulo: '📋 Checklist atribuído a você',
-        body: `"${item.texto}" dentro da tarefa "${titulo.trim()}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString('pt-BR')}` : ''}`,
+        body: `"${item.texto}" dentro da tarefa "${tituloFinal}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString('pt-BR')}` : ''}`,
         referenciaId: tarefa.id,
         referenciaTipo: 'tarefa',
       }).catch(() => {})
@@ -1959,8 +1989,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       }
 
       if (key === 'titulo') {
-        const nextTitulo = String((req.body as any)[key] || '').trim()
-        if (!nextTitulo) { res.status(400).json({ error: 'Título é obrigatório.' }); return }
+        const nextTitulo = String((req.body as any)[key] || '').trim() || (normalizeTaskScope((req.body as any).escopo ?? existing.escopo) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
         setValue('titulo', nextTitulo)
         continue
       }

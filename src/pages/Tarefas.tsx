@@ -547,7 +547,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
 
   function addItem() {
-    if (!novoItem.trim()) { toast('Informe a ação do checklist.', 'error'); return }
+    if (!novoItem.trim()) { toast('Informe o nome da subtarefa/checklist.', 'error'); return }
     if (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > 20) { toast('Informe a pontuação desta subtarefa entre 0 e 20 pontos.', 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
@@ -579,14 +579,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   async function salvar() {
     if (loading) return
-    if (!titulo.trim()) { toast('Informe o título da tarefa.', 'error'); return }
+    const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma subtarefa/checklist para tarefa da equipe.', 'error'); return }
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
     if (invalidItem) { toast('Cada checklist precisa ter ação e pontuação.', 'error'); return }
     setLoading(true)
     try {
       const payload: Partial<Tarefa> = {
-        titulo: titulo.trim(),
+        titulo: tituloFinal,
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
@@ -618,8 +618,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     <ModalBase title={tarefa?.id ? 'Editar tarefa' : 'Nova tarefa'} onClose={onClose}>
       <div style={{ display: 'grid', gap: 12 }}>
         <div className="form-group">
-          <label className="form-label">Título *</label>
-          <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="O que precisa ser feito?" />
+          <label className="form-label">Título <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+          <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Organização da demanda da empresa / Deixe vazio para gerar automático" />
         </div>
         <div className="form-group">
           <label className="form-label">Descrição</label>
@@ -656,7 +656,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         <div className="grid-2">
           <div className="form-group">
-            <label className="form-label">Prazo</label>
+            <label className="form-label">Prazo <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(pode ser prorrogado pelo gestor)</span></label>
             <input
               className="form-input"
               type="date"
@@ -780,13 +780,13 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="task-checklist-builder">
             <div className="task-checklist-builder-fields">
               <div className="form-group">
-                <label className="form-label">Ação do checklist</label>
+                <label className="form-label">Subtarefa/checklist *</label>
                 <input
                   className="form-input"
                   value={novoItem}
                   onChange={e => setNovoItem(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addItem() } }}
-                  placeholder="Ex: Conferir contrato social"
+                  placeholder="Ex.: Conferir contrato social"
                 />
               </div>
               <div className="form-group">
@@ -829,18 +829,18 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               </label>
             </div>
             <div className="form-group">
-              <label className="form-label">Descrição/instrução da ação</label>
+              <label className="form-label">Descrição da subtarefa <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
               <textarea
                 className="form-input"
                 rows={2}
                 value={novoItemDescricao}
                 onChange={e => setNovoItemDescricao(e.target.value)}
-                placeholder="Explique como executar, onde buscar informação, padrão esperado, observações..."
+                placeholder="Descreva detalhes, padrão esperado, onde buscar informações ou deixe vazio."
               />
             </div>
-            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar ao checklist</button>
+            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar subtarefa</button>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Use data e executor para dividir a mesma tarefa em ações de dias diferentes e membros diferentes, sem criar outra tarefa.
+              Cada checklist é uma subtarefa. A pontuação fica visível; se marcar como surpresa, o conteúdo só aparece depois que o membro assumir.
             </div>
           </div>
           {!canMarkChecklistInEdit && checklist.length > 0 && (
@@ -873,7 +873,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   value={item.texto}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))}
-                  placeholder="Ação do checklist"
+                  placeholder="Nome da subtarefa"
                 />
                 <select
                   className="form-input"
@@ -1275,11 +1275,12 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 }
 
 
-function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder }: {
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   isGestor: boolean
   userId: string
+  allTasks?: Tarefa[]
   onClose: () => void
   onSaved: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
@@ -1332,6 +1333,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const executorSummary = checklistExecutorSummary({ ...tarefa, checklist })
   const responsaveisChecklist = assigneeOptions(membros, undefined)
 
+  const openSubtasksForMe = useMemo(() => {
+    if (!userId || isGestor) return [] as Array<{ tarefa: Tarefa; item: ChecklistItem }>
+    return (allTasks || []).flatMap(task => normalizeChecklistItems(task.checklist)
+      .filter(item => !item.feito && item.responsavel_id === userId && !['concluida','aprovada','cancelada'].includes(String(task.status)))
+      .map(item => ({ tarefa: task, item })))
+  }, [allTasks, userId, isGestor])
+  const hasOpenSubtaskElsewhere = openSubtasksForMe.some(entry => entry.tarefa.id !== tarefa.id || !checklist.some(item => item.id === entry.item.id && item.responsavel_id === userId && !item.feito))
+
   function checklistResponsibleName(id?: string) {
     if (!id) return undefined
     return responsaveisChecklist.find(m => m.id === id)?.nome
@@ -1343,7 +1352,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
 
 
   function addInlineSubtask() {
-    if (!newSubtask.trim()) { toast('Informe a ação do checklist.', 'error'); return }
+    if (!newSubtask.trim()) { toast('Informe o nome da subtarefa/checklist.', 'error'); return }
     if (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > 20) { toast('Informe a pontuação da subtarefa entre 0 e 20 pontos.', 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
@@ -1368,14 +1377,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   }
 
   async function saveInlineEdit() {
-    if (!editTitulo.trim()) { toast('Informe o título da tarefa.', 'error'); return }
+    const editTituloFinal = editTitulo.trim() || (taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
     if (!checklist.length) { toast('A tarefa precisa ter pelo menos uma subtarefa/checklist.', 'error'); return }
     const invalid = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
     if (invalid) { toast('Cada subtarefa precisa ter ação e pontuação.', 'error'); return }
     setSaving(true)
     try {
       const saved = await tarefasApi.update(tarefa.id, {
-        titulo: editTitulo.trim(),
+        titulo: editTituloFinal,
         descricao: editDescricao.trim() || undefined,
         prazo: editPrazo || undefined,
         prioridade: editPrioridade,
@@ -1576,12 +1585,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
             </div>
             <div className="grid-2">
               <div className="form-group">
-                <label className="form-label">Título *</label>
+                <label className="form-label">Título <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
                 <input className="form-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)} />
               </div>
               <div className="grid-2">
                 <div className="form-group">
-                  <label className="form-label">Prazo</label>
+                  <label className="form-label">Prazo <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(pode ser prorrogado pelo gestor)</span></label>
                   <input
                     className="form-input"
                     type="date"
@@ -1603,7 +1612,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               </div>
             </div>
             <div className="form-group">
-              <label className="form-label">Descrição da tarefa</label>
+              <label className="form-label">Descrição da tarefa <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
               <textarea className="form-input" rows={3} value={editDescricao} onChange={e => setEditDescricao(e.target.value)} />
             </div>
 
@@ -1624,7 +1633,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               </div>
               <label className="task-surprise-toggle">
                 <input type="checkbox" checked={newSubtaskSurprise} onChange={e => setNewSubtaskSurprise(e.target.checked)} />
-                <span>Subtarefa surpresa</span>
+                <span>Surpresa: mostra só os pontos até alguém assumir</span>
               </label>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
@@ -1655,7 +1664,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
             <div className="task-inline-checklist-editor">
               {checklist.map(item => (
                 <div key={item.id} className="task-inline-checklist-row">
-                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Ação do checklist" />
+                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Nome da subtarefa" />
                   <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
@@ -1703,6 +1712,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
               <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
             </div>
           </div>
+          {hasOpenSubtaskElsewhere && (
+            <div className="task-active-lock">Você já tem uma subtarefa em aberto. Conclua e envie sua parte antes de assumir outra.</div>
+          )}
           {displayTotal > 0 ? (
             <div className="task-checklist-run">
               {checklistDateKeys.map(dateKey => (
@@ -1732,8 +1744,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                           </span>
                         </button>
                         {canAssumeThisItem && (
-                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving}>
-                            Assumir subtarefa
+                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving || hasOpenSubtaskElsewhere}>
+                            {hasOpenSubtaskElsewhere ? 'Conclua sua subtarefa atual primeiro' : 'Assumir subtarefa'}
                           </button>
                         )}
                       </div>
@@ -2466,7 +2478,7 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} />}
       {complemento && <ComplementoModal tarefa={complemento} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
