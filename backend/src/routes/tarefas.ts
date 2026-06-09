@@ -378,7 +378,7 @@ function isUuid(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty; concluido_por?: string; feito_por?: string; executor_id?: string; assumido_por?: string }> {
+function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string; feito?: boolean; descricao?: string; data?: string; responsavel_id?: string; responsavel_nome?: string; pontuacao?: number; dificuldade?: ChecklistDifficulty; concluido_por?: string; feito_por?: string; executor_id?: string; assumido_por?: string; revelar_apos_assumir?: boolean; oculta_ate_assumir?: boolean }> {
   const raw = (() => {
     if (Array.isArray(value)) return value
     if (typeof value === 'string') {
@@ -417,6 +417,7 @@ function parseChecklistItems(value: unknown): Array<{ id?: string; texto: string
         assumido_por: isUuid(item?.assumido_por) ? item.assumido_por : undefined,
         dificuldade,
         pontuacao,
+        revelar_apos_assumir: Boolean(item?.revelar_apos_assumir || item?.surpresa || item?.ocultar_ate_assumir),
         feito: !!item?.feito,
       }
     })
@@ -516,6 +517,18 @@ function isTaskPersonalOwner(task: any, userId: string) {
   return task?.criado_por === userId || task?.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
 }
 
+function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
+  const assignedToUser = item?.responsavel_id === userId || item?.assumido_por === userId || item?.executor_id === userId
+  const isPrimaryExecutor = task?.responsavel_id === userId || task?.aceita_por === userId
+  if (!item?.revelar_apos_assumir || item?.feito || assignedToUser || isPrimaryExecutor) return item
+  return {
+    ...item,
+    texto: 'Subtarefa surpresa — assuma para revelar',
+    descricao: undefined,
+    oculta_ate_assumir: true,
+  }
+}
+
 function filterChecklistForUser(task: any, user: NonNullable<Request['user']>) {
   const { userId, role } = user
   const items = parseChecklistItems(task?.checklist)
@@ -525,7 +538,7 @@ function filterChecklistForUser(task: any, user: NonNullable<Request['user']>) {
   if (isPersonalScope(task)) return isTaskPersonalOwner(task, userId) ? items : []
   // Membros só veem subtarefas livres ou atribuídas a eles.
   // Subtarefas assumidas/atribuídas a outra pessoa ficam ocultas.
-  return items.filter(item => !item.responsavel_id || item.responsavel_id === userId)
+  return items.filter(item => !item.responsavel_id || item.responsavel_id === userId).map(item => maskSurpriseChecklistItem(item, userId, task))
 }
 
 function sanitizeTaskForUser(task: any, user: NonNullable<Request['user']>) {

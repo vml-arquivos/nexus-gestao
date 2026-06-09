@@ -52,7 +52,12 @@ export interface ChecklistItem {
   dificuldade?: ChecklistDifficulty
   /** Pontos manuais desta subtarefa/checklist. Obrigatório para ranking por checklist. */
   pontuacao?: number
+  /** Quando verdadeiro, a subtarefa aparece para a equipe só com pontuação; título e instruções são revelados apenas para quem assumir. */
+  revelar_apos_assumir?: boolean
+  /** Indica que o backend mascarou o conteúdo para o usuário atual. */
+  oculta_ate_assumir?: boolean
 }
+
 
 export interface Tarefa {
   id: string

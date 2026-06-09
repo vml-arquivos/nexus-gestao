@@ -190,6 +190,8 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
     responsavel_nome: item.responsavel_nome || undefined,
     dificuldade: (item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3)),
     pontuacao: Math.max(0, Math.min(20, Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)))),
+    revelar_apos_assumir: Boolean((item as any).revelar_apos_assumir),
+    oculta_ate_assumir: Boolean((item as any).oculta_ate_assumir),
     feito: Boolean(item.feito),
   }))
 }
@@ -241,6 +243,20 @@ function visibleChecklistItems(tarefa: Tarefa, userId: string, isGestor: boolean
   if (isGestor) return items
   const assigned = items.filter(item => isChecklistItemExecutor(item, tarefa, userId))
   return assigned.length ? assigned : items
+}
+
+function isSurpriseChecklistItem(item: ChecklistItem) {
+  return Boolean((item as any).revelar_apos_assumir || (item as any).oculta_ate_assumir)
+}
+
+function checklistDisplayText(item: ChecklistItem) {
+  if ((item as any).oculta_ate_assumir) return 'Subtarefa surpresa — assuma para revelar'
+  return item.texto
+}
+
+function checklistDisplayDesc(item: ChecklistItem) {
+  if ((item as any).oculta_ate_assumir) return 'Conteúdo protegido. A pontuação está visível; a ação completa será liberada depois que você assumir.'
+  return item.descricao
 }
 
 function checklistExecutorSummary(tarefa: Tarefa) {
@@ -463,6 +479,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
   const [novoItemPontuacao, setNovoItemPontuacao] = useState('10')
   const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('nivel_3')
+  const [novoItemSurpresa, setNovoItemSurpresa] = useState(false)
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
   const [destravaLoading, setDestravaLoading] = useState(false)
@@ -541,14 +558,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
       dificuldade: novoItemDificuldade,
       pontuacao: Math.max(0, Math.min(20, Number(novoItemPontuacao || 0))),
+      revelar_apos_assumir: Boolean(novoItemSurpresa),
       feito: false,
     }])
     setNovoItem('')
     setNovoItemDescricao('')
     setNovoItemData('')
     setNovoItemResponsavelId('')
-    setNovoItemDificuldade('medio')
-    setNovoItemPontuacao('10')
+    setNovoItemDificuldade('nivel_3')
+    setNovoItemPontuacao('3')
+    setNovoItemSurpresa(false)
   }
 
   const destravaSelectOptions = useMemo(() => {
@@ -804,6 +823,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <label className="form-label">Pontuação *</label>
                 <input className="form-input" type="number" min="0" max="20" value={novoItemPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 0))) }} />
               </div>
+              <label className="task-surprise-toggle">
+                <input type="checkbox" checked={novoItemSurpresa} onChange={e => setNovoItemSurpresa(e.target.checked)} />
+                <span>Subtarefa surpresa: a equipe vê os pontos, mas só revela a ação após assumir.</span>
+              </label>
             </div>
             <div className="form-group">
               <label className="form-label">Descrição/instrução da ação</label>
@@ -1282,6 +1305,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
   const [newSubtaskResp, setNewSubtaskResp] = useState('')
   const [newSubtaskPoints, setNewSubtaskPoints] = useState('10')
   const [newSubtaskDifficulty, setNewSubtaskDifficulty] = useState<ChecklistDifficulty>('nivel_3')
+  const [newSubtaskSurprise, setNewSubtaskSurprise] = useState(false)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
   const isCriador = tarefa.criado_por === userId
@@ -1330,14 +1354,16 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
       responsavel_nome: checklistResponsibleName(newSubtaskResp),
       dificuldade: newSubtaskDifficulty,
       pontuacao: Math.max(0, Math.min(20, Number(newSubtaskPoints || 0))),
+      revelar_apos_assumir: Boolean(newSubtaskSurprise),
       feito: false,
     }])
     setNewSubtask('')
     setNewSubtaskDesc('')
     setNewSubtaskDate('')
     setNewSubtaskResp('')
-    setNewSubtaskDifficulty('medio')
-    setNewSubtaskPoints('10')
+    setNewSubtaskDifficulty('nivel_3')
+    setNewSubtaskPoints('3')
+    setNewSubtaskSurprise(false)
     setEditMode(true)
   }
 
@@ -1412,7 +1438,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
 
     const texto = [
       `Checklist da tarefa: ${tarefa.titulo}`,
-      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${item.texto}${(item as any).pontuacao ? `\n   Dificuldade: ${difficultyLabel((item as any).dificuldade)} · Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${item.descricao ? `\n   Como executar: ${item.descricao}` : ''}`),
+      ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${checklistDisplayText(item)}${(item as any).pontuacao ? `\n   Dificuldade: ${difficultyLabel((item as any).dificuldade)} · Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${checklistDisplayDesc(item) ? `\n   Como executar: ${checklistDisplayDesc(item)}` : ''}`),
     ].join('\n')
 
     try {
@@ -1596,6 +1622,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                 <label className="form-label">Pontuação *</label>
                 <input className="form-input" type="number" min="0" max="20" value={newSubtaskPoints} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 0))) }} />
               </div>
+              <label className="task-surprise-toggle">
+                <input type="checkbox" checked={newSubtaskSurprise} onChange={e => setNewSubtaskSurprise(e.target.checked)} />
+                <span>Subtarefa surpresa</span>
+              </label>
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
                 <input
@@ -1635,6 +1665,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                     <option value="">Livre / responsável principal</option>
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
                   </select>
+                  <label className="task-surprise-toggle compact" title="Revelar conteúdo apenas após assumir">
+                    <input type="checkbox" checked={Boolean((item as any).revelar_apos_assumir)} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, revelar_apos_assumir: e.target.checked } : i))} />
+                    <span>Surpresa</span>
+                  </label>
                   <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
                   <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta subtarefa" />
                 </div>
@@ -1690,11 +1724,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, onClose, onSave
                         >
                           <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           <span className="task-check-content">
-                            <span className="task-check-text">{item.texto}</span>
+                            <span className="task-check-text">{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
                             <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>
                             <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
-                            {item.descricao && <span className="task-check-desc">{item.descricao}</span>}
+                            {checklistDisplayDesc(item) && <span className="task-check-desc">{checklistDisplayDesc(item)}</span>}
                           </span>
                         </button>
                         {canAssumeThisItem && (
