@@ -238,11 +238,28 @@ function taskHasDistributedChecklist(tarefa: Tarefa) {
   return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id)
 }
 
+function maskSurpriseChecklistItemForViewer(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
+  if (!isSurpriseChecklistItem(item)) return item
+  if (isChecklistItemExecutor(item, tarefa, userId)) return item
+  const pts = Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade || 'nivel_3'))
+  return {
+    ...item,
+    texto: `Tarefa valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`,
+    descricao: undefined,
+    oculta_ate_assumir: true,
+  }
+}
+
 function visibleChecklistItems(tarefa: Tarefa, userId: string, isGestor: boolean) {
   const items = normalizeChecklistItems(tarefa.checklist)
   if (isGestor) return items
   const assigned = items.filter(item => isChecklistItemExecutor(item, tarefa, userId))
-  return assigned.length ? assigned : items
+  // Depois de assumir/receber uma subtarefa, o membro vê somente a parte dele.
+  if (assigned.length) return assigned
+  // Antes de assumir, ele vê apenas subtarefas livres em aberto. As surpresas ficam mascaradas.
+  return items
+    .filter(item => !item.feito && !item.responsavel_id)
+    .map(item => maskSurpriseChecklistItemForViewer(item, tarefa, userId))
 }
 
 function isSurpriseChecklistItem(item: ChecklistItem) {
@@ -1877,7 +1894,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
-          {!isPersonal && isFreeTeamTask(tarefa) && <span>{Number(tarefa.pontuacao || 0)} ponto(s)</span>}
+          {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nas subtarefas</span>}
           {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
           {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
@@ -1910,9 +1927,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       </div>
 
       <div className="task-report-actions">
-        {livreDisponivel && !isGestor && (taskHasUnassignedChecklist(tarefa)
-          ? <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver/assumir subtarefa</button>
-          : <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir</button>
+        {livreDisponivel && !isGestor && taskHasUnassignedChecklist(tarefa) && (
+          <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver/assumir subtarefa</button>
         )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
         {isPersonal ? (

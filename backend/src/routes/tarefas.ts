@@ -519,8 +519,9 @@ function isTaskPersonalOwner(task: any, userId: string) {
 
 function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   const assignedToUser = item?.responsavel_id === userId || item?.assumido_por === userId || item?.executor_id === userId
-  const isPrimaryExecutor = task?.responsavel_id === userId || task?.aceita_por === userId
-  if (!item?.revelar_apos_assumir || item?.feito || assignedToUser || isPrimaryExecutor) return item
+  // Em subtarefa surpresa, nem o responsável principal da tarefa revela tudo automaticamente.
+  // O conteúdo só aparece para gestor/admin ou para quem assumiu/recebeu aquela subtarefa específica.
+  if (!item?.revelar_apos_assumir || item?.feito || assignedToUser) return item
   return {
     ...item,
     texto: `Tarefa valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
@@ -536,9 +537,14 @@ function filterChecklistForUser(task: any, user: NonNullable<Request['user']>) {
   // Gestores veem o checklist completo das tarefas de equipe que gerenciam.
   if (canDeleteOrgRecords(role)) return items
   if (isPersonalScope(task)) return isTaskPersonalOwner(task, userId) ? items : []
-  // Membros só veem subtarefas livres ou atribuídas a eles.
-  // Subtarefas assumidas/atribuídas a outra pessoa ficam ocultas.
-  return items.filter(item => !item.responsavel_id || item.responsavel_id === userId).map(item => maskSurpriseChecklistItem(item, userId, task))
+
+  const assignedToMe = items.filter(item => item.responsavel_id === userId || item.assumido_por === userId || item.executor_id === userId)
+  // Depois que o membro assume/recebe uma subtarefa, ele enxerga somente a parte dele.
+  if (assignedToMe.length) return assignedToMe.map(item => maskSurpriseChecklistItem(item, userId, task))
+
+  // Antes de assumir, membros veem apenas subtarefas livres em aberto, com conteúdo mascarado quando for surpresa.
+  // Subtarefas de outros membros nunca são expostas.
+  return items.filter(item => !item.feito && !item.responsavel_id).map(item => maskSurpriseChecklistItem(item, userId, task))
 }
 
 function sanitizeTaskForUser(task: any, user: NonNullable<Request['user']>) {
@@ -562,9 +568,10 @@ function canListTaskForUser(task: any, user: NonNullable<Request['user']>, coman
     return false
   }
 
-  // Membro vê somente o que recebeu, assumiu, criou para si/equipe, ou tarefas livres com subtarefa livre para assumir.
-  if (task.responsavel_id === userId || task.criado_por === userId || task.aceita_por === userId || hasChecklistAssignedTo(task, userId)) return true
-  if (isFreeTeamTask(task) && (!task.aceita_por || hasUnassignedOpenChecklist(task))) return true
+  // Membro vê somente o que recebeu/assumiu ou tarefas livres com subtarefa livre para assumir.
+  // Criar uma tarefa de equipe não dá acesso às subtarefas de outros membros.
+  if (task.responsavel_id === userId || task.aceita_por === userId || hasChecklistAssignedTo(task, userId)) return true
+  if (isFreeTeamTask(task) && hasUnassignedOpenChecklist(task)) return true
   return false
 }
 
