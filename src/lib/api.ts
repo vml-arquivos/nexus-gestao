@@ -113,6 +113,7 @@ export interface Tarefa {
   origem_nome?: string
   origem_url?: string
   origem_payload?: Record<string, unknown>
+  tarefa_surpresa?: boolean
   external_key?: string
 }
 

@@ -517,6 +517,33 @@ function isTaskPersonalOwner(task: any, userId: string) {
   return task?.criado_por === userId || task?.responsavel_id === userId || hasChecklistAssignedTo(task, userId)
 }
 
+
+function parseOriginPayloadSafe(value: unknown): Record<string, any> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' ? parsed : {} } catch { return {} }
+  }
+  return typeof value === 'object' ? { ...(value as Record<string, any>) } : {}
+}
+
+function isTaskSurprise(task: any) {
+  const payload = parseOriginPayloadSafe(task?.origem_payload)
+  return Boolean(payload?.nexus_tarefa_surpresa || payload?.tarefa_surpresa || payload?.surpresa_tarefa)
+}
+
+function taskSurprisePoints(task: any) {
+  return Math.max(0, Math.min(20, Math.round(Number(task?.pontuacao || 0))))
+}
+
+function shouldRevealTaskToUser(task: any, user: NonNullable<Request['user']>) {
+  const { userId, role } = user
+  if (canDeleteOrgRecords(role)) return true
+  if (!isTaskSurprise(task)) return true
+  if (task?.criado_por === userId || task?.responsavel_id === userId || task?.aceita_por === userId) return true
+  if (hasChecklistAssignedTo(task, userId)) return true
+  return false
+}
+
 function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   const assignedToUser = item?.responsavel_id === userId || item?.assumido_por === userId || item?.executor_id === userId
   // Em subtarefa surpresa, nem o responsável principal da tarefa revela tudo automaticamente.
@@ -549,6 +576,17 @@ function filterChecklistForUser(task: any, user: NonNullable<Request['user']>) {
 
 function sanitizeTaskForUser(task: any, user: NonNullable<Request['user']>) {
   const checklist = filterChecklistForUser(task, user)
+  if (!shouldRevealTaskToUser(task, user)) {
+    const pts = taskSurprisePoints(task)
+    return {
+      ...task,
+      checklist,
+      titulo: `Tarefa surpresa valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`,
+      descricao: null,
+      obs: null,
+      origem_payload: { ...parseOriginPayloadSafe(task?.origem_payload), nexus_tarefa_surpresa: true },
+    }
+  }
   return { ...task, checklist }
 }
 
@@ -938,25 +976,22 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
     for (const row of pontuacoesRegistradas) {
       const dataBase = row.aprovado_em || row.tarefa_aprovada_em || row.tarefa_updated_at || row.tarefa_created_at
       if (!inPeriod(dataBase)) continue
-      // Regra atual: o ranking só pontua subtarefas/checklists aprovados.
-      // Pontuações antigas gravadas como tarefa geral são ignoradas para evitar dupla contagem.
       const motivo = String(row.motivo || '')
-      const isChecklistScore = motivo.startsWith('checklist_aprovado') || String(row.checklist_id || '').trim().length > 0
-      if (!isChecklistScore) continue
+      const isChecklistScore = motivo.startsWith('checklist_aprovado') || (String(row.checklist_id || '').trim().length > 0 && String(row.checklist_id) !== '__tarefa__')
       const items = parseChecklistItems(row.checklist)
-      const key = rankingChecklistKey(null, row.motivo, row.checklist_id)
-      const matched = items.find(item => rankingChecklistKey(item) === key || item.id === key || item.texto === key)
-      touchMember(row.usuario_id, Number(row.pontos || 1), {
+      const key = isChecklistScore ? rankingChecklistKey(null, row.motivo, row.checklist_id) : '__tarefa__'
+      const matched = isChecklistScore ? items.find(item => rankingChecklistKey(item) === key || item.id === key || item.texto === key) : null
+      touchMember(row.usuario_id, Number(row.pontos || 0), {
         id: row.tarefa_id,
         tarefa_id: row.tarefa_id,
         titulo: row.tarefa_titulo,
         tarefa_titulo: row.tarefa_titulo,
-        subtarefa_titulo: matched?.texto || key || 'Subtarefa aprovada',
+        subtarefa_titulo: isChecklistScore ? (matched?.texto || key || 'Subtarefa aprovada') : null,
         subtarefa_dificuldade: matched?.dificuldade || null,
         aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
         updated_at: row.tarefa_updated_at,
         created_at: row.tarefa_created_at,
-      }, true, key || String(row.motivo || 'checklist'))
+      }, isChecklistScore, key || String(row.motivo || 'pontuacao'))
     }
 
     // Fonte 2: cálculo de segurança a partir das tarefas aprovadas e checklists feitos.
@@ -980,7 +1015,11 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
           }, true, key)
         }
       }
-      // Sem fallback de tarefa geral: a pontuação do ranking vem somente das subtarefas/checklists.
+      const participanteTarefa = tarefa.aceita_por || tarefa.responsavel_id
+      const pontosTarefa = Math.max(0, Math.min(20, Math.round(Number(tarefa.pontuacao || 0))))
+      if (participanteTarefa && pontosTarefa > 0) {
+        touchMember(participanteTarefa, pontosTarefa, tarefa, false, '__tarefa__')
+      }
     }
 
     const ranking = Array.from(rankingMap.values()).sort((a, b) => {
@@ -1143,6 +1182,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
     const { titulo, descricao, data, prazo, prioridade = 'media', responsavel_id, checklist = [], obs, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload } = req.body
+    const tarefaSurpresa = Boolean((req.body as any).tarefa_surpresa || (req.body as any).surpresa_tarefa)
     const requestedEscopo = normalizeTaskScope((req.body as any).escopo)
     const modoDistribuicao = normalizeTaskDistribution((req.body as any).modo_distribuicao)
     const pontuacaoManual = Number((req.body as any).pontuacao || 0)
@@ -1190,6 +1230,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
     const criador = await queryOne<{ nome: string }>('SELECT nome FROM profiles WHERE id = $1', [userId])
     const checklistNormalizado = escopo === 'equipe' ? await normalizeChecklistForOrg(checklist, orgId, userId, role) : '[]'
     const pontuacao = escopo === 'equipe' ? calculateTaskComplexityPoints({ titulo, descricao, prioridade, checklist: checklistNormalizado, origem_sistema, origem_tipo, origem_nome, origem_payload, manual: pontuacaoManual }) : 0
+    const origemPayloadFinal = {
+      ...parseOriginPayloadSafe(origem_payload),
+      ...(escopo === 'equipe' && tarefaSurpresa ? { nexus_tarefa_surpresa: true } : {}),
+    }
 
     // Proteção contra duplo clique/envio repetido: se a mesma tarefa foi criada
     // há poucos segundos pelo mesmo usuário, devolve a existente em vez de criar
@@ -1219,7 +1263,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,TRUE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
        RETURNING *`,
-      [orgId, userId, modoFinal === 'livre_equipe' ? null : responsavelId, modoFinal === 'livre_equipe' ? null : (responsavel?.nome || null), tituloFinal, descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, modoFinal, pontuacao, contaRanking, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, origem_payload ? JSON.stringify(origem_payload) : null]
+      [orgId, userId, modoFinal === 'livre_equipe' ? null : responsavelId, modoFinal === 'livre_equipe' ? null : (responsavel?.nome || null), tituloFinal, descricao || null, data || null, prazo || null, prioridade, checklistNormalizado, obs || null, escopo, modoFinal, pontuacao, contaRanking, origem_sistema === 'destrava' ? 'destrava' : null, origem_tipo || null, origem_id || null, origem_nome || null, origem_url || null, JSON.stringify(origemPayloadFinal)]
     )
 
     await syncChecklistTable({ orgId, tarefaId: tarefa.id, userId, checklist: checklistNormalizado })
@@ -1499,6 +1543,16 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
     if (existing.conta_ranking !== false) {
       const items = parseChecklistItems(existing.checklist)
       const periodo = periodMonth()
+      const participanteTarefa = existing.aceita_por || existing.responsavel_id
+      const pontosTarefa = Math.max(0, Math.min(20, Math.round(Number(existing.pontuacao || 0))))
+      if (participanteTarefa && pontosTarefa > 0 && normalizeTaskScope(existing.escopo) === 'equipe') {
+        await query(
+          `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
+           VALUES ($1,$2,$3,$4,$5,'tarefa_aprovada',$6,NOW(),$7)
+           ON CONFLICT DO NOTHING`,
+          [orgId, req.params.id, participanteTarefa, '__tarefa__', pontosTarefa, userId, periodo]
+        ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação da tarefa:', (err as Error)?.message || err))
+      }
       if (items.length) {
         for (const item of items) {
           if (!item.feito) continue
@@ -1513,7 +1567,6 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
           ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de checklist:', (err as Error)?.message || err))
         }
       }
-      // Tarefa geral não gera pontuação. O ranking soma apenas subtarefas/checklists aprovados.
     }
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'aprovada', statusAnterior: existing.status, statusNovo: 'aprovada' })
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
@@ -1917,7 +1970,7 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     const isMember = role === 'membro'
     const allowed = isMember
       ? ['checklist', 'obs']
-      : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo','modo_distribuicao','pontuacao','conta_ranking']
+      : ['titulo','descricao','data','prazo','prioridade','responsavel_id','checklist','obs','escopo','modo_distribuicao','pontuacao','conta_ranking','tarefa_surpresa','surpresa_tarefa']
 
     if ((req.body as any).checklist !== undefined) {
       const changedItems = changedChecklistDoneItems(existing.checklist, (req.body as any).checklist)
@@ -2003,6 +2056,13 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
 
       if (key === 'conta_ranking') {
         setValue('conta_ranking', (req.body as any)[key] !== false)
+        continue
+      }
+      if (key === 'tarefa_surpresa' || key === 'surpresa_tarefa') {
+        const payload = parseOriginPayloadSafe(existing.origem_payload)
+        if ((req.body as any)[key]) payload.nexus_tarefa_surpresa = true
+        else delete payload.nexus_tarefa_surpresa
+        setValue('origem_payload', JSON.stringify(payload))
         continue
       }
 

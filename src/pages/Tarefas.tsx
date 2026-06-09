@@ -64,6 +64,15 @@ function difficultyLabel(value?: ChecklistDifficulty | string) {
   return CHECKLIST_DIFFICULTY_OPTIONS.find(opt => opt.value === normalized)?.label || 'Nível 3'
 }
 
+function taskPointsFromDifficulty(value?: ChecklistDifficulty | string) {
+  return difficultyPoints(value)
+}
+
+function taskIsSurprise(tarefa?: Tarefa | null) {
+  const payload = (tarefa?.origem_payload || {}) as Record<string, any>
+  return Boolean(payload?.nexus_tarefa_surpresa || payload?.tarefa_surpresa || payload?.surpresa_tarefa)
+}
+
 function difficultyFromPoints(points?: number): ChecklistDifficulty {
   const n = Number(points || 0)
   if (n <= 0) return 'nivel_1'
@@ -490,6 +499,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
   const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao ?? 3))
+  const [tarefaSurpresa, setTarefaSurpresa] = useState(Boolean(taskIsSurprise(tarefa)))
   const [contaRanking, setContaRanking] = useState(tarefa?.conta_ranking !== false)
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa?.checklist))
@@ -622,7 +632,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         origem_id: destravaSelecionado?.id || undefined,
         origem_nome: destravaSelecionado?.nome || undefined,
         origem_url: destravaSelecionado?.url || undefined,
-        origem_payload: destravaSelecionado?.metadata || undefined,
+        tarefa_surpresa: tipoTarefa === 'equipe' ? tarefaSurpresa : false,
+        origem_payload: tipoTarefa === 'equipe'
+          ? { ...(destravaSelecionado?.metadata || {}), nexus_tarefa_surpresa: Boolean(tarefaSurpresa) }
+          : (destravaSelecionado?.metadata || undefined),
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
       onSaved(saved)
@@ -771,9 +784,29 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
           </div>
         )}
-        {isGestor && tipoTarefa === 'equipe' && modoDistribuicao === 'livre_equipe' && (
-          <div className="team-ranking-note">
-            O ranking desta tarefa será formado somente pela soma das subtarefas aprovadas. A tarefa geral não possui pontuação própria.
+        {isGestor && tipoTarefa === 'equipe' && (
+          <div className="task-points-box">
+            <div className="form-group">
+              <label className="form-label">Pontuação da tarefa</label>
+              <select
+                className="form-input"
+                value={difficultyFromPoints(Number(pontuacao || 0))}
+                onChange={e => setPontuacao(String(taskPointsFromDifficulty(e.target.value as ChecklistDifficulty)))}
+              >
+                {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Pontos manuais da tarefa</label>
+              <input className="form-input" type="number" min="0" max="20" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(String(Math.max(0, Math.min(20, Number(e.target.value || 0)))))} />
+            </div>
+            <label className="task-surprise-toggle task-surprise-toggle--task">
+              <input type="checkbox" checked={tarefaSurpresa} onChange={e => setTarefaSurpresa(e.target.checked)} />
+              <span>Tarefa surpresa: membros veem apenas a pontuação da tarefa até assumirem.</span>
+            </label>
+            <div className="team-ranking-note">
+              O ranking soma a pontuação da tarefa e das subtarefas, sempre somente após aprovação do gestor.
+            </div>
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
@@ -1894,6 +1927,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+          {!isPersonal && <span>{Number(tarefa.pontuacao || 0)} ponto(s) na tarefa</span>}
           {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nas subtarefas</span>}
           {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
@@ -1927,8 +1961,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       </div>
 
       <div className="task-report-actions">
-        {livreDisponivel && !isGestor && taskHasUnassignedChecklist(tarefa) && (
-          <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver/assumir subtarefa</button>
+        {livreDisponivel && !isGestor && (
+          <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir tarefa</button>
         )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
         {isPersonal ? (
