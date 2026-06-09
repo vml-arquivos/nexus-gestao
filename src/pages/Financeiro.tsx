@@ -101,6 +101,32 @@ function distribuirCentavos(totalCents: number, n: number): number[] {
   return Array.from({ length: safeN }, (_, i) => base + (i < resto ? 1 : 0))
 }
 
+function addFinancialRecurrenceDate(date: string, recorrencia?: string): string | null {
+  if (!date || !recorrencia || recorrencia === 'nenhum') return null
+  const d = new Date(`${date.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return null
+  switch (recorrencia) {
+    case 'semanal': d.setDate(d.getDate() + 7); break
+    case 'quinzenal': d.setDate(d.getDate() + 14); break
+    case 'mensal': d.setMonth(d.getMonth() + 1); break
+    case 'anual': d.setFullYear(d.getFullYear() + 1); break
+    default: return null
+  }
+  return d.toISOString().slice(0, 10)
+}
+
+function isOpenEndedRecurringPayment(parcelas: Pagamento[]): boolean {
+  return parcelas.some(p => p.recorrencia && p.recorrencia !== 'nenhum' && !p.recorrencia_fim)
+}
+
+function baseRecurringPayment(parcelas: Pagamento[]): Pagamento | undefined {
+  return parcelas.find(p => p.recorrencia && p.recorrencia !== 'nenhum') || parcelas[0]
+}
+
+function hasPendingAfterDate(parcelas: Pagamento[], date: string): boolean {
+  return parcelas.some(p => p.status === 'pendente' && normalizeDateValue(p.vencimento) && normalizeDateValue(p.vencimento)! > date)
+}
+
 function distribuirParcelasEmCentavos(total: number, n: number, taxaMensal: number): number[] {
   const safeN = Math.max(1, Math.floor(Number(n) || 1))
   const taxa = Number(taxaMensal) || 0
@@ -831,8 +857,15 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const extrato = calcExtratoGrupo(parcelas, historicoCompleto)
   const nomeOperacao = tipo === 'recebimento' ? 'recebimento' : 'pagamento'
   const isRecurringDebt = parcelas.some(p => p.recorrencia && p.recorrencia !== 'nenhum')
-  const primeiraDataPendente = saldo.pendentes[0]?.vencimento?.slice(0, 10) || ''
+  const isOpenEndedRecurring = isOpenEndedRecurringPayment(parcelas)
+  const recurringBase = baseRecurringPayment(parcelas)
+  const primeiraPendente = saldo.pendentes[0]
+  const primeiraDataPendente = primeiraPendente?.vencimento?.slice(0, 10) || ''
   const permiteAntecipacao = !!primeiraDataPendente && !!data && data < primeiraDataPendente
+  const valorParcelaAtual = Number(primeiraPendente?.valor || recurringBase?.valor || ref?.valor || 0)
+  const resumoValorAtualizado = isOpenEndedRecurring ? valorParcelaAtual : extrato.valorAtualizado
+  const resumoSaldoRestante = isOpenEndedRecurring ? valorParcelaAtual : saldo.totalPendente
+  const resumoJaPago = isOpenEndedRecurring ? extrato.pagoReal : extrato.pagoReal
 
   useEffect(() => {
     // Regra financeira: se o pagamento/recebimento é no dia do vencimento ou depois,
@@ -884,6 +917,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
     setSaving(true)
     try {
       const effectiveAcao = isRecurringDebt && acao === 'recalcular' ? 'proximas' : acao
+      const parcelasRecorrentesPagas: Pagamento[] = []
       const ehAntecipacao = modo === 'abatimento' && tipoAbatimento === 'antecipacao'
       const ehPagamento = modo === 'abatimento' && tipoAbatimento === 'pagamento'
       const rotuloMovimento = modo === 'abatimento'
@@ -933,6 +967,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             pago_em: (ehAntecipacao || ehPagamento) ? data : undefined,
             obs   : `${p.obs ? p.obs + ' | ' : ''}${ehPagamento ? 'Quitado por pagamento' : ehAntecipacao ? 'Quitado por antecipação de pagamento' : 'Quitado por abatimento/desconto'}`, 
           })
+          if (isOpenEndedRecurring && (ehAntecipacao || ehPagamento)) parcelasRecorrentesPagas.push(p)
         }
       } else if (saldo.numPendentes > 0) {
         if (effectiveAcao === 'recalcular') {
@@ -951,6 +986,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                   pago_em: (ehAntecipacao || ehPagamento) ? data : undefined,
                   obs: `${p.obs ? p.obs + ' | ' : ''}${ehPagamento ? 'Baixado por pagamento' : ehAntecipacao ? 'Baixado por antecipação de pagamento' : 'Baixado por abatimento/desconto'}`, 
                 })
+                if (isOpenEndedRecurring && (ehAntecipacao || ehPagamento)) parcelasRecorrentesPagas.push(p)
                 restanteCents -= atualCents
               } else {
                 await pagamentosApi.update(p.id, { valor: fromCents(atualCents - restanteCents) })
@@ -961,6 +997,33 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             const primeira = saldo.pendentes[0]
             if (primeira) await pagamentosApi.update(primeira.id, { valor: fromCents(toCents(Number(primeira.valor || 0)) + valorCents) })
           }
+        }
+      }
+
+      if (isOpenEndedRecurring && parcelasRecorrentesPagas.length > 0) {
+        const base = recurringBase || ref
+        const ultimaCompetencia = [...parcelas, ...parcelasRecorrentesPagas]
+          .map(p => normalizeDateValue(p.vencimento))
+          .filter(Boolean)
+          .sort()
+          .pop()
+        const proximaData = addFinancialRecurrenceDate(ultimaCompetencia || primeiraDataPendente || data, base?.recorrencia)
+        if (base && proximaData && !hasPendingAfterDate(parcelas, primeiraDataPendente || data)) {
+          await pagamentosApi.create({
+            titulo: base.titulo,
+            descricao: base.descricao,
+            valor: Number(base.valor || valorParcelaAtual || valorNum),
+            tipo: base.tipo,
+            status: 'pendente',
+            vencimento: proximaData,
+            pessoa_id: base.pessoa_id,
+            pessoa_nome: base.pessoa_nome || base.pessoa_nome_atual,
+            categoria: base.categoria,
+            comprovante_url: base.comprovante_url,
+            obs: `${base.obs ? base.obs + ' | ' : ''}recorrencia_continua:true`,
+            recorrencia: base.recorrencia || 'mensal',
+            recorrencia_fim: undefined,
+          })
         }
       }
 
@@ -997,9 +1060,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
         {/* Resumo */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
           {([
-            { label: 'Valor atualizado', value: extrato.valorAtualizado, color: 'var(--text1)', bg: 'var(--bg3)' },
-            { label: tipo === 'recebimento' ? 'Já recebido' : 'Já pago', value: extrato.pagoReal, color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
-            { label: 'Saldo restante', value: saldo.totalPendente, color: saldo.totalPendente > 0 ? '#EF4444' : '#10B981', bg: 'rgba(239,68,68,0.1)'  },
+            { label: isOpenEndedRecurring ? 'Valor recorrente' : 'Valor atualizado', value: resumoValorAtualizado, color: 'var(--text1)', bg: 'var(--bg3)' },
+            { label: tipo === 'recebimento' ? 'Já recebido' : 'Já pago', value: resumoJaPago, color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
+            { label: isOpenEndedRecurring ? 'Próxima cobrança' : 'Saldo restante', value: resumoSaldoRestante, color: resumoSaldoRestante > 0 ? '#EF4444' : '#10B981', bg: 'rgba(239,68,68,0.1)'  },
           ] as const).map(({ label, value, color, bg }) => (
             <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
               <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
@@ -1008,7 +1071,10 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
           ))}
         </div>
         <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10, textAlign: 'center' }}>
-          {saldo.numPendentes} parcela{saldo.numPendentes !== 1 ? 's' : ''} pendente{saldo.numPendentes !== 1 ? 's' : ''} · {fmt(saldo.totalPendente / (saldo.numPendentes || 1))} cada
+          {isOpenEndedRecurring
+            ? <>Recorrência sem data final · cobrança contínua até cancelar · próxima: {fmt(valorParcelaAtual)}</>
+            : <>{saldo.numPendentes} parcela{saldo.numPendentes !== 1 ? 's' : ''} pendente{saldo.numPendentes !== 1 ? 's' : ''} · {fmt(saldo.totalPendente / (saldo.numPendentes || 1))} cada</>
+          }
         </div>
         {(extrato.antecipacoes > 0 || extrato.descontos > 0 || extrato.acrescimos > 0 || extrato.ultimoMovimento) && (
           <div style={{ border: '1px solid var(--border)', background: 'var(--bg3)', borderRadius: 12, padding: 10, marginBottom: 16 }}>
@@ -1104,7 +1170,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
           {modo === 'abatimento' && (
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Tipo do abatimento</label>
+              <label className="form-label">Tipo de movimentação</label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                 <button type="button" className={`btn ${tipoAbatimento === 'pagamento' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipoAbatimento('pagamento')} style={{ fontSize: 12 }}>
                   Pagamento
@@ -1138,7 +1204,7 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             <label className="form-label">Como aplicar?</label>
             {isRecurringDebt ? (
               <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.22)', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: 'var(--text2)', lineHeight: 1.45 }}>
-                Registro recorrente: o pagamento baixa apenas a parcela do período. As próximas parcelas continuam com o mesmo valor e não são recalculadas automaticamente.
+                Registro recorrente: pagar baixa apenas a competência atual. Se não houver data final, o sistema gera a próxima cobrança no mesmo valor automaticamente. Não há valor total fechado nem recálculo obrigatório.
               </div>
             ) : (
               <>
@@ -1157,13 +1223,19 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             )}
           </div>
 
-          {/* Prévia do recálculo */}
+          {/* Prévia do movimento */}
           {valorNum > 0 && saldo.numPendentes > 0 && (
             <div style={{ borderRadius: 10, border: `1px solid ${quitado ? 'rgba(16,185,129,0.4)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.4)' : 'rgba(99,102,241,0.3)'}`, background: quitado ? 'rgba(16,185,129,0.07)' : modo === 'acrescimo' ? 'rgba(245,158,11,0.07)' : 'rgba(99,102,241,0.07)', padding: '12px 14px' }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text2)', marginBottom: 8 }}>
-                {quitado ? 'Dívida quitada integralmente' : 'Recálculo das parcelas restantes'}
+                {isOpenEndedRecurring ? 'Baixa recorrente sem valor total fechado' : quitado ? 'Dívida quitada integralmente' : 'Recálculo das parcelas restantes'}
               </div>
-              {!quitado ? (
+              {isOpenEndedRecurring ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>Competência atual</span><strong>{fmt(valorParcelaAtual)}</strong></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text3)' }}>{tipoAbatimento === 'antecipacao' ? 'Antecipar' : tipoAbatimento === 'desconto' ? 'Desconto' : 'Pagamento'}</span><strong style={{ color: '#10B981' }}>{fmt(valorNum)}</strong></div>
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 4, color: 'var(--text3)' }}>As próximas cobranças continuam com o mesmo valor. Para encerrar, cancele a recorrência/registro.</div>
+                </div>
+              ) : !quitado ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12 }}>
                   {[
                     { label: 'Saldo atual',                                       value: saldo.totalPendente, sign: '',  color: 'var(--text1)' },

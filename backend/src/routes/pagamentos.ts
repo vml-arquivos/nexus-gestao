@@ -54,19 +54,14 @@ function addRecurrenceDate(base: Date, recorrencia: Recorrencia) {
 
 function buildRecurringDates(vencimento: string | undefined, recorrencia: Recorrencia, recorrenciaFim?: string): string[] {
   if (!vencimento || recorrencia === 'nenhum') return []
+
+  // Recorrência sem data final é compromisso contínuo: salário, mensalidade, aluguel, contrato mensal.
+  // Não gera 12 parcelas automaticamente e não cria valor total fechado artificial.
+  // A próxima competência é gerada somente quando a parcela atual for baixada.
+  if (!recorrenciaFim) return []
+
   const current = new Date(`${vencimento}T00:00:00`)
-  const limitDate = recorrenciaFim
-    ? new Date(`${recorrenciaFim}T00:00:00`)
-    : (() => {
-        const d = new Date(current)
-        switch (recorrencia) {
-          case 'semanal':   d.setDate(d.getDate() + 7 * 11); break
-          case 'quinzenal': d.setDate(d.getDate() + 14 * 11); break
-          case 'mensal':    d.setMonth(d.getMonth() + 11); break
-          case 'anual':     d.setFullYear(d.getFullYear() + 11); break
-        }
-        return d
-      })()
+  const limitDate = new Date(`${recorrenciaFim}T00:00:00`)
   const dates: string[] = []
   while (true) {
     addRecurrenceDate(current, recorrencia)
