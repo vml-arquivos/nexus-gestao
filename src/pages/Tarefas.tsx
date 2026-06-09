@@ -697,7 +697,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   return (
     <ModalBase title={tarefa?.id ? 'Editar tarefa' : 'Nova tarefa'} onClose={onClose}>
-      <div style={{ display: 'grid', gap: 12 }}>
+      <div className="task-form-modal">
         <div className="form-group">
           <label className="form-label">Título <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
           <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Organização da demanda da empresa / Deixe vazio para gerar automático" />

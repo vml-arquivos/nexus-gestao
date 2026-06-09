@@ -7592,3 +7592,267 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     justify-content: center;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   HOTFIX CRÍTICO — Nova tarefa 100% responsiva no mobile/PWA
+   Regra visual sem alterar banco, ranking, permissões ou regras de negócio.
+   Impede campo estreito, texto verticalizado, estouro horizontal e botões ocultos.
+────────────────────────────────────────────────────────────────────────── */
+.task-form-modal {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 14px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+}
+
+.task-form-modal,
+.task-form-modal * {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+.task-form-modal .form-group,
+.task-form-modal .grid-2,
+.task-form-modal .grid-3,
+.task-form-modal .task-type-selector,
+.task-form-modal .task-points-box,
+.task-form-modal .task-checklist-builder,
+.task-form-modal .task-checklist-builder-fields,
+.task-form-modal .task-checklist-edit-card,
+.task-form-modal .task-checklist-edit-row,
+.task-form-modal .objective-subtasks-editor,
+.task-form-modal .objective-subtask-row,
+.task-form-modal .modal-actions,
+.task-form-modal [data-modal-actions] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: visible !important;
+}
+
+.task-form-modal .form-label,
+.task-form-modal label,
+.task-form-modal .task-type-option strong,
+.task-form-modal .task-type-option span,
+.task-form-modal .task-surprise-toggle span,
+.task-form-modal .team-ranking-note,
+.task-form-modal .integration-help,
+.task-form-modal .personal-task-note {
+  display: block !important;
+  width: 100% !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.35 !important;
+  letter-spacing: 0 !important;
+}
+
+.task-form-modal input,
+.task-form-modal select,
+.task-form-modal textarea,
+.task-form-modal .form-input {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  font-size: 16px !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+.task-form-modal textarea.form-input {
+  min-height: 96px !important;
+  max-height: 260px !important;
+  resize: vertical !important;
+}
+
+.task-form-modal .grid-2,
+.task-form-modal .task-type-selector,
+.task-form-modal .task-points-box {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.task-form-modal .task-points-box .task-surprise-toggle,
+.task-form-modal .task-points-box .team-ranking-note,
+.task-form-modal .task-checklist-builder,
+.task-form-modal .task-checklist-edit-card,
+.task-form-modal .objective-subtasks-editor,
+.task-form-modal .modal-actions,
+.task-form-modal [data-modal-actions] {
+  grid-column: 1 / -1 !important;
+}
+
+.task-form-modal .task-checklist-builder-fields {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 1.25fr) minmax(170px, .95fr) minmax(190px, 1fr) minmax(170px, .9fr) minmax(130px, .7fr) !important;
+  gap: 10px !important;
+  align-items: end !important;
+}
+
+.task-form-modal .task-checklist-builder-fields > .form-group:first-child,
+.task-form-modal .task-checklist-builder .form-group:has(textarea) {
+  grid-column: 1 / -1 !important;
+}
+
+.task-form-modal .task-checklist-edit-row {
+  display: grid !important;
+  grid-template-columns: 32px minmax(220px, 1.25fr) minmax(160px, .8fr) minmax(115px, .55fr) minmax(160px, .75fr) minmax(180px, .85fr) 44px !important;
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+.task-form-modal .objective-subtask-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(44px, auto) !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+
+.task-form-modal .modal-actions,
+.task-form-modal [data-modal-actions] {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  position: sticky !important;
+  bottom: 0 !important;
+  z-index: 60 !important;
+  background: var(--bg2) !important;
+  border-top: 1px solid var(--border) !important;
+  padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  margin-top: 8px !important;
+}
+
+.task-form-modal .btn,
+.task-form-modal button.btn,
+.task-form-modal .modal-actions button,
+.task-form-modal [data-modal-actions] button {
+  min-width: 0 !important;
+  width: 100% !important;
+  justify-content: center !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+@media (max-width: 980px) {
+  .task-form-modal .task-checklist-builder-fields,
+  .task-form-modal .task-checklist-edit-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .task-form-modal .task-checklist-builder-fields > *,
+  .task-form-modal .task-checklist-edit-row > *,
+  .task-form-modal .task-checklist-edit-card > textarea,
+  .task-form-modal .objective-subtasks-editor {
+    grid-column: auto !important;
+  }
+  .task-form-modal .task-checklist-builder-fields > .form-group:first-child,
+  .task-form-modal .task-checklist-builder .form-group:has(textarea),
+  .task-form-modal .task-checklist-edit-card > textarea,
+  .task-form-modal .objective-subtasks-editor {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .modal-overlay:has(.task-form-modal) {
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .modal-overlay:has(.task-form-modal) .tarefa-modal-box,
+  .tarefa-modal-box:has(.task-form-modal) {
+    width: 100dvw !important;
+    max-width: 100dvw !important;
+    min-width: 0 !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .tarefa-modal-box:has(.task-form-modal) .modal-header {
+    flex: 0 0 auto !important;
+    min-height: 58px !important;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px !important;
+    margin: 0 !important;
+  }
+
+  .tarefa-modal-box:has(.task-form-modal) .modal-content,
+  .tarefa-modal-box:has(.task-form-modal) [data-scroll] {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: calc(100dvh - 58px) !important;
+    max-height: calc(100dvh - 58px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding: 12px 12px calc(136px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .task-form-modal {
+    gap: 12px !important;
+  }
+
+  .task-form-modal .grid-2,
+  .task-form-modal .grid-3,
+  .task-form-modal .task-type-selector,
+  .task-form-modal .task-points-box,
+  .task-form-modal .task-checklist-builder-fields,
+  .task-form-modal .task-checklist-edit-row,
+  .task-form-modal .objective-subtask-row,
+  .task-form-modal .modal-actions,
+  .task-form-modal [data-modal-actions] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .task-form-modal .task-checklist-builder-fields > *,
+  .task-form-modal .task-checklist-edit-row > *,
+  .task-form-modal .objective-subtask-row > *,
+  .task-form-modal .task-points-box > *,
+  .task-form-modal .modal-actions > *,
+  .task-form-modal [data-modal-actions] > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .task-form-modal .task-checklist-builder,
+  .task-form-modal .task-checklist-edit-card,
+  .task-form-modal .objective-subtasks-editor {
+    padding: 10px !important;
+    border-radius: 14px !important;
+    overflow: visible !important;
+  }
+
+  .task-form-modal .form-label {
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
+  .task-form-modal .task-type-option {
+    min-height: auto !important;
+    padding: 12px !important;
+  }
+
+  .task-form-modal .modal-actions,
+  .task-form-modal [data-modal-actions] {
+    padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
