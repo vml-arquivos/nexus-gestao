@@ -1054,6 +1054,9 @@ function canListTaskForUser(
     return true;
   if (task.criado_por === userId) return true;
   if (isFreeTeamTask(task) && !task.aceita_por) return true;
+  // Tarefa surpresa livre é uma execução completa: depois de assumida por alguém,
+  // objetivos livres internos não mantêm a tarefa disponível para outros membros.
+  if (isTaskSurprise(task) && task.aceita_por && task.aceita_por !== userId) return false;
   if (isFreeTeamTask(task) && hasUnassignedOpenChecklist(task)) return true;
   return false;
 }
@@ -1183,13 +1186,13 @@ async function userCanAccessTask(
     );
     return !!resp;
   }
-  if (
-    isFreeTeamTask(task) &&
-    (!task.aceita_por ||
-      task.aceita_por === userId ||
-      hasUnassignedOpenChecklist(task))
-  )
-    return true;
+  if (isFreeTeamTask(task)) {
+    if (!task.aceita_por || task.aceita_por === userId) return true;
+    // Se a tarefa inteira é surpresa, quem assume assume a tarefa completa.
+    // Outros membros não recebem acesso por objetivos livres restantes.
+    if (isTaskSurprise(task) && task.aceita_por !== userId) return false;
+    if (hasUnassignedOpenChecklist(task)) return true;
+  }
   if (role === "membro")
     return (
       task.responsavel_id === userId ||
@@ -1791,16 +1794,34 @@ router.post(
         "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
         [userId, orgId],
       );
+      const checklistAoAssumir = isTaskSurprise(existing)
+        ? JSON.stringify(
+            parseChecklistItems(existing.checklist).map((item) => ({
+              ...item,
+              responsavel_id: userId,
+              responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
+            })),
+          )
+        : existing.checklist;
       const tarefa = await queryOne<any>(
         `UPDATE tarefas SET aceita_por = $1, aceita_em = NOW(), responsavel_id = $1, responsavel_nome = $2,
+          checklist = $5,
           status = 'em_progresso', data_inicio = COALESCE(data_inicio, NOW()), escopo = 'equipe', updated_at = NOW()
        WHERE id = $3 AND org_id = $4 AND aceita_por IS NULL
        RETURNING *`,
-        [userId, profile?.nome || null, req.params.id, orgId],
+        [userId, profile?.nome || null, req.params.id, orgId, checklistAoAssumir],
       );
       if (!tarefa) {
         res.status(409).json({ error: "Tarefa já foi selecionada." });
         return;
+      }
+      if (isTaskSurprise(existing)) {
+        await syncChecklistTable({
+          orgId,
+          tarefaId: tarefa.id,
+          userId,
+          checklist: tarefa.checklist,
+        });
       }
       await addHistorico({
         orgId,
@@ -1888,6 +1909,10 @@ router.post(
         res.status(403).json({ error: "Acesso negado." });
         return;
       }
+      if (isTaskSurprise(existing) && isFreeTeamTask(existing) && !existing.aceita_por) {
+        res.status(400).json({ error: "Tarefa surpresa deve ser assumida completa pelo botão Assumir tarefa." });
+        return;
+      }
       if (
         !isFreeTeamTask(existing) &&
         normalizeTaskScope(existing.escopo) !== "equipe"
@@ -1946,13 +1971,13 @@ router.post(
       }
       const item = items[index];
       if (item.feito) {
-        res.status(400).json({ error: "Esta subtarefa já foi concluída." });
+        res.status(400).json({ error: "Este objetivo já foi concluído." });
         return;
       }
       if (item.responsavel_id && item.responsavel_id !== userId) {
         res
           .status(409)
-          .json({ error: "Esta subtarefa já está com outro responsável." });
+          .json({ error: "Este objetivo já está com outro responsável." });
         return;
       }
 
@@ -1988,7 +2013,7 @@ router.post(
           orgId,
           userId: existing.criado_por,
           tipo: "tarefa_atualizada",
-          titulo: "Subtarefa assumida",
+          titulo: "Objetivo assumido",
           body: `${profile?.nome || "Um membro"} assumiu "${item.texto}" em "${existing.titulo}".`,
           referenciaId: existing.id,
           referenciaTipo: "tarefa",
@@ -1996,7 +2021,7 @@ router.post(
       }
       res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
     } catch (err) {
-      console.error("[TAREFAS] Erro ao assumir subtarefa:", err);
+      console.error("[TAREFAS] Erro ao assumir objetivo:", err);
       res.status(500).json({ error: "Erro ao assumir objetivo." });
     }
   },
