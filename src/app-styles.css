@@ -7111,3 +7111,218 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     grid-column: 1 / -1 !important;
   }
 }
+
+/* CORREÇÃO CIRÚRGICA — layout definitivo do checklist/subtarefa no modal de tarefas
+   Objetivo: campos brancos no modo claro, contraste forte, descrição logo abaixo
+   da subtarefa, surpresa sem texto vertical e responsividade total. */
+.tarefa-modal-box .task-checklist-builder {
+  background: #eef2f7 !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 20px !important;
+  padding: 16px !important;
+  overflow: visible !important;
+}
+
+.tarefa-modal-box .task-checklist-builder-fields {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  align-items: end !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.tarefa-modal-box .task-checklist-builder-fields > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.tarefa-modal-box .task-checklist-builder-fields .form-group:first-child {
+  grid-column: 1 / -1 !important;
+}
+
+.tarefa-modal-box .task-checklist-builder > .form-group {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  margin-top: 2px !important;
+}
+
+.tarefa-modal-box .task-checklist-builder .form-input,
+.tarefa-modal-box .task-checklist-builder input,
+.tarefa-modal-box .task-checklist-builder select,
+.tarefa-modal-box .task-checklist-builder textarea {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.tarefa-modal-box .task-checklist-builder .form-input::placeholder,
+.tarefa-modal-box .task-checklist-builder textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+
+.tarefa-modal-box .task-checklist-builder .form-label {
+  color: #334155 !important;
+  font-weight: 900 !important;
+  letter-spacing: .08em !important;
+  white-space: normal !important;
+  word-break: normal !important;
+}
+
+.tarefa-modal-box .task-checklist-builder textarea {
+  min-height: 92px !important;
+  resize: vertical !important;
+  overflow: auto !important;
+  line-height: 1.45 !important;
+}
+
+.tarefa-modal-box .task-surprise-toggle {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-height: 46px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+  padding: 12px 14px !important;
+  border-radius: 14px !important;
+  border: 1px dashed #94a3b8 !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.tarefa-modal-box .task-surprise-toggle input {
+  width: 18px !important;
+  height: 18px !important;
+  flex: 0 0 18px !important;
+}
+
+.tarefa-modal-box .task-surprise-toggle span {
+  display: block !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.tarefa-modal-box .task-checklist-builder > .btn {
+  width: 100% !important;
+  justify-content: center !important;
+}
+
+/* Em telas médias, mantém duas colunas úteis; no celular, uma coluna limpa. */
+@media (max-width: 980px) {
+  .tarefa-modal-box .task-checklist-builder-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .tarefa-modal-box,
+  .modal-card.tarefa-modal-box {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  .tarefa-modal-box .task-checklist-builder {
+    padding: 12px !important;
+    border-radius: 16px !important;
+  }
+
+  .tarefa-modal-box .task-checklist-builder-fields {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .tarefa-modal-box .task-checklist-builder-fields > *,
+  .tarefa-modal-box .task-checklist-builder-fields .form-group:first-child,
+  .tarefa-modal-box .task-checklist-builder > .form-group,
+  .tarefa-modal-box .task-surprise-toggle {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+  }
+
+  .tarefa-modal-box .form-label,
+  .tarefa-modal-box .task-checklist-builder .form-label,
+  .tarefa-modal-box .task-surprise-toggle,
+  .tarefa-modal-box .task-surprise-toggle span {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  .tarefa-modal-box .form-input,
+  .tarefa-modal-box input,
+  .tarefa-modal-box select,
+  .tarefa-modal-box textarea {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+}
+
+/* Modo escuro mantém contraste sem voltar ao branco agressivo. */
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder,
+.dark .tarefa-modal-box .task-checklist-builder {
+  background: rgba(15,23,42,.88) !important;
+  border-color: rgba(148,163,184,.28) !important;
+}
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder .form-input,
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder input,
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder select,
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder textarea,
+.dark .tarefa-modal-box .task-checklist-builder .form-input,
+.dark .tarefa-modal-box .task-checklist-builder input,
+.dark .tarefa-modal-box .task-checklist-builder select,
+.dark .tarefa-modal-box .task-checklist-builder textarea {
+  background: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: rgba(148,163,184,.35) !important;
+}
+[data-theme="dark"] .tarefa-modal-box .task-checklist-builder .form-label,
+.dark .tarefa-modal-box .task-checklist-builder .form-label {
+  color: #cbd5e1 !important;
+}
+[data-theme="dark"] .tarefa-modal-box .task-surprise-toggle,
+.dark .tarefa-modal-box .task-surprise-toggle {
+  background: rgba(30,41,59,.9) !important;
+  border-color: rgba(148,163,184,.35) !important;
+  color: #e5e7eb !important;
+}
+
+.team-ranking-note {
+  border: 1px solid rgba(59,130,246,.22);
+  background: rgba(59,130,246,.08);
+  color: var(--text2);
+  border-radius: 14px;
+  padding: 11px 13px;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.ranking-history-list {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 640px) {
+  .ranking-history-list { max-height: 300px; }
+}

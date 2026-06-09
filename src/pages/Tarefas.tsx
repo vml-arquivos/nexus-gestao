@@ -250,12 +250,15 @@ function isSurpriseChecklistItem(item: ChecklistItem) {
 }
 
 function checklistDisplayText(item: ChecklistItem) {
-  if ((item as any).oculta_ate_assumir) return 'Subtarefa surpresa — assuma para revelar'
+  if ((item as any).oculta_ate_assumir) {
+    const pts = Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade || 'nivel_3'))
+    return `Tarefa valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`
+  }
   return item.texto
 }
 
 function checklistDisplayDesc(item: ChecklistItem) {
-  if ((item as any).oculta_ate_assumir) return 'Conteúdo protegido. A pontuação está visível; a ação completa será liberada depois que você assumir.'
+  if ((item as any).oculta_ate_assumir) return undefined
   return item.descricao
 }
 
@@ -752,15 +755,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao === 'livre_equipe' && (
-          <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">Pontuação no ranking</label>
-              <input className="form-input" type="number" min="0" max="20" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(e.target.value)} />
-            </div>
-            <label className="form-group" style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 22 }}>
-              <input type="checkbox" checked={contaRanking} onChange={e => setContaRanking(e.target.checked)} />
-              <span style={{ fontSize: 13, color: 'var(--text2)' }}>Contar no ranking após aprovação</span>
-            </label>
+          <div className="team-ranking-note">
+            O ranking desta tarefa será formado somente pela soma das subtarefas aprovadas. A tarefa geral não possui pontuação própria.
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
@@ -2009,15 +2005,15 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
               </div>
               <div style={{ minWidth: 0 }}>
                 <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro'}</strong>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{subtarefas || tarefas ? `${subtarefas} subtarefa(s) · ${tarefas} tarefa(s)` : 'Nenhuma pontuação aprovada no período'}</span>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{subtarefas ? `${subtarefas} subtarefa(s) aprovada(s)` : 'Nenhuma subtarefa aprovada no período'}</span>
                 <div style={{ marginTop: 6, height: 5, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pct}%`, background: pontos > 0 ? 'linear-gradient(90deg, var(--primary), #10B981)' : 'var(--border)', borderRadius: 999, transition: 'width .4s ease' }} />
                 </div>
                 {historico.length > 0 && (
                   <details style={{ marginTop: 8 }}>
-                    <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontSize: 12, fontWeight: 600 }}>Ver histórico de pontos</summary>
-                    <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
-                      {historico.slice(0, 12).map((h: any, i: number) => (
+                    <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontSize: 12, fontWeight: 600 }}>Ver extrato completo de pontos ({historico.length})</summary>
+                    <div className="ranking-history-list">
+                      {historico.map((h: any, i: number) => (
                         <div key={`${h.tarefa_id || i}-${i}`} className="ranking-history-item">
                           <div className="ranking-history-main">
                             <strong>{h.subtarefa_titulo || h.tarefa_titulo || 'Tarefa aprovada'}</strong>

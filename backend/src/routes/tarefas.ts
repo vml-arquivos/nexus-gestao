@@ -931,6 +931,11 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
     for (const row of pontuacoesRegistradas) {
       const dataBase = row.aprovado_em || row.tarefa_aprovada_em || row.tarefa_updated_at || row.tarefa_created_at
       if (!inPeriod(dataBase)) continue
+      // Regra atual: o ranking só pontua subtarefas/checklists aprovados.
+      // Pontuações antigas gravadas como tarefa geral são ignoradas para evitar dupla contagem.
+      const motivo = String(row.motivo || '')
+      const isChecklistScore = motivo.startsWith('checklist_aprovado') || String(row.checklist_id || '').trim().length > 0
+      if (!isChecklistScore) continue
       const items = parseChecklistItems(row.checklist)
       const key = rankingChecklistKey(null, row.motivo, row.checklist_id)
       const matched = items.find(item => rankingChecklistKey(item) === key || item.id === key || item.texto === key)
@@ -939,12 +944,12 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
         tarefa_id: row.tarefa_id,
         titulo: row.tarefa_titulo,
         tarefa_titulo: row.tarefa_titulo,
-        subtarefa_titulo: matched?.texto || (String(row.motivo || '').startsWith('checklist_aprovado:') ? key : null),
+        subtarefa_titulo: matched?.texto || key || 'Subtarefa aprovada',
         subtarefa_dificuldade: matched?.dificuldade || null,
         aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
         updated_at: row.tarefa_updated_at,
         created_at: row.tarefa_created_at,
-      }, String(row.motivo || '').startsWith('checklist_aprovado'), key || String(row.motivo || 'tarefa'))
+      }, true, key || String(row.motivo || 'checklist'))
     }
 
     // Fonte 2: cálculo de segurança a partir das tarefas aprovadas e checklists feitos.
@@ -967,15 +972,8 @@ router.get('/ranking', async (req: Request, res: Response): Promise<void> => {
             subtarefa_dificuldade: item.dificuldade,
           }, true, key)
         }
-        continue
       }
-
-      if (String(tarefa.status || '') === 'aprovada') {
-        const participante = tarefa.aceita_por || tarefa.responsavel_id
-        if (participante) {
-          touchMember(participante, calculateChecklistItemPoints({ texto: tarefa.titulo, descricao: tarefa.descricao, pontuacao: tarefa.pontuacao }, tarefa), tarefa, false, 'tarefa_sem_checklist')
-        }
-      }
+      // Sem fallback de tarefa geral: a pontuação do ranking vem somente das subtarefas/checklists.
     }
 
     const ranking = Array.from(rankingMap.values()).sort((a, b) => {
@@ -1497,7 +1495,7 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
       if (items.length) {
         for (const item of items) {
           if (!item.feito) continue
-          const participante = item.responsavel_id || existing.aceita_por || existing.responsavel_id
+          const participante = checklistExecutorId(item, existing)
           if (!participante) continue
           const pontosItem = calculateChecklistItemPoints(item, existing)
           await query(
@@ -1507,17 +1505,8 @@ router.patch('/:id/aprovar', async (req: Request, res: Response): Promise<void> 
             [orgId, req.params.id, participante, item.id || item.texto || null, pontosItem, `checklist_aprovado:${item.id || item.texto}`, userId, periodo]
           ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de checklist:', (err as Error)?.message || err))
         }
-      } else {
-        const participante = existing.aceita_por || existing.responsavel_id
-        if (participante) {
-          await query(
-            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-             VALUES ($1,$2,$3,NULL,$4,'tarefa_sem_checklist_aprovada',$5,NOW(),$6)
-             ON CONFLICT DO NOTHING`,
-            [orgId, req.params.id, participante, calculateChecklistItemPoints({ texto: existing.titulo, descricao: existing.descricao }, existing), userId, periodo]
-          ).catch(err => console.warn('[TAREFAS] Falha ao registrar pontuação de tarefa:', (err as Error)?.message || err))
-        }
       }
+      // Tarefa geral não gera pontuação. O ranking soma apenas subtarefas/checklists aprovados.
     }
     await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: 'aprovada', statusAnterior: existing.status, statusNovo: 'aprovada' })
     if (existing.responsavel_id && existing.responsavel_id !== userId) {
