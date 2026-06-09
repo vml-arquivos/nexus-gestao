@@ -37,7 +37,7 @@ const PRIORIDADE_CONFIG: Record<string, { label: string; color: string }> = {
 }
 
 
-const SCORE_MAX = 9999
+const SCORE_MAX = 20
 
 const CHECKLIST_DIFFICULTY_OPTIONS: Array<{ value: ChecklistDifficulty; label: string; points: number; hint: string }> = [
   { value: 'nivel_1', label: 'Nível 1', points: 0, hint: 'Ação simples, apenas registro ou acompanhamento' },
@@ -291,7 +291,7 @@ function maskSurpriseChecklistItemForViewer(item: ChecklistItem, tarefa: Tarefa,
   const pts = Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade || 'nivel_3'))
   return {
     ...item,
-    texto: `Objetivo valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`,
+    texto: `Tarefa valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`,
     descricao: undefined,
     oculta_ate_assumir: true,
   }
@@ -316,7 +316,7 @@ function isSurpriseChecklistItem(item: ChecklistItem) {
 function checklistDisplayText(item: ChecklistItem) {
   if ((item as any).oculta_ate_assumir) {
     const pts = Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade || 'nivel_3'))
-    return `Objetivo valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`
+    return `Tarefa valendo ${pts} ponto${pts === 1 ? '' : 's'} — assuma para revelar`
   }
   return item.texto
 }
@@ -362,7 +362,7 @@ function taskHasUnassignedChecklist(tarefa: Tarefa) {
 function isAvailableFreeTask(tarefa: Tarefa) {
   if (!isFreeTeamTask(tarefa) || ['concluida', 'aprovada', 'cancelada'].includes(String(tarefa.status))) return false
   // Tarefa surpresa livre é assumida como tarefa completa. Depois que alguém assume,
-  // ela não continua aparecendo como disponível por causa de objetivos livres internos.
+  // ela não continua aparecendo como disponível por causa de tarefas livres internos.
   if (taskIsSurprise(tarefa)) return !tarefa.aceita_por
   return !tarefa.aceita_por || taskHasUnassignedChecklist(tarefa)
 }
@@ -371,7 +371,7 @@ function duplicateTaskVisualKey(tarefa: Tarefa) {
   // Tarefas de equipe devem aparecer como uma única entidade no painel do gestor.
   // Quando houver registros legados/repetidos com o mesmo título, descrição e prazo,
   // agrupamos visualmente sem apagar dados. O responsável principal não entra na chave
-  // de tarefa da equipe, porque a execução pode estar distribuída nos objetivos.
+  // de tarefa da equipe, porque a execução pode estar distribuída nas tarefas da lista.
   const escopo = taskScope(tarefa)
   return [
     escopo,
@@ -620,8 +620,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
 
   function addItem() {
-    if (!novoItem.trim()) { toast('Informe o nome do objetivo.', 'error'); return }
-    if (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX) { toast(`Informe a pontuação do objetivo entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    if (!novoItem.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
+    if (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX) { toast(`Informe a pontuação do tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -632,7 +632,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       dificuldade: novoItemDificuldade,
       pontuacao: Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || 0))),
       subtarefas: [],
-      revelar_apos_assumir: Boolean(novoItemSurpresa),
+      revelar_apos_assumir: Boolean(tarefaSurpresa || novoItemSurpresa),
       feito: false,
     }])
     setNovoItem('')
@@ -653,12 +653,13 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   async function salvar() {
     if (loading) return
-    const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
-    if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos um objetivo para tarefa da equipe.', 'error'); return }
+    const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
+    if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
-    if (invalidItem) { toast('Cada objetivo precisa ter nome e pontuação.', 'error'); return }
+    if (invalidItem) { toast('Cada tarefa precisa ter nome e pontuação.', 'error'); return }
     const invalidSubitem = checklist.some(item => Array.isArray((item as any).subtarefas) && (item as any).subtarefas.some((sub: any) => !String(sub?.texto || '').trim()))
-    if (invalidSubitem) { toast('Cada subtarefa dentro do objetivo precisa ter nome.', 'error'); return }
+    if (invalidSubitem) { toast('Cada subtarefa dentro da tarefa precisa ter nome.', 'error'); return }
+    const checklistFinal = checklist.map(item => ({ ...item, revelar_apos_assumir: tarefaSurpresa ? true : Boolean((item as any).revelar_apos_assumir) }))
     setLoading(true)
     try {
       const payload: Partial<Tarefa> = {
@@ -673,7 +674,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         pontuacao_escopo: tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
         pontuacao_tipo: tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
         conta_ranking: tipoTarefa === 'equipe' ? contaRanking : false,
-        checklist: tipoTarefa === 'equipe' ? checklist : [],
+        checklist: tipoTarefa === 'equipe' ? checklistFinal : [],
         obs: obs.trim() || undefined,
         origem_sistema: destravaSelecionado ? 'destrava' : undefined,
         origem_tipo: destravaSelecionado?.tipo || undefined,
@@ -696,14 +697,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   }
 
   return (
-    <ModalBase title={tarefa?.id ? 'Editar tarefa' : 'Nova tarefa'} onClose={onClose}>
+    <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
       <div className="task-form-modal">
         <div className="form-group">
-          <label className="form-label">Título <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+          <label className="form-label">Título da lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
           <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Organização da demanda da empresa / Deixe vazio para gerar automático" />
         </div>
         <div className="form-group">
-          <label className="form-label">Descrição</label>
+          <label className="form-label">Descrição da lista</label>
           <textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes e instruções" />
         </div>
         {isGestor && (
@@ -759,14 +760,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Tipo da tarefa</label>
-            <div className="task-type-selector" role="radiogroup" aria-label="Tipo da tarefa">
+            <label className="form-label">Tipo da lista</label>
+            <div className="task-type-selector" role="radiogroup" aria-label="Tipo da lista">
               <button
                 type="button"
                 className={tipoTarefa === 'pessoal' ? 'task-type-option active' : 'task-type-option'}
                 onClick={() => changeTipoTarefa('pessoal')}
               >
-                <strong>Tarefa pessoal</strong>
+                <strong>Lista pessoal</strong>
                 <span>Minha execução, separada das tarefas do time.</span>
               </button>
               <button
@@ -774,8 +775,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 className={tipoTarefa === 'equipe' ? 'task-type-option active' : 'task-type-option'}
                 onClick={() => changeTipoTarefa('equipe')}
               >
-                <strong>Tarefa da equipe</strong>
-                <span>Controle do gestor, com ações do checklist para membros.</span>
+                <strong>Lista de tarefas da equipe</strong>
+                <span>Controle do gestor, com ações do tarefas para membros.</span>
               </button>
             </div>
           </div>
@@ -819,7 +820,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onClick={() => changeModoDistribuicao('normal')}
               >
                 <strong>Direcionar</strong>
-                <span>Escolha um responsável ou distribua pelos objetivos.</span>
+                <span>Escolha um responsável ou distribua pelas tarefas da lista.</span>
               </button>
               <button
                 type="button"
@@ -841,15 +842,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 value={pontuacaoEscopo}
                 onChange={e => setPontuacaoEscopo(e.target.value as PontuacaoEscopo)}
               >
-                <option value="tarefa">Somente pontuação da tarefa</option>
-                <option value="subtarefas">Somente pontuação dos objetivos</option>
-                <option value="ambos">Pontuação da tarefa e dos objetivos</option>
+                <option value="tarefa">Somente pontuação da lista</option>
+                <option value="subtarefas">Somente pontuação das tarefas da lista</option>
+                <option value="ambos">Pontuação da lista e das tarefas</option>
               </select>
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
               <>
                 <div className="form-group">
-                  <label className="form-label">Pontuação da tarefa</label>
+                  <label className="form-label">Pontuação da lista de tarefas</label>
                   <select
                     className="form-input"
                     value={difficultyFromPoints(Number(pontuacao || 0))}
@@ -858,39 +859,35 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Pontuação manual personalizada da tarefa</label>
-                  <input className="form-input" type="number" min="0" max="9999" value={pontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setPontuacao(String(Math.max(0, Math.min(SCORE_MAX, Number(e.target.value || 0)))))} />
-                </div>
               </>
             )}
             <label className="task-surprise-toggle task-surprise-toggle--task">
-              <input type="checkbox" checked={tarefaSurpresa} onChange={e => setTarefaSurpresa(e.target.checked)} />
-              <span>Tarefa surpresa: antes de assumir, o membro vê somente quantos pontos vale. Título, descrição e objetivos ficam escondidos.</span>
+              <input type="checkbox" checked={tarefaSurpresa} onChange={e => { const checked = e.target.checked; setTarefaSurpresa(checked); if (checked) { setNovoItemSurpresa(true); setChecklist(prev => prev.map(item => ({ ...item, revelar_apos_assumir: true }))) } }} />
+              <span>Lista surpresa: antes de assumir, o membro vê somente quantos pontos vale. Título da lista, descrição e todas as tarefas da lista ficam escondidos.</span>
             </label>
             <div className="team-ranking-note">
-              O ranking respeita a escolha acima: pode pontuar só a tarefa, só os objetivos ou os dois, sempre somente após aprovação do gestor.
+              O ranking respeita a escolha acima: pode pontuar só a lista, só as tarefas da lista ou os dois, sempre somente após aprovação do gestor.
             </div>
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
           <div className="form-group">
-            <label className="form-label">Responsável principal da tarefa</label>
+            <label className="form-label">Responsável principal da lista</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Tarefa da equipe sem responsável único</option>
+              <option value="">Lista de tarefas da equipe sem responsável único</option>
               {user?.id && <option value={user.id}>Eu como responsável principal</option>}
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>A função antiga de direcionar a tarefa para um membro continua disponível. Você também pode deixar sem responsável principal e direcionar apenas os objetivos.</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Você pode direcionar a lista para um membro ou deixar sem responsável principal e distribuir as tarefas internas.</div>
           </div>
         )}
         {tipoTarefa === 'equipe' && (
         <div className="form-group">
-          <label className="form-label">Objetivos da tarefa</label>
+          <label className="form-label">Tarefas da lista</label>
           <div className="task-checklist-builder">
             <div className="task-checklist-builder-fields">
               <div className="form-group">
-                <label className="form-label">Objetivo *</label>
+                <label className="form-label">Tarefa *</label>
                 <input
                   className="form-input"
                   value={novoItem}
@@ -913,7 +910,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Executor deste objetivo</label>
+                <label className="form-label">Executor desta tarefa</label>
                 <select
                   className="form-input"
                   value={novoItemResponsavelId}
@@ -929,17 +926,18 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Pontuação personalizada *</label>
-                <input className="form-input" type="number" min="0" max="9999" value={novoItemPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNovoItemPontuacao(e.target.value); setNovoItemDificuldade(difficultyFromPoints(Number(e.target.value || 0))) }} />
-              </div>
-              <label className="task-surprise-toggle">
-                <input type="checkbox" checked={novoItemSurpresa} onChange={e => setNovoItemSurpresa(e.target.checked)} />
-                <span>Objetivo surpresa: antes de assumir, mostra só os pontos deste objetivo.</span>
-              </label>
+              {!tarefaSurpresa && (
+                <label className="task-surprise-toggle">
+                  <input type="checkbox" checked={novoItemSurpresa} onChange={e => setNovoItemSurpresa(e.target.checked)} />
+                  <span>Tarefa surpresa: antes de assumir, mostra só os pontos desta tarefa.</span>
+                </label>
+              )}
+              {tarefaSurpresa && (
+                <div className="team-ranking-note">Lista surpresa ativa: todas as tarefas internas serão surpresa e a pessoa assume a lista completa para revelar.</div>
+              )}
             </div>
             <div className="form-group">
-              <label className="form-label">Descrição do objetivo <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+              <label className="form-label">Descrição da tarefa <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
               <textarea
                 className="form-input"
                 rows={2}
@@ -948,14 +946,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 placeholder="Descreva detalhes, padrão esperado, onde buscar informações ou deixe vazio."
               />
             </div>
-            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar objetivo</button>
+            <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar tarefa</button>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Cada objetivo descreve uma entrega real da tarefa. {pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'A pontuação dos objetivos entra no ranking após aprovação.' : 'Nesta tarefa, a pontuação dos objetivos fica registrada, mas não entra no ranking porque você escolheu pontuar somente a tarefa.'}
+              Cada tarefa descreve uma entrega real dentro desta lista. {pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'A pontuação das tarefas da lista entra no ranking após aprovação.' : 'Nesta lista, a pontuação das tarefas fica registrada, mas não entra no ranking porque você escolheu pontuar somente a lista.'}
             </div>
           </div>
           {!canMarkChecklistInEdit && checklist.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
-              A edição da estrutura dos objetivos está liberada, mas a marcação dos itens é exclusiva do executor da tarefa.
+              A edição da estrutura das tarefas está liberada, mas a marcação dos itens é exclusiva do executor.
             </div>
           )}
           {checklist.map(item => (
@@ -963,7 +961,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               <div className="task-checklist-edit-row">
                 <button
                   type="button"
-                  title={canMarkChecklistInEdit ? 'Marcar item' : 'Somente o executor pode marcar o objetivo'}
+                  title={canMarkChecklistInEdit ? 'Marcar item' : 'Somente o executor pode marcar esta tarefa'}
                   onClick={() => {
                     if (!canMarkChecklistInEdit) return
                     setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, feito: !i.feito } : i))
@@ -983,7 +981,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   value={item.texto}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))}
-                  placeholder="Nome do objetivo"
+                  placeholder="Nome da tarefa"
                 />
                 <select
                   className="form-input"
@@ -998,16 +996,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 </select>
                 <input
                   className="form-input"
-                  type="number"
-                  min="0"
-                  max="9999"
-                  value={(item as any).pontuacao ?? 0}
-                  onWheel={e => (e.target as HTMLInputElement).blur()}
-                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(0, Math.min(SCORE_MAX, Number(e.target.value || 0))), dificuldade: difficultyFromPoints(Number(e.target.value || 0)) } : i))}
-                  title="Pontuação manual deste objetivo"
-                />
-                <input
-                  className="form-input"
                   type="date"
                   value={item.data || ''}
                   onFocus={e => {
@@ -1020,7 +1008,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   value={item.responsavel_id || ''}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}
-                  title="Executor deste objetivo"
+                  title="Executor desta tarefa"
                 >
                   <option value="">Livre / responsável principal</option>
                   {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
@@ -1032,10 +1020,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 rows={2}
                 value={item.descricao || ''}
                 onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))}
-                placeholder="Descrição/instrução opcional para esta ação"
+                placeholder="Descrição da lista/instrução opcional para esta ação"
               />
               <div className="objective-subtasks-editor">
-                <div className="objective-subtasks-title">Subtarefas dentro deste objetivo</div>
+                <div className="objective-subtasks-title">Subtarefas dentro desta tarefa</div>
                 {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
                   <div key={sub.id} className="objective-subtask-row">
                     <input
@@ -1050,7 +1038,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   </div>
                 ))}
                 <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova subtarefa', feito: false }] } : i))}>
-                  <Plus size={14} /> Adicionar subtarefa neste objetivo
+                  <Plus size={14} /> Adicionar subtarefa nesta tarefa
                 </button>
               </div>
             </div>
@@ -1058,7 +1046,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         )}
         {tipoTarefa === 'pessoal' && (
-          <div className="personal-task-note">Tarefa pessoal: privada para você, sem pontuação e sem ranking. Mesmo vinculada ao Destrava, não aparece para membros da equipe.</div>
+          <div className="personal-task-note">Lista pessoal: privada para você, sem pontuação e sem ranking. Mesmo vinculada ao Destrava, não aparece para membros da equipe.</div>
         )}
         <div className="form-group">
           <label className="form-label">Observação interna</label>
@@ -1319,7 +1307,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
         />
       </div>
       <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">Descrição do anexo</label>
+        <label className="form-label">Descrição da lista do anexo</label>
         <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={isGestor ? 'Ex.: referência, validação ou orientação...' : 'Ex.: foto do serviço finalizado, comprovante, relatório entregue...'} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -1446,6 +1434,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
   const isPersonal = taskScope(tarefa) === 'pessoal'
+  const listSurprise = taskIsSurprise(tarefa)
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -1473,7 +1462,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       .filter(item => !item.feito && item.responsavel_id === userId && !['concluida','aprovada','cancelada'].includes(String(task.status)))
       .map(item => ({ tarefa: task, item })))
   }, [allTasks, userId, isGestor])
-  const hasOpenSubtaskElsewhere = openSubtasksForMe.some(entry => entry.tarefa.id !== tarefa.id || !checklist.some(item => item.id === entry.item.id && item.responsavel_id === userId && !item.feito))
+  const hasOpenSubtaskElsewhere = false
 
   function checklistResponsibleName(id?: string) {
     if (!id) return undefined
@@ -1486,8 +1475,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
 
   function addInlineSubtask() {
-    if (!newSubtask.trim()) { toast('Informe o nome do objetivo.', 'error'); return }
-    if (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX) { toast(`Informe a pontuação do objetivo entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    if (!newSubtask.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
+    if (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX) { toast(`Informe a pontuação do tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: newSubtask.trim(),
@@ -1498,7 +1487,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       dificuldade: newSubtaskDifficulty,
       pontuacao: Math.max(0, Math.min(SCORE_MAX, Number(newSubtaskPoints || 0))),
       subtarefas: [],
-      revelar_apos_assumir: Boolean(newSubtaskSurprise),
+      revelar_apos_assumir: Boolean(listSurprise || newSubtaskSurprise),
       feito: false,
     }])
     setNewSubtask('')
@@ -1512,10 +1501,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   }
 
   async function saveInlineEdit() {
-    const editTituloFinal = editTitulo.trim() || (taskScope(tarefa) === 'equipe' ? 'Tarefa da equipe' : 'Tarefa pessoal')
-    if (!checklist.length) { toast('A tarefa precisa ter pelo menos um objetivo.', 'error'); return }
+    const editTituloFinal = editTitulo.trim() || (taskScope(tarefa) === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
+    if (!checklist.length) { toast('A lista precisa ter pelo menos uma tarefa.', 'error'); return }
     const invalid = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
-    if (invalid) { toast('Cada objetivo precisa ter nome e pontuação.', 'error'); return }
+    if (invalid) { toast('Cada tarefa precisa ter nome e pontuação.', 'error'); return }
+    const checklistFinal = checklist.map(item => ({ ...item, revelar_apos_assumir: listSurprise ? true : Boolean((item as any).revelar_apos_assumir) }))
     setSaving(true)
     try {
       const saved = await tarefasApi.update(tarefa.id, {
@@ -1527,7 +1517,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
         pontuacao_escopo: editPontuacaoEscopo,
         pontuacao_tipo: editPontuacaoEscopo,
         origem_payload: { ...((tarefa.origem_payload || {}) as Record<string, unknown>), nexus_pontuacao_escopo: editPontuacaoEscopo },
-        checklist,
+        checklist: checklistFinal,
       })
       const next = normalizeChecklistItems(saved.checklist)
       setChecklist(next)
@@ -1547,7 +1537,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       const saved = await tarefasApi.update(tarefa.id, { checklist: next })
       onSaved(saved)
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao salvar checklist.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao salvar tarefas.', 'error')
     }
   }
 
@@ -1560,9 +1550,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       const nextChecklist = normalizeChecklistItems(saved.checklist)
       setChecklist(nextChecklist)
       onSaved(saved)
-      toast('Objetivo assumido. Ele continua no quadro da equipe e agora aparece como sua execução.')
+      toast('Tarefa assumida. Ela continua no quadro da equipe e agora aparece como sua execução.')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao assumir objetivo.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao assumir tarefa.', 'error')
     } finally {
       setSaving(false)
     }
@@ -1571,7 +1561,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   function toggleCheck(id: string) {
     const item = checklist.find(i => i.id === id)
     if (!item || !isChecklistItemExecutor(item, tarefa, userId) || isTaskFinalizada) {
-      toast('Apenas o executor deste objetivo pode marcar este item.', 'error')
+      toast('Apenas o executor desta tarefa pode marcar este item.', 'error')
       return
     }
     const next = checklist.map(item => item.id === id ? { ...item, feito: !item.feito } : item)
@@ -1580,12 +1570,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
   async function copiarChecklist() {
     if (!checklist.length) {
-      toast('Esta tarefa não possui checklist para copiar.', 'error')
+      toast('Esta lista não possui tarefas para copiar.', 'error')
       return
     }
 
     const texto = [
-      `Checklist da tarefa: ${tarefa.titulo}`,
+      `Lista de tarefas: ${tarefa.titulo}`,
       ...checklist.map((item, index) => `${index + 1}. ${item.feito ? '[x]' : '[ ]'} ${checklistDisplayText(item)}${(item as any).pontuacao ? `\n   Dificuldade: ${difficultyLabel((item as any).dificuldade)} · Pontos: ${(item as any).pontuacao}` : ''}${item.data ? `\n   Data: ${fmtDate(item.data)}` : ''}${(item.responsavel_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) ? `\n   Executor: ${checklistExecutorName(item, tarefa)}` : ''}${checklistDisplayDesc(item) ? `\n   Como executar: ${checklistDisplayDesc(item)}` : ''}`),
     ].join('\n')
 
@@ -1603,9 +1593,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
         document.execCommand('copy')
         area.remove()
       }
-      toast('Checklist copiado.')
+      toast('Lista copiada.')
     } catch {
-      toast('Não foi possível copiar o checklist.', 'error')
+      toast('Não foi possível copiar o tarefas.', 'error')
     }
   }
 
@@ -1710,7 +1700,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             </div>
           </div>
           <div className="task-detail-hero-actions">
-            {isGestor && <button className="btn btn-secondary" type="button" onClick={() => setEditMode(v => !v)}><Edit3 size={14} /> {editMode ? 'Ocultar edição' : 'Editar / incluir objetivo'}</button>}
+            {isGestor && <button className="btn btn-secondary" type="button" onClick={() => setEditMode(v => !v)}><Edit3 size={14} /> {editMode ? 'Ocultar edição' : 'Editar / incluir tarefa'}</button>}
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
           </div>
@@ -1719,12 +1709,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
         {isGestor && editMode && (
           <section className="task-detail-section task-inline-editor">
             <div className="task-detail-section-head">
-              <h3>Editar tarefa e objetivos</h3>
+              <h3>Editar lista de tarefas e tarefas</h3>
               <button className="btn btn-primary btn-sm" type="button" onClick={saveInlineEdit} disabled={saving}>{saving ? <Loader size={14} /> : <Send size={14} />} Salvar alterações</button>
             </div>
             <div className="grid-2">
               <div className="form-group">
-                <label className="form-label">Título <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+                <label className="form-label">Título da lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
                 <input className="form-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)} />
               </div>
               <div className="grid-2">
@@ -1759,22 +1749,18 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <div className="form-group">
                 <label className="form-label">Onde a pontuação será contabilizada?</label>
                 <select className="form-input" value={editPontuacaoEscopo} onChange={e => setEditPontuacaoEscopo(e.target.value as PontuacaoEscopo)}>
-                  <option value="tarefa">Somente pontuação da tarefa</option>
-                  <option value="subtarefas">Somente pontuação dos objetivos</option>
-                  <option value="ambos">Pontuação da tarefa e dos objetivos</option>
+                  <option value="tarefa">Somente pontuação da lista</option>
+                  <option value="subtarefas">Somente pontuação das tarefas da lista</option>
+                  <option value="ambos">Pontuação da lista e das tarefas</option>
                 </select>
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
                 <>
                   <div className="form-group">
-                    <label className="form-label">Pontuação da tarefa</label>
+                    <label className="form-label">Pontuação da lista de tarefas</label>
                     <select className="form-input" value={difficultyFromPoints(Number(editPontuacao || 0))} onChange={e => setEditPontuacao(String(taskPointsFromDifficulty(e.target.value as ChecklistDifficulty)))}>
                       {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                     </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Pontuação manual personalizada da tarefa</label>
-                    <input className="form-input" type="number" min="0" max="9999" value={editPontuacao} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setEditPontuacao(String(Math.max(0, Math.min(SCORE_MAX, Number(e.target.value || 0)))))} />
                   </div>
                 </>
               )}
@@ -1782,7 +1768,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
             <div className="task-inline-add-subtask">
               <div className="form-group">
-                <label className="form-label">Novo objetivo *</label>
+                <label className="form-label">Nova tarefa *</label>
                 <input className="form-input" value={newSubtask} onChange={e => setNewSubtask(e.target.value)} placeholder="Ex.: Conferir contrato social" />
               </div>
               <div className="form-group">
@@ -1791,14 +1777,13 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Pontuação personalizada *</label>
-                <input className="form-input" type="number" min="0" max="9999" value={newSubtaskPoints} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => { setNewSubtaskPoints(e.target.value); setNewSubtaskDifficulty(difficultyFromPoints(Number(e.target.value || 0))) }} />
-              </div>
-              <label className="task-surprise-toggle">
-                <input type="checkbox" checked={newSubtaskSurprise} onChange={e => setNewSubtaskSurprise(e.target.checked)} />
-                <span>Surpresa: mostra só os pontos até alguém assumir</span>
-              </label>
+              {!listSurprise && (
+                <label className="task-surprise-toggle">
+                  <input type="checkbox" checked={newSubtaskSurprise} onChange={e => setNewSubtaskSurprise(e.target.checked)} />
+                  <span>Surpresa: mostra só os pontos até alguém assumir</span>
+                </label>
+              )}
+              {listSurprise && <div className="team-ranking-note">Lista surpresa ativa: esta nova tarefa também será surpresa.</div>}
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
                 <input
@@ -1819,40 +1804,42 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 </select>
               </div>
               <div className="form-group task-inline-desc">
-                <label className="form-label">Descrição/instrução <span>(opcional)</span></label>
+                <label className="form-label">Descrição da lista/instrução <span>(opcional)</span></label>
                 <textarea className="form-input" rows={2} value={newSubtaskDesc} onChange={e => setNewSubtaskDesc(e.target.value)} placeholder="Explique como executar, se necessário." />
               </div>
-              <button className="btn btn-secondary" type="button" onClick={addInlineSubtask}><Plus size={14} /> Incluir objetivo</button>
+              <button className="btn btn-secondary" type="button" onClick={addInlineSubtask}><Plus size={14} /> Incluir tarefa</button>
             </div>
 
             <div className="task-inline-checklist-editor">
               {checklist.map(item => (
                 <div key={item.id} className="task-inline-checklist-row">
-                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Nome do objetivo" />
+                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Nome da tarefa" />
                   <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
-                  <input className="form-input" type="number" min="0" max="9999" value={(item as any).pontuacao ?? 0} onWheel={e => (e.target as HTMLInputElement).blur()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, pontuacao: Math.max(0, Math.min(SCORE_MAX, Number(e.target.value || 0))), dificuldade: difficultyFromPoints(Number(e.target.value || 0)) } : i))} title="Pontuação personalizada" />
                   <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
                   <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                     <option value="">Livre / responsável principal</option>
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
                   </select>
-                  <label className="task-surprise-toggle compact" title="Revelar conteúdo apenas após assumir">
-                    <input type="checkbox" checked={Boolean((item as any).revelar_apos_assumir)} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, revelar_apos_assumir: e.target.checked } : i))} />
-                    <span>Surpresa</span>
-                  </label>
+                  {!listSurprise && (
+                    <label className="task-surprise-toggle compact" title="Revelar conteúdo apenas após assumir">
+                      <input type="checkbox" checked={Boolean((item as any).revelar_apos_assumir)} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, revelar_apos_assumir: e.target.checked } : i))} />
+                      <span>Surpresa</span>
+                    </label>
+                  )}
+                  {listSurprise && <span className="task-surprise-badge">Surpresa</span>}
                   <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
-                  <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional deste objetivo" />
+                  <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta tarefa" />
                   <div className="objective-subtasks-editor task-inline-row-desc">
-                    <div className="objective-subtasks-title">Subtarefas dentro deste objetivo</div>
+                    <div className="objective-subtasks-title">Subtarefas dentro desta tarefa</div>
                     {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
                       <div key={sub.id} className="objective-subtask-row">
                         <input className="form-input" value={sub.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).map((s: ObjectiveSubitem) => s.id === sub.id ? { ...s, texto: e.target.value } : s) } : i))} placeholder="Subtarefa interna" />
                         <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).filter((s: ObjectiveSubitem) => s.id !== sub.id) } : i))}><Trash2 size={14} /></button>
                       </div>
                     ))}
-                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova subtarefa', feito: false }] } : i))}><Plus size={14} /> Adicionar subtarefa neste objetivo</button>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova subtarefa', feito: false }] } : i))}><Plus size={14} /> Adicionar subtarefa nesta tarefa</button>
                   </div>
                 </div>
               ))}
@@ -1876,19 +1863,16 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
         <section className="task-detail-section">
           <div className="task-detail-section-head">
-            <h3>Objetivos da tarefa</h3>
+            <h3>Tarefas da lista</h3>
             <div className="task-checklist-head-actions">
               {total > 0 && (
                 <button className="btn btn-secondary btn-sm" type="button" onClick={copiarChecklist}>
-                  <Copy size={14} /> Copiar objetivos
+                  <Copy size={14} /> Copiar tarefas
                 </button>
               )}
               <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
             </div>
           </div>
-          {hasOpenSubtaskElsewhere && (
-            <div className="task-active-lock">Você já tem um objetivo em aberto. Conclua e envie sua parte antes de assumir outra.</div>
-          )}
           {displayTotal > 0 ? (
             <div className="task-checklist-run">
               {checklistDateKeys.map(dateKey => (
@@ -1917,15 +1901,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             {checklistDisplayDesc(item) && <span className="task-check-desc">{checklistDisplayDesc(item)}</span>}
                             {Array.isArray((item as any).subtarefas) && (item as any).subtarefas.length > 0 && (
                               <span className="objective-subtasks-view">
-                                <strong>Subtarefas deste objetivo:</strong>
+                                <strong>Subtarefas desta tarefa:</strong>
                                 {((item as any).subtarefas as ObjectiveSubitem[]).map(sub => <em key={sub.id}>• {sub.texto}</em>)}
                               </span>
                             )}
                           </span>
                         </button>
                         {canAssumeThisItem && (
-                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving || hasOpenSubtaskElsewhere}>
-                            {hasOpenSubtaskElsewhere ? 'Conclua seu objetivo atual primeiro' : 'Assumir objetivo'}
+                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving}>
+                            Assumir tarefa
                           </button>
                         )}
                       </div>
@@ -1935,18 +1919,18 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               ))}
             </div>
           ) : (
-            <p className="muted">{isGestor ? 'Esta tarefa não possui objetivos.' : 'Nenhuma parte desta tarefa está atribuída a você.'}</p>
+            <p className="muted">{isGestor ? 'Esta lista não possui tarefas.' : 'Nenhuma tarefa desta lista está atribuída a você.'}</p>
           )}
           {total > 0 && (
             <div className="task-execution-summary">
-              <strong>Fluxo da tarefa:</strong> cada membro conclui somente seus objetivos e envia sua parte. O gestor é notificado para visualizar os arquivos enviados, sem etapa de aprovar/reprovar por checklist.
-              {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} objetivos.</span>}
-              <span>Total da tarefa: {done}/{total} objetivos.</span>
+              <strong>Fluxo da tarefa:</strong> cada membro conclui somente suas tarefas e envia sua parte. O gestor é notificado para visualizar os arquivos enviados, sem etapa de aprovar/reprovar por tarefa.
+              {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} tarefas.</span>}
+              <span>Total da tarefa: {done}/{total} tarefas.</span>
               {isGestor && executorSummary.length > 0 && <span>Execução por membro: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</span>}
             </div>
           )}
           {total > 0 && !canToggleChecklist && (
-            <p className="muted" style={{ marginTop: 8 }}>Objetivos bloqueados. Cada objetivo só pode ser marcado pelo executor definido nele; se não houver executor no objetivo, vale o responsável principal da tarefa.</p>
+            <p className="muted" style={{ marginTop: 8 }}>Tarefas bloqueadas. Cada tarefa só pode ser marcada pelo executor definido nela; se não houver executor na tarefa, vale o responsável principal da lista.</p>
           )}
         </section>
 
@@ -2024,6 +2008,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
   const isPersonal = taskScope(tarefa) === 'pessoal'
+  const listSurprise = taskIsSurprise(tarefa)
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -2039,11 +2024,11 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
     : tarefa.responsavel_id
       ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável')
       : taskScope(tarefa) === 'equipe'
-        ? 'Tarefa da equipe'
-        : 'Tarefa pessoal'
+        ? 'Lista de tarefas da equipe'
+        : 'Lista pessoal'
   const checklistLabel = checkTotal > 0
     ? `${checkDone}/${checkTotal}${!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}`
-    : 'Sem objetivos'
+    : 'Sem tarefas'
   const progressWidth = checkTotal > 0 ? Math.max(6, Math.round((checkDone / Math.max(checkTotal, 1)) * 100)) : 0
 
   return (
@@ -2065,7 +2050,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
           {!isPersonal && <span>{Number(tarefa.pontuacao || 0)} ponto(s) na tarefa</span>}
-          {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nos objetivos</span>}
+          {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nas tarefas da lista</span>}
           {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
           {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
@@ -2178,8 +2163,8 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
           </div>
         ) : lista.map((membro: any, index: number) => {
           const pontos = Number(membro.pontos || 0)
-          const objetivos = Number(membro.subtarefas_executadas || 0)
-          const tarefas = Number(membro.tarefas_executadas || 0)
+          const tarefasInternas = Number(membro.subtarefas_executadas || 0)
+          const listasExecutadas = Number(membro.tarefas_executadas || 0)
           const pct = Math.max(4, Math.round((pontos / maxPontos) * 100))
           const isTop3 = index < 3
           const medalha = MEDALHAS[index] || null
@@ -2192,7 +2177,7 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
               </div>
               <div style={{ minWidth: 0 }}>
                 <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro'}</strong>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{objetivos ? `${objetivos} objetivo(s) aprovado(s)` : 'Nenhum objetivo aprovado no período'}</span>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{tarefasInternas ? `${tarefasInternas} tarefa(s) aprovada(s)` : 'Nenhuma tarefa aprovada no período'}</span>
                 <div style={{ marginTop: 6, height: 5, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pct}%`, background: pontos > 0 ? 'linear-gradient(90deg, var(--primary), #10B981)' : 'var(--border)', borderRadius: 999, transition: 'width .4s ease' }} />
                 </div>
@@ -2248,12 +2233,14 @@ export default function Tarefas() {
   const [membroFiltro, setMembroFiltro] = useState('todos')
   const [mesFiltro, setMesFiltro] = useState('todos')
   const [anoFiltro, setAnoFiltro] = useState('todos')
-  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('pessoais')
+  const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('todas')
   const [statusTab, setStatusTab] = useState<'todos' | 'pendentes' | 'execucao' | 'concluidas' | 'atrasadas' | 'ultimas'>('todos')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
   const [periodoRanking, setPeriodoRanking] = useState(() =>
     localStorage.getItem('nexus:ranking-periodo') || 'todos'
   )
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
+  const [offlineQueueCount, setOfflineQueueCount] = useState(() => Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -2300,13 +2287,29 @@ export default function Tarefas() {
     return () => window.removeEventListener('nexus:open-new', h)
   }, [])
 
+  useEffect(() => {
+    const refresh = () => {
+      setOnline(navigator.onLine)
+      setOfflineQueueCount(Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
+      if (navigator.onLine) setTimeout(() => load(), 900)
+    }
+    window.addEventListener('online', refresh)
+    window.addEventListener('offline', refresh)
+    window.addEventListener('nexus:offline-queue-changed', refresh)
+    return () => {
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('offline', refresh)
+      window.removeEventListener('nexus:offline-queue-changed', refresh)
+    }
+  }, [load])
+
   const tarefasVisiveis = useMemo(() => consolidateVisualTasks(tarefas), [tarefas])
 
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
     if (!uid) return false
     // Tarefas da equipe nunca entram em Minhas tarefas pessoais, mesmo quando
-    // o usuário assumiu a execução ou recebeu um item de checklist. Elas ficam
+    // o usuário assumiu a execução ou recebeu um item de tarefas. Elas ficam
     // no quadro da equipe, como solicitado para a operação do Nexus/Destrava.
     if (taskScope(t) === 'equipe' || isFreeTeamTask(t)) return false
     const executorForMe = t.responsavel_id === uid || taskHasChecklistForUser(t, uid)
@@ -2344,7 +2347,7 @@ export default function Tarefas() {
       if (t.responsavel_id) map.set(t.responsavel_id, { id: t.responsavel_id, nome: t.responsavel_nome_perfil || t.responsavel_nome || 'Responsável' })
       if (t.criado_por) map.set(t.criado_por, { id: t.criado_por, nome: t.criado_por_nome || 'Criador' })
       ;(t.checklist || []).forEach(item => {
-        if (item.responsavel_id) map.set(item.responsavel_id, { id: item.responsavel_id, nome: item.responsavel_nome || 'Executor do checklist' })
+        if (item.responsavel_id) map.set(item.responsavel_id, { id: item.responsavel_id, nome: item.responsavel_nome || 'Executor da tarefa' })
       })
     })
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
@@ -2448,7 +2451,7 @@ export default function Tarefas() {
       const saved = await tarefasApi.pegar(t.id)
       updateSaved(saved)
       await load()
-      toast('Tarefa assumida. Conclua esta antes de assumir outra tarefa livre.')
+      toast('Tarefa assumida. Você pode continuar pegando ou recebendo outras tarefas.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao assumir tarefa.', 'error')
     }
@@ -2498,10 +2501,18 @@ export default function Tarefas() {
         <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
       </header>
 
+      {(!online || offlineQueueCount > 0) && (
+        <div className="offline-sync-banner">
+          <strong>{online ? 'Sincronização pendente' : 'Modo offline ativo'}</strong>
+          <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus tenta enviar a carga automaticamente.'}</span>
+        </div>
+      )}
+
       <section className="task-smart-tabs" aria-label="Tipo de tarefas">
         {[
           { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas' },
           { id: 'equipe', label: 'Tarefas do time', count: equipeCount, hint: 'Equipe' },
+          { id: 'disponiveis', label: 'Livres para assumir', count: disponiveisCount, hint: 'Livres' },
           { id: 'recentes', label: 'Últimas tarefas', count: recentesCount, hint: 'Recentes' },
           { id: 'ranking', label: 'Ranking', count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },
           { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Geral' },

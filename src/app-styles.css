@@ -7856,3 +7856,69 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
     padding: 10px 0 calc(10px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
+
+/* Correção final: leitura de listas/tarefas e descrição responsiva em qualquer tela */
+.offline-sync-banner {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(245, 158, 11, .35);
+  border-radius: 14px;
+  background: rgba(245, 158, 11, .10);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.offline-sync-banner strong { font-size: 13px; font-weight: 800; }
+.offline-sync-banner span { font-size: 12px; color: var(--text2); line-height: 1.4; }
+
+.task-form-modal textarea.form-input,
+.tarefa-modal-box textarea.form-input,
+.task-check-desc,
+.task-check-text,
+.task-check-content,
+.task-inline-row-desc,
+.objective-subtasks-view,
+.objective-subtasks-view em,
+.ranking-history-main,
+.ranking-history-main strong,
+.ranking-history-main span,
+.ranking-history-main em {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  max-width: 100% !important;
+}
+
+.task-form-modal .form-input,
+.tarefa-modal-box .form-input,
+.task-inline-checklist-row > *,
+.task-checklist-edit-row > *,
+.objective-subtask-row > * {
+  min-width: 0 !important;
+}
+
+.task-form-modal textarea.form-input,
+.tarefa-modal-box textarea.form-input {
+  resize: vertical;
+  line-height: 1.45 !important;
+}
+
+@media (max-width: 760px) {
+  .task-inline-checklist-row,
+  .task-inline-add-subtask {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+  .task-inline-checklist-row > *,
+  .task-inline-add-subtask > * {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .task-check-main-button {
+    align-items: flex-start !important;
+  }
+}

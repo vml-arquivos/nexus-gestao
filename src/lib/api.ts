@@ -383,6 +383,72 @@ export interface DestravaCatalogoItem {
 let isRefreshing = false
 let refreshQueue: Array<(token: string) => void> = []
 
+type OfflineQueueItem = { id: string; path: string; method: string; body?: string; createdAt: string }
+const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'
+const OFFLINE_QUEUE_COUNT_KEY = 'nexus:offline-queue-count'
+
+function isBrowserOnline() {
+  return typeof navigator === 'undefined' ? true : navigator.onLine
+}
+
+function readOfflineQueue(): OfflineQueueItem[] {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]') || [] } catch { return [] }
+}
+
+function writeOfflineQueue(queue: OfflineQueueItem[]) {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue))
+    localStorage.setItem(OFFLINE_QUEUE_COUNT_KEY, String(queue.length))
+    window.dispatchEvent(new CustomEvent('nexus:offline-queue-changed', { detail: { count: queue.length } }))
+  } catch {}
+}
+
+function enqueueOffline(path: string, options: RequestInit = {}) {
+  const method = String(options.method || 'GET').toUpperCase()
+  if (method === 'GET' || options.body instanceof FormData) return false
+  const body = typeof options.body === 'string' ? options.body : options.body ? JSON.stringify(options.body) : undefined
+  const queue = readOfflineQueue()
+  queue.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, path, method, body, createdAt: new Date().toISOString() })
+  writeOfflineQueue(queue)
+  return true
+}
+
+function cacheGetResponse(path: string, data: unknown) {
+  try { localStorage.setItem(`nexus:cache:${path}`, JSON.stringify({ data, cachedAt: new Date().toISOString() })) } catch {}
+}
+
+function readCachedGet<T>(path: string): T | null {
+  try {
+    const raw = localStorage.getItem(`nexus:cache:${path}`)
+    if (!raw) return null
+    return (JSON.parse(raw) || {}).data ?? null
+  } catch { return null }
+}
+
+export async function syncOfflineQueue(): Promise<number> {
+  if (!isBrowserOnline()) return readOfflineQueue().length
+  let queue = readOfflineQueue()
+  if (!queue.length) return 0
+  const pending: OfflineQueueItem[] = []
+  for (const item of queue) {
+    try {
+      const res = await apiFetch(item.path, { method: item.method, body: item.body })
+      if (!res.ok) pending.push(item)
+    } catch {
+      pending.push(item)
+      break
+    }
+  }
+  writeOfflineQueue(pending)
+  return pending.length
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { syncOfflineQueue().catch(() => undefined) })
+  setTimeout(() => { if (isBrowserOnline()) syncOfflineQueue().catch(() => undefined) }, 1200)
+}
+
+
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getAccessToken()
   const headers: Record<string, string> = {
@@ -393,6 +459,12 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
     headers['Content-Type'] = 'application/json'
   }
   if (token) headers['Authorization'] = `Bearer ${token}`
+
+  if (!isBrowserOnline() && String(options.method || 'GET').toUpperCase() !== 'GET') {
+    if (enqueueOffline(path, options)) {
+      return new Response(JSON.stringify({ offlineQueued: true, error: 'Atualização salva offline. Ela será enviada quando a internet voltar.' }), { status: 202, headers: { 'Content-Type': 'application/json' } })
+    }
+  }
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
 
@@ -440,12 +512,23 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 }
 
 export async function apiJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await apiFetch(path, options)
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `Erro ${res.status}`)
+  const method = String(options?.method || 'GET').toUpperCase()
+  try {
+    const res = await apiFetch(path, options)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    const data = await res.json()
+    if (method === 'GET') cacheGetResponse(path, data)
+    return data
+  } catch (e) {
+    if (method === 'GET') {
+      const cached = readCachedGet<T>(path)
+      if (cached) return cached
+    }
+    throw e
   }
-  return res.json()
 }
 
 // ── API GENÉRICO ─────────────────────────────────────────────────────────────
@@ -573,13 +656,17 @@ export const tarefasApi = {
   },
 
   async create(payload: Partial<Tarefa>): Promise<Tarefa> {
-    const data = await apiJson<{ tarefa: Tarefa }>('/tarefas', { method: 'POST', body: JSON.stringify(payload) })
-    return data.tarefa
+    const data = await apiJson<{ tarefa?: Tarefa; offlineQueued?: boolean }>('/tarefas', { method: 'POST', body: JSON.stringify(payload) })
+    if (data.offlineQueued) {
+      return { ...(payload as Tarefa), id: `offline-${Date.now()}`, org_id: '', criado_por: '', titulo: payload.titulo || 'Lista salva offline', prioridade: payload.prioridade || 'media', status: 'pendente', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    }
+    return data.tarefa as Tarefa
   },
 
   async update(id: string, payload: Partial<Tarefa>): Promise<Tarefa> {
-    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
-    return data.tarefa
+    const data = await apiJson<{ tarefa?: Tarefa; offlineQueued?: boolean }>(`/tarefas/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    if (data.offlineQueued) return { ...(payload as Tarefa), id, org_id: '', criado_por: '', titulo: payload.titulo || 'Lista atualizada offline', prioridade: payload.prioridade || 'media', status: payload.status || 'pendente', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    return data.tarefa as Tarefa
   },
 
   async remove(id: string): Promise<void> {
@@ -587,8 +674,9 @@ export const tarefasApi = {
   },
 
   async updateStatus(id: string, payload: { status: 'em_progresso' | 'concluida' | 'nao_concluida'; motivo_nao_conclusao?: string; observacao_conclusao?: string; resposta_membro?: string }): Promise<Tarefa> {
-    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) })
-    return data.tarefa
+    const data = await apiJson<{ tarefa?: Tarefa; offlineQueued?: boolean }>(`/tarefas/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) })
+    if (data.offlineQueued) return { id, org_id: '', criado_por: '', titulo: 'Atualização salva offline', prioridade: 'media', status: payload.status, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as Tarefa
+    return data.tarefa as Tarefa
   },
 
   async registrarParte(id: string, observacao?: string): Promise<{ ok: boolean; completa: boolean; feitos: number; total: number; tarefa?: Tarefa }> {

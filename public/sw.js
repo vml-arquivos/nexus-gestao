@@ -1,12 +1,23 @@
-// Nexus Gestão — Service Worker para Push Notifications e PWA.
-// Não faz cache agressivo para evitar regressão/tela branca após deploy.
+// Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
+// Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
+
+const CACHE_NAME = 'nexus-shell-v3'
+const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting()
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME)
+    await cache.addAll(SHELL_URLS).catch(() => undefined)
+    self.skipWaiting()
+  })())
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil((async () => {
+    const names = await caches.keys()
+    await Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))
+    await self.clients.claim()
+  })())
 })
 
 self.addEventListener('push', (event) => {
@@ -52,6 +63,34 @@ self.addEventListener('notificationclick', (event) => {
   })())
 })
 
-self.addEventListener('fetch', () => {
-  // Sem interceptação de rede: evita cache antigo e regressão pós-deploy.
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  const url = new URL(req.url)
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return
+
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith((async () => {
+      try {
+        const fresh = await fetch(req)
+        const cache = await caches.open(CACHE_NAME)
+        cache.put(req, fresh.clone()).catch(() => undefined)
+        return fresh
+      } catch {
+        const cached = await caches.match(req)
+        return cached || new Response(JSON.stringify({ offline: true, error: 'Sem internet e sem cache local para esta consulta.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+      }
+    })())
+    return
+  }
+
+  event.respondWith((async () => {
+    try {
+      const fresh = await fetch(req)
+      const cache = await caches.open(CACHE_NAME)
+      cache.put(req, fresh.clone()).catch(() => undefined)
+      return fresh
+    } catch {
+      return (await caches.match(req)) || (await caches.match('/index.html')) || Response.error()
+    }
+  })())
 })

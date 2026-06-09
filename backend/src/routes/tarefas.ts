@@ -1745,51 +1745,6 @@ router.post(
         return;
       }
 
-      const ativa = await queryOne<any>(
-        `SELECT id, titulo FROM tarefas
-       WHERE org_id = $1 AND aceita_por = $2 AND modo_distribuicao = 'livre_equipe'
-         AND COALESCE(bloquear_nova_livre_ate_concluir, TRUE) = TRUE
-         AND status IN ('pendente','em_progresso','devolvida','reenviada')
-       LIMIT 1`,
-        [orgId, userId],
-      );
-      if (ativa) {
-        res
-          .status(409)
-          .json({
-            error: `Você já pegou a tarefa "${ativa.titulo}". Conclua ou devolva antes de pegar outra.`,
-          });
-        return;
-      }
-
-      const tarefaAtribuidaAberta = await findOpenTaskAssignedToUser(
-        orgId,
-        userId,
-        req.params.id,
-      );
-      if (tarefaAtribuidaAberta) {
-        res
-          .status(409)
-          .json({
-            error: `Você já tem a tarefa "${tarefaAtribuidaAberta.titulo || "outra tarefa"}" em aberto. Conclua e envie sua parte antes de assumir outra.`,
-          });
-        return;
-      }
-
-      const active = await findOpenChecklistAssignedToUser(
-        orgId,
-        userId,
-        req.params.id,
-      );
-      if (active) {
-        res
-          .status(409)
-          .json({
-            error: `Você já assumiu um objetivo em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
-          });
-        return;
-      }
-
       const profile = await queryOne<{ nome: string }>(
         "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
         [userId, orgId],
@@ -1928,30 +1883,6 @@ router.post(
         res
           .status(400)
           .json({ error: "Tarefa finalizada não permite assumir objetivo." });
-        return;
-      }
-
-      const tarefaAtribuidaAberta = await findOpenTaskAssignedToUser(
-        orgId,
-        userId,
-        req.params.id,
-      );
-      if (tarefaAtribuidaAberta) {
-        res
-          .status(409)
-          .json({
-            error: `Você já tem a tarefa "${tarefaAtribuidaAberta.titulo || "outra tarefa"}" em aberto. Conclua e envie sua parte antes de assumir outra.`,
-          });
-        return;
-      }
-
-      const active = await findOpenChecklistAssignedToUser(orgId, userId);
-      if (active) {
-        res
-          .status(409)
-          .json({
-            error: `Você já assumiu um objetivo em aberto em "${active.task?.titulo || "outra tarefa"}". Conclua e envie sua parte antes de assumir outra.`,
-          });
         return;
       }
 
