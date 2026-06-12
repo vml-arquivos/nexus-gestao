@@ -456,6 +456,26 @@ function consolidateVisualTasks(tasks: Tarefa[]) {
   return Array.from(map.values())
 }
 
+
+function uniqueById<T extends { id?: string }>(items: T[]) {
+  const map = new Map<string, T>()
+  items.forEach(item => {
+    if (!item?.id) return
+    if (!map.has(item.id)) map.set(item.id, item)
+  })
+  return Array.from(map.values())
+}
+
+function helpForCurrentUser(items: any[], userId?: string) {
+  if (!userId) return []
+  return uniqueById(items || []).filter((a: any) => a.destinatario_id === userId && a.solicitante_id !== userId && a.status === 'pendente')
+}
+
+function helpRequestedByCurrentUser(items: any[], userId?: string) {
+  if (!userId) return []
+  return uniqueById(items || []).filter((a: any) => a.solicitante_id === userId && a.destinatario_id !== userId && ['pendente', 'respondida'].includes(String(a.status || '')))
+}
+
 function taskHasTeamExecution(tarefa: Tarefa, currentUserId?: string) {
   if (taskScope(tarefa) === 'equipe') return true
   if (!currentUserId) return !!tarefa.responsavel_id || taskHasChecklistForOtherMember(tarefa, '')
@@ -2343,12 +2363,13 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
+function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
   actionBusy?: boolean
   helpPendingForMe?: boolean
+  helpRequestedByMe?: any | null
   onOpen: (t: Tarefa) => void
   onEdit: (t: Tarefa) => void
   onDelete: (id: string) => void
@@ -2384,8 +2405,10 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
   const listSurprise = taskIsSurprise(tarefa)
-  const hasHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
+  const rawHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
   const canAnswerHelp = Boolean(helpPendingForMe)
+  const hasMyHelpRequest = Boolean(helpRequestedByMe)
+  const hasHelpPending = isGestor ? rawHelpPending : (canAnswerHelp || hasMyHelpRequest)
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -2496,9 +2519,27 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
         {/* Ver lista */}
         <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver lista</button>
 
-        {(canAnswerHelp || canExecuteTask || isGestor) && !isPersonal && (
+        {canAnswerHelp && !isPersonal && (
           <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">
-            {canAnswerHelp ? 'Responder ajuda' : 'Ajuda'}
+            Responder ajuda
+          </button>
+        )}
+
+        {!canAnswerHelp && hasMyHelpRequest && !isPersonal && (
+          <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">
+            {String(helpRequestedByMe?.status || '') === 'respondida' ? 'Ver resposta' : 'Ajuda'}
+          </button>
+        )}
+
+        {!canAnswerHelp && !hasMyHelpRequest && canExecuteTask && !isPersonal && !isGestor && (
+          <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPedirAjuda(tarefa)} type="button">
+            Pedir ajuda
+          </button>
+        )}
+
+        {!canAnswerHelp && !hasMyHelpRequest && isGestor && !isPersonal && rawHelpPending && (
+          <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">
+            Ver ajuda
           </button>
         )}
 
@@ -2740,6 +2781,7 @@ export default function Tarefas() {
   const [ajuda, setAjuda] = useState<Tarefa | null>(null)
   const [painelAjuda, setPainelAjuda] = useState<Tarefa | null>(null)
   const [ajudasPendentes, setAjudasPendentes] = useState<any[]>([])
+  const [minhasAjudas, setMinhasAjudas] = useState<any[]>([])
   const [devolverTarget, setDevolverTarget] = useState<Tarefa | null>(null)
   const [lembreteTarget, setLembreteTarget] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
@@ -2777,24 +2819,28 @@ export default function Tarefas() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [ts, ms, rk, aj] = await Promise.all([
+      const [ts, ms, rk, aj, minhasAj] = await Promise.all([
         tarefasApi.list(),
         // Membros também precisam da equipe para o fluxo de "Pedir ajuda".
         // Antes carregava apenas para gestor, deixando o select vazio para membro.
         equipeApi.membros().catch(() => []),
         tarefasApi.ranking(periodoRanking).catch(() => null),
         tarefasApi.ajudaPendentes()
-          .then(a => Array.isArray(a) ? a.filter((p: any) => !!user?.id && p.destinatario_id === user.id && p.solicitante_id !== user.id) : [])
+          .then(a => helpForCurrentUser(Array.isArray(a) ? a : [], user?.id))
+          .catch(() => []),
+        tarefasApi.minhasAjudas()
+          .then(a => helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id))
           .catch(() => []),
       ])
-      setTarefas(Array.isArray(ts) ? ts : [])
+      setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
       setMembros(Array.isArray(ms) ? ms : [])
       setRanking(rk)
       setAjudasPendentes(Array.isArray(aj) ? aj : [])
+      setMinhasAjudas(Array.isArray(minhasAj) ? minhasAj : [])
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
     } finally { setLoading(false) }
-  }, [isGestor, periodoRanking])
+  }, [periodoRanking, user?.id])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -3053,6 +3099,23 @@ export default function Tarefas() {
     return ids
   }, [ajudasPendentes, user?.id])
 
+
+  const minhasAjudasPorTarefa = useMemo(() => {
+    const map = new Map<string, any>()
+    minhasAjudas.forEach((a: any) => {
+      if (!a?.tarefa_id || a.solicitante_id !== user?.id || a.destinatario_id === user?.id) return
+      const current = map.get(a.tarefa_id)
+      const currentTime = current ? new Date(current.respondida_em || current.updated_at || current.created_at || 0).getTime() : -1
+      const nextTime = new Date(a.respondida_em || a.updated_at || a.created_at || 0).getTime()
+      if (!current || nextTime >= currentTime) map.set(a.tarefa_id, a)
+    })
+    return map
+  }, [minhasAjudas, user?.id])
+
+  function abrirPainelAjudaDaMinhaSolicitacao(a: any) {
+    abrirPainelAjudaDaPendencia(a)
+  }
+
   function abrirPainelAjudaDaPendencia(a: any) {
     const tarefaDaLista = tarefas.find(t => t.id === a.tarefa_id)
     if (tarefaDaLista) {
@@ -3106,6 +3169,20 @@ export default function Tarefas() {
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '8px 10px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13 }}><strong>{a.solicitante_nome || 'Um membro'}</strong> precisa da sua ajuda{a.tarefa_titulo ? ` · ${a.tarefa_titulo}` : ''}</span>
                 <button className="btn btn-primary btn-sm" type="button" onClick={() => abrirPainelAjudaDaPendencia(a)}>Responder agora</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {minhasAjudas.some((a: any) => a.status === 'respondida') && (
+        <section style={{ background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.22)', borderRadius: 16, padding: 12, marginBottom: 12, display: 'grid', gap: 8 }}>
+          <strong style={{ color: '#3B82F6', display: 'flex', alignItems: 'center', gap: 8 }}><MessageSquare size={16} /> Respostas de ajuda recebidas</strong>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {minhasAjudas.filter((a: any) => a.status === 'respondida').slice(0, 3).map((a: any) => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '8px 10px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13 }}><strong>{a.destinatario_nome || 'A pessoa'}</strong> respondeu sua ajuda{a.tarefa_titulo ? ` · ${a.tarefa_titulo}` : ''}</span>
+                <button className="btn btn-primary btn-sm" type="button" onClick={() => abrirPainelAjudaDaMinhaSolicitacao(a)}>Ver resposta</button>
               </div>
             ))}
           </div>
@@ -3215,6 +3292,7 @@ export default function Tarefas() {
             <TarefaCard
               key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(t.id)}
+              helpRequestedByMe={minhasAjudasPorTarefa.get(t.id) || null}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}
@@ -3240,7 +3318,10 @@ export default function Tarefas() {
       {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
       {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} />}
-      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={() => tarefasApi.ajudaPendentes().then(a => setAjudasPendentes(Array.isArray(a) ? a.filter((p: any) => p.destinatario_id === user?.id && p.solicitante_id !== user?.id) : [])).catch(() => {})} />}
+      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={() => {
+        tarefasApi.ajudaPendentes().then(a => setAjudasPendentes(helpForCurrentUser(Array.isArray(a) ? a : [], user?.id))).catch(() => {})
+        tarefasApi.minhasAjudas().then(a => setMinhasAjudas(helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id))).catch(() => {})
+      }} />}
       {devolverTarget && <DevolverModal tarefa={devolverTarget} onClose={() => setDevolverTarget(null)} onSaved={(t) => { updateSaved(t); setDevolverTarget(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {lembreteTarget && <LembreteModal tarefa={lembreteTarget} membros={membros} onClose={() => setLembreteTarget(null)} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
