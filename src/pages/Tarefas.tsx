@@ -2222,11 +2222,12 @@ function PedirAjudaModal({ tarefa, membros, userId, onClose }: {
 }
 
 // ── PAINEL DE AJUDA — visualizar e responder pedidos ─────────────────────────
-function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
+function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
   onClose: () => void
+  onChanged?: () => void
 }) {
   const [ajudas, setAjudas] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -2248,6 +2249,7 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
       const updated = await tarefasApi.responderAjuda(ajudaId, texto)
       setAjudas(prev => prev.map(a => a.id === ajudaId ? updated : a))
       toast('Resposta enviada.')
+      onChanged?.()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao responder.', 'error')
     } finally { setSaving(null) }
@@ -2259,6 +2261,7 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
       const updated = await tarefasApi.resolverAjuda(ajudaId)
       setAjudas(prev => prev.map(a => a.id === ajudaId ? updated : a))
       toast('Pedido marcado como resolvido.')
+      onChanged?.()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao resolver.', 'error')
     } finally { setSaving(null) }
@@ -2791,15 +2794,28 @@ export default function Tarefas() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    const id = new URLSearchParams(location.search).get('task')
-    if (!id || tarefas.length === 0) return
+    const params = new URLSearchParams(location.search)
+    const id = params.get('task')
+    const openHelp = params.get('help') === '1'
+    if (!id) return
+
     const found = tarefas.find(t => t.id === id)
     if (found) {
-      const params = new URLSearchParams(location.search)
-      if (params.get('help') === '1') setPainelAjuda(found)
+      if (openHelp) setPainelAjuda(found)
       else setDetalhe(found)
+      return
     }
-  }, [location.search, tarefas])
+
+    // Pedido de ajuda pode ser enviado para alguém que não é executor da lista.
+    // Nesse caso a lista pode não aparecer no GET /tarefas do destinatário,
+    // mas o GET /tarefas/ajuda/pendentes traz a pendência autorizada.
+    // Este fallback garante que o clique na notificação sempre tenha destino útil,
+    // sem ampliar acesso à lista: o modal carrega somente a conversa de ajuda.
+    if (openHelp) {
+      const pendencia = ajudasPendentes.find(a => a.tarefa_id === id)
+      if (pendencia) abrirPainelAjudaDaPendencia(pendencia)
+    }
+  }, [location.search, tarefas, ajudasPendentes])
   useEffect(() => {
     const h = () => { setEdit(null); setModalOpen(true) }
     window.addEventListener('nexus:open-new', h)
@@ -3210,7 +3226,7 @@ export default function Tarefas() {
       {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
       {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} />}
-      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} />}
+      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={() => tarefasApi.ajudaPendentes().then(a => setAjudasPendentes(Array.isArray(a) ? a : [])).catch(() => {})} />}
       {devolverTarget && <DevolverModal tarefa={devolverTarget} onClose={() => setDevolverTarget(null)} onSaved={(t) => { updateSaved(t); setDevolverTarget(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {lembreteTarget && <LembreteModal tarefa={lembreteTarget} membros={membros} onClose={() => setLembreteTarget(null)} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
