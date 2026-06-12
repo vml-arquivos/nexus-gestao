@@ -149,7 +149,7 @@ export interface Pessoa {
   org_id: string
   user_id?: string
   nome: string
-  tipo: 'funcionario' | 'prestador' | 'credor' | 'devedor' | 'cliente'
+  tipo: 'funcionario' | 'prestador' | 'credor' | 'devedor' | 'cliente' | 'comercio'
   cargo?: string
   contato?: string
   email?: string
@@ -157,6 +157,27 @@ export interface Pessoa {
   obs?: string
   avatar_url?: string
   created_at: string
+}
+
+
+export interface Produto {
+  id: string
+  org_id: string
+  user_id?: string
+  comercio_id?: string | null
+  comercio_nome?: string | null
+  nome: string
+  codigo?: string | null
+  categoria?: string | null
+  unidade?: string | null
+  preco_custo?: number | null
+  preco_venda?: number | null
+  estoque?: number | null
+  site_url?: string | null
+  obs?: string | null
+  ativo?: boolean
+  created_at: string
+  updated_at?: string
 }
 
 export interface MembroEquipe {
@@ -794,6 +815,11 @@ export const tarefasApi = {
     return data.ajudas
   },
 
+  async minhasAjudas(): Promise<any[]> {
+    const data = await apiJson<{ ajudas: any[] }>('/tarefas/ajuda/minhas')
+    return data.ajudas
+  },
+
   async responderAjuda(ajudaId: string, resposta: string): Promise<any> {
     const data = await apiJson<{ ajuda: any }>(`/tarefas/ajuda/${ajudaId}`, { method: 'PATCH', body: JSON.stringify({ resposta }) })
     return data.ajuda
@@ -830,6 +856,34 @@ export const equipeApi = {
 
   async removePessoa(id: string): Promise<void> {
     await apiJson(`/equipe/pessoas/${id}`, { method: 'DELETE' })
+  },
+}
+
+
+// ── PRODUTOS ──────────────────────────────────────────────────────────────────
+export const produtosApi = {
+  async list(params?: { comercio_id?: string; search?: string; ativo?: boolean }): Promise<Produto[]> {
+    const qs = new URLSearchParams()
+    if (params?.comercio_id) qs.set('comercio_id', params.comercio_id)
+    if (params?.search) qs.set('search', params.search)
+    if (params?.ativo !== undefined) qs.set('ativo', String(params.ativo))
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    const data = await apiJson<{ produtos: Produto[] }>(`/produtos${suffix}`)
+    return data.produtos
+  },
+
+  async create(payload: Partial<Produto>): Promise<Produto> {
+    const data = await apiJson<{ produto: Produto }>('/produtos', { method: 'POST', body: JSON.stringify(payload) })
+    return data.produto
+  },
+
+  async update(id: string, payload: Partial<Produto>): Promise<Produto> {
+    const data = await apiJson<{ produto: Produto }>(`/produtos/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return data.produto
+  },
+
+  async remove(id: string): Promise<void> {
+    await apiJson(`/produtos/${id}`, { method: 'DELETE' })
   },
 }
 
