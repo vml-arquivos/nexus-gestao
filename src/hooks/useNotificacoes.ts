@@ -113,7 +113,11 @@ function notificarNavegador(n: Notificacao) {
     const notification = new Notification(title, { body, tag: n.id, silent: false })
     notification.onclick = () => {
       window.focus()
-      if (n.referencia_tipo === 'tarefa' && n.referencia_id) window.location.href = `/tarefas?task=${n.referencia_id}`
+      if (n.referencia_tipo === 'tarefa' && n.referencia_id) {
+        const base = window.location.pathname.startsWith('/minhas-tarefas') ? '/minhas-tarefas' : '/tarefas'
+        const isAjuda = n.tipo === 'pedido_ajuda' || n.tipo === 'ajuda_respondida'
+        window.location.href = `${base}?task=${n.referencia_id}${isAjuda ? '&help=1' : ''}`
+      }
       else if (n.referencia_tipo === 'pagamento') window.location.href = '/financeiro'
       else if (n.referencia_tipo === 'agenda') window.location.href = '/agenda'
       notification.close()

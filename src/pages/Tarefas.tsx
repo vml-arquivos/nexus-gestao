@@ -1601,6 +1601,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
   const listSurprise = taskIsSurprise(tarefa)
+  const hasHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -1872,6 +1873,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onPainelAjuda(tarefa)}><MessageSquare size={14} /> Ver pedidos de ajuda</button>}
             {!isGestor && canExecuteTask && <button className="btn btn-secondary" type="button" onClick={() => onPedirAjuda(tarefa)}><MessageSquare size={14} /> Pedir ajuda</button>}
+            {!isGestor && (canExecuteTask || (tarefa as any).pedido_ajuda_pendente) && <button className="btn btn-secondary" type="button" onClick={() => onPainelAjuda(tarefa)}><MessageSquare size={14} /> Ajuda / respostas</button>}
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
           </div>
         </section>
@@ -2338,7 +2340,7 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder }: {
+function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -2355,6 +2357,8 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEd
   onHistory: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
   onReminder: (t: Tarefa) => void
+  onPedirAjuda: (t: Tarefa) => void
+  onPainelAjuda: (t: Tarefa) => void
 }) {
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
@@ -2376,6 +2380,7 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEd
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
   const listSurprise = taskIsSurprise(tarefa)
+  const hasHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -2439,6 +2444,11 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEd
             {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}
           </div>
         )}
+        {hasHelpPending && (
+          <div className="task-report-team-line" style={{ color: '#F59E0B', fontWeight: 700 }}>
+            💬 Pedido de ajuda pendente nesta lista
+          </div>
+        )}
       </div>
 
       {/* COLUNA STATUS */}
@@ -2480,6 +2490,12 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEd
 
         {/* Ver lista */}
         <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver lista</button>
+
+        {(hasHelpPending || canExecuteTask || isGestor) && !isPersonal && (
+          <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">
+            {hasHelpPending ? 'Responder ajuda' : 'Ajuda'}
+          </button>
+        )}
 
         {isPersonal ? (
           <>
@@ -2718,6 +2734,7 @@ export default function Tarefas() {
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [ajuda, setAjuda] = useState<Tarefa | null>(null)
   const [painelAjuda, setPainelAjuda] = useState<Tarefa | null>(null)
+  const [ajudasPendentes, setAjudasPendentes] = useState<any[]>([])
   const [devolverTarget, setDevolverTarget] = useState<Tarefa | null>(null)
   const [lembreteTarget, setLembreteTarget] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
@@ -2755,16 +2772,18 @@ export default function Tarefas() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [ts, ms, rk] = await Promise.all([
+      const [ts, ms, rk, aj] = await Promise.all([
         tarefasApi.list(),
         // Membros também precisam da equipe para o fluxo de "Pedir ajuda".
         // Antes carregava apenas para gestor, deixando o select vazio para membro.
         equipeApi.membros().catch(() => []),
         tarefasApi.ranking(periodoRanking).catch(() => null),
+        tarefasApi.ajudaPendentes().catch(() => []),
       ])
       setTarefas(Array.isArray(ts) ? ts : [])
       setMembros(Array.isArray(ms) ? ms : [])
       setRanking(rk)
+      setAjudasPendentes(Array.isArray(aj) ? aj : [])
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
     } finally { setLoading(false) }
@@ -2775,7 +2794,11 @@ export default function Tarefas() {
     const id = new URLSearchParams(location.search).get('task')
     if (!id || tarefas.length === 0) return
     const found = tarefas.find(t => t.id === id)
-    if (found) setDetalhe(found)
+    if (found) {
+      const params = new URLSearchParams(location.search)
+      if (params.get('help') === '1') setPainelAjuda(found)
+      else setDetalhe(found)
+    }
   }, [location.search, tarefas])
   useEffect(() => {
     const h = () => { setEdit(null); setModalOpen(true) }
@@ -3001,6 +3024,23 @@ export default function Tarefas() {
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao apagar.', 'error') }
   }
 
+  function abrirPainelAjudaDaPendencia(a: any) {
+    const tarefaDaLista = tarefas.find(t => t.id === a.tarefa_id)
+    if (tarefaDaLista) {
+      setPainelAjuda(tarefaDaLista)
+      return
+    }
+    setPainelAjuda({
+      id: a.tarefa_id,
+      titulo: a.tarefa_titulo || 'Pedido de ajuda',
+      status: 'pendente',
+      prioridade: 'media',
+      checklist: [],
+      created_at: a.created_at,
+      updated_at: a.created_at,
+    } as unknown as Tarefa)
+  }
+
   return (
     <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 24px)' }}>
 
@@ -3027,6 +3067,20 @@ export default function Tarefas() {
           <strong>{online ? 'Sincronização pendente' : 'Modo offline ativo'}</strong>
           <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus sincroniza automaticamente.'}</span>
         </div>
+      )}
+
+      {ajudasPendentes.length > 0 && (
+        <section style={{ background: 'rgba(245,158,11,.10)', border: '1px solid rgba(245,158,11,.28)', borderRadius: 16, padding: 12, marginBottom: 12, display: 'grid', gap: 8 }}>
+          <strong style={{ color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 8 }}><MessageSquare size={16} /> Pedidos de ajuda pendentes</strong>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {ajudasPendentes.slice(0, 3).map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '8px 10px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13 }}><strong>{a.solicitante_nome || 'Um membro'}</strong> precisa da sua ajuda{a.tarefa_titulo ? ` · ${a.tarefa_titulo}` : ''}</span>
+                <button className="btn btn-primary btn-sm" type="button" onClick={() => abrirPainelAjudaDaPendencia(a)}>Responder agora</button>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* ── ABAS PRINCIPAIS ───────────────────────────────── */}
@@ -3143,6 +3197,8 @@ export default function Tarefas() {
               onHistory={setHistorico}
               onAnexos={setAnexos}
               onReminder={enviarLembreteManual}
+              onPedirAjuda={setAjuda}
+              onPainelAjuda={setPainelAjuda}
             />
           ))}
         </div>

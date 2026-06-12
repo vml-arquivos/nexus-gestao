@@ -3927,13 +3927,14 @@ router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => 
     // Marcar badge na tarefa
     await query("UPDATE tarefas SET pedido_ajuda_pendente = TRUE, updated_at = NOW() WHERE id = $1 AND org_id = $2", [req.params.id, orgId]).catch(() => {});
 
-    // Notificar destinatário
+    // Notificar destinatário com mensagem curta e objetiva, como solicitado pela operação:
+    // "Nome do membro precisa da sua ajuda". Os detalhes ficam dentro do painel da lista.
     const solicitante = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
     await criarNotificacao({
       orgId, userId: destinatario_id,
       tipo: "pedido_ajuda",
-      titulo: "Pedido de ajuda recebido",
-      body: `${solicitante?.nome || "Um membro"} precisa da sua ajuda em "${tarefa.titulo}": ${mensagem.trim().slice(0, 80)}${mensagem.trim().length > 80 ? "..." : ""}`,
+      titulo: "Pedido de ajuda",
+      body: `${solicitante?.nome || "Um membro"} precisa da sua ajuda`,
       referenciaId: req.params.id, referenciaTipo: "tarefa",
     }).catch(() => {});
 
@@ -3949,8 +3950,17 @@ router.get("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
     const { orgId, userId, role } = req.user!;
     const tarefa = await getTaskForAccess(req.params.id, orgId);
     if (!tarefa) { res.status(404).json({ error: "Lista não encontrada." }); return; }
-    if (!(await userCanAccessTask(tarefa, req.user!))) {
-      res.status(403).json({ error: "Acesso negado." }); return;
+    const canAccessTask = await userCanAccessTask(tarefa, req.user!);
+    if (!canAccessTask) {
+      // Quem recebeu ou abriu um pedido de ajuda precisa conseguir ver a conversa
+      // mesmo quando não é executor da lista. Isso evita notificação sem destino útil.
+      const envolvido = await queryOne<{ id: string }>(
+        `SELECT id FROM tarefas_ajuda
+         WHERE tarefa_id = $1 AND org_id = $2 AND (solicitante_id = $3 OR destinatario_id = $3)
+         LIMIT 1`,
+        [req.params.id, orgId, userId]
+      );
+      if (!envolvido) { res.status(403).json({ error: "Acesso negado." }); return; }
     }
     let ajudas;
     if (canDeleteOrgRecords(role) || role === "gestor" || role === "sub_gestor") {
@@ -4036,13 +4046,13 @@ router.patch("/ajuda/:ajudaId", async (req: Request, res: Response): Promise<voi
        WHERE id = $2 AND org_id = $3 RETURNING *`,
       [resposta.trim(), req.params.ajudaId, orgId]
     );
-    // Notificar solicitante
+    // Notificar solicitante para ele abrir a mesma conversa e ver a resposta.
     const respondedor = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
     await criarNotificacao({
       orgId, userId: ajuda.solicitante_id,
       tipo: "ajuda_respondida",
-      titulo: "Pedido de ajuda respondido",
-      body: `${respondedor?.nome || "Alguém"} respondeu seu pedido de ajuda.`,
+      titulo: "Ajuda respondida",
+      body: `${respondedor?.nome || "Alguém"} respondeu sua solicitação de ajuda`,
       referenciaId: ajuda.tarefa_id, referenciaTipo: "tarefa",
     }).catch(() => {});
     res.json({ ajuda: updated });

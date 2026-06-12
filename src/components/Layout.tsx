@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
   BrainCircuit,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
+  Package,
   LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
   CheckCircle, XCircle, AlertTriangle,
 } from 'lucide-react'
@@ -26,6 +27,7 @@ const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey
   { path: '/agenda',       icon: Calendar,        labelKey: 'nav.agenda'    },
   { path: '/financeiro',   icon: DollarSign,      labelKey: 'nav.finance'   },
   { path: '/pessoas',      icon: Users,           labelKey: 'nav.people'    },
+  { path: '/produtos',     icon: Package,         labelKey: 'nav.products' as VisualTextKey },
   { path: '/documentos',   icon: FileText,        labelKey: 'nav.files'     },
   { path: '/relatorios',   icon: BarChart3,       labelKey: 'nav.reports'   },
   { path: '/usuarios',     icon: UserCog,         labelKey: 'nav.users'     },
@@ -477,7 +479,9 @@ export default function Layout() {
                           onClick={() => {
                             marcarLida(n.id)
                             if (n.referencia_tipo === 'tarefa' && n.referencia_id) {
-                              navigate('/tarefas')
+                              const base = user?.role === 'membro' ? '/minhas-tarefas' : '/tarefas'
+                              const isAjuda = n.tipo === 'pedido_ajuda' || n.tipo === 'ajuda_respondida'
+                              navigate(`${base}?task=${n.referencia_id}${isAjuda ? '&help=1' : ''}`)
                               setNotifOpen(false)
                             }
                           }}
