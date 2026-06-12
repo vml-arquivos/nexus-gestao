@@ -2166,11 +2166,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 }
 
 // ── PEDIR AJUDA — modal do executor ──────────────────────────────────────────
-function PedirAjudaModal({ tarefa, membros, userId, onClose }: {
+function PedirAjudaModal({ tarefa, membros, userId, onClose, onSent }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   userId: string
   onClose: () => void
+  onSent?: () => void
 }) {
   const [mensagem, setMensagem] = useState('')
   const [destinatarioId, setDestinatarioId] = useState('')
@@ -2188,6 +2189,7 @@ function PedirAjudaModal({ tarefa, membros, userId, onClose }: {
     try {
       await tarefasApi.criarAjuda(tarefa.id, { mensagem: mensagem.trim(), destinatario_id: destinatarioId })
       toast('Pedido de ajuda enviado. A pessoa será notificada.')
+      await onSent?.()
       onClose()
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao enviar pedido.', 'error')
@@ -2294,7 +2296,7 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   }
 
   return (
-    <ModalBase title="Pedidos de ajuda" onClose={onClose}>
+    <ModalBase title="Ajuda da lista" onClose={onClose}>
       <div style={{ display: 'grid', gap: 12 }}>
         <div style={{ fontSize: 13, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 10, padding: '8px 12px' }}>
           📋 {tarefa.titulo}
@@ -2325,11 +2327,15 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
                 <div style={{ fontSize: 13, color: 'var(--text)', background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5, wordBreak: 'break-word' }}>
                   {a.mensagem}
                 </div>
-                {a.resposta && (
+                {a.resposta ? (
                   <div style={{ fontSize: 12.5, color: '#3B82F6', background: 'rgba(59,130,246,.07)', border: '1px solid rgba(59,130,246,.15)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5, wordBreak: 'break-word' }}>
-                    <strong>Resposta:</strong> {a.resposta}
+                    <strong>Resposta de {a.destinatario_nome || 'quem ajudou'}:</strong> {a.resposta}
                   </div>
-                )}
+                ) : a.solicitante_id === userId ? (
+                  <div style={{ fontSize: 12.5, color: '#F59E0B', background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.20)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+                    Aguardando resposta de {a.destinatario_nome || 'quem recebeu o pedido'}. Quando responder, aparecerá aqui e no topo em “Respostas de ajuda recebidas”.
+                  </div>
+                ) : null}
                 <div style={{ fontSize: 11, color: 'var(--text3)' }}>
                   {fmtDateTime(a.created_at)}
                   {a.respondida_em && ` · Respondido em ${fmtDateTime(a.respondida_em)}`}
@@ -2863,9 +2869,14 @@ export default function Tarefas() {
     // sem ampliar acesso à lista: o modal carrega somente a conversa de ajuda.
     if (openHelp) {
       const pendencia = ajudasPendentes.find(a => a.tarefa_id === id)
-      if (pendencia) abrirPainelAjudaDaPendencia(pendencia)
+      if (pendencia) {
+        abrirPainelAjudaDaPendencia(pendencia)
+        return
+      }
+      const minhaSolicitacao = minhasAjudas.find((a: any) => a.tarefa_id === id)
+      if (minhaSolicitacao) abrirPainelAjudaDaMinhaSolicitacao(minhaSolicitacao)
     }
-  }, [location.search, tarefas, ajudasPendentes])
+  }, [location.search, tarefas, ajudasPendentes, minhasAjudas])
   useEffect(() => {
     const h = () => { setEdit(null); setModalOpen(true) }
     window.addEventListener('nexus:open-new', h)
@@ -3089,6 +3100,15 @@ export default function Tarefas() {
     try { await tarefasApi.remove(id); setTarefas(prev => prev.filter(t => t.id !== id)); toast('Tarefa apagada.') }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao apagar.', 'error') }
   }
+
+  const atualizarAjudas = useCallback(async () => {
+    const [pendentes, minhas] = await Promise.all([
+      tarefasApi.ajudaPendentes().then(a => helpForCurrentUser(Array.isArray(a) ? a : [], user?.id)).catch(() => []),
+      tarefasApi.minhasAjudas().then(a => helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id)).catch(() => []),
+    ])
+    setAjudasPendentes(Array.isArray(pendentes) ? pendentes : [])
+    setMinhasAjudas(Array.isArray(minhas) ? minhas : [])
+  }, [user?.id])
 
 
   const ajudaPendenteMinhaPorTarefa = useMemo(() => {
@@ -3317,11 +3337,8 @@ export default function Tarefas() {
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
       {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
       {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
-      {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} />}
-      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={() => {
-        tarefasApi.ajudaPendentes().then(a => setAjudasPendentes(helpForCurrentUser(Array.isArray(a) ? a : [], user?.id))).catch(() => {})
-        tarefasApi.minhasAjudas().then(a => setMinhasAjudas(helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id))).catch(() => {})
-      }} />}
+      {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
+      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}
       {devolverTarget && <DevolverModal tarefa={devolverTarget} onClose={() => setDevolverTarget(null)} onSaved={(t) => { updateSaved(t); setDevolverTarget(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {lembreteTarget && <LembreteModal tarefa={lembreteTarget} membros={membros} onClose={() => setLembreteTarget(null)} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
