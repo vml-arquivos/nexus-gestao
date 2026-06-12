@@ -717,7 +717,7 @@ export const tarefasApi = {
     return data.tarefa
   },
 
-  async reabrir(id: string, payload: { complemento: string; prazo?: string; prioridade?: Tarefa['prioridade'] }): Promise<Tarefa> {
+  async reabrir(id: string, payload: { complemento: string; prazo?: string; prioridade?: Tarefa['prioridade']; responsavel_id?: string }): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/reabrir`, { method: 'PATCH', body: JSON.stringify(payload) })
     return data.tarefa
   },
@@ -776,6 +776,32 @@ export const tarefasApi = {
       return this.updateStatus(id, { status: 'nao_concluida', motivo_nao_conclusao: payload.resposta_obs || '', resposta_membro: payload.resposta_obs || '' })
     }
     return this.updateStatus(id, { status: 'concluida', observacao_conclusao: payload.resposta_obs || '', resposta_membro: payload.resposta_obs || '' })
+  },
+
+  // ── PEDIR AJUDA ──────────────────────────────────────────────
+  async criarAjuda(tarefaId: string, payload: { mensagem: string; destinatario_id: string; checklist_id?: string }): Promise<any> {
+    const data = await apiJson<{ ajuda: any }>(`/tarefas/${tarefaId}/ajuda`, { method: 'POST', body: JSON.stringify(payload) })
+    return data.ajuda
+  },
+
+  async listarAjuda(tarefaId: string): Promise<any[]> {
+    const data = await apiJson<{ ajudas: any[] }>(`/tarefas/${tarefaId}/ajuda`)
+    return data.ajudas
+  },
+
+  async ajudaPendentes(): Promise<any[]> {
+    const data = await apiJson<{ ajudas: any[] }>('/tarefas/ajuda/pendentes')
+    return data.ajudas
+  },
+
+  async responderAjuda(ajudaId: string, resposta: string): Promise<any> {
+    const data = await apiJson<{ ajuda: any }>(`/tarefas/ajuda/${ajudaId}`, { method: 'PATCH', body: JSON.stringify({ resposta }) })
+    return data.ajuda
+  },
+
+  async resolverAjuda(ajudaId: string): Promise<any> {
+    const data = await apiJson<{ ajuda: any }>(`/tarefas/ajuda/${ajudaId}/resolver`, { method: 'PATCH' })
+    return data.ajuda
   },
 }
 

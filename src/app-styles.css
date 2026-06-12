@@ -8677,3 +8677,762 @@ textarea.form-input,
     z-index: 9999 !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   NEXUS — UX REFRESH 2026-06-11
+   Página de Tarefas: cabeçalho, busca, filtros, cards, mobile
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Cabeçalho da página ─────────────────────────────────────── */
+.tarefas-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.tarefas-page-title {
+  margin: 0;
+  font-size: clamp(20px, 4vw, 27px);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -.3px;
+}
+.tarefas-page-sub {
+  margin: 3px 0 0;
+  color: var(--text3);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.tarefas-new-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Linha de busca + filtros ────────────────────────────────── */
+.tarefas-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.tarefas-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.tarefas-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text3);
+  pointer-events: none;
+}
+.tarefas-search-input {
+  padding-left: 36px !important;
+  padding-right: 36px !important;
+  width: 100%;
+  height: 40px;
+}
+.tarefas-search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text3);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+}
+.tarefas-search-clear:hover { color: var(--text); }
+
+/* ── Filtros avançados (dropdown) ────────────────────────────── */
+.tarefas-filter-dropdown { position: relative; flex-shrink: 0; }
+.tarefas-filter-btn {
+  height: 40px;
+  white-space: nowrap;
+  gap: 6px;
+  position: relative;
+}
+.tarefas-filter-btn.active {
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+}
+.filter-active-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 999px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 4px;
+}
+.tarefas-filter-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 200;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  min-width: 280px;
+  max-width: min(340px, 94vw);
+  box-shadow: 0 16px 40px rgba(0,0,0,.18);
+}
+.tarefas-filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.tarefas-filter-header strong { font-size: 13px; font-weight: 700; }
+.tarefas-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 380px) {
+  .tarefas-filter-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Loading e vazio ─────────────────────────────────────────── */
+.tarefas-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--text3);
+}
+.spin-icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.tarefas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 24px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  text-align: center;
+}
+.tarefas-empty-icon { font-size: 40px; line-height: 1; }
+.tarefas-empty strong { font-size: 16px; font-weight: 700; color: var(--text); }
+.tarefas-empty span { font-size: 13px; color: var(--text3); max-width: 320px; line-height: 1.5; }
+
+/* ── Abas de status (task-flow-tabs) melhoradas ──────────────── */
+.task-flow-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.task-flow-tabs::-webkit-scrollbar { display: none; }
+.task-flow-tab {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+  white-space: nowrap;
+}
+.task-flow-tab strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text2);
+}
+.task-flow-tab .tab-count {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text3);
+  background: var(--bg3);
+  border-radius: 999px;
+  padding: 1px 7px;
+  min-width: 22px;
+  text-align: center;
+}
+.task-flow-tab .tab-count.danger {
+  color: #EF4444;
+  background: rgba(239,68,68,.1);
+}
+.task-flow-tab.active {
+  border-color: var(--primary);
+  background: rgba(16,185,129,.08);
+}
+.task-flow-tab.active strong { color: var(--primary); }
+.task-flow-tab:hover:not(.active) { border-color: rgba(16,185,129,.3); }
+
+/* ── Cards de lista de tarefas — redesign ────────────────────── */
+.task-report-list { display: grid; gap: 8px; }
+
+.task-report-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-areas: "main status priority progress actions";
+  grid-template-columns: minmax(0, 1fr) 130px 80px 110px 200px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg2);
+  cursor: pointer;
+  transition: border-color .16s, background .16s, box-shadow .16s, transform .16s;
+  position: relative;
+}
+.task-report-row:hover {
+  border-color: rgba(16,185,129,.4);
+  background: color-mix(in srgb, var(--bg2) 87%, rgba(16,185,129,.1));
+  box-shadow: 0 6px 20px rgba(15,23,42,.08);
+  transform: translateY(-1px);
+}
+.task-report-row--reaberta {
+  border-left: 3px solid #F59E0B;
+}
+
+/* areas */
+.task-report-main    { grid-area: main;     min-width: 0; }
+.task-report-status  { grid-area: status;   }
+.task-report-priority{ grid-area: priority; }
+.task-report-progress{ grid-area: progress; }
+.task-report-actions { grid-area: actions;  }
+
+/* Título */
+.task-report-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-weight: 750;
+  font-size: 13.5px;
+  line-height: 1.25;
+  width: 100%;
+  min-width: 0;
+}
+.task-report-title span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-report-title:hover span:first-of-type {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Surprise badge no título */
+.task-surprise-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #7C3AED;
+  background: rgba(124,58,237,.1);
+  border: 1px solid rgba(124,58,237,.25);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* Meta info abaixo do título */
+.task-report-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 5px;
+  color: var(--text3);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.task-report-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  min-width: 0;
+}
+.task-report-meta .danger { color: #EF4444; font-weight: 700; }
+.task-report-meta .outro-membro { color: #F59E0B; font-weight: 600; }
+
+/* Linha de equipe */
+.task-report-team-line {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status / prioridade / progresso cells */
+.task-report-status,
+.task-report-priority,
+.task-report-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.task-report-status span,
+.task-report-priority span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.task-report-status em {
+  font-style: normal;
+  color: var(--text3);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  align-self: flex-start;
+}
+.task-report-status em.outro-membro {
+  color: #F59E0B;
+  background: rgba(245,158,11,.1);
+  border-color: rgba(245,158,11,.25);
+}
+.task-report-progress strong {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.task-progress-line.compact {
+  width: 90px;
+  height: 5px;
+  background: rgba(148,163,184,.18);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.task-progress-line.compact span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width .3s ease;
+}
+
+/* Ações */
+.task-report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.task-report-actions .btn.task-action-btn,
+.task-report-actions .btn.task-action-icon {
+  min-height: 30px !important;
+  height: 30px;
+  border-radius: 9px !important;
+  padding: 5px 10px !important;
+  font-size: 11.5px !important;
+  line-height: 1 !important;
+  gap: 4px !important;
+  white-space: nowrap;
+}
+.task-report-actions .task-action-icon {
+  width: 30px;
+  min-width: 30px;
+  justify-content: center;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.task-report-actions .task-action-icon.danger { color: #EF4444 !important; }
+
+/* Badge "Assumir" destacado */
+.task-btn-assumir {
+  background: var(--primary) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-color: var(--primary) !important;
+}
+
+/* Badge "outro membro" inline */
+.task-outro-membro-badge {
+  font-size: 11.5px;
+  color: #F59E0B;
+  background: rgba(245,158,11,.1);
+  border: 1px solid rgba(245,158,11,.25);
+  border-radius: 8px;
+  padding: 4px 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* ── Responsive: tablet ──────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .task-report-row {
+    grid-template-areas:
+      "main main main"
+      "status priority progress"
+      "actions actions actions";
+    grid-template-columns: 1fr auto auto;
+  }
+  .task-report-actions { justify-content: flex-start; border-top: 1px solid var(--border); padding-top: 8px; }
+}
+
+/* ── Responsive: mobile ──────────────────────────────────────── */
+@media (max-width: 640px) {
+  .task-report-row {
+    grid-template-areas:
+      "main"
+      "status-line"
+      "actions";
+    grid-template-columns: 1fr;
+    padding: 11px 12px;
+    gap: 8px;
+  }
+  .task-report-status  { grid-area: status-line; flex-direction: row; flex-wrap: wrap; gap: 5px; }
+  .task-report-priority { display: none; }
+  .task-report-progress {
+    display: none; /* progresso aparece no meta, não precisa coluna separada */
+  }
+  .task-report-actions {
+    grid-area: actions;
+    justify-content: flex-start;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    flex-wrap: wrap;
+  }
+  .task-report-actions .btn.task-action-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 36px !important;
+    height: 36px;
+    font-size: 12.5px !important;
+  }
+  .task-report-title { font-size: 14px; }
+  .task-report-title span:first-of-type {
+    white-space: normal;
+    overflow: visible;
+  }
+  .tarefas-page-header { margin-bottom: 14px; }
+  .tarefas-page-title { font-size: 20px; }
+}
+
+@media (max-width: 380px) {
+  .task-report-actions .btn.task-action-btn { min-height: 38px !important; height: 38px; }
+}
+
+/* ── Reaberta: borda esquerda laranja ────────────────────────── */
+.task-report-row--reaberta { border-left-color: #F59E0B; border-left-width: 3px; }
+.task-report-row--reaberta .task-report-title { color: #B45309; }
+
+/* ── Lista surpresa: card com visual especial ────────────────── */
+.task-report-row--surpresa {
+  border-color: rgba(124,58,237,.35);
+  background: color-mix(in srgb, var(--bg2) 95%, rgba(124,58,237,.05));
+}
+.task-report-row--surpresa:hover { border-color: rgba(124,58,237,.55); }
+
+/* ── Destrava badge ──────────────────────────────────────────── */
+.task-destrava-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7C3AED;
+  background: rgba(124,58,237,.1);
+  border: 1px solid rgba(124,58,237,.25);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* ── Modal de detalhe: melhorias gerais ──────────────────────── */
+.task-detail-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.task-detail-hero h2 {
+  margin: 0 0 6px;
+  font-size: clamp(16px, 3.5vw, 20px);
+  font-weight: 750;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.task-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+  color: var(--text3);
+  line-height: 1.4;
+}
+.task-detail-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-detail-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .task-detail-hero { gap: 10px; }
+  .task-detail-hero-actions { width: 100%; }
+  .task-detail-hero-actions .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ── Seção de tarefas da lista no modal de execução ──────────── */
+.task-checklist-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.task-checklist-section-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 750;
+}
+.task-checklist-item {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.task-checklist-item:last-child { border-bottom: none; }
+.task-checklist-item-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--border);
+  background: var(--bg3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: background .15s, border-color .15s;
+}
+.task-checklist-item-check.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.task-checklist-item-check.checked svg { color: #fff; }
+.task-checklist-item-check.disabled { cursor: not-allowed; opacity: 0.55; }
+.task-checklist-item-body { min-width: 0; }
+.task-checklist-item-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  word-break: break-word;
+}
+.task-checklist-item-text.done {
+  text-decoration: line-through;
+  color: var(--text3);
+}
+.task-checklist-item-meta {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+}
+.task-checklist-item-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text3);
+  white-space: nowrap;
+}
+.task-checklist-item-badge.surprise {
+  color: #7C3AED;
+  background: rgba(124,58,237,.08);
+  border-color: rgba(124,58,237,.2);
+}
+.task-checklist-item-badge.pts {
+  color: var(--primary);
+  background: rgba(16,185,129,.08);
+  border-color: rgba(16,185,129,.2);
+}
+.task-checklist-item-actions { flex-shrink: 0; }
+
+/* ── Execução distribuída — progresso por membro ─────────────── */
+.task-execution-summary {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--text2);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.task-execution-summary strong { font-weight: 750; color: var(--text); }
+.task-execution-summary span { color: var(--text3); }
+
+/* ── Modal de surpresa — bloco antes de assumir ──────────────── */
+.task-surprise-reveal-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 20px;
+  text-align: center;
+  background: color-mix(in srgb, var(--bg2) 92%, rgba(124,58,237,.1));
+  border: 1.5px solid rgba(124,58,237,.3);
+  border-radius: 16px;
+}
+.task-surprise-reveal-icon { font-size: 44px; line-height: 1; }
+.task-surprise-reveal-title {
+  font-size: 18px;
+  font-weight: 750;
+  color: #7C3AED;
+  margin: 0;
+}
+.task-surprise-reveal-pts {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text2);
+}
+.task-surprise-reveal-hint {
+  font-size: 12.5px;
+  color: var(--text3);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+/* ── Botão de execução fixo no rodapé do modal ───────────────── */
+.task-modal-footer-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+@media (max-width: 560px) {
+  .task-modal-footer-actions { justify-content: stretch; }
+  .task-modal-footer-actions .btn { flex: 1 1 auto; justify-content: center; min-height: 44px; font-size: 14px; }
+}
+
+/* ── Smart tabs mobile — 5 abas em grade 2+2+1 ───────────────── */
+@media (max-width: 640px) {
+  .task-smart-tabs {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+  }
+  .task-smart-tab { border-radius: 13px !important; padding: 9px 8px !important; }
+  .task-smart-tab-main strong { font-size: 12px !important; }
+  .task-smart-tab-main em { font-size: 11px !important; }
+  .task-smart-tab-hint { font-size: 10px !important; }
+}
+@media (max-width: 400px) {
+  .task-smart-tabs { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* ── Textarea: nunca quebra letra por letra ──────────────────── */
+.form-input,
+textarea.form-input,
+.tarefa-modal-box textarea,
+.task-detail-modal textarea {
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap;
+  word-spacing: normal;
+}
+
+/* ── Form group: labels sempre visíveis ──────────────────────── */
+.form-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text2);
+  margin-bottom: 5px;
+  line-height: 1.3;
+}
+
+/* ── Inline editor no modal: grid responsivo ─────────────────── */
+.task-inline-add-subtask,
+.task-inline-checklist-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+}
+@media (max-width: 640px) {
+  .task-inline-add-subtask,
+  .task-inline-checklist-row {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ── Ponto de entrada mobile: safe area bottom ───────────────── */
+@media (max-width: 640px) {
+  .tarefa-modal-box {
+    max-height: calc(100dvh - 24px) !important;
+    border-radius: 20px 20px 0 0 !important;
+    margin-bottom: 0 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .modal-overlay { align-items: flex-end !important; padding: 0 !important; }
+  .modal-content { padding-bottom: calc(env(safe-area-inset-bottom) + 16px) !important; }
+}
+

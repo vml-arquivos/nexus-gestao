@@ -1129,10 +1129,11 @@ function RespostaModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
   )
 }
 
-function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: () => void; onSaved: (t: Tarefa) => void }) {
+function ComplementoModal({ tarefa, membros, onClose, onSaved }: { tarefa: Tarefa; membros: MembroEquipe[]; onClose: () => void; onSaved: (t: Tarefa) => void }) {
   const [complemento, setComplemento] = useState('')
   const [prazo, setPrazo] = useState('')
   const [prioridade, setPrioridade] = useState<Priority>(tarefa.prioridade || 'media')
+  const [responsavelId, setResponsavelId] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function salvar() {
@@ -1143,6 +1144,7 @@ function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClos
         complemento: complemento.trim(),
         prazo: prazo || undefined,
         prioridade,
+        responsavel_id: responsavelId || undefined,
       })
       onSaved(saved)
       toast('Complemento solicitado. A tarefa voltou para pendente.')
@@ -1151,44 +1153,66 @@ function ComplementoModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClos
     } finally { setLoading(false) }
   }
 
+  const responsaveisOpts = useMemo(() => {
+    const map = new Map<string, string>()
+    if (tarefa.responsavel_id && tarefa.responsavel_nome) map.set(tarefa.responsavel_id, tarefa.responsavel_nome)
+    ;(tarefa.checklist || []).forEach(item => { if (item.responsavel_id && item.responsavel_nome) map.set(item.responsavel_id, item.responsavel_nome) })
+    membros.forEach(m => map.set(m.id, m.nome))
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+  }, [tarefa, membros])
+
   return (
-    <ModalBase title="Solicitar complemento na tarefa" onClose={onClose}>
-      <div style={{ display: 'grid', gap: 12 }}>
+    <ModalBase title="Solicitar complemento na lista" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg3)', padding: 12 }}>
-          <div style={{ fontWeight: 500 }}>{tarefa.titulo}</div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{tarefa.titulo}</div>
           <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>
-            Use essa opção para continuar a mesma tarefa sem criar cards soltos. O membro receberá a tarefa novamente como pendente.
+            Use essa opção para adicionar uma nova tarefa na lista e devolvê-la para o membro executar. Não cria uma nova lista — continua a mesma.
           </div>
         </div>
         <div className="form-group">
-          <label className="form-label">O que precisa ser feito agora? *</label>
-          <textarea className="form-input" rows={5} value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Ex.: complementar documentação, anexar novo comprovante, refazer uma parte, enviar nova versão..." />
+          <label className="form-label">Nova tarefa a executar *</label>
+          <textarea
+            className="form-input"
+            rows={4}
+            value={complemento}
+            onChange={e => setComplemento(e.target.value)}
+            placeholder="Ex.: Pegar nova certidão no cartório, revisar contrato X, anexar comprovante atualizado..."
+            autoFocus
+          />
         </div>
         <div className="grid-2">
           <div className="form-group">
-            <label className="form-label">Novo prazo</label>
+            <label className="form-label">Executor desta tarefa <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(opcional)</span></label>
+            <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
+              <option value="">Mesmo responsável da lista</option>
+              {responsaveisOpts.map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Novo prazo <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(opcional)</span></label>
             <input
               className="form-input"
               type="date"
               value={prazo}
-              onFocus={e => {
-                try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-              }}
+              onFocus={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
               onChange={e => setPrazo(e.target.value)}
             />
           </div>
-          <div className="form-group">
-            <label className="form-label">Prioridade</label>
-            <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Priority)}>
-              <option value="baixa">Baixa</option>
-              <option value="media">Média</option>
-              <option value="alta">Alta</option>
-            </select>
-          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Prioridade</label>
+          <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value as Priority)}>
+            <option value="baixa">Baixa</option>
+            <option value="media">Média</option>
+            <option value="alta">Alta</option>
+          </select>
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
-          <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">{loading ? <Loader size={14} /> : <RotateCcw size={14} />} Solicitar complemento</button>
+          <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">
+            {loading ? <Loader size={14} /> : <RotateCcw size={14} />} Solicitar complemento
+          </button>
         </div>
       </div>
     </ModalBase>
@@ -1398,7 +1422,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
 }
 
 
-function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder }: {
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   isGestor: boolean
@@ -1412,6 +1436,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   onReturn: (t: Tarefa) => void
   onComplemento: (t: Tarefa) => void
   onReminder: (t: Tarefa) => void
+  onPedirAjuda: (t: Tarefa) => void
+  onPainelAjuda: (t: Tarefa) => void
 }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa.checklist))
   const [obs, setObs] = useState(tarefa.observacao_conclusao || tarefa.resposta_membro || '')
@@ -1429,7 +1455,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
   const [newSubtaskDate, setNewSubtaskDate] = useState('')
   const [newSubtaskResp, setNewSubtaskResp] = useState('')
-  const [newSubtaskPoints, setNewSubtaskPoints] = useState('10')
+  const [newSubtaskPoints, setNewSubtaskPoints] = useState('3')
   const [newSubtaskDifficulty, setNewSubtaskDifficulty] = useState<ChecklistDifficulty>('nivel_3')
   const [newSubtaskSurprise, setNewSubtaskSurprise] = useState(false)
   const anexosCount = Number((tarefa as any).anexos_count || 0)
@@ -1509,7 +1535,6 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
   async function saveInlineEdit() {
     const editTituloFinal = editTitulo.trim() || (taskScope(tarefa) === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
-    if (!checklist.length) { toast('A lista precisa ter pelo menos uma tarefa.', 'error'); return }
     const invalid = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
     if (invalid) { toast('Cada tarefa precisa ter nome e pontuação.', 'error'); return }
     const checklistFinal = checklist.map(item => ({ ...item, revelar_apos_assumir: listSurprise ? true : Boolean((item as any).revelar_apos_assumir) }))
@@ -1712,6 +1737,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           <div className="task-detail-hero-actions">
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => setEditMode(v => !v)}><Edit3 size={14} /> {editMode ? 'Ocultar edição' : 'Editar / incluir tarefa'}</button>}
             {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
+            {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onPainelAjuda(tarefa)}><MessageSquare size={14} /> Ver pedidos de ajuda</button>}
+            {!isGestor && canExecuteTask && <button className="btn btn-secondary" type="button" onClick={() => onPedirAjuda(tarefa)}><MessageSquare size={14} /> Pedir ajuda</button>}
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
           </div>
         </section>
@@ -1983,6 +2010,201 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   )
 }
 
+// ── PEDIR AJUDA — modal do executor ──────────────────────────────────────────
+function PedirAjudaModal({ tarefa, membros, userId, onClose }: {
+  tarefa: Tarefa
+  membros: MembroEquipe[]
+  userId: string
+  onClose: () => void
+}) {
+  const [mensagem, setMensagem] = useState('')
+  const [destinatarioId, setDestinatarioId] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  // Opções: gestor da org + outros membros (exceto o próprio usuário)
+  const opcoes = useMemo(() => {
+    return membros.filter(m => m.id !== userId)
+  }, [membros, userId])
+
+  async function enviar() {
+    if (!mensagem.trim()) { toast('Descreva o que você precisa.', 'error'); return }
+    if (!destinatarioId) { toast('Escolha para quem pedir ajuda.', 'error'); return }
+    setLoading(true)
+    try {
+      await tarefasApi.criarAjuda(tarefa.id, { mensagem: mensagem.trim(), destinatario_id: destinatarioId })
+      toast('Pedido de ajuda enviado. A pessoa será notificada.')
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao enviar pedido.', 'error')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <ModalBase title="Pedir ajuda" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>📋 {tarefa.titulo}</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
+            Pedir ajuda não transfere a responsabilidade. A lista continua sendo sua.
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Pedir ajuda para *</label>
+          <select className="form-input" value={destinatarioId} onChange={e => setDestinatarioId(e.target.value)}>
+            <option value="">Escolha quem pode ajudar...</option>
+            {opcoes.map(m => (
+              <option key={m.id} value={m.id}>
+                {m.nome}{m.role ? ` · ${m.role}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">O que você precisa? *</label>
+          <textarea
+            className="form-input"
+            rows={4}
+            value={mensagem}
+            onChange={e => setMensagem(e.target.value)}
+            placeholder="Ex.: Estou com dificuldade em acessar o documento X. Pode me ajudar a entender o passo 3 desta tarefa?"
+            autoFocus
+            maxLength={500}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right', marginTop: 3 }}>{mensagem.length}/500</div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
+          <button className="btn btn-primary" onClick={enviar} disabled={loading} type="button">
+            {loading ? <Loader size={14} /> : <MessageSquare size={14} />} Enviar pedido
+          </button>
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
+// ── PAINEL DE AJUDA — visualizar e responder pedidos ─────────────────────────
+function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
+  tarefa: Tarefa
+  userId: string
+  isGestor: boolean
+  onClose: () => void
+}) {
+  const [ajudas, setAjudas] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [resposta, setResposta] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState<string | null>(null)
+
+  useEffect(() => {
+    tarefasApi.listarAjuda(tarefa.id)
+      .then(setAjudas)
+      .catch(() => toast('Erro ao carregar pedidos de ajuda.', 'error'))
+      .finally(() => setLoading(false))
+  }, [tarefa.id])
+
+  async function responder(ajudaId: string) {
+    const texto = resposta[ajudaId]?.trim()
+    if (!texto) { toast('Informe a resposta.', 'error'); return }
+    setSaving(ajudaId)
+    try {
+      const updated = await tarefasApi.responderAjuda(ajudaId, texto)
+      setAjudas(prev => prev.map(a => a.id === ajudaId ? updated : a))
+      toast('Resposta enviada.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao responder.', 'error')
+    } finally { setSaving(null) }
+  }
+
+  async function resolver(ajudaId: string) {
+    setSaving(ajudaId)
+    try {
+      const updated = await tarefasApi.resolverAjuda(ajudaId)
+      setAjudas(prev => prev.map(a => a.id === ajudaId ? updated : a))
+      toast('Pedido marcado como resolvido.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao resolver.', 'error')
+    } finally { setSaving(null) }
+  }
+
+  const STATUS_AJUDA: Record<string, { label: string; color: string }> = {
+    pendente:   { label: 'Aguardando resposta', color: '#F59E0B' },
+    respondida: { label: 'Respondida',          color: '#3B82F6' },
+    resolvida:  { label: 'Resolvida',           color: '#10B981' },
+  }
+
+  return (
+    <ModalBase title="Pedidos de ajuda" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--text3)', background: 'var(--bg3)', borderRadius: 10, padding: '8px 12px' }}>
+          📋 {tarefa.titulo}
+        </div>
+        {loading ? (
+          <div style={{ padding: 30, textAlign: 'center' }}><Loader size={20} className="spin-icon" /></div>
+        ) : ajudas.length === 0 ? (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
+            Nenhum pedido de ajuda nesta lista.
+          </div>
+        ) : (
+          ajudas.map(a => {
+            const sc = STATUS_AJUDA[a.status] || STATUS_AJUDA.pendente
+            const podeResponder = a.destinatario_id === userId && a.status === 'pendente'
+            const podeResolver = (a.solicitante_id === userId || isGestor) && a.status === 'respondida'
+            return (
+              <div key={a.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                  <div>
+                    <strong style={{ fontSize: 13 }}>{a.solicitante_nome}</strong>
+                    <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>pediu ajuda para</span>
+                    <strong style={{ fontSize: 13, marginLeft: 4 }}>{a.destinatario_nome}</strong>
+                  </div>
+                  <span style={{ fontSize: 11, color: sc.color, background: `${sc.color}18`, borderRadius: 999, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    {sc.label}
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text)', background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                  {a.mensagem}
+                </div>
+                {a.resposta && (
+                  <div style={{ fontSize: 12.5, color: '#3B82F6', background: 'rgba(59,130,246,.07)', border: '1px solid rgba(59,130,246,.15)', borderRadius: 8, padding: '8px 10px', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                    <strong>Resposta:</strong> {a.resposta}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                  {fmtDateTime(a.created_at)}
+                  {a.respondida_em && ` · Respondido em ${fmtDateTime(a.respondida_em)}`}
+                  {a.resolvida_em && ` · Resolvido em ${fmtDateTime(a.resolvida_em)}`}
+                </div>
+                {podeResponder && (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      placeholder="Sua resposta..."
+                      value={resposta[a.id] || ''}
+                      onChange={e => setResposta(prev => ({ ...prev, [a.id]: e.target.value }))}
+                    />
+                    <button className="btn btn-primary btn-sm" type="button" onClick={() => responder(a.id)} disabled={saving === a.id}>
+                      {saving === a.id ? <Loader size={13} /> : <Send size={13} />} Enviar resposta
+                    </button>
+                  </div>
+                )}
+                {podeResolver && (
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => resolver(a.id)} disabled={saving === a.id} style={{ alignSelf: 'flex-start' }}>
+                    {saving === a.id ? <Loader size={13} /> : <CheckCircle2 size={13} />} Marcar como resolvido
+                  </button>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </ModalBase>
+  )
+}
+
 function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder }: {
   tarefa: Tarefa
   userId: string
@@ -2046,14 +2268,20 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
 
   return (
     <article
-      className={`task-report-row${tarefa.data_reabertura && tarefa.status !== 'concluida' && tarefa.status !== 'aprovada' ? ' task-report-row--reaberta' : ''}`}
+      className={[
+        'task-report-row',
+        tarefa.data_reabertura && !isTaskFinalizada ? 'task-report-row--reaberta' : '',
+        listSurprise ? 'task-report-row--surpresa' : '',
+      ].filter(Boolean).join(' ')}
       onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
-      title="Clique para abrir a tarefa"
+      title="Clique para abrir a lista"
     >
+      {/* COLUNA PRINCIPAL — título + meta */}
       <div className="task-report-main">
         <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>
           <Icon size={16} color={sc.color} />
           <span>{tarefa.titulo}</span>
+          {listSurprise && <span className="task-surprise-pill">🎲 Surpresa</span>}
           {taskScope(tarefa) === 'equipe'
             ? <span className="task-scope-badge task-scope-badge--equipe">Equipe</span>
             : <span className="task-scope-badge task-scope-badge--pessoal">Pessoal</span>
@@ -2062,66 +2290,104 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>
           {livreAceita && !aceitaPorOutro && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
-          {aceitaPorOutro && <span style={{ color: '#F59E0B', fontWeight: 600 }}>⏳ Em execução por outro membro</span>}
-          {!isPersonal && <span>{Number(tarefa.pontuacao || 0)} ponto(s) na tarefa</span>}
-          {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nas tarefas da lista</span>}
-          {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
-          {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDateTime(tarefa.data_reabertura)}</span>}
-          {tarefa.updated_at && <span>Atualizada {fmtDateTime(tarefa.updated_at)}</span>}
-          {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo(s)</span>}
-          {ultimaEvidencia && <span>Envio {fmtDateTime(ultimaEvidencia)}</span>}
+          {aceitaPorOutro && <span className="outro-membro">⏳ Em execução por outro membro</span>}
+          {tarefa.prazo
+            ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> {overdue ? '⚠ ' : ''}Prazo {fmtDate(tarefa.prazo)}</span>
+            : null}
+          {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDate(tarefa.data_reabertura)}</span>}
+          {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo{anexosCount > 1 ? 's' : ''}</span>}
           {(tarefa as any).origem_sistema === 'destrava' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: '#7C3AED', background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.25)', borderRadius: 999, padding: '1px 7px' }}>
-              ⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}
-            </span>
+            <span className="task-destrava-badge">⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}</span>
           )}
         </div>
         {distributedTask && isGestor && executorSummary.length > 0 && (
-          <div className="task-report-team-line">Equipe: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</div>
+          <div className="task-report-team-line">
+            {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}
+          </div>
         )}
       </div>
 
+      {/* COLUNA STATUS */}
       <div className="task-report-cell task-report-status">
         <span style={{ color: sc.color, background: sc.bg }}><Icon size={12} /> {sc.label}</span>
-        {livreDisponivel && <em>Livre</em>}
+        {livreDisponivel && <em>Livre para assumir</em>}
         {livreAceita && !aceitaPorOutro && <em>Assumida</em>}
-        {aceitaPorOutro && <em style={{ color: '#F59E0B' }}>Outro membro</em>}
+        {aceitaPorOutro && <em className="outro-membro">Outro membro</em>}
+        {overdue && !isTaskFinalizada && <em style={{ color: '#EF4444', background: 'rgba(239,68,68,.1)', borderColor: 'rgba(239,68,68,.2)' }}>Atrasada</em>}
       </div>
 
+      {/* COLUNA PRIORIDADE */}
       <div className="task-report-cell task-report-priority">
         <span style={{ color: pc.color, background: `${pc.color}18` }}>{pc.label}</span>
       </div>
 
+      {/* COLUNA PROGRESSO */}
       <div className="task-report-cell task-report-progress">
         <strong>{checklistLabel}</strong>
-        <div className="task-progress-line compact"><span style={{ width: `${progressWidth}%` }} /></div>
+        {checkTotal > 0 && (
+          <div className="task-progress-line compact">
+            <span style={{ width: `${progressWidth}%` }} />
+          </div>
+        )}
       </div>
 
+      {/* COLUNA AÇÕES */}
       <div className="task-report-actions">
+        {/* Membro: assumir lista livre */}
         {livreDisponivel && !isGestor && (
-          <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir tarefa</button>
+          <button className="btn btn-primary btn-sm task-action-btn task-btn-assumir" onClick={() => onPegar(tarefa)} type="button">
+            Assumir lista
+          </button>
         )}
+        {/* Info: em execução por outro */}
         {aceitaPorOutro && !isGestor && (
-          <span style={{ fontSize: 12, color: '#F59E0B', padding: '4px 8px', background: 'rgba(245,158,11,.1)', borderRadius: 8, fontWeight: 600 }}>Em execução por outro membro</span>
+          <span className="task-outro-membro-badge">⏳ Outro membro</span>
         )}
-        <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
+
+        {/* Ver lista */}
+        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver lista</button>
+
         {isPersonal ? (
           <>
-            <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
-            {canDeleteTarefa(tarefa, userId, isGestor) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+            <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
+            {canDeleteTarefa(tarefa, userId, isGestor) && (
+              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
+            )}
           </>
         ) : (
           <>
-            <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={12} /> Arquivos</button>
-            {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReminder(tarefa)} type="button"><MessageSquare size={12} /> Lembrete</button>}
-            {isGestor && <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>}
-            {isGestor && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>}
-            {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>}
-            {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>}
-            {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>}
-            {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>}
-            {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={12} /> Complementar</button>}
-            {canDeleteTarefa(tarefa, userId, isGestor) && <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>}
+            {/* Membro: iniciar / executar */}
+            {canExecuteTask && ['pendente', 'devolvida'].includes(tarefa.status) && (
+              <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onStart(tarefa)} type="button">Iniciar</button>
+            )}
+            {canExecuteTask && ['em_progresso','reenviada'].includes(tarefa.status) && (
+              <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Executar</button>
+            )}
+
+            {/* Gestor: aprovar / devolver */}
+            {canReviewTask && tarefa.status === 'concluida' && (
+              <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onApprove(tarefa)} type="button">Aprovar</button>
+            )}
+            {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && (
+              <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onReturn(tarefa)} type="button">Devolver</button>
+            )}
+
+            {/* Gestor: ações secundárias */}
+            {isGestor && (
+              <>
+                <button className="btn btn-ghost btn-sm task-action-icon" title="Arquivos" onClick={() => onAnexos(tarefa)} type="button"><Paperclip size={13} /></button>
+                <button className="btn btn-ghost btn-sm task-action-icon" title="Histórico" onClick={() => onHistory(tarefa)} type="button"><History size={13} /></button>
+                {canReviewTask && (
+                  <button className="btn btn-ghost btn-sm task-action-icon" title="Enviar lembrete" onClick={() => onReminder(tarefa)} type="button"><MessageSquare size={13} /></button>
+                )}
+                {(tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && (
+                  <button className="btn btn-ghost btn-sm task-action-icon" title="Solicitar complemento" onClick={() => onComplemento(tarefa)} type="button"><RotateCcw size={13} /></button>
+                )}
+              </>
+            )}
+            {canDeleteTarefa(tarefa, userId, isGestor) && (
+              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
+            )}
           </>
         )}
       </div>
@@ -2229,6 +2495,77 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
   )
 }
 
+
+function FilterPanel({
+  membroFiltro, setMembroFiltro,
+  mesFiltro, setMesFiltro,
+  anoFiltro, setAnoFiltro,
+  prioridade, setPrioridade,
+  membroOptions, anoOptions,
+  onLimpar, activeCount
+}: {
+  membroFiltro: string; setMembroFiltro: (v: string) => void
+  mesFiltro: string; setMesFiltro: (v: string) => void
+  anoFiltro: string; setAnoFiltro: (v: string) => void
+  prioridade: string; setPrioridade: (v: string) => void
+  membroOptions: Array<{ id: string; nome: string; role?: string }>
+  anoOptions: string[]
+  onLimpar: () => void
+  activeCount: number
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="tarefas-filter-dropdown">
+      <button className={`btn btn-secondary tarefas-filter-btn${activeCount > 0 ? ' active' : ''}`} type="button" onClick={() => setOpen(v => !v)}>
+        <Search size={14} /> Filtros {activeCount > 0 && <span className="filter-active-badge">{activeCount}</span>}
+      </button>
+      {open && (
+        <div className="tarefas-filter-panel">
+          <div className="tarefas-filter-header">
+            <strong>Filtros avançados</strong>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => { onLimpar(); setOpen(false) }}>Limpar</button>
+          </div>
+          <div className="tarefas-filter-grid">
+            <div className="form-group">
+              <label className="form-label">Membro</label>
+              <select className="form-input" value={membroFiltro} onChange={e => setMembroFiltro(e.target.value)}>
+                <option value="todos">Todos</option>
+                {membroOptions.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Mês</label>
+              <select className="form-input" value={mesFiltro} onChange={e => setMesFiltro(e.target.value)}>
+                <option value="todos">Todos</option>
+                {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => (
+                  <option key={i+1} value={String(i+1).padStart(2,'0')}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Ano</label>
+              <select className="form-input" value={anoFiltro} onChange={e => setAnoFiltro(e.target.value)}>
+                <option value="todos">Todos</option>
+                {anoOptions.map(ano => <option key={ano} value={ano}>{ano}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Prioridade</label>
+              <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value)}>
+                <option value="todos">Todas</option>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </div>
+          </div>
+          <button className="btn btn-secondary btn-sm" style={{ width: '100%', marginTop: 8 }} type="button" onClick={() => setOpen(false)}>Aplicar</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Tarefas() {
   const { user } = useAuth()
   const { t } = useVisualTexts()
@@ -2245,6 +2582,8 @@ export default function Tarefas() {
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
+  const [ajuda, setAjuda] = useState<Tarefa | null>(null)
+  const [painelAjuda, setPainelAjuda] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
@@ -2510,166 +2849,135 @@ export default function Tarefas() {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px)' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+    <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 24px)' }}>
+
+      {/* ── CABEÇALHO ─────────────────────────────────────── */}
+      <header className="tarefas-page-header">
         <div>
-          <h1 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 28px)', fontWeight: 600 }}>{t('tasks.pageTitle')}</h1>
-          <p style={{ margin: 0, color: 'var(--text3)', fontSize: 13 }}>{escopo === 'pessoais' ? 'Minhas tarefas' : escopo === 'equipe' ? 'Tarefas do time' : escopo === 'recentes' ? 'Últimas movimentações' : escopo === 'ranking' ? 'Histórico e pontuação dos membros' : 'Todas as tarefas'}</p>
+          <h1 className="tarefas-page-title">{t('tasks.pageTitle')}</h1>
+          <p className="tarefas-page-sub">
+            {escopo === 'pessoais' ? 'Minhas listas pessoais'
+              : escopo === 'equipe' ? 'Listas da equipe'
+              : escopo === 'disponiveis' ? 'Disponíveis para assumir'
+              : escopo === 'ranking' ? 'Pontuação e reconhecimento'
+              : 'Todas as listas de tarefas'}
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEdit(null); setModalOpen(true) }} type="button"><Plus size={16} /> {t('tasks.newButton')}</button>
+        <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
+          <Plus size={17} /> Nova lista
+        </button>
       </header>
 
+      {/* ── OFFLINE BANNER ────────────────────────────────── */}
       {(!online || offlineQueueCount > 0) && (
         <div className="offline-sync-banner">
           <strong>{online ? 'Sincronização pendente' : 'Modo offline ativo'}</strong>
-          <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus tenta enviar a carga automaticamente.'}</span>
+          <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus sincroniza automaticamente.'}</span>
         </div>
       )}
 
-      <section className="task-smart-tabs" aria-label="Tipo de tarefas">
-        {[
-          { id: 'pessoais', label: 'Tarefas pessoais', count: pessoalCount, hint: 'Minhas' },
-          { id: 'equipe', label: 'Tarefas do time', count: equipeCount, hint: 'Equipe' },
-          { id: 'disponiveis', label: 'Livres para assumir', count: disponiveisCount, hint: 'Livres' },
-          { id: 'recentes', label: 'Últimas tarefas', count: recentesCount, hint: 'Recentes' },
-          { id: 'ranking', label: 'Ranking', count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },
-          { id: 'todas', label: 'Todas', count: tarefasVisiveis.length, hint: 'Geral' },
-        ].map(tab => {
-          const active = escopo === tab.id
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              className={active ? 'task-smart-tab active' : 'task-smart-tab'}
-              onClick={() => setEscopo(tab.id as 'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes')}
-            >
-              <span className="task-smart-tab-main">
-                <strong>{tab.label}</strong>
-                <em>{tab.count}</em>
-              </span>
-              <span className="task-smart-tab-hint">{tab.hint}</span>
-            </button>
-          )
-        })}
-      </section>
-
-      <section className="task-flow-tabs" aria-label="Visão rápida das tarefas">
-        {[
-          { id: 'todos', label: 'Todas', count: quickCounts.todos, hint: 'Visão geral' },
-          { id: 'pendentes', label: 'Pendentes', count: quickCounts.pendentes, hint: 'Aguardando ação' },
-          { id: 'execucao', label: 'Em execução', count: quickCounts.execucao, hint: 'Em andamento' },
-          { id: 'concluidas', label: 'Concluídas', count: quickCounts.concluidas, hint: 'Entregues/aprovadas' },
-          { id: 'atrasadas', label: 'Atrasadas', count: quickCounts.atrasadas, hint: 'Cobrança' },
-          { id: 'ultimas', label: 'Últimas', count: quickCounts.ultimas, hint: 'Movimentadas' },
-        ].map(tab => (
+      {/* ── ABAS PRINCIPAIS ───────────────────────────────── */}
+      <section className="task-smart-tabs" aria-label="Tipo de lista">
+        {([
+          { id: 'pessoais',    label: 'Minhas',   count: pessoalCount,      hint: 'Pessoais' },
+          { id: 'equipe',      label: 'Equipe',   count: equipeCount,       hint: 'Time' },
+          { id: 'disponiveis', label: 'Livres',   count: disponiveisCount,  hint: 'Assumir' },
+          { id: 'ranking',     label: 'Ranking',  count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },
+          { id: 'todas',       label: 'Todas',    count: tarefasVisiveis.length, hint: 'Geral' },
+        ] as const).map(tab => (
           <button
             key={tab.id}
             type="button"
-            className={statusTab === tab.id ? 'task-flow-tab active' : 'task-flow-tab'}
-            onClick={() => {
-              setStatusTab(tab.id as typeof statusTab)
-              setStatus('todos')
-              if (tab.id === 'ultimas') setEscopo('recentes')
-              if (tab.id !== 'ultimas' && escopo === 'recentes') setEscopo('todas')
-            }}
+            className={escopo === tab.id ? 'task-smart-tab active' : 'task-smart-tab'}
+            onClick={() => setEscopo(tab.id as typeof escopo)}
           >
-            <strong>{tab.label}</strong>
-            <span>{tab.count}</span>
-            <em>{tab.hint}</em>
+            <span className="task-smart-tab-main">
+              <strong>{tab.label}</strong>
+              <em>{tab.count}</em>
+            </span>
+            <span className="task-smart-tab-hint">{tab.hint}</span>
           </button>
         ))}
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 14 }}>
-        {stats.map(([label, value, color]) => <div key={String(label)} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-          <div style={{ fontSize: 21, fontWeight: 600, color: String(color) }}>{String(value)}</div>
-          <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 650 }}>{String(label)}</div>
-        </div>)}
-      </section>
+      {/* ── ABAS DE STATUS ────────────────────────────────── */}
+      {escopo !== 'ranking' && (
+        <section className="task-flow-tabs" aria-label="Filtrar por status">
+          {([
+            { id: 'todos',      label: 'Tudo',        count: quickCounts.todos },
+            { id: 'pendentes',  label: 'Pendentes',   count: quickCounts.pendentes },
+            { id: 'execucao',   label: 'Em execução', count: quickCounts.execucao },
+            { id: 'concluidas', label: 'Concluídas',  count: quickCounts.concluidas },
+            { id: 'atrasadas',  label: '⚠ Atrasadas', count: quickCounts.atrasadas },
+          ] as const).map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              className={statusTab === tab.id ? 'task-flow-tab active' : 'task-flow-tab'}
+              onClick={() => { setStatusTab(tab.id as typeof statusTab); setStatus('todos') }}
+            >
+              <strong>{tab.label}</strong>
+              <span className={tab.id === 'atrasadas' && tab.count > 0 ? 'tab-count danger' : 'tab-count'}>{tab.count}</span>
+            </button>
+          ))}
+        </section>
+      )}
 
-      <section className="task-filters-panel" style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <strong style={{ fontSize: 14, fontWeight: 750 }}>{t('tasks.filters.title')}</strong>
-          <button className="btn btn-ghost" type="button" onClick={limparFiltros} style={{ minHeight: 34, padding: '7px 10px', fontSize: 12 }}>{t('tasks.filters.clear')}</button>
-        </div>
-        <div className="task-filters-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(132px, max-content))', gap: 8 }}>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
-            <input className="form-input" style={{ paddingLeft: 34 }} value={search} onChange={e => setSearch(e.target.value)} placeholder={t('tasks.search.placeholder')} />
+      {/* ── BUSCA + FILTROS ───────────────────────────────── */}
+      {escopo !== 'ranking' && (
+        <div className="tarefas-search-row">
+          <div className="tarefas-search-wrap">
+            <Search size={15} className="tarefas-search-icon" />
+            <input
+              className="form-input tarefas-search-input"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar lista, tarefa, membro..."
+            />
+            {search && (
+              <button className="tarefas-search-clear" type="button" onClick={() => setSearch('')}><X size={14} /></button>
+            )}
           </div>
-          <select className="form-input" value={membroFiltro} onChange={e => setMembroFiltro(e.target.value)}>
-            <option value="todos">Todos membros</option>
-            {membroOptions.map(m => <option key={m.id} value={m.id}>{m.nome}{m.id === user?.id ? ' (eu)' : ''}</option>)}
-          </select>
-          <select className="form-input" value={mesFiltro} onChange={e => setMesFiltro(e.target.value)}>
-            <option value="todos">Todos os meses</option>
-            <option value="01">Janeiro</option>
-            <option value="02">Fevereiro</option>
-            <option value="03">Março</option>
-            <option value="04">Abril</option>
-            <option value="05">Maio</option>
-            <option value="06">Junho</option>
-            <option value="07">Julho</option>
-            <option value="08">Agosto</option>
-            <option value="09">Setembro</option>
-            <option value="10">Outubro</option>
-            <option value="11">Novembro</option>
-            <option value="12">Dezembro</option>
-          </select>
-          <select className="form-input" value={anoFiltro} onChange={e => setAnoFiltro(e.target.value)}>
-            <option value="todos">Todos os anos</option>
-            {anoOptions.map(ano => <option key={ano} value={ano}>{ano}</option>)}
-          </select>
-          <select className="form-input" value={status} onChange={e => setStatus(e.target.value)}>
-            <option value="todos">Todos status</option>
-            {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
-          <select className="form-input" value={prioridade} onChange={e => setPrioridade(e.target.value)}>
-            <option value="todos">Todas prioridades</option>
-            <option value="baixa">Baixa</option>
-            <option value="media">Média</option>
-            <option value="alta">Alta</option>
-          </select>
+          {isGestor && (
+            <FilterPanel
+              membroFiltro={membroFiltro} setMembroFiltro={setMembroFiltro}
+              mesFiltro={mesFiltro} setMesFiltro={setMesFiltro}
+              anoFiltro={anoFiltro} setAnoFiltro={setAnoFiltro}
+              prioridade={prioridade} setPrioridade={setPrioridade}
+              membroOptions={membroOptions}
+              anoOptions={anoOptions}
+              onLimpar={limparFiltros}
+              activeCount={[membroFiltro, mesFiltro, anoFiltro, prioridade].filter(v => v !== 'todos').length}
+            />
+          )}
         </div>
-      </section>
+      )}
 
-      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 12, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 10 }}>
-          <div>
-            <strong style={{ display: 'block', fontSize: 14, fontWeight: 750 }}>Status das tarefas filtradas</strong>
-            <span style={{ color: 'var(--text3)', fontSize: 12 }}>Conclusão, atrasos e volume considerando os filtros ativos.</span>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 850, color: dashboardStats.percent >= 70 ? '#10B981' : dashboardStats.percent >= 40 ? '#F59E0B' : '#EF4444' }}>{dashboardStats.percent}%</div>
-            <div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div>
-          </div>
+      {/* ── LISTA / RANKING / VAZIO ───────────────────────── */}
+      {loading ? (
+        <div className="tarefas-loading"><Loader size={26} className="spin-icon" /></div>
+      ) : escopo === 'ranking' ? (
+        <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} />
+      ) : filtered.length === 0 ? (
+        <div className="tarefas-empty">
+          <div className="tarefas-empty-icon">📋</div>
+          <strong>Nenhuma lista encontrada</strong>
+          <span>
+            {search ? `Nenhum resultado para "${search}".` :
+              statusTab === 'atrasadas' ? 'Ótimo! Nenhuma lista atrasada.' :
+              statusTab === 'pendentes' ? 'Nenhuma lista pendente.' :
+              escopo === 'disponiveis' ? 'Nenhuma lista livre disponível no momento.' :
+              'Nenhuma lista encontrada com os filtros atuais.'}
+          </span>
+          {(search || membroFiltro !== 'todos' || mesFiltro !== 'todos' || anoFiltro !== 'todos' || prioridade !== 'todos' || statusTab !== 'todos') && (
+            <button className="btn btn-ghost" type="button" onClick={limparFiltros}>Limpar filtros</button>
+          )}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginBottom: 10 }}>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16 }}>{dashboardStats.total}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>tarefas filtradas</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#10B981' }}>{dashboardStats.done}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>concluídas/aprovadas</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#F59E0B' }}>{dashboardStats.opened}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>em aberto</div></div>
-          <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 10 }}><strong style={{ fontSize: 16, color: '#EF4444' }}>{dashboardStats.late}</strong><div style={{ fontSize: 11, color: 'var(--text3)' }}>vencidas</div></div>
-        </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {dashboardStats.statusItems.map(item => {
-            const width = dashboardStats.total ? Math.max(3, Math.round((item.value / dashboardStats.total) * 100)) : 0
-            return (
-              <div key={item.key} style={{ display: 'grid', gridTemplateColumns: '105px 1fr 34px', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{item.label}</span>
-                <div style={{ height: 9, borderRadius: 999, background: 'rgba(148,163,184,.16)', overflow: 'hidden' }}>
-                  <div style={{ width: `${width}%`, height: '100%', borderRadius: 999, background: item.color, transition: 'width .2s ease' }} />
-                </div>
-                <strong style={{ fontSize: 12, textAlign: 'right' }}>{item.value}</strong>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-
-      {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Loader size={22} style={{ animation: 'spin 1s linear infinite' }} /></div> : (
+      ) : (
         <div className="task-report-list">
-          {escopo === 'ranking' ? <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} /> : filtered.length === 0 ? <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 16, padding: 30, textAlign: 'center', color: 'var(--text3)' }}>{escopo === 'pessoais' ? 'Nenhuma tarefa pessoal encontrada.' : escopo === 'equipe' ? 'Nenhuma tarefa do time encontrada.' : statusTab !== 'todos' ? 'Nenhuma tarefa encontrada nesta aba.' : escopo === 'recentes' ? 'Nenhuma tarefa recente encontrada.' : 'Nenhuma tarefa encontrada.'}</div> : filtered.map(t => (
-            <TarefaCard key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
+          {filtered.map(t => (
+            <TarefaCard
+              key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}
@@ -2686,12 +2994,14 @@ export default function Tarefas() {
           ))}
         </div>
       )}
-
+      {/* ── MODAIS ────────────────────────────────────────── */}
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
-      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} />}
-      {complemento && <ComplementoModal tarefa={complemento} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
+      {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
+      {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
+      {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} />}
+      {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
   )

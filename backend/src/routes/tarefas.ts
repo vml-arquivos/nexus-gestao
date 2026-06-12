@@ -2837,7 +2837,7 @@ router.patch(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { orgId, userId, role } = req.user!;
-      const { complemento, prazo, prioridade } = req.body || {};
+      const { complemento, prazo, prioridade, responsavel_id: novoResponsavelId } = req.body || {};
       if (!complemento?.trim()) {
         res.status(400).json({ error: "Informe o complemento solicitado." });
         return;
@@ -2872,13 +2872,24 @@ router.patch(
         .join("\n\n");
 
       const checklistComplementar = parseChecklistItems(existing.checklist);
+
+      // Buscar nome do responsável se informado
+      let novoResponsavelNome: string | undefined;
+      if (novoResponsavelId) {
+        const resp = await queryOne<{ nome: string }>(
+          "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
+          [novoResponsavelId, orgId]
+        ).catch(() => null);
+        novoResponsavelNome = resp?.nome || undefined;
+      }
+
       checklistComplementar.push({
         id: uuidv4(),
         texto: complemento.trim(),
         descricao: "",
         data: normalizeNullableDate(prazo) || undefined,
-        responsavel_id: undefined,
-        responsavel_nome: undefined,
+        responsavel_id: novoResponsavelId || undefined,
+        responsavel_nome: novoResponsavelNome || undefined,
         feito: false,
       });
       const checklistComplementarJson = JSON.stringify(checklistComplementar);
@@ -3841,6 +3852,201 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   } catch (err) {
     console.error("[TAREFAS] Erro ao excluir:", err);
     res.status(500).json({ error: "Erro ao excluir tarefa." });
+  }
+});
+
+// ── PEDIR AJUDA ──────────────────────────────────────────────────────────────
+// POST   /:id/ajuda           — membro solicita ajuda numa lista/tarefa
+// GET    /:id/ajuda           — gestor/membro lista pedidos de ajuda da lista
+// PATCH  /ajuda/:ajudaId      — destinatário responde ao pedido
+// PATCH  /ajuda/:ajudaId/resolver — solicitante ou gestor marca como resolvido
+// GET    /ajuda/pendentes     — gestor vê todos os pedidos pendentes da org
+
+router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!;
+    const { mensagem, destinatario_id, checklist_id } = req.body || {};
+    if (!mensagem?.trim()) {
+      res.status(400).json({ error: "Informe a mensagem do pedido de ajuda." });
+      return;
+    }
+    if (!destinatario_id) {
+      res.status(400).json({ error: "Informe para quem você está pedindo ajuda." });
+      return;
+    }
+    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    if (!tarefa) { res.status(404).json({ error: "Lista não encontrada." }); return; }
+    if (!(await userCanAccessTask(tarefa, req.user!))) {
+      res.status(403).json({ error: "Acesso negado." }); return;
+    }
+    if (role === "membro" && tarefa.responsavel_id !== userId && tarefa.aceita_por !== userId && !(tarefa.checklist || []).some((i: any) => i.responsavel_id === userId)) {
+      res.status(403).json({ error: "Você não está executando esta lista." }); return;
+    }
+    const destinatario = await queryOne<{ id: string; nome: string }>(
+      "SELECT id, nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
+      [destinatario_id, orgId]
+    );
+    if (!destinatario) { res.status(404).json({ error: "Destinatário não encontrado." }); return; }
+
+    const ajuda = await queryOne<any>(
+      `INSERT INTO tarefas_ajuda (org_id, tarefa_id, checklist_id, solicitante_id, destinatario_id, mensagem)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [orgId, req.params.id, checklist_id || null, userId, destinatario_id, mensagem.trim()]
+    );
+
+    // Marcar badge na tarefa
+    await query("UPDATE tarefas SET pedido_ajuda_pendente = TRUE, updated_at = NOW() WHERE id = $1 AND org_id = $2", [req.params.id, orgId]).catch(() => {});
+
+    // Notificar destinatário
+    const solicitante = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
+    await criarNotificacao({
+      orgId, userId: destinatario_id,
+      tipo: "pedido_ajuda",
+      titulo: "Pedido de ajuda recebido",
+      body: `${solicitante?.nome || "Um membro"} precisa da sua ajuda em "${tarefa.titulo}": ${mensagem.trim().slice(0, 80)}${mensagem.trim().length > 80 ? "..." : ""}`,
+      referenciaId: req.params.id, referenciaTipo: "tarefa",
+    }).catch(() => {});
+
+    res.status(201).json({ ajuda });
+  } catch (err) {
+    console.error("[AJUDA] Erro ao criar pedido:", err);
+    res.status(500).json({ error: "Erro ao criar pedido de ajuda." });
+  }
+});
+
+router.get("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!;
+    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    if (!tarefa) { res.status(404).json({ error: "Lista não encontrada." }); return; }
+    if (!(await userCanAccessTask(tarefa, req.user!))) {
+      res.status(403).json({ error: "Acesso negado." }); return;
+    }
+    let ajudas;
+    if (canDeleteOrgRecords(role) || role === "gestor" || role === "sub_gestor") {
+      // Gestor vê todos os pedidos da lista
+      ajudas = await query(
+        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome
+         FROM tarefas_ajuda ta
+         JOIN profiles ps ON ps.id = ta.solicitante_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id
+         WHERE ta.tarefa_id = $1 AND ta.org_id = $2
+         ORDER BY ta.created_at DESC`,
+        [req.params.id, orgId]
+      );
+    } else {
+      // Membro vê apenas onde está envolvido
+      ajudas = await query(
+        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome
+         FROM tarefas_ajuda ta
+         JOIN profiles ps ON ps.id = ta.solicitante_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id
+         WHERE ta.tarefa_id = $1 AND ta.org_id = $2
+           AND (ta.solicitante_id = $3 OR ta.destinatario_id = $3)
+         ORDER BY ta.created_at DESC`,
+        [req.params.id, orgId, userId]
+      );
+    }
+    res.json({ ajudas });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar pedidos de ajuda." });
+  }
+});
+
+router.get("/ajuda/pendentes", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!;
+    let ajudas;
+    if (canDeleteOrgRecords(role) || role === "gestor" || role === "sub_gestor") {
+      ajudas = await query(
+        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
+         FROM tarefas_ajuda ta
+         JOIN profiles ps ON ps.id = ta.solicitante_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id
+         JOIN tarefas t ON t.id = ta.tarefa_id
+         WHERE ta.org_id = $1 AND ta.status = 'pendente'
+         ORDER BY ta.created_at DESC LIMIT 50`,
+        [orgId]
+      );
+    } else {
+      ajudas = await query(
+        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
+         FROM tarefas_ajuda ta
+         JOIN profiles ps ON ps.id = ta.solicitante_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id
+         JOIN tarefas t ON t.id = ta.tarefa_id
+         WHERE ta.org_id = $1 AND ta.status = 'pendente'
+           AND (ta.solicitante_id = $2 OR ta.destinatario_id = $2)
+         ORDER BY ta.created_at DESC LIMIT 50`,
+        [orgId, userId]
+      );
+    }
+    res.json({ ajudas });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar pedidos pendentes." });
+  }
+});
+
+router.patch("/ajuda/:ajudaId", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!;
+    const { resposta } = req.body || {};
+    if (!resposta?.trim()) {
+      res.status(400).json({ error: "Informe a resposta." }); return;
+    }
+    const ajuda = await queryOne<any>(
+      "SELECT * FROM tarefas_ajuda WHERE id = $1 AND org_id = $2", [req.params.ajudaId, orgId]
+    );
+    if (!ajuda) { res.status(404).json({ error: "Pedido não encontrado." }); return; }
+    if (ajuda.destinatario_id !== userId && !canDeleteOrgRecords((req.user!).role)) {
+      res.status(403).json({ error: "Somente o destinatário pode responder." }); return;
+    }
+    const updated = await queryOne<any>(
+      `UPDATE tarefas_ajuda SET resposta = $1, status = 'respondida', respondida_em = NOW()
+       WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [resposta.trim(), req.params.ajudaId, orgId]
+    );
+    // Notificar solicitante
+    const respondedor = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
+    await criarNotificacao({
+      orgId, userId: ajuda.solicitante_id,
+      tipo: "ajuda_respondida",
+      titulo: "Pedido de ajuda respondido",
+      body: `${respondedor?.nome || "Alguém"} respondeu seu pedido de ajuda.`,
+      referenciaId: ajuda.tarefa_id, referenciaTipo: "tarefa",
+    }).catch(() => {});
+    res.json({ ajuda: updated });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao responder pedido de ajuda." });
+  }
+});
+
+router.patch("/ajuda/:ajudaId/resolver", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!;
+    const ajuda = await queryOne<any>(
+      "SELECT * FROM tarefas_ajuda WHERE id = $1 AND org_id = $2", [req.params.ajudaId, orgId]
+    );
+    if (!ajuda) { res.status(404).json({ error: "Pedido não encontrado." }); return; }
+    if (ajuda.solicitante_id !== userId && !canDeleteOrgRecords(role) && role !== "gestor") {
+      res.status(403).json({ error: "Apenas o solicitante ou gestor pode marcar como resolvido." }); return;
+    }
+    const updated = await queryOne<any>(
+      `UPDATE tarefas_ajuda SET status = 'resolvida', resolvida_em = NOW()
+       WHERE id = $1 AND org_id = $2 RETURNING *`,
+      [req.params.ajudaId, orgId]
+    );
+    // Verificar se ainda há pedidos pendentes na tarefa para atualizar o badge
+    const pendentes = await queryOne<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM tarefas_ajuda WHERE tarefa_id = $1 AND status = 'pendente'",
+      [ajuda.tarefa_id]
+    ).catch(() => null);
+    if (Number(pendentes?.count || 0) === 0) {
+      await query("UPDATE tarefas SET pedido_ajuda_pendente = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2", [ajuda.tarefa_id, orgId]).catch(() => {});
+    }
+    res.json({ ajuda: updated });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao resolver pedido de ajuda." });
   }
 });
 
