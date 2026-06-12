@@ -250,15 +250,22 @@ function checklistExecutorName(item: ChecklistItem, tarefa: Tarefa) {
   return tarefa.criado_por_nome || 'Executor'
 }
 
+function checklistItemBelongsToUser(item: ChecklistItem, userId?: string) {
+  if (!userId) return false
+  const anyItem = item as any
+  return item.responsavel_id === userId || anyItem.assumido_por === userId || anyItem.executor_id === userId || anyItem.aceita_por === userId || anyItem.concluido_por === userId || anyItem.feito_por === userId
+}
+
 function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
   if (!userId) return false
+  if (checklistItemBelongsToUser(item, userId)) return true
   if (item.responsavel_id) return item.responsavel_id === userId
   return tarefa.aceita_por === userId || tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
 }
 
 function taskHasChecklistForUser(tarefa: Tarefa, userId?: string) {
   if (!userId) return false
-  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => item.responsavel_id === userId)
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => checklistItemBelongsToUser(item, userId))
 }
 
 
@@ -278,7 +285,11 @@ function checklistProgressForUser(tarefa: Tarefa, userId?: string) {
 
 function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
   if (!userId) return false
-  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id && item.responsavel_id !== userId)
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => {
+    const anyItem = item as any
+    const owner = item.responsavel_id || anyItem.assumido_por || anyItem.executor_id || anyItem.aceita_por
+    return !!owner && owner !== userId
+  })
 }
 
 function taskHasDistributedChecklist(tarefa: Tarefa) {
@@ -366,6 +377,15 @@ function isAvailableFreeTask(tarefa: Tarefa) {
   if (tarefa.aceita_por) return false
   // Sem aceita_por: tarefa disponível para assumir
   return true
+}
+
+function firstOpenChecklistItemForCurrentUser(tarefa: Tarefa, userId?: string) {
+  const items = normalizeChecklistItems(tarefa.checklist)
+  return items.find(item =>
+    !item.feito &&
+    Boolean(item.id) &&
+    (!item.responsavel_id || item.responsavel_id === userId)
+  )
 }
 
 /** Tarefa livre já aceita por outro membro (não pelo usuário atual) */
@@ -2318,10 +2338,11 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder }: {
+function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
+  actionBusy?: boolean
   onOpen: (t: Tarefa) => void
   onEdit: (t: Tarefa) => void
   onDelete: (id: string) => void
@@ -2448,8 +2469,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       <div className="task-report-actions">
         {/* Membro: assumir lista livre */}
         {livreDisponivel && !isGestor && (
-          <button className="btn btn-primary btn-sm task-action-btn task-btn-assumir" onClick={() => onPegar(tarefa)} type="button">
-            Assumir lista
+          <button className="btn btn-primary btn-sm task-action-btn task-btn-assumir" onClick={() => onPegar(tarefa)} type="button" disabled={actionBusy}>
+            {actionBusy ? 'Assumindo...' : 'Assumir'}
           </button>
         )}
         {/* Info: em execução por outro */}
@@ -2713,6 +2734,7 @@ export default function Tarefas() {
   )
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
   const [offlineQueueCount, setOfflineQueueCount] = useState(() => Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
+  const [actionTaskId, setActionTaskId] = useState<string | null>(null)
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -2921,13 +2943,37 @@ export default function Tarefas() {
   }
 
   async function pegarTarefa(t: Tarefa) {
+    if (actionTaskId) return
+    setActionTaskId(t.id)
     try {
-      const saved = await tarefasApi.pegar(t.id)
+      let saved: Tarefa | null = null
+      let pegarError: unknown = null
+      try {
+        saved = await tarefasApi.pegar(t.id)
+      } catch (e) {
+        pegarError = e
+      }
+
+      // Defesa de navegação: em algumas listas livres, o botão interno assume o objetivo
+      // corretamente, mas o botão do card usa o endpoint da lista inteira. Quando a lista
+      // tem objetivo livre visível para o membro, fazemos fallback seguro para o mesmo
+      // fluxo interno, sem quebrar tarefa surpresa nem tarefa já assumida por outro.
+      if (!saved) {
+        const item = firstOpenChecklistItemForCurrentUser(t, user?.id)
+        if (item?.id) {
+          saved = await tarefasApi.assumirChecklist(t.id, item.id)
+        } else {
+          throw pegarError instanceof Error ? pegarError : new Error('Não foi possível assumir esta tarefa.')
+        }
+      }
+
       updateSaved(saved)
       await load()
-      toast('Tarefa assumida. Você pode continuar pegando ou recebendo outras tarefas.')
+      toast('Tarefa assumida. Você já pode executar sua parte.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao assumir tarefa.', 'error')
+    } finally {
+      setActionTaskId(null)
     }
   }
 
@@ -3084,7 +3130,7 @@ export default function Tarefas() {
         <div className="task-report-list">
           {filtered.map(t => (
             <TarefaCard
-              key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
+              key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}

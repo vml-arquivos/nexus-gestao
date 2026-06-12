@@ -765,10 +765,12 @@ function isTaskExecutor(task: any, userId: string) {
 
 function isChecklistItemExecutor(
   task: any,
-  item: { responsavel_id?: string },
+  item: { responsavel_id?: string; assumido_por?: string; executor_id?: string; aceita_por?: string; concluido_por?: string; feito_por?: string },
   userId: string,
 ) {
-  if (item.responsavel_id) return item.responsavel_id === userId;
+  if (checklistItemBelongsToUser(item, userId)) return true;
+  const explicitOwner = checklistExecutorId(item, task);
+  if (explicitOwner) return explicitOwner === userId;
   return isTaskExecutor(task, userId);
 }
 
@@ -786,16 +788,28 @@ function changedChecklistDoneItems(before: unknown, after: unknown) {
   });
 }
 
+function checklistItemBelongsToUser(item: any, userId: string) {
+  return (
+    item?.responsavel_id === userId ||
+    item?.assumido_por === userId ||
+    item?.executor_id === userId ||
+    item?.aceita_por === userId ||
+    item?.concluido_por === userId ||
+    item?.feito_por === userId
+  );
+}
+
 function hasChecklistAssignedTo(task: any, userId: string) {
-  return parseChecklistItems(task?.checklist).some(
-    (item) => item.responsavel_id === userId,
+  return parseChecklistItems(task?.checklist).some((item) =>
+    checklistItemBelongsToUser(item, userId),
   );
 }
 
 function hasChecklistAssignedToOther(task: any, userId: string) {
-  return parseChecklistItems(task?.checklist).some(
-    (item) => item.responsavel_id && item.responsavel_id !== userId,
-  );
+  return parseChecklistItems(task?.checklist).some((item) => {
+    const owner = checklistExecutorId(item, task);
+    return Boolean(owner && owner !== userId);
+  });
 }
 
 function hasUnassignedOpenChecklist(task: any) {
@@ -1776,15 +1790,17 @@ router.post(
         "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
         [userId, orgId],
       );
-      const checklistAoAssumir = isTaskSurprise(existing)
-        ? JSON.stringify(
-            parseChecklistItems(existing.checklist).map((item) => ({
-              ...item,
-              responsavel_id: userId,
-              responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
-            })),
-          )
-        : existing.checklist;
+      const checklistAoAssumir = JSON.stringify(
+        parseChecklistItems(existing.checklist).map((item) => {
+          if (item.feito) return item;
+          if (item.responsavel_id && item.responsavel_id !== userId) return item;
+          return {
+            ...item,
+            responsavel_id: userId,
+            responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
+          };
+        }),
+      );
       const tarefa = await queryOne<any>(
         `UPDATE tarefas SET aceita_por = $1, aceita_em = NOW(), responsavel_id = $1, responsavel_nome = $2,
           checklist = $5,
@@ -3001,15 +3017,18 @@ router.patch(
         res.status(403).json({ error: "Acesso negado." });
         return;
       }
-      if (
-        existing.responsavel_id !== userId &&
-        existing.criado_por !== userId
-      ) {
+      const podeReenviar =
+        existing.responsavel_id === userId ||
+        existing.aceita_por === userId ||
+        existing.criado_por === userId ||
+        checklistForUserProgress(existing, userId).total > 0 ||
+        hasChecklistAssignedTo(existing, userId);
+      if (!podeReenviar) {
         res
           .status(403)
           .json({
             error:
-              "Você só pode reenviar tarefas atribuídas ou criadas por você.",
+              "Você só pode reenviar tarefas atribuídas, assumidas ou criadas por você.",
           });
         return;
       }
