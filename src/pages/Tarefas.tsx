@@ -664,7 +664,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
     if (invalidItem) { toast('Cada tarefa precisa ter nome e pontuação.', 'error'); return }
     const invalidSubitem = checklist.some(item => Array.isArray((item as any).subtarefas) && (item as any).subtarefas.some((sub: any) => !String(sub?.texto || '').trim()))
-    if (invalidSubitem) { toast('Cada subtarefa dentro da tarefa precisa ter nome.', 'error'); return }
+    if (invalidSubitem) { toast('Cada item dentro da tarefa precisa ter nome.', 'error'); return }
     const checklistFinal = checklist.map(item => ({ ...item, revelar_apos_assumir: tarefaSurpresa ? true : Boolean((item as any).revelar_apos_assumir) }))
     setLoading(true)
     try {
@@ -694,7 +694,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
       onSaved(saved)
-      toast(tarefa?.id ? 'Tarefa atualizada.' : 'Tarefa criada.')
+      onClose()
+      toast(tarefa?.id ? 'Lista atualizada.' : 'Lista criada com sucesso.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao salvar tarefa.', 'error')
     } finally {
@@ -1029,7 +1030,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 placeholder="Descrição da lista/instrução opcional para esta ação"
               />
               <div className="objective-subtasks-editor">
-                <div className="objective-subtasks-title">Subtarefas dentro desta tarefa</div>
+                <div className="objective-subtasks-title">Etapas desta tarefa</div>
                 {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
                   <div key={sub.id} className="objective-subtask-row">
                     <input
@@ -1043,8 +1044,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     </button>
                   </div>
                 ))}
-                <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova subtarefa', feito: false }] } : i))}>
-                  <Plus size={14} /> Adicionar subtarefa nesta tarefa
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova etapa', feito: false }] } : i))}>
+                  <Plus size={14} /> Adicionar etapa nesta tarefa
                 </button>
               </div>
             </div>
@@ -1212,6 +1213,118 @@ function ComplementoModal({ tarefa, membros, onClose, onSaved }: { tarefa: Taref
           <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
           <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button">
             {loading ? <Loader size={14} /> : <RotateCcw size={14} />} Solicitar complemento
+          </button>
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
+// ── MODAL DE DEVOLVER ─────────────────────────────────────────────────────────
+function DevolverModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: () => void; onSaved: (t: Tarefa) => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function salvar() {
+    if (!motivo.trim()) { toast('Informe a ressalva/correção necessária.', 'error'); return }
+    setLoading(true)
+    try {
+      const saved = await tarefasApi.devolver(tarefa.id, motivo.trim())
+      onSaved(saved)
+      onClose()
+      toast('Lista devolvida. O membro será notificado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao devolver.', 'error')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <ModalBase title="Devolver lista" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>📋 {tarefa.titulo}</div>
+          <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
+            Informe o que precisa ser corrigido. O membro receberá uma notificação com esta ressalva.
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Ressalva / O que precisa ser corrigido *</label>
+          <textarea
+            className="form-input"
+            rows={4}
+            value={motivo}
+            onChange={e => setMotivo(e.target.value)}
+            placeholder="Ex.: O documento X está incompleto. Por favor revise a seção 3 e reenvie com o comprovante anexado."
+            autoFocus
+            maxLength={1000}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right', marginTop: 3 }}>{motivo.length}/1000</div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
+          <button className="btn btn-primary" onClick={salvar} disabled={loading} type="button" style={{ background: '#F59E0B', borderColor: '#F59E0B' }}>
+            {loading ? <Loader size={14} /> : <RotateCcw size={14} />} Devolver lista
+          </button>
+        </div>
+      </div>
+    </ModalBase>
+  )
+}
+
+// ── MODAL DE LEMBRETE ─────────────────────────────────────────────────────────
+function LembreteModal({ tarefa, membros, onClose }: { tarefa: Tarefa; membros: MembroEquipe[]; onClose: () => void }) {
+  const mensagemPadrao = `A lista "${tarefa.titulo}" precisa de atenção. Verifique o prazo e execute ou atualize sua parte.`
+  const [mensagem, setMensagem] = useState(mensagemPadrao)
+  const [loading, setLoading] = useState(false)
+
+  // Destinatários possíveis baseados na lista
+  const destinatarios = useMemo(() => {
+    const nomes: string[] = []
+    if (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome) nomes.push(tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || '')
+    if ((tarefa as any).aceita_por_nome) nomes.push((tarefa as any).aceita_por_nome)
+    ;(tarefa.checklist || []).forEach(item => { if (item.responsavel_nome && !nomes.includes(item.responsavel_nome)) nomes.push(item.responsavel_nome) })
+    return nomes.filter(Boolean)
+  }, [tarefa])
+
+  async function enviar() {
+    if (!mensagem.trim()) { toast('Informe a mensagem do lembrete.', 'error'); return }
+    setLoading(true)
+    try {
+      const result = await tarefasApi.enviarLembrete(tarefa.id, mensagem.trim())
+      onClose()
+      toast(`Lembrete enviado para ${result.enviados || 0} destinatário(s).`)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao enviar lembrete.', 'error')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <ModalBase title="Enviar lembrete" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>📋 {tarefa.titulo}</div>
+          {destinatarios.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
+              Destinatários: {destinatarios.join(', ')}
+            </div>
+          )}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Mensagem do lembrete *</label>
+          <textarea
+            className="form-input"
+            rows={4}
+            value={mensagem}
+            onChange={e => setMensagem(e.target.value)}
+            autoFocus
+            maxLength={500}
+          />
+          <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right', marginTop: 3 }}>{mensagem.length}/500</div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose} type="button">Cancelar</button>
+          <button className="btn btn-primary" onClick={enviar} disabled={loading} type="button">
+            {loading ? <Loader size={14} /> : <MessageSquare size={14} />} Enviar lembrete
           </button>
         </div>
       </div>
@@ -1869,14 +1982,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
                   <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta tarefa" />
                   <div className="objective-subtasks-editor task-inline-row-desc">
-                    <div className="objective-subtasks-title">Subtarefas dentro desta tarefa</div>
+                    <div className="objective-subtasks-title">Etapas desta tarefa</div>
                     {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
                       <div key={sub.id} className="objective-subtask-row">
                         <input className="form-input" value={sub.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).map((s: ObjectiveSubitem) => s.id === sub.id ? { ...s, texto: e.target.value } : s) } : i))} placeholder="Subtarefa interna" />
                         <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).filter((s: ObjectiveSubitem) => s.id !== sub.id) } : i))}><Trash2 size={14} /></button>
                       </div>
                     ))}
-                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova subtarefa', feito: false }] } : i))}><Plus size={14} /> Adicionar subtarefa nesta tarefa</button>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova etapa', feito: false }] } : i))}><Plus size={14} /> Adicionar etapa nesta tarefa</button>
                   </div>
                 </div>
               ))}
@@ -1938,7 +2051,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             {checklistDisplayDesc(item) && <span className="task-check-desc">{checklistDisplayDesc(item)}</span>}
                             {Array.isArray((item as any).subtarefas) && (item as any).subtarefas.length > 0 && (
                               <span className="objective-subtasks-view">
-                                <strong>Subtarefas desta tarefa:</strong>
+                                <strong>Etapas desta tarefa:</strong>
                                 {((item as any).subtarefas as ObjectiveSubitem[]).map(sub => <em key={sub.id}>• {sub.texto}</em>)}
                               </span>
                             )}
@@ -2584,6 +2697,8 @@ export default function Tarefas() {
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [ajuda, setAjuda] = useState<Tarefa | null>(null)
   const [painelAjuda, setPainelAjuda] = useState<Tarefa | null>(null)
+  const [devolverTarget, setDevolverTarget] = useState<Tarefa | null>(null)
+  const [lembreteTarget, setLembreteTarget] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
   const [prioridade, setPrioridade] = useState('todos')
@@ -2825,21 +2940,11 @@ export default function Tarefas() {
   }
 
   async function devolver(t: Tarefa) {
-    const motivo = prompt('Informe a ressalva/correção necessária:')
-    if (!motivo?.trim()) return
-    try { updateSaved(await tarefasApi.devolver(t.id, motivo.trim())); toast('Tarefa devolvida.') }
-    catch (e) { toast(e instanceof Error ? e.message : 'Erro ao devolver.', 'error') }
+    setDevolverTarget(t)
   }
 
   async function enviarLembreteManual(t: Tarefa) {
-    const mensagem = prompt('Mensagem do lembrete para responsável/equipe:', `A tarefa "${t.titulo}" precisa de atenção. Verifique o prazo e execute ou atualize sua parte.`)
-    if (mensagem === null) return
-    try {
-      const result = await tarefasApi.enviarLembrete(t.id, mensagem.trim())
-      toast(`Lembrete enviado para ${result.enviados || 0} destinatário(s).`)
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao enviar lembrete.', 'error')
-    }
+    setLembreteTarget(t)
   }
 
   async function remove(id: string) {
@@ -3002,6 +3107,8 @@ export default function Tarefas() {
       {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} />}
       {painelAjuda && <PainelAjudaModal tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} />}
+      {devolverTarget && <DevolverModal tarefa={devolverTarget} onClose={() => setDevolverTarget(null)} onSaved={(t) => { updateSaved(t); setDevolverTarget(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
+      {lembreteTarget && <LembreteModal tarefa={lembreteTarget} membros={membros} onClose={() => setLembreteTarget(null)} />}
       {anexos && <AnexosModal tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
     </div>
   )

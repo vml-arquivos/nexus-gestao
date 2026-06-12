@@ -1529,11 +1529,16 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 className="form-input"
                 type="date"
                 value={vencimento}
-                onFocus={e => {
-                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                }}
+                min={new Date().toISOString().slice(0, 10)}
+                placeholder="dd/mm/aaaa"
+                onClick={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
+                onFocus={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
                 onChange={e => setVencimento(e.target.value)}
+                style={{ cursor: 'pointer' }}
               />
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>
+                Clique no campo para selecionar a data.
+              </div>
             </div>
           )}
 
@@ -1637,6 +1642,7 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 className="form-input"
                 type="date"
                 value={pagoEm}
+                onClick={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
                 onFocus={e => {
                   try { (e.target as HTMLInputElement).showPicker?.() } catch {}
                 }}
