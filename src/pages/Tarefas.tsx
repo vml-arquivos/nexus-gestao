@@ -253,7 +253,7 @@ function checklistExecutorName(item: ChecklistItem, tarefa: Tarefa) {
 function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
   if (!userId) return false
   if (item.responsavel_id) return item.responsavel_id === userId
-  return tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
+  return tarefa.aceita_por === userId || tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
 }
 
 function taskHasChecklistForUser(tarefa: Tarefa, userId?: string) {
@@ -2735,7 +2735,9 @@ export default function Tarefas() {
     try {
       const [ts, ms, rk] = await Promise.all([
         tarefasApi.list(),
-        isGestor ? equipeApi.membros() : Promise.resolve([]),
+        // Membros também precisam da equipe para o fluxo de "Pedir ajuda".
+        // Antes carregava apenas para gestor, deixando o select vazio para membro.
+        equipeApi.membros().catch(() => []),
         tarefasApi.ranking(periodoRanking).catch(() => null),
       ])
       setTarefas(Array.isArray(ts) ? ts : [])

@@ -29,8 +29,23 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
     const params: unknown[] = [orgId, userId]
 
     if (role === 'membro') {
-      // Membro vê apenas a si mesmo para não expor dados de outros
-      sql += ' AND p.id = $2'
+      // Membro precisa enxergar a equipe da organização para escolher destinatário
+      // em "Pedir ajuda". Retornamos somente dados mínimos para não expor
+      // painel operacional, contagens e e-mails de outros membros.
+      const membros = await query(`
+        SELECT
+          p.id, p.nome, NULL::text AS email, p.role, p.cargo, p.avatar_url, p.criado_por,
+          NULL::text AS criado_por_nome,
+          0::int AS tarefas_pendentes,
+          0::int AS tarefas_concluidas,
+          0::int AS tarefas_nao_concluidas,
+          0::int AS tarefas_devolvidas
+        FROM profiles p
+        WHERE p.org_id = $1 AND p.ativo = TRUE
+        ORDER BY p.role, p.nome
+      `, [orgId])
+      res.json({ membros })
+      return
     } else if (role === 'gestor' || role === 'sub_gestor') {
       // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.
       // Isto corrige o regresso onde membros convidados/adicionados por equipe sumiam quando criado_por estava nulo/diferente.

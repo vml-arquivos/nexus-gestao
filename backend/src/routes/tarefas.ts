@@ -1219,7 +1219,11 @@ async function userCanAccessTask(
       task.responsavel_id === userId ||
       task.criado_por === userId ||
       task.aceita_por === userId ||
-      hasChecklistAssignedTo(task, userId)
+      hasChecklistAssignedTo(task, userId) ||
+      // Permite abrir lista de equipe com item livre para assumir uma tarefa interna.
+      // A privacidade segue preservada por filterChecklistForUser/sanitizeTaskForUser,
+      // que mostra apenas itens livres e mascara surpresa.
+      (normalizeTaskScope(task.escopo) === "equipe" && !isFreeTeamTask(task) && hasUnassignedOpenChecklist(task))
     );
   return (
     task.criado_por === userId ||
@@ -3879,8 +3883,15 @@ router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => 
     if (!(await userCanAccessTask(tarefa, req.user!))) {
       res.status(403).json({ error: "Acesso negado." }); return;
     }
-    if (role === "membro" && tarefa.responsavel_id !== userId && tarefa.aceita_por !== userId && !(tarefa.checklist || []).some((i: any) => i.responsavel_id === userId)) {
-      res.status(403).json({ error: "Você não está executando esta lista." }); return;
+    if (role === "membro") {
+      const checklistDaLista = parseChecklistItems(tarefa.checklist);
+      const executaLista =
+        tarefa.responsavel_id === userId ||
+        tarefa.aceita_por === userId ||
+        checklistDaLista.some((i: any) => i.responsavel_id === userId || i.assumido_por === userId || i.executor_id === userId);
+      if (!executaLista) {
+        res.status(403).json({ error: "Você não está executando esta lista." }); return;
+      }
     }
     const destinatario = await queryOne<{ id: string; nome: string }>(
       "SELECT id, nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
