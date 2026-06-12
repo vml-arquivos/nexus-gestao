@@ -4057,6 +4057,9 @@ router.patch("/ajuda/:ajudaId", async (req: Request, res: Response): Promise<voi
       "SELECT * FROM tarefas_ajuda WHERE id = $1 AND org_id = $2", [req.params.ajudaId, orgId]
     );
     if (!ajuda) { res.status(404).json({ error: "Pedido não encontrado." }); return; }
+    if (ajuda.solicitante_id === userId) {
+      res.status(403).json({ error: "Quem pediu ajuda não pode responder o próprio pedido." }); return;
+    }
     if (ajuda.destinatario_id !== userId && !canDeleteOrgRecords((req.user!).role)) {
       res.status(403).json({ error: "Somente o destinatário pode responder." }); return;
     }
@@ -4071,7 +4074,7 @@ router.patch("/ajuda/:ajudaId", async (req: Request, res: Response): Promise<voi
       orgId, userId: ajuda.solicitante_id,
       tipo: "ajuda_respondida",
       titulo: "Ajuda respondida",
-      body: `${respondedor?.nome || "Alguém"} respondeu sua solicitação de ajuda`,
+      body: `${respondedor?.nome || "Alguém"} respondeu seu pedido de ajuda`,
       referenciaId: ajuda.tarefa_id, referenciaTipo: "tarefa",
     }).catch(() => {});
     res.json({ ajuda: updated });
