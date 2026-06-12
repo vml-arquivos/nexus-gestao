@@ -37,7 +37,7 @@ async function ensureTaskRuntimeSchema() {
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em TIMESTAMPTZ;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS obs TEXT;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
         ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
@@ -92,6 +92,19 @@ async function ensureTaskRuntimeSchema() {
         CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
+
+        ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
+        ALTER TABLE notificacoes ADD CONSTRAINT notificacoes_tipo_check
+          CHECK (tipo IN (
+            'info','aviso','erro','sistema','convite','equipe',
+            'tarefa_nova','nova_tarefa','tarefa_criada','tarefa_atualizada',
+            'tarefa_concluida','tarefa_nao_concluida','tarefa_devolvida',
+            'tarefa_aprovada','tarefa_reenviada','tarefa_lembrete_manual',
+            'tarefa_atrasada','tarefa_reaberta','tarefa_vencida',
+            'lembrete_diario','financeiro_vencimento',
+            'financeiro_cobranca','financeiro_vencido','agenda_lembrete',
+            'aniversario','reaberta','excluida','comentario'
+          ));
       `);
     })().catch((err) => {
       taskRuntimeSchemaPromise = null;
@@ -226,7 +239,9 @@ type ChecklistDifficulty =
   | "nivel_4"
   | "nivel_5";
 
-const SCORE_MAX = 9999;
+// Escala oficial de pontuação: Nível 1=0, Nível 2=1, Nível 3=3, Nível 4=5, Nível 5=20.
+// Nenhuma pontuação pode ultrapassar 20 pontos — o backend rejeita/normaliza valores acima.
+const SCORE_MAX = 20;
 
 const CHECKLIST_DIFFICULTY_POINTS: Record<ChecklistDifficulty, number> = {
   nivel_1: 0,
@@ -941,7 +956,7 @@ function maskParentTaskContentForMember(
     titulo:
       assignedCount > 0
         ? "Tarefa da equipe — veja somente sua parte"
-        : `Tarefa da equipe com ${freeCount || "objetivo"} disponível — assuma para ver sua parte`,
+        : `Tarefa da equipe com ${freeCount || "tarefa"} disponível — assuma para ver sua parte`,
     descricao: null,
     obs: null,
     origem_payload: {
@@ -962,7 +977,7 @@ function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   if (!item?.revelar_apos_assumir || item?.feito || assignedToUser) return item;
   return {
     ...item,
-    texto: `Objetivo valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
+    texto: `Tarefa valendo ${normalizeChecklistScore(item?.pontuacao, pointsForDifficulty(item?.dificuldade))} ponto(s) — assuma para revelar`,
     descricao: undefined,
     oculta_ate_assumir: true,
   };
@@ -1057,7 +1072,10 @@ function canListTaskForUser(
   // Tarefa surpresa livre é uma execução completa: depois de assumida por alguém,
   // objetivos livres internos não mantêm a tarefa disponível para outros membros.
   if (isTaskSurprise(task) && task.aceita_por && task.aceita_por !== userId) return false;
-  if (isFreeTeamTask(task) && hasUnassignedOpenChecklist(task)) return true;
+  // REGRA: lista livre já aceita por outro membro — não está mais disponível para nenhum outro.
+  // hasUnassignedOpenChecklist não justifica acesso quando a lista inteira já foi assumida.
+  if (isFreeTeamTask(task) && task.aceita_por && task.aceita_por !== userId) return false;
+  if (isFreeTeamTask(task) && !task.aceita_por && hasUnassignedOpenChecklist(task)) return true;
   return false;
 }
 
@@ -1191,7 +1209,10 @@ async function userCanAccessTask(
     // Se a tarefa inteira é surpresa, quem assume assume a tarefa completa.
     // Outros membros não recebem acesso por objetivos livres restantes.
     if (isTaskSurprise(task) && task.aceita_por !== userId) return false;
-    if (hasUnassignedOpenChecklist(task)) return true;
+    // REGRA: lista livre já aceita por outro membro — acesso negado independente de checklist livre.
+    // Não permitir que outro membro acesse ou assuma tarefas internas de uma lista já assumida.
+    if (task.aceita_por && task.aceita_por !== userId) return false;
+    if (!task.aceita_por && hasUnassignedOpenChecklist(task)) return true;
   }
   if (role === "membro")
     return (
@@ -1536,7 +1557,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
         motivo:
           tarefa.motivo ||
           (isChecklist
-            ? "Objetivo aprovado pelo gestor"
+            ? "Tarefa da lista aprovada pelo gestor"
             : "Tarefa aprovada pelo gestor"),
       });
       if (
@@ -1583,20 +1604,22 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
           titulo: row.tarefa_titulo,
           tarefa_titulo: row.tarefa_titulo,
           subtarefa_titulo: isChecklistScore
-            ? matched?.texto || key || "Objetivo aprovado"
+            ? matched?.texto || key || "Tarefa da lista aprovada"
             : null,
           subtarefa_dificuldade: matched?.dificuldade || null,
           aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
           aprovado_por: row.aprovado_por || null,
           aprovado_por_nome: row.aprovado_por_nome || null,
           motivo: isChecklistScore
-            ? "Objetivo aprovado pelo gestor"
+            ? "Tarefa da lista aprovada pelo gestor"
             : "Tarefa aprovada pelo gestor",
           updated_at: row.tarefa_updated_at,
           created_at: row.tarefa_created_at,
         },
         isChecklistScore,
-        key || String(row.motivo || "pontuacao"),
+        // Chave unificada: tarefa usa "__tarefa__" (igual à Fonte 2 para deduplicação correta),
+        // checklist usa a chave do item para evitar duplicidade entre fontes.
+        isChecklistScore ? (key || String(row.motivo || "checklist")) : "__tarefa__",
       );
     }
 
@@ -1627,7 +1650,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
               subtarefa_titulo: item.texto,
               subtarefa_dificuldade: item.dificuldade,
               aprovado_por: tarefa.aprovada_por || null,
-              motivo: "Objetivo aprovado pelo gestor",
+              motivo: "Tarefa da lista aprovada pelo gestor",
             },
             true,
             key,
@@ -1840,7 +1863,7 @@ async function findOpenTaskAssignedToUser(
       WHERE org_id = $1
         AND COALESCE(escopo, 'pessoal') = 'equipe'
         AND COALESCE(status, 'pendente') IN ('pendente','em_progresso','devolvida','reenviada')
-        AND COALESCE(bloquear_nova_livre_ate_concluir, TRUE) = TRUE
+        AND COALESCE(bloquear_nova_livre_ate_concluir, FALSE) = TRUE
         AND ($3::uuid IS NULL OR id <> $3::uuid)
         AND (responsavel_id = $2 OR aceita_por = $2)
       ORDER BY COALESCE(data_inicio, updated_at, created_at) DESC
@@ -1897,7 +1920,7 @@ router.post(
       if (index < 0) {
         res
           .status(404)
-          .json({ error: "Objetivo não encontrado." });
+          .json({ error: "Tarefa da lista não encontrada." });
         return;
       }
       const item = items[index];
@@ -1944,8 +1967,8 @@ router.post(
           orgId,
           userId: existing.criado_por,
           tipo: "tarefa_atualizada",
-          titulo: "Objetivo assumido",
-          body: `${profile?.nome || "Um membro"} assumiu "${item.texto}" em "${existing.titulo}".`,
+          titulo: "Tarefa da lista assumida",
+          body: `${profile?.nome || "Um membro"} assumiu a tarefa "${item.texto}" na lista "${existing.titulo}".`,
           referenciaId: existing.id,
           referenciaTipo: "tarefa",
         }).catch(() => {});
@@ -2143,7 +2166,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,TRUE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
        RETURNING *`,
       [
         orgId,
@@ -2220,8 +2243,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         orgId,
         userId: item.responsavel_id!,
         tipo: "nova_tarefa",
-        titulo: "📋 Checklist atribuído a você",
-        body: `"${item.texto}" dentro da tarefa "${tituloFinal}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString("pt-BR")}` : ""}`,
+        titulo: "📋 Tarefa da lista atribuída a você",
+        body: `"${item.texto}" dentro da lista "${tituloFinal}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString("pt-BR")}` : ""}`,
         referenciaId: tarefa.id,
         referenciaTipo: "tarefa",
       }).catch(() => {});
@@ -2288,7 +2311,7 @@ router.patch(
           .status(403)
           .json({
             error:
-              "Você só pode atualizar status de tarefas atribuídas, criadas por você ou com checklist atribuído a você.",
+              "Você só pode atualizar status de tarefas atribuídas, criadas por você ou com tarefa da lista atribuída a você.",
           });
         return;
       }
@@ -2297,7 +2320,7 @@ router.patch(
         const progresso = checklistProgress(existing);
         if (progresso.total > 0 && !progresso.completo) {
           res.status(400).json({
-            error: `A tarefa só pode ser concluída depois que todos os checklists forem concluídos (${progresso.feitos}/${progresso.total}).`,
+            error: `A lista só pode ser concluída depois que todas as tarefas forem concluídas (${progresso.feitos}/${progresso.total}).`,
           });
           return;
         }
@@ -2485,7 +2508,7 @@ router.post(
           .status(403)
           .json({
             error:
-              "Você não possui objetivo ou execução atribuída nesta tarefa.",
+              "Você não possui tarefa ou execução atribuída nesta lista.",
           });
         return;
       }
@@ -2635,13 +2658,14 @@ router.patch(
         res.status(404).json({ error: "Tarefa não encontrada." });
         return;
       }
-      if (
-        !(await userCanAccessTask(existing, req.user!)) ||
-        existing.criado_por !== userId
-      ) {
+      if (!(await userCanAccessTask(existing, req.user!))) {
         res
           .status(403)
-          .json({ error: "Você só pode aprovar tarefas criadas por você." });
+          .json({ error: "Você não tem acesso a esta tarefa." });
+        return;
+      }
+      if (isPersonalScope(existing)) {
+        res.status(403).json({ error: "Tarefas pessoais não passam por aprovação do gestor." });
         return;
       }
       const tarefa = await queryOne<any>(
@@ -2764,13 +2788,14 @@ router.patch(
         res.status(404).json({ error: "Tarefa não encontrada." });
         return;
       }
-      if (
-        !(await userCanAccessTask(existing, req.user!)) ||
-        existing.criado_por !== userId
-      ) {
+      if (!(await userCanAccessTask(existing, req.user!))) {
         res
           .status(403)
-          .json({ error: "Você só pode devolver tarefas criadas por você." });
+          .json({ error: "Você não tem acesso a esta tarefa." });
+        return;
+      }
+      if (isPersonalScope(existing)) {
+        res.status(403).json({ error: "Tarefas pessoais não podem ser devolvidas." });
         return;
       }
       const tarefa = await queryOne<any>(

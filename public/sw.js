@@ -1,7 +1,8 @@
 // Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
 // Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
+// VERSÃO: 2026-06-11-v9 — incrementar este número a cada deploy para invalidar cache CSS/JS.
 
-const CACHE_NAME = 'nexus-shell-v7-modal-layout-definitivo'
+const CACHE_NAME = 'nexus-shell-v9-2026-06-11'
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -15,6 +16,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys()
+    // Remove todos os caches antigos; qualquer nome diferente de CACHE_NAME é obsoleto.
     await Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))
     await self.clients.claim()
   })())
@@ -68,6 +70,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return
 
+  // Recursos de API: network-first, fallback para cache
   if (url.pathname.startsWith('/api/')) {
     event.respondWith((async () => {
       try {
@@ -77,14 +80,20 @@ self.addEventListener('fetch', (event) => {
         return fresh
       } catch {
         const cached = await caches.match(req)
-        return cached || new Response(JSON.stringify({ offline: true, error: 'Sem internet e sem cache local para esta consulta.' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+        return cached || new Response(
+          JSON.stringify({ offline: true, error: 'Sem internet e sem cache local para esta consulta.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )
       }
     })())
     return
   }
 
+  // Assets de build (JS/CSS com hash): sempre network-first para garantir versão nova após deploy.
+  // Só cai para cache se estiver offline.
   event.respondWith((async () => {
     try {
+      // cache: 'reload' força buscar sempre a versão mais recente do servidor para assets de build
       const isBuildAsset = url.pathname.startsWith('/assets/') || url.pathname.endsWith('.css') || url.pathname.endsWith('.js')
       const fresh = await fetch(req, isBuildAsset ? { cache: 'reload' } : undefined)
       const cache = await caches.open(CACHE_NAME)

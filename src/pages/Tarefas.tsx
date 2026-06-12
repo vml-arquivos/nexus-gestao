@@ -361,10 +361,16 @@ function taskHasUnassignedChecklist(tarefa: Tarefa) {
 
 function isAvailableFreeTask(tarefa: Tarefa) {
   if (!isFreeTeamTask(tarefa) || ['concluida', 'aprovada', 'cancelada'].includes(String(tarefa.status))) return false
-  // Tarefa surpresa livre é assumida como tarefa completa. Depois que alguém assume,
-  // ela não continua aparecendo como disponível por causa de tarefas livres internos.
-  if (taskIsSurprise(tarefa)) return !tarefa.aceita_por
-  return !tarefa.aceita_por || taskHasUnassignedChecklist(tarefa)
+  // Regra: se qualquer membro já assumiu a tarefa inteira (aceita_por preenchido), ela não fica disponível para outros.
+  // Tarefas surpresa também seguem essa regra (assumida = não disponível).
+  if (tarefa.aceita_por) return false
+  // Sem aceita_por: tarefa disponível para assumir
+  return true
+}
+
+/** Tarefa livre já aceita por outro membro (não pelo usuário atual) */
+function isAcceptedByOtherMember(tarefa: Tarefa, userId: string) {
+  return isFreeTeamTask(tarefa) && !!tarefa.aceita_por && tarefa.aceita_por !== userId
 }
 
 function duplicateTaskVisualKey(tarefa: Tarefa) {
@@ -550,7 +556,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
-  const [novoItemPontuacao, setNovoItemPontuacao] = useState('10')
+  const [novoItemPontuacao, setNovoItemPontuacao] = useState('3')
   const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('nivel_3')
   const [novoItemSurpresa, setNovoItemSurpresa] = useState(false)
   const [obs, setObs] = useState(tarefa?.obs || '')
@@ -621,7 +627,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function addItem() {
     if (!novoItem.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
-    if (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX) { toast(`Informe a pontuação do tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    if (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -1433,6 +1439,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
+  const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
   const listSurprise = taskIsSurprise(tarefa)
 
@@ -1476,7 +1483,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
   function addInlineSubtask() {
     if (!newSubtask.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
-    if (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX) { toast(`Informe a pontuação do tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    if (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: newSubtask.trim(),
@@ -1694,6 +1701,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               {tarefa.prazo && <span><Calendar size={14} /> Prazo: {fmtDate(tarefa.prazo)}</span>}
               <span style={{ color: prioridadeCfg(tarefa.prioridade).color }}>{prioridadeCfg(tarefa.prioridade).label}</span>
               <span>{statusCfg(tarefa.status).label}</span>
+              {livreDisponivel && <span style={{ color: '#10B981', fontWeight: 600 }}>Livre para assumir</span>}
+              {aceitaPorOutro && <span style={{ color: '#F59E0B', fontWeight: 600 }}>⏳ Esta tarefa já foi assumida e está em execução por outro membro.</span>}
+              {livreAceita && !aceitaPorOutro && <span style={{ color: '#10B981', fontWeight: 600 }}>✅ Assumida por você</span>}
               <span>Criada: {fmtDateTime(tarefa.created_at)}</span>
               {tarefa.data_reabertura && <span>Reaberta: {fmtDateTime(tarefa.data_reabertura)}</span>}
               {tarefa.updated_at && <span>Última atualização: {fmtDateTime(tarefa.updated_at)}</span>}
@@ -1923,9 +1933,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           )}
           {total > 0 && (
             <div className="task-execution-summary">
-              <strong>Fluxo da tarefa:</strong> cada membro conclui somente suas tarefas e envia sua parte. O gestor é notificado para visualizar os arquivos enviados, sem etapa de aprovar/reprovar por tarefa.
+              <strong>Fluxo da lista:</strong> cada membro conclui somente suas tarefas e envia sua parte. O gestor visualiza os arquivos enviados e aprova ou devolve a lista inteira.
               {myProgress.total > 0 && <span>Sua parte: {myProgress.done}/{myProgress.total} tarefas.</span>}
-              <span>Total da tarefa: {done}/{total} tarefas.</span>
+              <span>Total da lista: {done}/{total} tarefas.</span>
               {isGestor && executorSummary.length > 0 && <span>Execução por membro: {executorSummary.map(e => `${e.nome} ${e.feitos}/${e.total}`).join(' · ')}</span>}
             </div>
           )}
@@ -2007,6 +2017,7 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
   const livreDisponivel = isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
+  const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
   const listSurprise = taskIsSurprise(tarefa)
 
@@ -2021,11 +2032,13 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
   const responsavelLabel = livreDisponivel
     ? 'Livre para assumir'
-    : tarefa.responsavel_id
-      ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável')
-      : taskScope(tarefa) === 'equipe'
-        ? 'Lista de tarefas da equipe'
-        : 'Lista pessoal'
+    : aceitaPorOutro
+      ? `Em execução por outro membro`
+      : tarefa.responsavel_id
+        ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável')
+        : taskScope(tarefa) === 'equipe'
+          ? 'Lista de tarefas da equipe'
+          : 'Lista pessoal'
   const checklistLabel = checkTotal > 0
     ? `${checkDone}/${checkTotal}${!isGestor && geralProgress.total !== checkTotal ? ' da sua parte' : ''}`
     : 'Sem tarefas'
@@ -2048,7 +2061,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
         </button>
         <div className="task-report-meta">
           <span><User size={12} /> {responsavelLabel}</span>
-          {livreAceita && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+          {livreAceita && !aceitaPorOutro && <span>Assumida por {(tarefa as any).aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'membro'}</span>}
+          {aceitaPorOutro && <span style={{ color: '#F59E0B', fontWeight: 600 }}>⏳ Em execução por outro membro</span>}
           {!isPersonal && <span>{Number(tarefa.pontuacao || 0)} ponto(s) na tarefa</span>}
           {!isPersonal && checkTotal > 0 && <span>{normalizeChecklistItems(tarefa.checklist).reduce((sum, item) => sum + Number((item as any).pontuacao || 0), 0)} ponto(s) nas tarefas da lista</span>}
           {tarefa.prazo ? <span className={overdue ? 'danger' : undefined}><Calendar size={12} /> Prazo {fmtDate(tarefa.prazo)}{overdue ? ' · vencida' : ''}</span> : <span><Calendar size={12} /> Sem prazo</span>}
@@ -2070,7 +2084,8 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       <div className="task-report-cell task-report-status">
         <span style={{ color: sc.color, background: sc.bg }}><Icon size={12} /> {sc.label}</span>
         {livreDisponivel && <em>Livre</em>}
-        {livreAceita && <em>Assumida</em>}
+        {livreAceita && !aceitaPorOutro && <em>Assumida</em>}
+        {aceitaPorOutro && <em style={{ color: '#F59E0B' }}>Outro membro</em>}
       </div>
 
       <div className="task-report-cell task-report-priority">
@@ -2085,6 +2100,9 @@ function TarefaCard({ tarefa, userId, isGestor, onOpen, onEdit, onDelete, onStar
       <div className="task-report-actions">
         {livreDisponivel && !isGestor && (
           <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onPegar(tarefa)} type="button">Assumir tarefa</button>
+        )}
+        {aceitaPorOutro && !isGestor && (
+          <span style={{ fontSize: 12, color: '#F59E0B', padding: '4px 8px', background: 'rgba(245,158,11,.1)', borderRadius: 8, fontWeight: 600 }}>Em execução por outro membro</span>
         )}
         <button className="btn btn-primary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver tarefa</button>
         {isPersonal ? (

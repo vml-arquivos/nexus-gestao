@@ -118,7 +118,7 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por UUID REFERENCES profiles
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em TIMESTAMPTZ;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
 
 CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
@@ -619,7 +619,7 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por        UUID REFERENCES p
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em         TIMESTAMPTZ;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao         INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking     BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor   TEXT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em       TIMESTAMPTZ;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por      UUID REFERENCES profiles(id) ON DELETE SET NULL;
@@ -693,10 +693,21 @@ CREATE INDEX IF NOT EXISTS idx_pagamentos_grupo ON pagamentos(grupo_id);
 -- ── NOTIFICAÇÕES — constraint ampliada (idempotente) ─────────
 ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
 ALTER TABLE notificacoes ADD CONSTRAINT notificacoes_tipo_check
-  CHECK (tipo IN ('info','tarefa_criada','tarefa_atualizada','tarefa_concluida','tarefa_aprovada',
-                  'tarefa_devolvida','tarefa_reenviada','tarefa_atrasada','tarefa_reaberta',
-                  'financeiro_cobranca','financeiro_vencido','agenda_lembrete',
-                  'reaberta','excluida','comentario'));
+  CHECK (tipo IN (
+    'info','aviso','erro','sistema','convite','equipe',
+    'tarefa_nova','nova_tarefa','tarefa_criada','tarefa_atualizada',
+    'tarefa_concluida','tarefa_nao_concluida','tarefa_devolvida',
+    'tarefa_aprovada','tarefa_reenviada','tarefa_lembrete_manual',
+    'tarefa_atrasada','tarefa_reaberta','tarefa_vencida',
+    'lembrete_diario','financeiro_vencimento',
+    'financeiro_cobranca','financeiro_vencido','agenda_lembrete',
+    'aniversario','reaberta','excluida','comentario'
+  ));
+
+-- Remove o bloqueio de produtividade por tarefa aberta em registros existentes
+UPDATE tarefas SET bloquear_nova_livre_ate_concluir = FALSE
+ WHERE COALESCE(bloquear_nova_livre_ate_concluir, FALSE) = TRUE;
+ALTER TABLE tarefas ALTER COLUMN bloquear_nova_livre_ate_concluir SET DEFAULT FALSE;
 
 -- ============================================================
 -- SCHEMA PRONTO

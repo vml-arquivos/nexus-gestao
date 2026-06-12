@@ -201,7 +201,7 @@ async function criarTarefaCobranca(input: { orgId: string; userId: string; pagam
   const tarefa = await queryOne<{ id: string }>(
     `INSERT INTO tarefas
        (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
-     VALUES ($1,$2,$2,NULL,$3,$4,CURRENT_DATE,$5,'alta',$6,$7,'equipe','normal',10,TRUE,TRUE,'pendente','aguardando','nexus_financeiro',$8,$9,$10,NULL,$11)
+     VALUES ($1,$2,$2,NULL,$3,$4,CURRENT_DATE,$5,'alta',$6,$7,'equipe','normal',10,TRUE,FALSE,'pendente','aguardando','nexus_financeiro',$8,$9,$10,NULL,$11)
      RETURNING id`,
     [
       input.orgId,

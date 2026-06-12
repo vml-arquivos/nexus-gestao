@@ -12,10 +12,21 @@ import tailwindcss from '@tailwindcss/vite'
  *   - Unexpected token '<'
  *
  * Para estabilizar produção, removemos temporariamente o vite-plugin-pwa do build
- * e mantemos um public/sw.js "kill switch" que desregistra SWs antigos e limpa caches.
+ * e mantemos um public/sw.js manual que limpa caches antigos.
+ *
+ * O alias react-is resolve erro de build com recharts no Vite/Rolldown:
+ *   "Rolldown failed to resolve import \"react-is\" from recharts/es6/util/ReactUtils.js"
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      'react-is': 'react-is',
+    },
+  },
+  optimizeDeps: {
+    include: ['react-is'],
+  },
   server: {
     proxy: {
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
@@ -27,12 +38,14 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      external: [],
       output: {
         manualChunks(id: string) {
           if (
             id.includes('node_modules/react') ||
             id.includes('node_modules/react-dom') ||
-            id.includes('node_modules/react-router-dom')
+            id.includes('node_modules/react-router-dom') ||
+            id.includes('node_modules/react-is')
           ) {
             return 'vendor'
           }
