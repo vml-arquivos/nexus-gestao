@@ -3912,6 +3912,11 @@ router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => 
         res.status(403).json({ error: "Você não está executando esta lista." }); return;
       }
     }
+    if (destinatario_id === userId) {
+      res.status(400).json({ error: "Você não pode pedir ajuda para você mesmo." });
+      return;
+    }
+
     const destinatario = await queryOne<{ id: string; nome: string }>(
       "SELECT id, nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
       [destinatario_id, orgId]
@@ -3995,32 +4000,20 @@ router.get("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
 
 router.get("/ajuda/pendentes", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId, userId, role } = req.user!;
-    let ajudas;
-    if (canDeleteOrgRecords(role) || role === "gestor" || role === "sub_gestor") {
-      ajudas = await query(
-        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
-         FROM tarefas_ajuda ta
-         JOIN profiles ps ON ps.id = ta.solicitante_id
-         JOIN profiles pd ON pd.id = ta.destinatario_id
-         JOIN tarefas t ON t.id = ta.tarefa_id
-         WHERE ta.org_id = $1 AND ta.status = 'pendente'
-         ORDER BY ta.created_at DESC LIMIT 50`,
-        [orgId]
-      );
-    } else {
-      ajudas = await query(
-        `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
-         FROM tarefas_ajuda ta
-         JOIN profiles ps ON ps.id = ta.solicitante_id
-         JOIN profiles pd ON pd.id = ta.destinatario_id
-         JOIN tarefas t ON t.id = ta.tarefa_id
-         WHERE ta.org_id = $1 AND ta.status = 'pendente'
-           AND (ta.solicitante_id = $2 OR ta.destinatario_id = $2)
-         ORDER BY ta.created_at DESC LIMIT 50`,
-        [orgId, userId]
-      );
-    }
+    const { orgId, userId } = req.user!;
+
+    // Pendência é só para quem precisa responder.
+    // Quem pediu ajuda não aparece aqui e ninguém vê pendências de outros membros.
+    const ajudas = await query(
+      `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
+       FROM tarefas_ajuda ta
+       JOIN profiles ps ON ps.id = ta.solicitante_id
+       JOIN profiles pd ON pd.id = ta.destinatario_id
+       JOIN tarefas t ON t.id = ta.tarefa_id
+       WHERE ta.org_id = $1 AND ta.status = 'pendente' AND ta.destinatario_id = $2
+       ORDER BY ta.created_at DESC LIMIT 50`,
+      [orgId, userId]
+    );
     res.json({ ajudas });
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar pedidos pendentes." });
