@@ -3883,7 +3883,8 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
 // GET    /:id/ajuda           — gestor/membro lista pedidos de ajuda da lista
 // PATCH  /ajuda/:ajudaId      — destinatário responde ao pedido
 // PATCH  /ajuda/:ajudaId/resolver — solicitante ou gestor marca como resolvido
-// GET    /ajuda/pendentes     — gestor vê todos os pedidos pendentes da org
+// GET    /ajuda/pendentes     — usuário vê somente pedidos pendentes destinados a ele
+// GET    /ajuda/minhas        — usuário vê somente pedidos que ele abriu
 
 router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
   try {
@@ -4017,6 +4018,31 @@ router.get("/ajuda/pendentes", async (req: Request, res: Response): Promise<void
     res.json({ ajudas });
   } catch (err) {
     res.status(500).json({ error: "Erro ao buscar pedidos pendentes." });
+  }
+});
+
+
+router.get("/ajuda/minhas", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!;
+
+    // Retorno das ajudas que EU solicitei. É aqui que o membro recebe a resposta.
+    // Não retorna pedidos de outros membros e não retorna conversas resolvidas por padrão,
+    // para manter a tela objetiva e sem vazamento operacional.
+    const ajudas = await query(
+      `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
+       FROM tarefas_ajuda ta
+       JOIN profiles ps ON ps.id = ta.solicitante_id
+       JOIN profiles pd ON pd.id = ta.destinatario_id
+       JOIN tarefas t ON t.id = ta.tarefa_id
+       WHERE ta.org_id = $1 AND ta.solicitante_id = $2 AND ta.status IN ('pendente','respondida')
+       ORDER BY ta.updated_at DESC NULLS LAST, ta.respondida_em DESC NULLS LAST, ta.created_at DESC
+       LIMIT 50`,
+      [orgId, userId]
+    );
+    res.json({ ajudas });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar suas solicitações de ajuda." });
   }
 });
 
