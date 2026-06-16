@@ -3415,7 +3415,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           "surpresa_tarefa",
         ];
 
-    if ((req.body as any).checklist !== undefined) {
+    if (isMember && (req.body as any).checklist !== undefined) {
       const changedItems = changedChecklistDoneItems(
         existing.checklist,
         (req.body as any).checklist,
@@ -3428,7 +3428,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           .status(403)
           .json({
             error:
-              "Apenas o executor de cada objetivo pode marcar o próprio objetivo.",
+              "Apenas o executor de cada tarefa da lista pode marcar a própria tarefa.",
           });
         return;
       }
@@ -3465,6 +3465,15 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           }
           setValue("responsavel_id", nextResponsavel);
           setValue("responsavel_nome", resp.nome);
+          // Quando o gestor/admin delega a lista para outro responsável, a lista deixa de estar
+          // "assumida" por quem pegou antes. Isso evita que duas pessoas executem a mesma lista
+          // e permite corrigir erros de delegação sem apagar dados ou histórico.
+          if (!isMember && nextResponsavel !== existing.aceita_por) {
+            setValue("aceita_por", null);
+            setValue("aceita_em", null);
+            setValue("modo_distribuicao", "normal");
+            setValue("escopo", "equipe");
+          }
         }
         continue;
       }

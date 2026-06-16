@@ -9493,3 +9493,55 @@ textarea.form-input,
     justify-content: center;
   }
 }
+
+/* Gestão de executores da lista de tarefas */
+.task-executors-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.task-executors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.task-executor-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  min-width: 0;
+}
+.task-executor-card strong,
+.task-executor-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.task-executor-card span {
+  color: var(--text2);
+  font-size: 12px;
+}
+.task-delegation-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.task-delegation-controls .form-input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .task-delegation-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .task-executors-grid {
+    grid-template-columns: 1fr;
+  }
+}

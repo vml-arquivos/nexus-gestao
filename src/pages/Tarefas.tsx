@@ -338,11 +338,11 @@ function checklistDisplayDesc(item: ChecklistItem) {
 }
 
 function checklistExecutorSummary(tarefa: Tarefa) {
-  const map = new Map<string, { nome: string; total: number; feitos: number }>()
+  const map = new Map<string, { id: string; nome: string; total: number; feitos: number }>()
   normalizeChecklistItems(tarefa.checklist).forEach(item => {
     const key = item.responsavel_id || tarefa.responsavel_id || tarefa.criado_por || 'sem-responsavel'
     const nome = checklistExecutorName(item, tarefa)
-    const current = map.get(key) || { nome, total: 0, feitos: 0 }
+    const current = map.get(key) || { id: key, nome, total: 0, feitos: 0 }
     current.total += 1
     if (item.feito) current.feitos += 1
     map.set(key, current)
@@ -1694,6 +1694,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [newSubtaskPoints, setNewSubtaskPoints] = useState('3')
   const [newSubtaskDifficulty, setNewSubtaskDifficulty] = useState<ChecklistDifficulty>('nivel_3')
   const [newSubtaskSurprise, setNewSubtaskSurprise] = useState(false)
+  const [gestorDelegarId, setGestorDelegarId] = useState(tarefa.responsavel_id || '')
   const anexosCount = Number((tarefa as any).anexos_count || 0)
   const isResponsavel = tarefa.responsavel_id === userId
   const isCriador = tarefa.criado_por === userId
@@ -1810,6 +1811,64 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     }
   }
 
+  async function colocarListaComoLivre() {
+    if (!isGestor) return
+    if (!window.confirm('Colocar esta lista novamente como livre para a equipe? O executor principal atual será removido da lista, mas o histórico será preservado.')) return
+    setSaving(true)
+    try {
+      const saved = await tarefasApi.update(tarefa.id, {
+        modo_distribuicao: 'livre_equipe',
+        responsavel_id: undefined,
+        escopo: 'equipe',
+      } as Partial<Tarefa>)
+      onSaved(saved)
+      setGestorDelegarId('')
+      toast('Lista colocada novamente como livre para a equipe.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao liberar lista.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function delegarListaParaMembro() {
+    if (!isGestor) return
+    if (!gestorDelegarId) { toast('Escolha um membro para delegar a lista.', 'error'); return }
+    setSaving(true)
+    try {
+      const saved = await tarefasApi.update(tarefa.id, {
+        modo_distribuicao: 'normal',
+        escopo: 'equipe',
+        responsavel_id: gestorDelegarId,
+      } as Partial<Tarefa>)
+      onSaved(saved)
+      toast('Lista delegada ao membro selecionado. Ela não ficará disponível para outros assumirem.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao delegar lista.', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function removerExecutorDasTarefas(memberId: string, nome?: string) {
+    if (!isGestor) return
+    if (!window.confirm(`Remover ${nome || 'este membro'} das tarefas desta lista? As tarefas dele voltarão a ficar livres para correção/delegação pelo gestor.`)) return
+    const next = checklist.map(item => item.responsavel_id === memberId
+      ? { ...item, responsavel_id: undefined, responsavel_nome: undefined, feito: false, concluido_por: undefined, feito_por: undefined }
+      : item)
+    setSaving(true)
+    try {
+      const payload: Partial<Tarefa> = { checklist: next }
+      if (tarefa.responsavel_id === memberId || tarefa.aceita_por === memberId) {
+        payload.modo_distribuicao = 'livre_equipe'
+        payload.responsavel_id = undefined
+        payload.escopo = 'equipe'
+      }
+      const saved = await tarefasApi.update(tarefa.id, payload)
+      setChecklist(normalizeChecklistItems(saved.checklist))
+      onSaved(saved)
+      toast('Executor removido. O gestor pode delegar novamente ou deixar livre.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao remover executor.', 'error')
+    } finally { setSaving(false) }
+  }
+
 
   async function assumirChecklistItem(item: ChecklistItem) {
     if (!item.id) return
@@ -1868,6 +1927,27 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     }
   }
 
+  async function anexarArquivosExecucao(nextFiles: File[]) {
+    setFiles(nextFiles)
+    if (!nextFiles.length) return
+    setSaving(true)
+    try {
+      for (const file of nextFiles) {
+        await tarefasApi.uploadAnexo(tarefa.id, file, {
+          titulo: file.name || 'Arquivo da tarefa',
+          descricao: obs.trim() || motivo.trim() || 'Evidência anexada durante a execução.',
+          tipo: 'evidencia',
+        })
+      }
+      setFiles([])
+      toast(`${nextFiles.length} arquivo(s) salvo(s) na tarefa.`)
+      const refreshed = await tarefasApi.list().then(list => list.find(t => t.id === tarefa.id)).catch(() => undefined)
+      if (refreshed) onSaved(refreshed)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao anexar arquivo.', 'error')
+    } finally { setSaving(false) }
+  }
+
   async function uploadPendentes() {
     for (const file of files) {
       await tarefasApi.uploadAnexo(tarefa.id, file, {
@@ -1876,6 +1956,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
         tipo: 'evidencia',
       })
     }
+    if (files.length) setFiles([])
   }
 
   async function concluir() {
@@ -1980,6 +2061,42 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
           </div>
         </section>
+
+        {isGestor && (
+          <section className="task-detail-section task-executors-panel">
+            <div className="task-detail-section-head">
+              <h3>Membros executando</h3>
+              <span className="muted">Acompanhe quem assumiu ou recebeu tarefas desta lista. O gestor pode corrigir a delegação sem apagar o histórico.</span>
+            </div>
+            <div className="task-executors-grid">
+              {tarefa.aceita_por && (
+                <div className="task-executor-card">
+                  <strong>{tarefa.aceita_por_nome || tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Membro executor'}</strong>
+                  <span>Responsável principal da lista</span>
+                  <span>{done}/{total || 1} tarefas concluídas</span>
+                  <button className="btn btn-secondary btn-sm" type="button" disabled={saving} onClick={() => colocarListaComoLivre()}>Colocar lista como livre</button>
+                </div>
+              )}
+              {executorSummary.length > 0 ? executorSummary.map(exec => (
+                <div key={exec.id} className="task-executor-card">
+                  <strong>{exec.nome}</strong>
+                  <span>{exec.feitos}/{exec.total} tarefa(s) concluída(s)</span>
+                  {exec.id !== 'sem-responsavel' && exec.id !== tarefa.criado_por && (
+                    <button className="btn btn-ghost danger btn-sm" type="button" disabled={saving} onClick={() => removerExecutorDasTarefas(exec.id, exec.nome)}>Remover das tarefas</button>
+                  )}
+                </div>
+              )) : <p className="muted">Nenhum membro assumiu ou recebeu tarefa nesta lista.</p>}
+            </div>
+            <div className="task-delegation-controls">
+              <select className="form-input" value={gestorDelegarId} onChange={e => setGestorDelegarId(e.target.value)}>
+                <option value="">Escolher membro para delegar a lista inteira</option>
+                {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+              </select>
+              <button className="btn btn-primary btn-sm" type="button" disabled={saving || !gestorDelegarId} onClick={delegarListaParaMembro}>Delegar lista</button>
+              <button className="btn btn-secondary btn-sm" type="button" disabled={saving} onClick={colocarListaComoLivre}>Deixar lista livre</button>
+            </div>
+          </section>
+        )}
 
         {isGestor && editMode && (
           <section className="task-detail-section task-inline-editor">
@@ -2215,9 +2332,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             <FileDropzone
               id={`concluir-evidencias-${tarefa.id}`}
               files={files}
-              onFiles={setFiles}
+              onFiles={anexarArquivosExecucao}
               label={allChecklistDone ? 'Anexar arquivos da conclusão geral' : 'Anexar arquivos da sua parte'}
-              help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução."
+              help="Fotos, PDFs, comprovantes, planilhas ou documentos que comprovem a execução. O arquivo fica salvo imediatamente, mesmo antes de enviar a tarefa."
             />
             <label className="form-label">Observação de conclusão</label>
             <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex.: executei os itens marcados e anexei os comprovantes..." />
