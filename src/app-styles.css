@@ -9436,3 +9436,60 @@ textarea.form-input,
   .modal-content { padding-bottom: calc(env(safe-area-inset-bottom) + 16px) !important; }
 }
 
+
+/* Checklist inteligente de execução da lista — sem regressão de regras */
+.task-smart-actions {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg2);
+  margin-bottom: 12px;
+}
+.task-smart-actions strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.task-smart-actions p,
+.task-smart-actions-footer span {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text3);
+  overflow-wrap: anywhere;
+}
+.task-smart-actions textarea {
+  width: 100%;
+  min-height: 136px;
+  resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.task-smart-actions-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.task-smart-actions-footer .btn {
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .task-smart-actions {
+    padding: 12px;
+    border-radius: 14px;
+  }
+  .task-smart-actions-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .task-smart-actions-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

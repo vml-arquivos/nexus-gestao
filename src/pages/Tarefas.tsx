@@ -599,6 +599,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemPontuacao, setNovoItemPontuacao] = useState('3')
   const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('nivel_3')
   const [novoItemSurpresa, setNovoItemSurpresa] = useState(false)
+  const [acoesListaTexto, setAcoesListaTexto] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
   const [destravaLoading, setDestravaLoading] = useState(false)
@@ -659,6 +660,67 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (!id) return undefined
     return responsaveisChecklist.find(m => m.id === id)?.nome
   }
+
+  function parseAcoesLista(raw: string) {
+    const linhas = String(raw || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+
+    const acoes: string[] = []
+    const possiveisTitulos: string[] = []
+
+    linhas.forEach(line => {
+      const semMarcador = line
+        .replace(/^\(?\s*aç(?:ão|oes|ões)\s+da\s+(?:tarefa|lista)\s*\)?\s*:?$/i, '')
+        .trim()
+      if (!semMarcador) return
+
+      const numerada = semMarcador.match(/^(?:[-*•]|\d{1,3}[\).\-–—])\s*(.+)$/)
+      if (numerada?.[1]?.trim()) {
+        acoes.push(numerada[1].trim())
+        return
+      }
+
+      if (!acoes.length && possiveisTitulos.length === 0 && semMarcador.length > 8) {
+        possiveisTitulos.push(semMarcador)
+        return
+      }
+
+      acoes.push(semMarcador)
+    })
+
+    return { tituloSugerido: possiveisTitulos[0] || '', acoes }
+  }
+
+  function gerarChecklistAutomatico() {
+    const { tituloSugerido, acoes } = parseAcoesLista(acoesListaTexto)
+    if (!acoes.length) {
+      toast('Cole as ações numeradas ou uma ação por linha para gerar o checklist.', 'error')
+      return
+    }
+
+    if (!titulo.trim() && tituloSugerido) setTitulo(tituloSugerido)
+
+    const novosItens: ChecklistItem[] = acoes.map(texto => ({
+      id: nanoid(),
+      texto,
+      descricao: undefined,
+      data: novoItemData || undefined,
+      responsavel_id: novoItemResponsavelId || undefined,
+      responsavel_nome: checklistResponsibleName(novoItemResponsavelId),
+      dificuldade: novoItemDificuldade,
+      pontuacao: Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
+      subtarefas: [],
+      revelar_apos_assumir: Boolean(tarefaSurpresa || novoItemSurpresa),
+      feito: false,
+    }))
+
+    setChecklist(prev => [...prev, ...novosItens])
+    setAcoesListaTexto('')
+    toast(`${novosItens.length} ação${novosItens.length > 1 ? 'ões' : ''} adicionada${novosItens.length > 1 ? 's' : ''} ao checklist de execução.`)
+  }
+
   function applyNovoItemDifficulty(next: ChecklistDifficulty) {
     setNovoItemDificuldade(next)
     setNovoItemPontuacao(String(difficultyPoints(next)))
@@ -701,8 +763,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (loading) return
     const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
-    const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))
-    if (invalidItem) { toast('Cada tarefa precisa ter nome e pontuação.', 'error'); return }
+    const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (pontuacaoIncluiSubtarefas(pontuacaoEscopo) && ((item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))))
+    if (invalidItem) { toast(pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'Cada tarefa precisa ter nome e pontuação.' : 'Cada ação do checklist precisa ter nome.', 'error'); return }
     const invalidSubitem = checklist.some(item => Array.isArray((item as any).subtarefas) && (item as any).subtarefas.some((sub: any) => !String(sub?.texto || '').trim()))
     if (invalidSubitem) { toast('Cada item dentro da tarefa precisa ter nome.', 'error'); return }
     const checklistFinal = checklist.map(item => ({ ...item, revelar_apos_assumir: tarefaSurpresa ? true : Boolean((item as any).revelar_apos_assumir) }))
@@ -930,7 +992,24 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         {tipoTarefa === 'equipe' && (
         <div className="form-group">
-          <label className="form-label">Tarefas da lista</label>
+          <label className="form-label">Ações da lista / checklist de execução</label>
+          <div className="task-smart-actions">
+            <div>
+              <strong>Gerar checklist automático</strong>
+              <p>Cole o título e as ações numeradas. O sistema transforma cada ação em uma tarefa marcável para comprovação da execução.</p>
+            </div>
+            <textarea
+              className="form-input"
+              rows={6}
+              value={acoesListaTexto}
+              onChange={e => setAcoesListaTexto(e.target.value)}
+              placeholder={`Ex.: ENVIAR CERTIDÃO SIMPLIFICADA DA JUNTA COMERCIAL PARA AGÊNCIA SICOOB\n\n1- Entrar em contato com Fernanda e informar a solicitação.\n2- Solicitar a certidão na Junta Comercial e enviar a taxa.\n3- Anexar a certidão no sistema.\n4- Enviar a certidão para a Fernanda.\n5- Enviar a certidão para o e-mail da gerente responsável.`}
+            />
+            <div className="task-smart-actions-footer">
+              <span>{pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'As ações geradas podem ter nível/pontos pela escala oficial.' : 'Como a pontuação é somente pela lista, as ações serão checklist de execução sem pontos individuais visíveis.'}</span>
+              <button className="btn btn-secondary" type="button" onClick={gerarChecklistAutomatico}><Plus size={16} /> Gerar checklist</button>
+            </div>
+          </div>
           <div className="task-checklist-builder">
             <div className="task-checklist-builder-fields">
               <div className="form-group">
@@ -967,12 +1046,14 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
                 </select>
               </div>
-              <div className="form-group">
-                <label className="form-label">Grau de dificuldade *</label>
-                <select className="form-input" value={novoItemDificuldade} onChange={e => applyNovoItemDifficulty(e.target.value as ChecklistDifficulty)}>
-                  {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
-                </select>
-              </div>
+              {pontuacaoIncluiSubtarefas(pontuacaoEscopo) && (
+                <div className="form-group">
+                  <label className="form-label">Grau de dificuldade *</label>
+                  <select className="form-input" value={novoItemDificuldade} onChange={e => applyNovoItemDifficulty(e.target.value as ChecklistDifficulty)}>
+                    {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                  </select>
+                </div>
+              )}
               {!tarefaSurpresa && (
                 <label className="task-surprise-toggle">
                   <input type="checkbox" checked={novoItemSurpresa} onChange={e => setNovoItemSurpresa(e.target.checked)} />
@@ -995,7 +1076,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
             <button className="btn btn-secondary" type="button" onClick={addItem}><Plus size={16} /> Adicionar tarefa</button>
             <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Cada tarefa descreve uma entrega real dentro desta lista. {pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'A pontuação das tarefas da lista entra no ranking após aprovação.' : 'Nesta lista, a pontuação das tarefas fica registrada, mas não entra no ranking porque você escolheu pontuar somente a lista.'}
+              Cada ação descreve uma entrega real dentro desta lista. {pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'A pontuação das tarefas da lista entra no ranking após aprovação.' : 'Nesta lista, as ações funcionam como checklist de execução/comprovação; a pontuação fica somente na lista.'}
             </div>
           </div>
           {!canMarkChecklistInEdit && checklist.length > 0 && (
@@ -1030,17 +1111,19 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))}
                   placeholder="Nome da tarefa"
                 />
-                <select
-                  className="form-input"
-                  value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))}
-                  onChange={e => {
-                    const dificuldade = e.target.value as ChecklistDifficulty
-                    setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i))
-                  }}
-                  title="Grau de dificuldade"
-                >
-                  {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
-                </select>
+                {pontuacaoIncluiSubtarefas(pontuacaoEscopo) && (
+                  <select
+                    className="form-input"
+                    value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))}
+                    onChange={e => {
+                      const dificuldade = e.target.value as ChecklistDifficulty
+                      setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i))
+                    }}
+                    title="Grau de dificuldade"
+                  >
+                    {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
+                  </select>
+                )}
                 <input
                   className="form-input"
                   type="date"
@@ -1067,7 +1150,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 rows={2}
                 value={item.descricao || ''}
                 onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))}
-                placeholder="Descrição da lista/instrução opcional para esta ação"
+                placeholder="Observação, comprovação esperada ou instrução opcional desta ação"
               />
               <div className="objective-subtasks-editor">
                 <div className="objective-subtasks-title">Etapas desta tarefa</div>
