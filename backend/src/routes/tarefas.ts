@@ -732,6 +732,33 @@ async function normalizeChecklistForOrg(
   );
 }
 
+async function normalizePersonalChecklist(
+  value: unknown,
+  orgId: string,
+  userId: string,
+) {
+  const me = await queryOne<{ nome: string }>(
+    "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
+    [userId, orgId],
+  );
+  if (!me) {
+    throw Object.assign(new Error("Usuário responsável pela lista pessoal não encontrado."), {
+      statusCode: 404,
+    });
+  }
+
+  return JSON.stringify(
+    parseChecklistItems(value).map((item) => ({
+      ...item,
+      responsavel_id: userId,
+      responsavel_nome: me.nome,
+      dificuldade: "nivel_1",
+      pontuacao: 0,
+      revelar_apos_assumir: false,
+    })),
+  );
+}
+
 function checklistStructureKey(value: unknown) {
   return parseChecklistItems(value)
     .map(
@@ -2136,7 +2163,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     const checklistNormalizado =
       escopo === "equipe"
         ? await normalizeChecklistForOrg(checklist, orgId, userId, role)
-        : "[]";
+        : await normalizePersonalChecklist(checklist, orgId, userId);
     const pontuacao =
       escopo === "equipe" && pontuacaoIncluiTarefa(pontuacaoEscopo)
         ? normalizePositiveScore(pontuacaoManual, 3)
@@ -3574,12 +3601,17 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
       }
 
       if (key === "checklist") {
-        const nextChecklist = await normalizeChecklistForOrg(
-          (req.body as any)[key],
-          orgId,
-          userId,
-          role,
+        const requestedFinalScope = normalizeTaskScope(
+          (req.body as any).escopo ?? existing.escopo,
         );
+        const nextChecklist = requestedFinalScope === "pessoal"
+          ? await normalizePersonalChecklist((req.body as any)[key], orgId, userId)
+          : await normalizeChecklistForOrg(
+              (req.body as any)[key],
+              orgId,
+              userId,
+              role,
+            );
         nextChecklistForSync = nextChecklist;
         setValue("checklist", nextChecklist);
 
@@ -3639,8 +3671,15 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
       setValue("modo_distribuicao", "normal");
       setValue("conta_ranking", false);
       setValue("pontuacao", 0);
-      setValue("checklist", "[]");
-      nextChecklistForSync = "[]";
+      if (!setMap.has("checklist") && normalizeTaskScope(existing.escopo) !== "pessoal") {
+        const personalChecklist = await normalizePersonalChecklist(
+          existing.checklist,
+          orgId,
+          userId,
+        );
+        setValue("checklist", personalChecklist);
+        nextChecklistForSync = personalChecklist;
+      }
       setValue("aceita_por", null);
       setValue("aceita_em", null);
       // Tarefa pessoal fica privada para o próprio usuário/criador.
