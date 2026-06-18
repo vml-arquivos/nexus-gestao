@@ -77,7 +77,7 @@ async function ensureTaskRuntimeSchema() {
         CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-          tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+          tarefa_id UUID REFERENCES tarefas(id) ON DELETE SET NULL,
           usuario_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
           checklist_id TEXT,
           pontos INTEGER NOT NULL DEFAULT 1,
@@ -85,10 +85,31 @@ async function ensureTaskRuntimeSchema() {
           aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
           aprovado_em TIMESTAMPTZ DEFAULT NOW() NOT NULL,
           periodo_mes TEXT NOT NULL,
+          tarefa_titulo_snapshot TEXT,
+          item_titulo_snapshot TEXT,
+          escopo_snapshot TEXT,
+          conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
+          tarefa_excluida_em TIMESTAMPTZ,
           created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
           UNIQUE (tarefa_id, usuario_id, motivo)
         );
         ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS checklist_id TEXT;
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_titulo_snapshot TEXT;
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS item_titulo_snapshot TEXT;
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS escopo_snapshot TEXT;
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_excluida_em TIMESTAMPTZ;
+        ALTER TABLE tarefas_pontuacao ALTER COLUMN tarefa_id DROP NOT NULL;
+        ALTER TABLE tarefas_pontuacao DROP CONSTRAINT IF EXISTS tarefas_pontuacao_tarefa_id_fkey;
+        ALTER TABLE tarefas_pontuacao ADD CONSTRAINT tarefas_pontuacao_tarefa_id_fkey
+          FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE SET NULL;
+        UPDATE tarefas_pontuacao tp
+           SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, t.titulo),
+               escopo_snapshot = COALESCE(tp.escopo_snapshot, t.escopo),
+               conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, t.conta_ranking, TRUE)
+          FROM tarefas t
+         WHERE tp.tarefa_id = t.id
+           AND tp.org_id = t.org_id;
         CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
@@ -277,19 +298,17 @@ function normalizeChecklistDifficulty(
     raw === "n4" ||
     raw === "4" ||
     raw === "facil" ||
-    raw === "fácil" ||
-    raw === "medio" ||
-    raw === "médio" ||
-    raw === "normal"
+    raw === "fácil"
   )
-    return "nivel_4";
+    return "nivel_2";
+  if (raw === "medio" || raw === "médio" || raw === "normal")
+    return "nivel_3";
+  if (raw === "dificil" || raw === "difícil") return "nivel_4";
   if (
     raw === "nivel_5" ||
     raw === "nível_5" ||
     raw === "n5" ||
     raw === "5" ||
-    raw === "dificil" ||
-    raw === "difícil" ||
     raw === "hard" ||
     raw === "super_dificil" ||
     raw === "super_difícil" ||
@@ -319,12 +338,24 @@ function pointsForDifficulty(
   ];
 }
 
+const OFFICIAL_SCORE_VALUES = [0, 1, 3, 5, 20] as const;
+
+function normalizeOfficialScore(value: unknown, fallback = 3) {
+  const raw = typeof value === "string" ? value.replace(",", ".").trim() : value;
+  const parsed = Number(raw);
+  const fallbackParsed = Number(fallback);
+  const n = Number.isFinite(parsed)
+    ? Math.max(0, Math.min(SCORE_MAX, parsed))
+    : Math.max(0, Math.min(SCORE_MAX, Number.isFinite(fallbackParsed) ? fallbackParsed : 3));
+  return OFFICIAL_SCORE_VALUES.reduce(
+    (closest, candidate) =>
+      Math.abs(candidate - n) < Math.abs(closest - n) ? candidate : closest,
+    OFFICIAL_SCORE_VALUES[0],
+  );
+}
+
 function normalizeChecklistScore(value: unknown, fallback = 3) {
-  const raw = typeof value === "string" ? value.replace(",", ".") : value;
-  const n = Number(raw);
-  if (!Number.isFinite(n))
-    return Math.max(0, Math.min(SCORE_MAX, Math.round(Number(fallback) || 0)));
-  return Math.max(0, Math.min(SCORE_MAX, Math.round(n)));
+  return normalizeOfficialScore(value, fallback);
 }
 
 function calculateTaskComplexityPoints(input: {
@@ -415,11 +446,16 @@ function calculateChecklistItemPoints(
     (item as any)?.dificuldade,
     scoreToDifficulty((item as any)?.pontuacao ?? 3),
   );
-  const manual = Number((item as any)?.pontuacao || 0);
-  // Regra do ranking: a pontuação é da subtarefa/checklist, definida manualmente
-  // por quem cadastrou, com a escala objetiva Nível 1 a 5: 0, 1, 3, 5 e 20 pontos.
-  if (Number.isFinite(manual) && manual >= 0)
-    return Math.max(0, Math.min(SCORE_MAX, Math.round(manual)));
+  const rawManual = (item as any)?.pontuacao;
+  // Pontuação personalizada removida: só a escala oficial é aceita.
+  // Item legado sem pontuação explícita usa a dificuldade como fonte.
+  if (
+    rawManual !== undefined &&
+    rawManual !== null &&
+    String(rawManual).trim() !== ""
+  ) {
+    return normalizeOfficialScore(rawManual, pointsForDifficulty(dificuldade));
+  }
   return pointsForDifficulty(dificuldade);
 }
 
@@ -482,10 +518,7 @@ function normalizePriority(
 }
 
 function normalizePositiveScore(value: unknown, fallback = 3) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed))
-    return Math.max(0, Math.min(SCORE_MAX, Math.round(Number(fallback) || 0)));
-  return Math.max(0, Math.min(SCORE_MAX, Math.round(parsed)));
+  return normalizeOfficialScore(value, fallback);
 }
 
 function normalizeTaskScope(value: unknown): "pessoal" | "equipe" {
@@ -898,7 +931,9 @@ function normalizePontuacaoEscopo(value: unknown): PontuacaoEscopo {
     ].includes(raw)
   )
     return "subtarefas";
-  return "ambos";
+  // Tarefas antigas sem escopo explícito preservam o comportamento histórico:
+  // pontuação somente pela lista, evitando somar checklist retroativamente.
+  return "tarefa";
 }
 
 function taskPontuacaoEscopo(task: any): PontuacaoEscopo {
@@ -1520,19 +1555,27 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
     }
 
     const pontuacoesRegistradas = await query<any>(
-      `SELECT tp.*, t.titulo AS tarefa_titulo, t.checklist, t.aprovada_em AS tarefa_aprovada_em,
-              t.updated_at AS tarefa_updated_at, t.created_at AS tarefa_created_at, t.status, t.escopo,
-              t.conta_ranking, p.role AS usuario_role, aprovador.nome AS aprovado_por_nome
+      `SELECT tp.*,
+              COALESCE(t.titulo, tp.tarefa_titulo_snapshot, 'Tarefa excluída') AS tarefa_titulo,
+              t.checklist,
+              t.aprovada_em AS tarefa_aprovada_em,
+              t.updated_at AS tarefa_updated_at,
+              t.created_at AS tarefa_created_at,
+              t.status,
+              COALESCE(t.escopo, tp.escopo_snapshot, 'equipe') AS escopo,
+              COALESCE(t.conta_ranking, tp.conta_ranking_snapshot, TRUE) AS conta_ranking,
+              p.role AS usuario_role,
+              aprovador.nome AS aprovado_por_nome
        FROM tarefas_pontuacao tp
-       JOIN tarefas t ON t.id = tp.tarefa_id AND t.org_id = tp.org_id
+       LEFT JOIN tarefas t ON t.id = tp.tarefa_id AND t.org_id = tp.org_id
        JOIN profiles p ON p.id = tp.usuario_id AND p.org_id = tp.org_id
        LEFT JOIN profiles aprovador ON aprovador.id = tp.aprovado_por AND aprovador.org_id = tp.org_id
        WHERE tp.org_id = $1
          AND p.ativo = TRUE
          AND p.role = 'membro'
-         AND COALESCE(t.conta_ranking, TRUE) = TRUE
-         AND COALESCE(t.escopo, 'pessoal') = 'equipe'
-         AND t.status = 'aprovada'
+         AND COALESCE(t.conta_ranking, tp.conta_ranking_snapshot, TRUE) = TRUE
+         AND COALESCE(t.escopo, tp.escopo_snapshot, 'equipe') = 'equipe'
+         AND (t.status = 'aprovada' OR (t.id IS NULL AND tp.tarefa_excluida_em IS NOT NULL))
        ORDER BY COALESCE(tp.aprovado_em, t.aprovada_em, t.updated_at, t.created_at) DESC`,
       [orgId],
     ).catch(() => []);
@@ -1649,7 +1692,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
           titulo: row.tarefa_titulo,
           tarefa_titulo: row.tarefa_titulo,
           subtarefa_titulo: isChecklistScore
-            ? matched?.texto || key || "Tarefa da lista aprovada"
+            ? row.item_titulo_snapshot || matched?.texto || key || "Tarefa da lista aprovada"
             : null,
           subtarefa_dificuldade: matched?.dificuldade || null,
           aprovado_em: row.aprovado_em || row.tarefa_aprovada_em,
@@ -2715,6 +2758,12 @@ router.patch(
         res.status(403).json({ error: "Tarefas pessoais não passam por aprovação do gestor." });
         return;
       }
+      if (!["concluida", "reenviada"].includes(String(existing.status || ""))) {
+        res.status(409).json({
+          error: "A tarefa só pode ser aprovada depois que o executor enviar a conclusão.",
+        });
+        return;
+      }
       const tarefa = await queryOne<any>(
         `UPDATE tarefas SET status = 'aprovada', status_gestor = 'aprovada', aprovada_em = NOW(), aprovada_por = $1, updated_at = NOW()
        WHERE id = $2 AND org_id = $3 RETURNING *`,
@@ -2738,10 +2787,23 @@ router.patch(
           normalizeTaskScope(existing.escopo) === "equipe"
         ) {
           await query(
-            `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-           SELECT $1,$2,$3,$4,$5,'tarefa_aprovada',$6,NOW(),$7
+            `INSERT INTO tarefas_pontuacao (
+               org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo,
+               aprovado_por, aprovado_em, periodo_mes,
+               tarefa_titulo_snapshot, item_titulo_snapshot, escopo_snapshot, conta_ranking_snapshot
+             )
+           SELECT $1,$2,$3,$4,$5,'tarefa_aprovada',$6,NOW(),$7,$8,NULL,$9,$10
            WHERE EXISTS (SELECT 1 FROM profiles p WHERE p.id = $3 AND p.org_id = $1 AND p.ativo = TRUE AND p.role = 'membro')
-           ON CONFLICT DO NOTHING`,
+           ON CONFLICT (tarefa_id, usuario_id, motivo) DO UPDATE SET
+             checklist_id = EXCLUDED.checklist_id,
+             pontos = EXCLUDED.pontos,
+             aprovado_por = EXCLUDED.aprovado_por,
+             aprovado_em = EXCLUDED.aprovado_em,
+             periodo_mes = EXCLUDED.periodo_mes,
+             tarefa_titulo_snapshot = EXCLUDED.tarefa_titulo_snapshot,
+             escopo_snapshot = EXCLUDED.escopo_snapshot,
+             conta_ranking_snapshot = EXCLUDED.conta_ranking_snapshot,
+             tarefa_excluida_em = NULL`,
             [
               orgId,
               req.params.id,
@@ -2750,6 +2812,9 @@ router.patch(
               pontosTarefa,
               userId,
               periodo,
+              existing.titulo || "Tarefa",
+              normalizeTaskScope(existing.escopo),
+              existing.conta_ranking !== false,
             ],
           ).catch((err) =>
             console.warn(
@@ -2765,10 +2830,24 @@ router.patch(
             if (!participante) continue;
             const pontosItem = calculateChecklistItemPoints(item, existing);
             await query(
-              `INSERT INTO tarefas_pontuacao (org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo, aprovado_por, aprovado_em, periodo_mes)
-             SELECT $1,$2,$3,$4,$5,$6,$7,NOW(),$8
+              `INSERT INTO tarefas_pontuacao (
+                 org_id, tarefa_id, usuario_id, checklist_id, pontos, motivo,
+                 aprovado_por, aprovado_em, periodo_mes,
+                 tarefa_titulo_snapshot, item_titulo_snapshot, escopo_snapshot, conta_ranking_snapshot
+               )
+             SELECT $1,$2,$3,$4,$5,$6,$7,NOW(),$8,$9,$10,$11,$12
              WHERE EXISTS (SELECT 1 FROM profiles p WHERE p.id = $3 AND p.org_id = $1 AND p.ativo = TRUE AND p.role = 'membro')
-             ON CONFLICT DO NOTHING`,
+             ON CONFLICT (tarefa_id, usuario_id, motivo) DO UPDATE SET
+               checklist_id = EXCLUDED.checklist_id,
+               pontos = EXCLUDED.pontos,
+               aprovado_por = EXCLUDED.aprovado_por,
+               aprovado_em = EXCLUDED.aprovado_em,
+               periodo_mes = EXCLUDED.periodo_mes,
+               tarefa_titulo_snapshot = EXCLUDED.tarefa_titulo_snapshot,
+               item_titulo_snapshot = EXCLUDED.item_titulo_snapshot,
+               escopo_snapshot = EXCLUDED.escopo_snapshot,
+               conta_ranking_snapshot = EXCLUDED.conta_ranking_snapshot,
+               tarefa_excluida_em = NULL`,
               [
                 orgId,
                 req.params.id,
@@ -2778,6 +2857,10 @@ router.patch(
                 `checklist_aprovado:${item.id || item.texto}`,
                 userId,
                 periodo,
+                existing.titulo || "Tarefa",
+                item.texto || "Tarefa da lista aprovada",
+                normalizeTaskScope(existing.escopo),
+                existing.conta_ranking !== false,
               ],
             ).catch((err) =>
               console.warn(
@@ -2937,22 +3020,20 @@ router.patch(
         data: normalizeNullableDate(prazo) || undefined,
         responsavel_id: novoResponsavelId || undefined,
         responsavel_nome: novoResponsavelNome || undefined,
+        dificuldade: pontuacaoIncluiSubtarefas(taskPontuacaoEscopo(existing))
+          ? "nivel_3"
+          : "nivel_1",
+        pontuacao: pontuacaoIncluiSubtarefas(taskPontuacaoEscopo(existing)) ? 3 : 0,
+        revelar_apos_assumir: isTaskSurprise(existing),
         feito: false,
       });
       const checklistComplementarJson = JSON.stringify(checklistComplementar);
 
       const novaPrioridade = prioridade || existing.prioridade;
-      const novaPontuacao = calculateTaskComplexityPoints({
-        titulo: existing.titulo,
-        descricao: [existing.descricao, complemento].filter(Boolean).join(" "),
-        prioridade: novaPrioridade,
-        checklist: checklistComplementarJson,
-        origem_sistema: existing.origem_sistema,
-        origem_tipo: existing.origem_tipo,
-        origem_nome: existing.origem_nome,
-        origem_payload: existing.origem_payload,
-        manual: existing.pontuacao,
-      });
+      // Complementar a lista não recalcula, aumenta ou muda automaticamente a pontuação.
+      const novaPontuacao = normalizeTaskScope(existing.escopo) === "equipe"
+        ? normalizePositiveScore(existing.pontuacao, 3)
+        : 0;
 
       const updated = await queryOne(
         `UPDATE tarefas SET
@@ -2977,7 +3058,7 @@ router.patch(
          obs = $3,
          checklist = $4,
          pontuacao = $5,
-         conta_ranking = TRUE,
+         conta_ranking = $9,
          updated_at = NOW()
        WHERE id = $7 AND org_id = $8
        RETURNING *`,
@@ -2990,13 +3071,10 @@ router.patch(
           userId,
           req.params.id,
           orgId,
+          normalizeTaskScope(existing.escopo) === "equipe" &&
+            existing.conta_ranking !== false,
         ],
       );
-
-      await query(
-        "DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2",
-        [orgId, req.params.id],
-      ).catch(() => {});
 
       await addHistorico({
         orgId,
@@ -3733,10 +3811,6 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
     }
 
     if (voltouParaExecucao) {
-      await query(
-        "DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2",
-        [orgId, req.params.id],
-      ).catch(() => {});
       await addHistorico({
         orgId,
         tarefaId: req.params.id,
@@ -3899,10 +3973,42 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
         "DELETE FROM tarefa_historico WHERE tarefa_id = $1 AND org_id = $2",
         [req.params.id, orgId],
       ).catch(() => {});
+      // Pontuação aprovada é um registro histórico imutável.
+      // Ao excluir a tarefa, preservamos os pontos e uma fotografia do que gerou a pontuação.
       await query(
-        "DELETE FROM tarefas_pontuacao WHERE tarefa_id = $1 AND org_id = $2",
-        [req.params.id, orgId],
+        `UPDATE tarefas_pontuacao tp
+            SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, $3),
+                escopo_snapshot = COALESCE(tp.escopo_snapshot, $4),
+                conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, $5),
+                tarefa_excluida_em = COALESCE(tp.tarefa_excluida_em, NOW())
+          WHERE tp.tarefa_id = $1 AND tp.org_id = $2`,
+        [
+          req.params.id,
+          orgId,
+          existing.titulo || "Tarefa excluída",
+          normalizeTaskScope(existing.escopo),
+          existing.conta_ranking !== false,
+        ],
       ).catch(() => {});
+      const itensHistoricos = parseChecklistItems(existing.checklist);
+      for (const item of itensHistoricos) {
+        const checklistKey = rankingChecklistKey(item);
+        if (!checklistKey) continue;
+        await query(
+          `UPDATE tarefas_pontuacao
+              SET item_titulo_snapshot = COALESCE(item_titulo_snapshot, $4)
+            WHERE tarefa_id = $1
+              AND org_id = $2
+              AND (checklist_id = $3 OR motivo = $5)`,
+          [
+            req.params.id,
+            orgId,
+            checklistKey,
+            item.texto || "Tarefa da lista aprovada",
+            `checklist_aprovado:${item.id || item.texto}`,
+          ],
+        ).catch(() => {});
+      }
       await query(
         "DELETE FROM agenda WHERE org_id = $2 AND origem_id = $1 AND origem_tipo IN ('tarefa','checklist')",
         [req.params.id, orgId],
