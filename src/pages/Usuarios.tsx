@@ -1,359 +1,494 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Camera, Check, Copy, Eye, EyeOff, KeyRound, Link as LinkIcon, Loader,
-  Pencil, Power, PowerOff, Save, Trash2, UserCircle2, UserPlus, X,
-} from 'lucide-react'
-import { usersApi, type UserProfile } from '../lib/api'
-import { useAuth } from '../lib/AuthContext'
-import { useVisualTexts } from '../hooks/useVisualTexts'
+import { Router, Request, Response, NextFunction } from 'express'
+import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
+import { authMiddleware } from '../middleware/auth'
+import { query, queryOne } from '../db/pool'
+import { buildUploadUrl, createSecureMulterUpload, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
-function toast(msg: string, type: 'success' | 'error' = 'success') {
-  const el = document.createElement('div')
-  el.textContent = msg
-  el.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type === 'error' ? '#EF4444' : '#10B981'};color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3);pointer-events:none;max-width:min(90vw,520px);text-align:center;`
-  document.body.appendChild(el)
-  setTimeout(() => el.remove(), 3200)
+const router = Router()
+router.use(authMiddleware)
+
+function gerarSenhaProvisoria() {
+  return crypto.randomBytes(6).toString('base64url') + 'A1'
 }
 
-function gerarSenha() {
-  return Math.random().toString(36).slice(-6) + 'A1'
+function gerarTokenConvite() {
+  return crypto.randomBytes(32).toString('hex')
 }
 
-function copy(text: string) {
-  navigator.clipboard?.writeText(text)
-  toast('Copiado!')
+function baseUrl(req: Request) {
+  return process.env.FRONTEND_URL || `${req.protocol}://${req.get('host') || 'localhost:5173'}`
 }
 
-type CriavelRole = 'admin' | 'gestor' | 'sub_gestor' | 'membro'
+type Role = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
 
-function roleOptionsFor(currentRole?: string | null): Array<{ value: CriavelRole; label: string }> {
-  if (currentRole === 'dev') return [
-    { value: 'admin', label: 'Admin' }, { value: 'gestor', label: 'Gestor' },
-    { value: 'sub_gestor', label: 'Subgestor' }, { value: 'membro', label: 'Membro' },
-  ]
-  if (currentRole === 'admin') return [
-    { value: 'gestor', label: 'Gestor' }, { value: 'sub_gestor', label: 'Subgestor' }, { value: 'membro', label: 'Membro' },
-  ]
-  if (currentRole === 'gestor') return [
-    { value: 'sub_gestor', label: 'Subgestor' }, { value: 'membro', label: 'Membro' },
-  ]
-  return [{ value: 'membro', label: 'Membro' }]
+function normalizeRole(role: unknown): Role {
+  if (role === 'admin' || role === 'dev' || role === 'gestor' || role === 'sub_gestor' || role === 'membro') return role
+  return 'membro'
 }
 
-function roleLabel(role: UserProfile['role']) {
-  if (role === 'admin') return 'Admin'
-  if (role === 'dev') return 'Dev'
-  if (role === 'gestor') return 'Gestor'
-  if (role === 'sub_gestor') return 'Subgestor'
-  return 'Membro'
+function isGlobalDeleteRole(role: string | undefined): boolean {
+  return role === 'admin' || role === 'dev' || role === 'gestor'
 }
 
-function initials(name: string) {
-  return name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'U'
+function canCreateRole(currentRole: string | undefined, targetRole: Role): boolean {
+  if (currentRole === 'dev') return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'admin') return ['gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'gestor') return ['sub_gestor', 'membro'].includes(targetRole)
+  if (currentRole === 'sub_gestor') return targetRole === 'membro'
+  // Membro não possui papel abaixo dele; mantemos criação de membro subordinado para cumprir a regra de criar usuários abaixo sem dar acesso global.
+  if (currentRole === 'membro') return targetRole === 'membro'
+  return false
 }
 
-function Avatar({ user, size = 52 }: { user: UserProfile; size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flex: '0 0 auto', overflow: 'hidden',
-      display: 'grid', placeItems: 'center', background: 'var(--bg3)', border: '1px solid var(--border)',
-      fontWeight: 900, color: 'var(--primary)', fontSize: Math.max(12, size * .3),
-    }}>
-      {user.avatar_url
-        ? <img src={user.avatar_url} alt={`Foto de ${user.nome}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        : initials(user.nome)}
-    </div>
+function canManageTarget(currentRole: string | undefined, targetRole: string, isOwnSubordinate = true): boolean {
+  if (currentRole === 'dev') return targetRole !== 'dev'
+  if (currentRole === 'admin') return targetRole !== 'dev' && targetRole !== 'admin'
+  // Gestor administra membros e subgestores da organização, sem acessar admin/dev/outro gestor.
+  if (currentRole === 'gestor') return targetRole === 'sub_gestor' || targetRole === 'membro'
+  if (currentRole === 'sub_gestor') return targetRole === 'membro' && isOwnSubordinate
+  if (currentRole === 'membro') return targetRole === 'membro' && isOwnSubordinate
+  return false
+}
+
+const avatarUpload = createSecureMulterUpload({ limits: { fileSize: 5 * 1024 * 1024 } })
+const uploadAvatar = (req: Request, res: Response, next: NextFunction) => {
+  avatarUpload.single('file')(req, res, (err: unknown) => {
+    if (err) { res.status(400).json({ error: uploadErrorMessage(err) }); return }
+    next()
+  })
+}
+
+interface AvatarRequest extends Request {
+  file?: Express.Multer.File
+}
+
+async function getTargetForManagement(id: string, orgId: string) {
+  return queryOne<{ id: string; role: string; criado_por: string | null; avatar_url: string | null }>(
+    'SELECT id, role, criado_por, avatar_url FROM profiles WHERE id = $1 AND org_id = $2',
+    [id, orgId],
   )
 }
 
-function ModalUsuario({ onClose, onCreated, currentRole }: {
-  onClose: () => void
-  onCreated: (u: UserProfile) => void
-  currentRole?: string | null
-}) {
-  const [nome, setNome] = useState('')
-  const [email, setEmail] = useState('')
-  const roleOptions = roleOptionsFor(currentRole)
-  const [role, setRole] = useState<CriavelRole>(roleOptions[0]?.value || 'membro')
-  const [cargo, setCargo] = useState('')
-  const [senha, setSenha] = useState('')
-  const [show, setShow] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [lastSenha, setLastSenha] = useState('')
-  const [lastLink, setLastLink] = useState('')
-
-  async function criar() {
-    if (!nome.trim() || !email.trim()) { toast('Nome e e-mail são obrigatórios.', 'error'); return }
-    setSaving(true)
-    try {
-      const res = await usersApi.create({ nome: nome.trim(), email: email.trim().toLowerCase(), role, cargo: cargo.trim() || undefined, senha: senha || undefined })
-      onCreated(res.user)
-      setLastSenha(res.senha || res.senha_provisoria || '')
-      toast('Usuário criado.')
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao criar usuário.', 'error') }
-    finally { setSaving(false) }
-  }
-
-  async function gerarConvite() {
-    if (!email.trim()) { toast('Informe o e-mail para gerar convite.', 'error'); return }
-    setSaving(true)
-    try {
-      const res = await usersApi.invite({ nome: nome.trim() || undefined, email: email.trim().toLowerCase(), role, cargo: cargo.trim() || undefined })
-      setLastLink(res.link)
-      toast('Link de convite criado.')
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao gerar convite.', 'error') }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={e => e.currentTarget === e.target && onClose()}>
-      <div className="modal-card" style={{ width: 'min(100%, 560px)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:18 }}>
-          <div><h2 style={{ fontFamily:'var(--font-heading)', fontSize:20, fontWeight:900 }}>Novo usuário</h2><p style={{ fontSize:13, color:'var(--text3)', marginTop:4 }}>Crie o acesso ou gere um link de convite.</p></div>
-          <button className="btn btn-ghost" onClick={onClose} style={{ padding:8 }} aria-label="Fechar"><X size={18}/></button>
-        </div>
-        <div style={{ display:'grid', gap:12 }}>
-          <label className="form-group"><span className="form-label">Nome</span><input className="form-input" value={nome} onChange={e=>setNome(e.target.value)} /></label>
-          <label className="form-group"><span className="form-label">E-mail</span><input className="form-input" type="email" value={email} onChange={e=>setEmail(e.target.value)} /></label>
-          <label className="form-group"><span className="form-label">Cargo/função opcional</span><input className="form-input" value={cargo} onChange={e=>setCargo(e.target.value)} placeholder="Ex.: Atendimento, Financeiro, Comercial" /></label>
-          <label className="form-group"><span className="form-label">Permissão</span><select className="form-input" value={role} onChange={e=>setRole(e.target.value as CriavelRole)}>{roleOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label>
-          <label className="form-group"><span className="form-label">Senha provisória opcional</span><div style={{ position:'relative' }}><input className="form-input" type={show ? 'text':'password'} value={senha} onChange={e=>setSenha(e.target.value)} style={{ paddingRight:76 }} /><button type="button" onClick={()=>setShow(s=>!s)} style={{ position:'absolute', right:42, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--text3)' }}>{show?<EyeOff size={16}/>:<Eye size={16}/>}</button><button type="button" onClick={()=>setSenha(gerarSenha())} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:0, color:'var(--primary)' }} title="Gerar senha"><KeyRound size={16}/></button></div></label>
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', gap:10, marginTop:18 }}>
-          <button className="btn btn-primary" onClick={criar} disabled={saving}>{saving ? <Loader size={16} className="spin"/> : <UserPlus size={16}/>} Criar usuário</button>
-          <button className="btn btn-secondary" onClick={gerarConvite} disabled={saving}><LinkIcon size={16}/> Criar convite</button>
-        </div>
-        {lastSenha && <div style={{ marginTop:14, padding:12, background:'var(--bg3)', borderRadius:12 }}><b>Senha provisória:</b> <code>{lastSenha}</code> <button className="btn btn-ghost" onClick={()=>copy(lastSenha)} style={{ marginLeft:8, padding:'4px 8px' }}><Copy size={14}/> Copiar</button></div>}
-        {lastLink && <div style={{ marginTop:10, padding:12, background:'var(--bg3)', borderRadius:12, overflowWrap:'anywhere' }}><b>Link de convite:</b> {lastLink}<br/><button className="btn btn-ghost" onClick={()=>copy(lastLink)} style={{ marginTop:8, padding:'4px 8px' }}><Copy size={14}/> Copiar link</button></div>}
-      </div>
-    </div>
-  )
+function mayEditTarget(currentUserId: string, currentRole: string | undefined, target: { id: string; role: string; criado_por: string | null }) {
+  if (target.id === currentUserId) return true
+  return canManageTarget(currentRole, target.role, target.criado_por === currentUserId)
 }
 
-function ModalEditarUsuario({ target, currentUser, onClose, onUpdated }: {
-  target: UserProfile
-  currentUser: UserProfile
-  onClose: () => void
-  onUpdated: (u: UserProfile) => void
-}) {
-  const isSelf = target.id === currentUser.id
-  const [nome, setNome] = useState(target.nome)
-  const [cargo, setCargo] = useState(target.cargo || '')
-  const [role, setRole] = useState(target.role)
-  const [ativo, setAtivo] = useState(target.ativo !== false)
-  const [senhaAtual, setSenhaAtual] = useState('')
-  const [novaSenha, setNovaSenha] = useState('')
-  const [confirmarSenha, setConfirmarSenha] = useState('')
-  const [showPasswords, setShowPasswords] = useState(false)
-  const [avatarFile, setAvatarFile] = useState<File | null>(null)
-  const [preview, setPreview] = useState(target.avatar_url || '')
-  const [saving, setSaving] = useState(false)
-  const [removingPhoto, setRemovingPhoto] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const roleOptions = roleOptionsFor(currentUser.role)
-  const canChangeRole = !isSelf && roleOptions.some(opt => opt.value === role)
-  const canChangeStatus = !isSelf
-
-  function chooseAvatar(file?: File) {
-    if (!file) return
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { toast('Use uma imagem PNG, JPG, JPEG ou WEBP.', 'error'); return }
-    if (file.size > 5 * 1024 * 1024) { toast('A foto deve ter no máximo 5 MB.', 'error'); return }
-    setAvatarFile(file)
-    setPreview(URL.createObjectURL(file))
+// GET /api/users
+// dev/admin/gestor: todos da organização. sub_gestor e membro: ele + usuários criados por ele.
+router.get('/', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    let sql = `
+      SELECT p.id, p.org_id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.ativo,
+             p.primeiro_acesso, p.criado_por, p.created_at, p.updated_at,
+             c.nome AS criado_por_nome
+      FROM profiles p
+      LEFT JOIN profiles c ON c.id = p.criado_por
+      WHERE p.org_id = $1
+    `
+    const params: unknown[] = [orgId]
+    if (role === 'membro' || role === 'sub_gestor') {
+      sql += ' AND (p.id = $2 OR p.criado_por = $2)'
+      params.push(userId)
+    }
+    sql += ' ORDER BY p.ativo DESC, p.role, p.nome'
+    const users = await query(sql, params)
+    res.json({ users })
+  } catch (err) {
+    console.error('[USERS] Erro ao listar:', err)
+    res.status(500).json({ error: 'Erro ao listar usuários.' })
   }
+})
 
-  async function removerFoto() {
-    setRemovingPhoto(true)
-    try {
-      const updated = await usersApi.removeAvatar(target.id)
-      setPreview('')
-      setAvatarFile(null)
-      onUpdated(updated)
-      toast('Foto removida.')
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao remover foto.', 'error') }
-    finally { setRemovingPhoto(false) }
-  }
+// POST /api/users
+// todos criam usuários conforme hierarquia: dev até admin; admin até gestor; gestor até sub_gestor; sub_gestor/membro apenas membro.
+router.post('/', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { nome, email, senha, cargo } = req.body
+    const novoRole = normalizeRole(req.body.role)
 
-  async function salvar() {
-    if (!nome.trim()) { toast('Nome é obrigatório.', 'error'); return }
-    if (novaSenha && novaSenha.length < 6) { toast('A nova senha deve ter pelo menos 6 caracteres.', 'error'); return }
-    if (novaSenha && novaSenha !== confirmarSenha) { toast('A confirmação da senha não confere.', 'error'); return }
-    if (isSelf && novaSenha && !senhaAtual) { toast('Informe sua senha atual.', 'error'); return }
+    if (!canCreateRole(role, novoRole)) {
+      res.status(403).json({ error: 'Você só pode criar usuários abaixo do seu nível de acesso.' })
+      return
+    }
+    if (!nome?.trim() || !email?.trim()) {
+      res.status(400).json({ error: 'Nome e e-mail são obrigatórios.' })
+      return
+    }
 
-    setSaving(true)
-    try {
-      let updated = await usersApi.update(target.id, {
-        nome: nome.trim(), cargo: cargo.trim(),
-        ...(canChangeRole && role !== target.role ? { role } : {}),
-        ...(canChangeStatus && ativo !== (target.ativo !== false) ? { ativo } : {}),
-      })
-      if (avatarFile) updated = await usersApi.uploadAvatar(target.id, avatarFile)
-      if (novaSenha) await usersApi.changePassword(target.id, { senhaAtual: isSelf ? senhaAtual : undefined, novaSenha })
-      onUpdated(updated)
-      toast(novaSenha ? 'Perfil e senha atualizados.' : 'Perfil atualizado.')
-      onClose()
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao atualizar usuário.', 'error') }
-    finally { setSaving(false) }
-  }
+    const normalizedEmail = String(email).toLowerCase().trim()
+    const exists = await queryOne('SELECT id FROM profiles WHERE email = $1', [normalizedEmail])
+    if (exists) {
+      res.status(409).json({ error: 'E-mail já cadastrado.' })
+      return
+    }
 
-  return (
-    <div className="modal-backdrop" onClick={e => e.currentTarget === e.target && onClose()}>
-      <div className="modal-card" style={{ width:'min(100%, 620px)', maxHeight:'92vh', overflowY:'auto' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
-          <div><h2 style={{ fontFamily:'var(--font-heading)', fontSize:20, fontWeight:900 }}>{isSelf ? 'Editar meu perfil' : 'Editar usuário'}</h2><p style={{ fontSize:13, color:'var(--text3)', marginTop:4 }}>{isSelf ? 'Atualize seus dados, foto e senha.' : 'Atualize os dados e o acesso deste usuário.'}</p></div>
-          <button className="btn btn-ghost" onClick={onClose} style={{ padding:8 }} aria-label="Fechar"><X size={18}/></button>
-        </div>
+    const senhaProvisoria = senha?.trim() || gerarSenhaProvisoria()
+    const senhaHash = await bcrypt.hash(senhaProvisoria, 12)
 
-        <section style={{ display:'grid', gridTemplateColumns:'auto minmax(0,1fr)', gap:16, alignItems:'center', padding:'18px 0', borderBottom:'1px solid var(--border)' }}>
-          <div style={{ width:84, height:84, borderRadius:'50%', overflow:'hidden', background:'var(--bg3)', border:'1px solid var(--border)', display:'grid', placeItems:'center', fontSize:24, fontWeight:900, color:'var(--primary)' }}>
-            {preview ? <img src={preview} alt="Prévia da foto" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials(nome)}
-          </div>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontWeight:800, marginBottom:8 }}>Foto do perfil</div>
-            <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-              <button type="button" className="btn btn-secondary" onClick={()=>inputRef.current?.click()}><Camera size={16}/> {preview ? 'Trocar foto' : 'Adicionar foto'}</button>
-              {preview && <button type="button" className="btn btn-ghost" onClick={removerFoto} disabled={removingPhoto}>{removingPhoto ? <Loader size={16} className="spin"/> : <Trash2 size={16}/>} Remover</button>}
-            </div>
-            <div style={{ color:'var(--text3)', fontSize:12, marginTop:7 }}>PNG, JPG ou WEBP, até 5 MB.</div>
-            <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e=>chooseAvatar(e.target.files?.[0])}/>
-          </div>
-        </section>
-
-        <div style={{ display:'grid', gap:12, paddingTop:18 }}>
-          <label className="form-group"><span className="form-label">Nome</span><input className="form-input" value={nome} onChange={e=>setNome(e.target.value)} /></label>
-          <label className="form-group"><span className="form-label">E-mail</span><input className="form-input" value={target.email} disabled /><small style={{ color:'var(--text3)' }}>O e-mail de acesso é mantido para evitar perda de login e vínculos.</small></label>
-          <label className="form-group"><span className="form-label">Cargo/função opcional</span><input className="form-input" value={cargo} onChange={e=>setCargo(e.target.value)} placeholder="Ex.: Atendimento, Financeiro, Comercial" /></label>
-          {canChangeRole && <label className="form-group"><span className="form-label">Permissão</span><select className="form-input" value={role} onChange={e=>setRole(e.target.value as UserProfile['role'])}>{roleOptions.map(opt=><option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></label>}
-          {canChangeStatus && <label style={{ display:'flex', alignItems:'center', gap:10, padding:12, border:'1px solid var(--border)', borderRadius:12 }}><input type="checkbox" checked={ativo} onChange={e=>setAtivo(e.target.checked)} /><span><b>Usuário ativo</b><div style={{ fontSize:12, color:'var(--text3)' }}>Desmarque para bloquear o acesso sem apagar os dados.</div></span></label>}
-        </div>
-
-        <section style={{ marginTop:20, paddingTop:18, borderTop:'1px solid var(--border)' }}>
-          <h3 style={{ fontSize:15, marginBottom:4 }}>Alterar senha</h3>
-          <p style={{ fontSize:12, color:'var(--text3)', marginBottom:12 }}>{isSelf ? 'Para sua segurança, informe a senha atual.' : 'Opcional. Defina uma nova senha para este usuário.'}</p>
-          <div style={{ display:'grid', gap:10 }}>
-            {isSelf && <label className="form-group"><span className="form-label">Senha atual</span><input className="form-input" type={showPasswords?'text':'password'} value={senhaAtual} onChange={e=>setSenhaAtual(e.target.value)} /></label>}
-            <label className="form-group"><span className="form-label">Nova senha</span><input className="form-input" type={showPasswords?'text':'password'} value={novaSenha} onChange={e=>setNovaSenha(e.target.value)} placeholder="Deixe vazio para não alterar" /></label>
-            <label className="form-group"><span className="form-label">Confirmar nova senha</span><input className="form-input" type={showPasswords?'text':'password'} value={confirmarSenha} onChange={e=>setConfirmarSenha(e.target.value)} /></label>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--text3)' }}><input type="checkbox" checked={showPasswords} onChange={e=>setShowPasswords(e.target.checked)} /> Mostrar senhas</label>
-          </div>
-        </section>
-
-        <div style={{ display:'flex', flexWrap:'wrap', justifyContent:'flex-end', gap:10, marginTop:22 }}>
-          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={salvar} disabled={saving}>{saving ? <Loader size={16} className="spin"/> : <Save size={16}/>} Salvar alterações</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function Usuarios() {
-  const { t } = useVisualTexts()
-  const { user: eu, refreshUser } = useAuth()
-  const [usuarios, setUsuarios] = useState<UserProfile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState<UserProfile | null>(null)
-
-  const canCreate = !!eu
-  const canDeleteUsers = eu?.role === 'admin' || eu?.role === 'dev' || eu?.role === 'gestor'
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try { setUsuarios(await usersApi.list()) }
-    catch (e) { toast(e instanceof Error ? e.message : 'Erro ao carregar usuários.', 'error') }
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  const grupos = useMemo(() => ({
-    gestores: usuarios.filter(u => u.role === 'admin' || u.role === 'dev' || u.role === 'gestor' || u.role === 'sub_gestor'),
-    membros: usuarios.filter(u => u.role === 'membro'),
-  }), [usuarios])
-
-  async function resetar(id: string) {
-    try {
-      const res = await usersApi.resetPassword(id)
-      toast('Senha provisória gerada.')
-      alert(`Nova senha provisória: ${res.senha || res.senha_provisoria}`)
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao resetar senha.', 'error') }
-  }
-
-  async function alternar(u: UserProfile) {
-    try {
-      const updated = await usersApi.update(u.id, { ativo: !u.ativo })
-      setUsuarios(list => list.map(x => x.id === u.id ? updated : x))
-      toast(updated.ativo === false ? 'Usuário desativado.' : 'Usuário ativado.')
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao alterar status.', 'error') }
-  }
-
-  async function apagar(u: UserProfile) {
-    if (!canDeleteUsers) { toast('Apenas admin, dev ou gestor podem apagar usuários.', 'error'); return }
-    if (u.id === eu?.id) { toast('Você não pode apagar seu próprio usuário.', 'error'); return }
-    const ok = window.confirm(`Apagar definitivamente o usuário ${u.nome}?\n\nA ação não pode ser desfeita.`)
-    if (!ok) return
-    try {
-      await usersApi.remove(u.id)
-      setUsuarios(list => list.filter(x => x.id !== u.id))
-      toast('Usuário apagado com sucesso.')
-    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao apagar usuário.', 'error') }
-  }
-
-  async function applyUpdated(updated: UserProfile) {
-    setUsuarios(list => list.map(x => x.id === updated.id ? { ...x, ...updated } : x))
-    if (updated.id === eu?.id) await refreshUser()
-  }
-
-  function canEditUser(u: UserProfile) {
-    if (!eu) return false
-    if (u.id === eu.id) return true
-    if (eu.role === 'dev') return u.role !== 'dev'
-    if (eu.role === 'admin') return u.role !== 'dev' && u.role !== 'admin'
-    if (eu.role === 'gestor') return u.role === 'sub_gestor' || u.role === 'membro'
-    if (eu.role === 'sub_gestor' || eu.role === 'membro') return u.role === 'membro' && u.criado_por === eu.id
-    return false
-  }
-
-  function row(u: UserProfile) {
-    const isSelf = u.id === eu?.id
-    return (
-      <div key={u.id} style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr) auto', gap:14, alignItems:'center', padding:14, background:'var(--bg2)', border:'1px solid var(--border)', borderRadius:16 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12, minWidth:0 }}>
-          <Avatar user={u}/>
-          <div style={{ minWidth:0 }}>
-            <div style={{ display:'flex', alignItems:'center', flexWrap:'wrap', gap:7 }}><span style={{ fontWeight:800 }}>{u.nome}</span>{isSelf && <span style={{ fontSize:11, padding:'2px 7px', borderRadius:999, background:'var(--bg3)', color:'var(--text3)' }}>Você</span>}</div>
-            <div style={{ color:'var(--text3)', fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{u.email}</div>
-            <div style={{ marginTop:5, fontSize:12, color:'var(--text3)' }}>{roleLabel(u.role)}{u.cargo ? ` · ${u.cargo}` : ''} · {u.ativo === false ? 'Inativo' : 'Ativo'}</div>
-          </div>
-        </div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
-          {canEditUser(u) && <button className="btn btn-secondary" style={{ padding:9 }} onClick={()=>setEditing(u)} title={isSelf ? 'Editar meu perfil' : 'Editar usuário'}><Pencil size={16}/></button>}
-          {!isSelf && <button className="btn btn-secondary" style={{ padding:9 }} onClick={()=>resetar(u.id)} title="Gerar senha provisória"><KeyRound size={16}/></button>}
-          {!isSelf && <button className="btn btn-secondary" style={{ padding:9 }} onClick={()=>alternar(u)} title={u.ativo === false ? 'Ativar usuário' : 'Desativar usuário'}>{u.ativo === false ? <Power size={16}/> : <PowerOff size={16}/>}</button>}
-          {!isSelf && canDeleteUsers && <button className="btn btn-secondary" style={{ padding:9, color:'var(--danger)' }} onClick={()=>apagar(u)} title="Apagar usuário"><Trash2 size={16}/></button>}
-        </div>
-      </div>
+    const user = await queryOne(
+      `INSERT INTO profiles (org_id, nome, email, senha_hash, role, cargo, criado_por, ativo, primeiro_acesso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,TRUE)
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [orgId, nome.trim(), normalizedEmail, senhaHash, novoRole, cargo || null, userId]
     )
+
+    res.status(201).json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
+  } catch (err) {
+    console.error('[USERS] Erro ao criar:', err)
+    res.status(500).json({ error: 'Erro ao criar usuário.' })
   }
+})
 
-  return (
-    <div className="page-container" style={{ maxWidth:980 }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:22, flexWrap:'wrap' }}>
-        <div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>{t('users.pageTitle')}</h1><p style={{ color:'var(--text3)' }}>{t('users.pageSubtitle')}</p></div>
-        {canCreate && <button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> {t('users.newButton')}</button>}
-      </div>
+// POST /api/users/invite
+// Cria convite por link. Opcionalmente pode já criar placeholder inativo se email informado.
+router.post('/invite', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const conviteRole = normalizeRole(req.body.role)
+    const { nome, email, cargo } = req.body
 
-      {loading ? <div style={{ display:'flex', alignItems:'center', gap:8, color:'var(--text3)' }}><Loader size={17} className="spin"/> Carregando usuários...</div> : (
-        <div style={{ display:'grid', gap:20 }}>
-          <section><h2 style={{ fontSize:16, marginBottom:10 }}>Gestão</h2><div style={{ display:'grid', gap:10 }}>{grupos.gestores.map(row)}{grupos.gestores.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum usuário de gestão cadastrado.</div>}</div></section>
-          <section><h2 style={{ fontSize:16, marginBottom:10 }}>Membros</h2><div style={{ display:'grid', gap:10 }}>{grupos.membros.map(row)}{grupos.membros.length===0 && <div style={{ color:'var(--text3)' }}>Nenhum membro cadastrado.</div>}</div></section>
-        </div>
-      )}
+    if (!canCreateRole(role, conviteRole)) {
+      res.status(403).json({ error: 'Você só pode convidar usuários abaixo do seu nível de acesso.' })
+      return
+    }
 
-      {open && <ModalUsuario currentRole={eu?.role} onClose={()=>setOpen(false)} onCreated={(u)=>{setUsuarios(v=>[...v,u]); setOpen(false)}}/>}
-      {editing && eu && <ModalEditarUsuario target={editing} currentUser={eu} onClose={()=>setEditing(null)} onUpdated={applyUpdated}/>} 
-    </div>
-  )
-}
+    const token = gerarTokenConvite()
+    const normalizedEmail = email ? String(email).toLowerCase().trim() : null
+    if (normalizedEmail) {
+      const exists = await queryOne('SELECT id FROM profiles WHERE email = $1', [normalizedEmail])
+      if (exists) {
+        res.status(409).json({ error: 'E-mail já cadastrado.' })
+        return
+      }
+    }
+
+    const convite = await queryOne(
+      `INSERT INTO convites (org_id, criado_por, nome, email, role, cargo, token, usado, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,FALSE,NOW() + INTERVAL '7 days')
+       RETURNING id, org_id, nome, email, role, cargo, token, expires_at, created_at`,
+      [orgId, userId, nome?.trim() || null, normalizedEmail, conviteRole, cargo || null, token]
+    )
+    const link = `${baseUrl(req).replace(/\/$/, '')}/convite/${token}`
+    res.status(201).json({ convite, link })
+  } catch (err) {
+    console.error('[USERS] Erro ao gerar convite:', err)
+    res.status(500).json({ error: 'Erro ao gerar convite.' })
+  }
+})
+
+// PATCH /api/users/:id
+router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const { nome, cargo, role: bodyRole, novoRole, ativo } = req.body
+    const requestedRole = bodyRole ?? novoRole
+
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
+      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+
+    const isOwnSubordinate = id === userId || target.criado_por === userId
+    if (id !== userId && !canManageTarget(role, target.role, isOwnSubordinate)) {
+      res.status(403).json({ error: 'Você não tem permissão para alterar este usuário.' })
+      return
+    }
+    if (requestedRole !== undefined) {
+      if (id === userId) {
+        res.status(403).json({ error: 'Você não pode alterar sua própria permissão.' })
+        return
+      }
+      const nextRole = normalizeRole(requestedRole)
+      if (!canCreateRole(role, nextRole)) {
+        res.status(403).json({ error: 'Você só pode definir permissões abaixo do seu nível de acesso.' })
+        return
+      }
+    }
+
+    const updates: string[] = []
+    const params: unknown[] = []
+    let idx = 1
+    if (nome !== undefined) {
+      const normalizedName = String(nome).trim()
+      if (!normalizedName) { res.status(400).json({ error: 'Nome é obrigatório.' }); return }
+      updates.push(`nome = $${idx++}`); params.push(normalizedName)
+    }
+    if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
+    if (requestedRole !== undefined) {
+      const r = normalizeRole(requestedRole)
+      updates.push(`role = $${idx++}`); params.push(r)
+    }
+    if (ativo !== undefined && id !== userId) {
+      updates.push(`ativo = $${idx++}`); params.push(Boolean(ativo))
+    }
+    if (updates.length === 0) {
+      res.status(400).json({ error: 'Nenhum campo para atualizar.' })
+      return
+    }
+    params.push(id, orgId)
+    const user = await queryOne(
+      `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW()
+       WHERE id = $${idx++} AND org_id = $${idx}
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      params
+    )
+    res.json({ user })
+  } catch (err) {
+    console.error('[USERS] Erro ao atualizar:', err)
+    res.status(500).json({ error: 'Erro ao atualizar usuário.' })
+  }
+})
+
+// POST /api/users/:id/avatar — envia ou substitui foto de perfil
+router.post('/:id/avatar', uploadAvatar, async (req: AvatarRequest, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const target = await getTargetForManagement(id, orgId)
+    if (!target) {
+      if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(404).json({ error: 'Usuário não encontrado.' })
+      return
+    }
+    if (!mayEditTarget(userId, role, target)) {
+      if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(403).json({ error: 'Você não tem permissão para alterar a foto deste usuário.' })
+      return
+    }
+    if (!req.file) { res.status(400).json({ error: 'Selecione uma imagem.' }); return }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(req.file.mimetype)) {
+      removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(400).json({ error: 'Use uma imagem PNG, JPG, JPEG ou WEBP.' })
+      return
+    }
+
+    const avatarUrl = buildUploadUrl(req.file.filename)
+    const user = await queryOne(
+      `UPDATE profiles SET avatar_url = $1, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [avatarUrl, id, orgId],
+    )
+    if (target.avatar_url && target.avatar_url !== avatarUrl) removeUploadByUrl(target.avatar_url)
+    res.json({ user })
+  } catch (err) {
+    if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+    console.error('[USERS] Erro ao atualizar avatar:', err)
+    res.status(500).json({ error: 'Erro ao atualizar foto do usuário.' })
+  }
+})
+
+// DELETE /api/users/:id/avatar — remove foto de perfil
+router.delete('/:id/avatar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const target = await getTargetForManagement(req.params.id, orgId)
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+    if (!mayEditTarget(userId, role, target)) {
+      res.status(403).json({ error: 'Você não tem permissão para remover a foto deste usuário.' })
+      return
+    }
+    const user = await queryOne(
+      `UPDATE profiles SET avatar_url = NULL, updated_at = NOW()
+       WHERE id = $1 AND org_id = $2
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [req.params.id, orgId],
+    )
+    removeUploadByUrl(target.avatar_url)
+    res.json({ user })
+  } catch (err) {
+    console.error('[USERS] Erro ao remover avatar:', err)
+    res.status(500).json({ error: 'Erro ao remover foto do usuário.' })
+  }
+})
+
+// PATCH /api/users/:id/password — o próprio usuário altera com senha atual;
+// gestor/admin/dev autorizado pode definir uma senha nova para subordinado.
+router.patch('/:id/password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const novaSenha = String(req.body.novaSenha || '')
+    const senhaAtual = String(req.body.senhaAtual || '')
+    if (novaSenha.length < 6) {
+      res.status(400).json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' })
+      return
+    }
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null; senha_hash: string }>(
+      'SELECT id, role, criado_por, senha_hash FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId],
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+
+    if (id === userId) {
+      if (!senhaAtual || !(await bcrypt.compare(senhaAtual, target.senha_hash))) {
+        res.status(401).json({ error: 'Senha atual incorreta.' })
+        return
+      }
+    } else if (!canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para alterar a senha deste usuário.' })
+      return
+    }
+
+    const senhaHash = await bcrypt.hash(novaSenha, 12)
+    await query(
+      `UPDATE profiles SET senha_hash = $1, primeiro_acesso = FALSE, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3`,
+      [senhaHash, id, orgId],
+    )
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[USERS] Erro ao alterar senha:', err)
+    res.status(500).json({ error: 'Erro ao alterar senha.' })
+  }
+})
+
+// POST /api/users/:id/reset-password
+router.post('/:id/reset-password', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null }>(
+      'SELECT id, role, criado_por FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+    if (id === userId) { res.status(400).json({ error: 'Use a tela de configurações para alterar sua própria senha.' }); return }
+    if (!canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para redefinir senha deste usuário.' })
+      return
+    }
+    const senhaProvisoria = gerarSenhaProvisoria()
+    const senhaHash = await bcrypt.hash(senhaProvisoria, 12)
+    const user = await queryOne(
+      `UPDATE profiles SET senha_hash = $1, primeiro_acesso = TRUE, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3
+       RETURNING id, org_id, nome, email, role, cargo, ativo, primeiro_acesso`,
+      [senhaHash, id, orgId]
+    )
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+    res.json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
+  } catch (err) {
+    console.error('[USERS] Erro ao resetar senha:', err)
+    res.status(500).json({ error: 'Erro ao resetar senha.' })
+  }
+})
+
+// DELETE /api/users/:id -> apaga permanentemente usuário e dados privados vinculados
+router.delete('/:id', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+
+    if (id === userId) {
+      res.status(400).json({ error: 'Você não pode apagar a si mesmo.' })
+      return
+    }
+
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null; email?: string }>(
+      'SELECT id, role, criado_por, email FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId]
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+
+    // Admin/dev/gestor têm poder de exclusão dentro da organização.
+    // Subgestor/membro só apagam usuários criados por eles e abaixo do seu nível.
+    if (!isGlobalDeleteRole(role) && !canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para apagar este usuário.' })
+      return
+    }
+    if (role === 'gestor' && (target.role === 'admin' || target.role === 'dev')) {
+      res.status(403).json({ error: 'Gestor não pode apagar admin ou dev.' })
+      return
+    }
+
+    const taskFilesToRemove = await query<{ arquivo_url?: string }>(
+      `SELECT arquivo_url FROM tarefa_anexos
+       WHERE org_id = $1
+         AND tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2))`,
+      [orgId, id]
+    ).catch(() => []) as { arquivo_url?: string }[]
+    const docFilesToRemove = await query<{ arquivo_url?: string }>(
+      'SELECT arquivo_url FROM documentos WHERE criado_por = $1 AND org_id = $2',
+      [id, orgId]
+    ).catch(() => []) as { arquivo_url?: string }[]
+
+    // Limpeza intencional para permitir apagar usuário sem violar FKs e sem manter dados privados órfãos.
+    // Mantemos tudo dentro de uma transação para evitar exclusão parcial.
+    await query('BEGIN')
+    try {
+      await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+      await query('DELETE FROM notificacoes WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM equipes_membros WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM equipes_membros WHERE profile_id = $1', [id]).catch(() => {})
+
+      // Histórico e anexos vinculados às tarefas do usuário antes de apagar as tarefas.
+      await query(
+        `DELETE FROM tarefa_anexos
+         WHERE org_id = $1
+           AND tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2))`,
+        [orgId, id]
+      ).catch(() => {})
+      await query(
+        `DELETE FROM tarefas_historico
+         WHERE org_id = $1
+           AND (user_id = $2 OR tarefa_id IN (SELECT id FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)))`,
+        [orgId, id]
+      ).catch(() => {})
+      await query('DELETE FROM tarefa_historico WHERE org_id = $1 AND usuario_id = $2', [orgId, id]).catch(() => {})
+
+      // Apaga tarefas criadas por ele ou atribuídas a ele.
+      await query('DELETE FROM tarefas WHERE org_id = $1 AND (criado_por = $2 OR responsavel_id = $2)', [orgId, id]).catch(() => {})
+
+      // Apaga dados privados do usuário removido.
+      await query('DELETE FROM documentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pagamentos_historico WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pagamentos WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM agenda WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+      await query('DELETE FROM pessoas WHERE user_id = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+
+      // Convites criados por ele deixam de apontar para usuário apagado.
+      await query('DELETE FROM convites WHERE org_id = $1 AND criado_por = $2', [orgId, id]).catch(() => {})
+      await query('UPDATE profiles SET criado_por = NULL WHERE criado_por = $1 AND org_id = $2', [id, orgId]).catch(() => {})
+
+      await query('DELETE FROM profiles WHERE id = $1 AND org_id = $2', [id, orgId])
+      await query('COMMIT')
+      for (const file of [...taskFilesToRemove, ...docFilesToRemove]) removeUploadByUrl(file.arquivo_url)
+    } catch (cleanupErr) {
+      await query('ROLLBACK').catch(() => {})
+      throw cleanupErr
+    }
+
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[USERS] Erro ao apagar:', err)
+    res.status(500).json({ error: 'Erro ao apagar usuário.' })
+  }
+})
+
+// GET /api/users/meus-comandados
+router.get('/meus-comandados', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!
+    const users = await query(
+      `SELECT id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por
+       FROM profiles
+       WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE
+       ORDER BY nome`,
+      [orgId, userId]
+    )
+    res.json({ users })
+  } catch (err) {
+    console.error('[USERS] Erro ao listar comandados:', err)
+    res.status(500).json({ error: 'Erro ao listar comandados.' })
+  }
+})
+
+export default router
