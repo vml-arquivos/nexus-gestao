@@ -1,9 +1,9 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
-import { removeUploadByUrl } from '../lib/uploadSecurity'
+import { buildUploadUrl, createSecureMulterUpload, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
 const router = Router()
 router.use(authMiddleware)
@@ -44,10 +44,35 @@ function canCreateRole(currentRole: string | undefined, targetRole: Role): boole
 function canManageTarget(currentRole: string | undefined, targetRole: string, isOwnSubordinate = true): boolean {
   if (currentRole === 'dev') return targetRole !== 'dev'
   if (currentRole === 'admin') return targetRole !== 'dev' && targetRole !== 'admin'
-  if (currentRole === 'gestor') return targetRole !== 'dev' && targetRole !== 'admin' && isOwnSubordinate
+  // Gestor administra membros e subgestores da organização, sem acessar admin/dev/outro gestor.
+  if (currentRole === 'gestor') return targetRole === 'sub_gestor' || targetRole === 'membro'
   if (currentRole === 'sub_gestor') return targetRole === 'membro' && isOwnSubordinate
   if (currentRole === 'membro') return targetRole === 'membro' && isOwnSubordinate
   return false
+}
+
+const avatarUpload = createSecureMulterUpload({ limits: { fileSize: 5 * 1024 * 1024 } })
+const uploadAvatar = (req: Request, res: Response, next: NextFunction) => {
+  avatarUpload.single('file')(req, res, (err: unknown) => {
+    if (err) { res.status(400).json({ error: uploadErrorMessage(err) }); return }
+    next()
+  })
+}
+
+interface AvatarRequest extends Request {
+  file?: Express.Multer.File
+}
+
+async function getTargetForManagement(id: string, orgId: string) {
+  return queryOne<{ id: string; role: string; criado_por: string | null; avatar_url: string | null }>(
+    'SELECT id, role, criado_por, avatar_url FROM profiles WHERE id = $1 AND org_id = $2',
+    [id, orgId],
+  )
+}
+
+function mayEditTarget(currentUserId: string, currentRole: string | undefined, target: { id: string; role: string; criado_por: string | null }) {
+  if (target.id === currentUserId) return true
+  return canManageTarget(currentRole, target.role, target.criado_por === currentUserId)
 }
 
 // GET /api/users
@@ -175,6 +200,10 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promis
       return
     }
     if (requestedRole !== undefined) {
+      if (id === userId) {
+        res.status(403).json({ error: 'Você não pode alterar sua própria permissão.' })
+        return
+      }
       const nextRole = normalizeRole(requestedRole)
       if (!canCreateRole(role, nextRole)) {
         res.status(403).json({ error: 'Você só pode definir permissões abaixo do seu nível de acesso.' })
@@ -185,7 +214,11 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promis
     const updates: string[] = []
     const params: unknown[] = []
     let idx = 1
-    if (nome !== undefined) { updates.push(`nome = $${idx++}`); params.push(String(nome).trim()) }
+    if (nome !== undefined) {
+      const normalizedName = String(nome).trim()
+      if (!normalizedName) { res.status(400).json({ error: 'Nome é obrigatório.' }); return }
+      updates.push(`nome = $${idx++}`); params.push(normalizedName)
+    }
     if (cargo !== undefined) { updates.push(`cargo = $${idx++}`); params.push(cargo || null) }
     if (requestedRole !== undefined) {
       const r = normalizeRole(requestedRole)
@@ -209,6 +242,111 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promis
   } catch (err) {
     console.error('[USERS] Erro ao atualizar:', err)
     res.status(500).json({ error: 'Erro ao atualizar usuário.' })
+  }
+})
+
+// POST /api/users/:id/avatar — envia ou substitui foto de perfil
+router.post('/:id/avatar', uploadAvatar, async (req: AvatarRequest, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const target = await getTargetForManagement(id, orgId)
+    if (!target) {
+      if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(404).json({ error: 'Usuário não encontrado.' })
+      return
+    }
+    if (!mayEditTarget(userId, role, target)) {
+      if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(403).json({ error: 'Você não tem permissão para alterar a foto deste usuário.' })
+      return
+    }
+    if (!req.file) { res.status(400).json({ error: 'Selecione uma imagem.' }); return }
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(req.file.mimetype)) {
+      removeUploadByUrl(buildUploadUrl(req.file.filename))
+      res.status(400).json({ error: 'Use uma imagem PNG, JPG, JPEG ou WEBP.' })
+      return
+    }
+
+    const avatarUrl = buildUploadUrl(req.file.filename)
+    const user = await queryOne(
+      `UPDATE profiles SET avatar_url = $1, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [avatarUrl, id, orgId],
+    )
+    if (target.avatar_url && target.avatar_url !== avatarUrl) removeUploadByUrl(target.avatar_url)
+    res.json({ user })
+  } catch (err) {
+    if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
+    console.error('[USERS] Erro ao atualizar avatar:', err)
+    res.status(500).json({ error: 'Erro ao atualizar foto do usuário.' })
+  }
+})
+
+// DELETE /api/users/:id/avatar — remove foto de perfil
+router.delete('/:id/avatar', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const target = await getTargetForManagement(req.params.id, orgId)
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+    if (!mayEditTarget(userId, role, target)) {
+      res.status(403).json({ error: 'Você não tem permissão para remover a foto deste usuário.' })
+      return
+    }
+    const user = await queryOne(
+      `UPDATE profiles SET avatar_url = NULL, updated_at = NOW()
+       WHERE id = $1 AND org_id = $2
+       RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
+      [req.params.id, orgId],
+    )
+    removeUploadByUrl(target.avatar_url)
+    res.json({ user })
+  } catch (err) {
+    console.error('[USERS] Erro ao remover avatar:', err)
+    res.status(500).json({ error: 'Erro ao remover foto do usuário.' })
+  }
+})
+
+// PATCH /api/users/:id/password — o próprio usuário altera com senha atual;
+// gestor/admin/dev autorizado pode definir uma senha nova para subordinado.
+router.patch('/:id/password', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!
+    const { id } = req.params
+    const novaSenha = String(req.body.novaSenha || '')
+    const senhaAtual = String(req.body.senhaAtual || '')
+    if (novaSenha.length < 6) {
+      res.status(400).json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' })
+      return
+    }
+    const target = await queryOne<{ id: string; role: string; criado_por: string | null; senha_hash: string }>(
+      'SELECT id, role, criado_por, senha_hash FROM profiles WHERE id = $1 AND org_id = $2',
+      [id, orgId],
+    )
+    if (!target) { res.status(404).json({ error: 'Usuário não encontrado.' }); return }
+
+    if (id === userId) {
+      if (!senhaAtual || !(await bcrypt.compare(senhaAtual, target.senha_hash))) {
+        res.status(401).json({ error: 'Senha atual incorreta.' })
+        return
+      }
+    } else if (!canManageTarget(role, target.role, target.criado_por === userId)) {
+      res.status(403).json({ error: 'Você não tem permissão para alterar a senha deste usuário.' })
+      return
+    }
+
+    const senhaHash = await bcrypt.hash(novaSenha, 12)
+    await query(
+      `UPDATE profiles SET senha_hash = $1, primeiro_acesso = FALSE, updated_at = NOW()
+       WHERE id = $2 AND org_id = $3`,
+      [senhaHash, id, orgId],
+    )
+    await query('DELETE FROM refresh_tokens WHERE user_id = $1', [id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[USERS] Erro ao alterar senha:', err)
+    res.status(500).json({ error: 'Erro ao alterar senha.' })
   }
 })
 
