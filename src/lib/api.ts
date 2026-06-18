@@ -1110,9 +1110,25 @@ export const usersApi = {
     return data
   },
 
-  async update(id: string, payload: { nome?: string; cargo?: string; novoRole?: string; ativo?: boolean }): Promise<UserProfile> {
+  async update(id: string, payload: { nome?: string; cargo?: string; role?: string; novoRole?: string; ativo?: boolean }): Promise<UserProfile> {
     const data = await apiJson<{ user: UserProfile }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
     return data.user
+  },
+
+  async uploadAvatar(id: string, file: File): Promise<UserProfile> {
+    const formData = new FormData()
+    formData.append('file', file)
+    const data = await apiJson<{ user: UserProfile }>(`/users/${id}/avatar`, { method: 'POST', body: formData })
+    return data.user
+  },
+
+  async removeAvatar(id: string): Promise<UserProfile> {
+    const data = await apiJson<{ user: UserProfile }>(`/users/${id}/avatar`, { method: 'DELETE' })
+    return data.user
+  },
+
+  async changePassword(id: string, payload: { senhaAtual?: string; novaSenha: string }): Promise<void> {
+    await apiJson(`/users/${id}/password`, { method: 'PATCH', body: JSON.stringify(payload) })
   },
 
   async remove(id: string): Promise<void> {
