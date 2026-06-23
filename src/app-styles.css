@@ -9545,3 +9545,68 @@ textarea.form-input,
     grid-template-columns: 1fr;
   }
 }
+
+/* Justificativas do executor visíveis para gestor */
+.task-member-justifications {
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.06), rgba(59, 130, 246, 0.02));
+}
+
+.task-member-justification-list {
+  display: grid;
+  gap: 10px;
+}
+
+.task-member-justification-card {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg2);
+  min-width: 0;
+}
+
+.task-member-justification-head,
+.task-member-justification-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-member-justification-head strong {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.task-member-justification-head span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.task-member-justification-card p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-member-justification-meta {
+  justify-content: flex-start;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+@media (max-width: 680px) {
+  .task-member-justification-card { padding: 10px; }
+  .task-member-justification-head,
+  .task-member-justification-meta { align-items: flex-start; flex-direction: column; }
+}

@@ -1710,6 +1710,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [motivo, setMotivo] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
+  const [execHistory, setExecHistory] = useState<any[]>([])
+  const [execHistoryLoading, setExecHistoryLoading] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [editTitulo, setEditTitulo] = useState(tarefa.titulo || '')
   const [editDescricao, setEditDescricao] = useState(tarefa.descricao || '')
@@ -1737,6 +1739,27 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const listSurprise = taskIsSurprise(tarefa)
   const hasHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
 
+  useEffect(() => {
+    if (!isGestor) {
+      setExecHistory([])
+      return
+    }
+    let ativo = true
+    setExecHistoryLoading(true)
+    tarefasApi.historico(tarefa.id)
+      .then(items => {
+        if (!ativo) return
+        setExecHistory(Array.isArray(items) ? items : [])
+      })
+      .catch(() => {
+        if (ativo) setExecHistory([])
+      })
+      .finally(() => {
+        if (ativo) setExecHistoryLoading(false)
+      })
+    return () => { ativo = false }
+  }, [isGestor, tarefa.id, tarefa.updated_at, tarefa.status])
+
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
   const hasChecklistForMe = checklist.some(item => isChecklistItemExecutor(item, tarefa, userId))
@@ -1756,6 +1779,45 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
   const executorSummary = checklistExecutorSummary({ ...tarefa, checklist })
   const responsaveisChecklist = assigneeOptions(membros, undefined)
+  const executionNotes = useMemo(() => {
+    if (!isGestor) return [] as Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }>
+    const seen = new Set<string>()
+    const notes: Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }> = []
+    const pushNote = (note: { id: string; origem: string; autor?: string; data?: string; texto?: unknown; tipo?: string }) => {
+      const texto = String(note.texto || '').trim()
+      if (!texto) return
+      const key = `${note.origem}|${note.autor || ''}|${note.data || ''}|${texto}`
+      if (seen.has(key)) return
+      seen.add(key)
+      notes.push({ ...note, texto })
+    }
+    pushNote({ id: 'resposta_membro', origem: 'Resposta do membro', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.resposta_em || tarefa.data_conclusao, texto: tarefa.resposta_membro, tipo: tarefa.resposta_status })
+    pushNote({ id: 'observacao_conclusao', origem: 'Observação de conclusão', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.data_conclusao || tarefa.resposta_em, texto: tarefa.observacao_conclusao, tipo: 'concluida' })
+    pushNote({ id: 'resposta_obs', origem: tarefa.resposta_status === 'nao_concluida' ? 'Justificativa de não conclusão' : 'Observação enviada', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.resposta_em, texto: tarefa.resposta_obs, tipo: tarefa.resposta_status })
+    pushNote({ id: 'motivo_nao_conclusao', origem: 'Motivo de não conclusão', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.updated_at, texto: tarefa.motivo_nao_conclusao, tipo: 'nao_concluida' })
+
+    const executionActions = new Set(['parte_enviada', 'objetivos_completos', 'concluida', 'nao_concluida', 'reenviada'])
+    execHistory
+      .filter(h => executionActions.has(String(h?.acao || '')) && String(h?.observacao || '').trim())
+      .forEach((h, idx) => pushNote({
+        id: h.id || `historico_${idx}`,
+        origem: h.acao === 'parte_enviada'
+          ? 'Parte enviada'
+          : h.acao === 'objetivos_completos'
+            ? 'Conclusão da lista'
+            : h.acao === 'reenviada'
+              ? 'Correção reenviada'
+              : h.acao === 'nao_concluida'
+                ? 'Justificativa de não conclusão'
+                : 'Conclusão enviada',
+        autor: h.usuario_nome || h.user_id,
+        data: h.created_at,
+        texto: h.observacao,
+        tipo: h.acao,
+      }))
+
+    return notes.sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')))
+  }, [isGestor, execHistory, tarefa.resposta_membro, tarefa.observacao_conclusao, tarefa.resposta_obs, tarefa.motivo_nao_conclusao, tarefa.resposta_status, tarefa.resposta_em, tarefa.data_conclusao, tarefa.updated_at, tarefa.responsavel_nome_perfil, tarefa.responsavel_nome, tarefa.aceita_por_nome])
 
   const openSubtasksForMe = useMemo(() => {
     if (!userId || isGestor) return [] as Array<{ tarefa: Tarefa; item: ChecklistItem }>
@@ -2385,6 +2447,36 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             <textarea className="form-input" rows={2} value={obs} onChange={e => setObs(e.target.value)} placeholder="Ex.: executei os itens marcados e anexei os comprovantes..." />
             <label className="form-label">Motivo caso não tenha concluído</label>
             <textarea className="form-input" rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Obrigatório somente se clicar em Não concluí." />
+          </section>
+        )}
+
+        {isGestor && (
+          <section className="task-detail-section task-member-justifications">
+            <div className="task-detail-section-head">
+              <h3>Justificativas e observações dos membros</h3>
+              <span className="muted">Tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui para conferência do gestor.</span>
+            </div>
+            {execHistoryLoading ? (
+              <p className="muted">Carregando justificativas...</p>
+            ) : executionNotes.length > 0 ? (
+              <div className="task-member-justification-list">
+                {executionNotes.map(note => (
+                  <div key={note.id} className="task-member-justification-card">
+                    <div className="task-member-justification-head">
+                      <strong>{note.origem}</strong>
+                      {note.tipo && <span>{note.tipo}</span>}
+                    </div>
+                    <p>{note.texto}</p>
+                    <div className="task-member-justification-meta">
+                      {note.autor && <span>Por: {note.autor}</span>}
+                      {note.data && <span>{fmtDateTime(note.data)}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">Nenhuma justificativa ou observação de execução enviada ainda.</p>
+            )}
           </section>
         )}
 
