@@ -124,16 +124,39 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_dist
 CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-  tarefa_id   UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  tarefa_id   UUID REFERENCES tarefas(id) ON DELETE SET NULL,
   usuario_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  checklist_id TEXT,
   pontos      INTEGER NOT NULL DEFAULT 1,
   motivo      TEXT,
   aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
   aprovado_em TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   periodo_mes TEXT NOT NULL,
+  tarefa_titulo_snapshot TEXT,
+  item_titulo_snapshot TEXT,
+  escopo_snapshot TEXT,
+  conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
+  tarefa_excluida_em TIMESTAMPTZ,
   created_at  TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   UNIQUE (tarefa_id, usuario_id, motivo)
 );
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS checklist_id TEXT;
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_titulo_snapshot TEXT;
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS item_titulo_snapshot TEXT;
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS escopo_snapshot TEXT;
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_excluida_em TIMESTAMPTZ;
+ALTER TABLE tarefas_pontuacao ALTER COLUMN tarefa_id DROP NOT NULL;
+ALTER TABLE tarefas_pontuacao DROP CONSTRAINT IF EXISTS tarefas_pontuacao_tarefa_id_fkey;
+ALTER TABLE tarefas_pontuacao ADD CONSTRAINT tarefas_pontuacao_tarefa_id_fkey
+  FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE SET NULL;
+UPDATE tarefas_pontuacao tp
+   SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, t.titulo),
+       escopo_snapshot = COALESCE(tp.escopo_snapshot, t.escopo),
+       conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, t.conta_ranking, TRUE)
+  FROM tarefas t
+ WHERE tp.tarefa_id = t.id
+   AND tp.org_id = t.org_id;
 CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
 CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;

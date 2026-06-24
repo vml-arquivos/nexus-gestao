@@ -1575,7 +1575,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
          AND p.role = 'membro'
          AND COALESCE(t.conta_ranking, tp.conta_ranking_snapshot, TRUE) = TRUE
          AND COALESCE(t.escopo, tp.escopo_snapshot, 'equipe') = 'equipe'
-         AND (t.status = 'aprovada' OR (t.id IS NULL AND tp.tarefa_excluida_em IS NOT NULL))
+         AND (t.status = 'aprovada' OR t.id IS NULL)
        ORDER BY COALESCE(tp.aprovado_em, t.aprovada_em, t.updated_at, t.created_at) DESC`,
       [orgId],
     ).catch(() => []);
@@ -1619,7 +1619,14 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
         tarefa.created_at ||
         tarefa.tarefa_created_at ||
         null;
-      const uniqueKey = `${tarefa.id || tarefa.tarefa_id}:${usuarioId}:${keySeed || (isChecklist ? tarefa.subtarefa_titulo : "tarefa")}`;
+      const registroBase =
+        tarefa.id ||
+        tarefa.tarefa_id ||
+        tarefa.pontuacao_id ||
+        tarefa.registro_pontuacao_id ||
+        tarefa.historico_id ||
+        "sem_tarefa";
+      const uniqueKey = `${registroBase}:${usuarioId}:${keySeed || (isChecklist ? tarefa.subtarefa_titulo : "tarefa")}`;
       if (scoreKeys.has(uniqueKey)) return;
       scoreKeys.add(uniqueKey);
       const pontosValidos = Math.max(
@@ -1633,7 +1640,9 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
         entry.tarefas_aprovadas += 1;
       }
       entry.historico.push({
-        tarefa_id: tarefa.id || tarefa.tarefa_id,
+        tarefa_id: tarefa.tarefa_id || tarefa.id || null,
+        pontuacao_id: tarefa.pontuacao_id || tarefa.registro_pontuacao_id || null,
+        tarefa_excluida: !Boolean(tarefa.tarefa_id || tarefa.id),
         tarefa_titulo: tarefa.titulo || tarefa.tarefa_titulo,
         subtarefa_titulo: tarefa.subtarefa_titulo || null,
         dificuldade: tarefa.subtarefa_dificuldade || tarefa.dificuldade || null,
@@ -1689,6 +1698,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
         {
           id: row.tarefa_id,
           tarefa_id: row.tarefa_id,
+          pontuacao_id: row.id,
           titulo: row.tarefa_titulo,
           tarefa_titulo: row.tarefa_titulo,
           subtarefa_titulo: isChecklistScore
@@ -1703,6 +1713,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
             : "Tarefa aprovada pelo gestor",
           updated_at: row.tarefa_updated_at,
           created_at: row.tarefa_created_at,
+          tarefa_excluida_em: row.tarefa_excluida_em || null,
         },
         isChecklistScore,
         // Chave unificada: tarefa usa "__tarefa__" (igual à Fonte 2 para deduplicação correta),

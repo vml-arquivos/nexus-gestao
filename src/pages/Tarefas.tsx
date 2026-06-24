@@ -2988,6 +2988,7 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
           const pontos = Number(membro.pontos || 0)
           const tarefasInternas = Number(membro.subtarefas_executadas || 0)
           const listasExecutadas = Number(membro.tarefas_executadas || 0)
+          const totalAprovadas = tarefasInternas + listasExecutadas
           const pct = Math.max(4, Math.round((pontos / maxPontos) * 100))
           const isTop3 = index < 3
           const medalha = MEDALHAS[index] || null
@@ -3000,7 +3001,7 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
               </div>
               <div style={{ minWidth: 0 }}>
                 <strong style={{ display: 'block', fontSize: 14, overflowWrap: 'anywhere' }}>{membro.nome || 'Membro'}</strong>
-                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{tarefasInternas ? `${tarefasInternas} tarefa(s) aprovada(s)` : 'Nenhuma tarefa aprovada no período'}</span>
+                <span style={{ color: 'var(--text3)', fontSize: 12 }}>{totalAprovadas ? `${totalAprovadas} lançamento(s) aprovado(s)` : 'Nenhuma pontuação aprovada no período'}</span>
                 <div style={{ marginTop: 6, height: 5, background: 'var(--bg3)', borderRadius: 999, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pct}%`, background: pontos > 0 ? 'linear-gradient(90deg, var(--primary), #10B981)' : 'var(--border)', borderRadius: 999, transition: 'width .4s ease' }} />
                 </div>
@@ -3013,7 +3014,7 @@ function RankingEquipe({ ranking, onChangePeriodo }: {
                           <div className="ranking-history-main">
                             <strong>{h.subtarefa_titulo || h.tarefa_titulo || 'Tarefa aprovada'}</strong>
                             {h.subtarefa_titulo && <span>{h.tarefa_titulo}</span>}
-                            <em>{[h.dificuldade ? `Dificuldade: ${String(h.dificuldade)}` : '', h.aprovado_em ? `Aprovada em ${fmtDateTime(h.aprovado_em)}` : ''].filter(Boolean).join(' · ')}</em>
+                            <em>{[h.tarefa_excluida ? 'Tarefa excluída — pontuação preservada' : '', h.dificuldade ? `Dificuldade: ${String(h.dificuldade)}` : '', h.aprovado_em ? `Aprovada em ${fmtDateTime(h.aprovado_em)}` : ''].filter(Boolean).join(' · ')}</em>
                           </div>
                           <strong className="ranking-history-points">+{Number(h.pontos || 0)} pts</strong>
                         </div>
