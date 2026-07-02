@@ -190,8 +190,15 @@ router.get('/destrava/status', async (_req: Request, res: Response): Promise<voi
 
 router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<void> => {
   try {
-    const externalType = String(req.query.external_type || 'empresa').trim()
+    let externalType = String(req.query.external_type || 'empresa').trim()
     const externalId = String(req.query.external_id || '').trim()
+    // Normalize external type aliases. O Destrava renomeou "Empresas" para "Clientes PJ" no frontend,
+    // porém a integração deve continuar funcionando. Quando recebermos cliente_pj ou seus variantes,
+    // tratamos como empresa.
+    const extLower = externalType.toLowerCase()
+    if (['cliente_pj', 'clientes_pj', 'cliente-pj', 'clientes-pj'].includes(extLower)) {
+      externalType = 'empresa'
+    }
     if (!externalId) {
       res.status(400).json({ error: 'external_id é obrigatório.' })
       return
@@ -203,8 +210,8 @@ router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<voi
               t.origem_url, t.created_at, t.updated_at
          FROM tarefas t
         WHERE t.origem_sistema = 'destrava'
-          AND t.origem_tipo = $1
           AND t.origem_id = $2
+          AND (t.origem_tipo = $1 OR t.origem_tipo = 'cliente_pj' OR t.origem_tipo = 'clientes_pj')
         ORDER BY COALESCE(t.prazo, t.created_at::date) DESC, t.created_at DESC`,
       [externalType, externalId]
     )
@@ -220,7 +227,12 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     const body = req.body || {}
     const titulo = String(body.titulo || '').trim()
     const externalId = String(body.external_id || '').trim()
-    const externalType = String(body.external_type || 'empresa').trim()
+    let externalType = String(body.external_type || 'empresa').trim()
+    const extLower = externalType.toLowerCase()
+    // Normalize aliases for Clientes PJ to maintain backwards compatibility.
+    if (['cliente_pj', 'clientes_pj', 'cliente-pj', 'clientes-pj'].includes(extLower)) {
+      externalType = 'empresa'
+    }
     const externalName = String(body.external_name || '').trim()
 
     if (!titulo) {
