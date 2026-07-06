@@ -4,7 +4,7 @@ import type { ReactNode, DragEvent } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
-  Paperclip, Upload, Download, FileText, Copy, Trophy,
+  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -646,9 +646,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     }
 
     setDestravaLoading(true)
-    destravaApi.catalogo({ tipo: 'empresa', q: '', limit: 120 })
-      .then(items => { if (alive) setDestravaItens(Array.isArray(items) ? items : []) })
-      .catch(() => { if (alive) setDestravaItens([]) })
+    destravaApi.sincronizarEmpresas()
+      .catch(() => null)
+      .then(() => destravaApi.empresasSincronizadas({ q: '', limit: 5000 }))
+      .then(data => { if (alive) setDestravaItens(Array.isArray(data.items) ? data.items : []) })
+      .catch(() => destravaApi.catalogo({ tipo: 'todos', q: '', limit: 500 }).then(items => { if (alive) setDestravaItens(Array.isArray(items) ? items : []) }))
       .finally(() => { if (alive) setDestravaLoading(false) })
 
     return () => { alive = false }
@@ -859,7 +861,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Empresa Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+            <label className="form-label">Empresa ou pessoa física da Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
             <select
               className="form-input"
               value={destravaSelecionado ? `${destravaSelecionado.tipo}-${destravaSelecionado.id}` : ''}
@@ -871,17 +873,30 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 setDestravaBusca(item?.nome || '')
               }}
             >
-              <option value="">Selecione a empresa, se esta tarefa for para uma empresa do Destrava</option>
-              {destravaLoading && <option value="" disabled>Carregando empresas...</option>}
+              <option value="">Selecione uma empresa ou pessoa física cadastrada na Destrava</option>
+              {destravaLoading && <option value="" disabled>Carregando cadastros...</option>}
               {!destravaLoading && destravaSelectOptions.map(item => (
                 <option key={`${item.tipo}-${item.id}`} value={`${item.tipo}-${item.id}`}>
-                  {item.nome}{item.documento ? ` · ${item.documento}` : ''}
+                  {item.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'} · {item.nome}{item.documento ? ` · ${item.documento}` : ''}
                 </option>
               ))}
             </select>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary btn-sm" type="button" disabled={destravaLoading} onClick={async () => {
+                setDestravaLoading(true)
+                try {
+                  const sync = await destravaApi.sincronizarEmpresas()
+                  const data = await destravaApi.empresasSincronizadas({ limit: 5000 })
+                  setDestravaItens(data.items || [])
+                  toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
+                } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao sincronizar empresas.', 'error') }
+                finally { setDestravaLoading(false) }
+              }}>{destravaLoading ? <Loader size={13} /> : <RotateCcw size={13} />} Sincronizar PJ e PF</button>
+              <span className="muted">{destravaSelectOptions.length} cadastro(s) disponíveis no Nexus.</span>
+            </div>
             {destravaSelecionado && (
               <div className="integration-help">
-                Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}. Ao executar ou anexar arquivos, o histórico da empresa no Destrava será atualizado.
+                Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}. Ao executar ou anexar arquivos, o histórico do cadastro na Destrava será atualizado.
               </div>
             )}
           </div>
@@ -1727,6 +1742,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [saving, setSaving] = useState(false)
   const [execHistory, setExecHistory] = useState<any[]>([])
   const [execHistoryLoading, setExecHistoryLoading] = useState(false)
+  const [comentarios, setComentarios] = useState<any[]>([])
+  const [comentarioTexto, setComentarioTexto] = useState('')
+  const [comentarioItemId, setComentarioItemId] = useState('')
+  const [comentariosLoading, setComentariosLoading] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [editTitulo, setEditTitulo] = useState(tarefa.titulo || '')
   const [editDescricao, setEditDescricao] = useState(tarefa.descricao || '')
@@ -1774,6 +1793,58 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       })
     return () => { ativo = false }
   }, [isGestor, tarefa.id, tarefa.updated_at, tarefa.status])
+
+  useEffect(() => {
+    let ativo = true
+    setComentariosLoading(true)
+    tarefasApi.comentarios(tarefa.id)
+      .then(items => { if (ativo) setComentarios(items) })
+      .catch(() => { if (ativo) setComentarios([]) })
+      .finally(() => { if (ativo) setComentariosLoading(false) })
+    return () => { ativo = false }
+  }, [tarefa.id, tarefa.updated_at])
+
+  async function enviarComentario() {
+    const texto = comentarioTexto.trim()
+    if (!texto) { toast('Escreva um comentário.', 'error'); return }
+    setSaving(true)
+    try {
+      const salvo = await tarefasApi.comentar(tarefa.id, { comentario: texto, checklist_id: comentarioItemId || undefined })
+      setComentarios(prev => [...prev, { ...salvo, autor_nome: salvo.autor_nome || 'Você' }])
+      setComentarioTexto('')
+      toast('Comentário registrado no histórico da tarefa.')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao comentar.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  async function revisarItem(item: ChecklistItem, decisao: 'aprovar' | 'devolver') {
+    const ressalva = decisao === 'devolver' ? (window.prompt('Descreva o que precisa ser corrigido:') || '').trim() : ''
+    if (decisao === 'devolver' && !ressalva) return
+    setSaving(true)
+    try {
+      const atualizada = await tarefasApi.revisarChecklistItem(tarefa.id, item.id, decisao, ressalva)
+      setChecklist(normalizeChecklistItems(atualizada.checklist))
+      onSaved(atualizada)
+      const novos = await tarefasApi.comentarios(tarefa.id)
+      setComentarios(novos)
+      toast(decisao === 'aprovar' ? 'Item aprovado e pontuação liberada.' : 'Item devolvido ao executor para correção.')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao revisar item.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  async function imprimirRelatorio() {
+    try {
+      const r = await tarefasApi.relatorio(tarefa.id)
+      const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] || c))
+      const itens = (r.tarefa.checklist || []).map((i:any) => `<tr><td>${esc(i.texto)}</td><td>${esc(i.responsavel_nome || i.concluido_por || 'Não definido')}</td><td>${i.feito ? 'Executado' : 'Pendente'}</td><td>${esc(i.aprovacao_status || 'Aguardando')}</td><td>${Number(i.pontuacao || 0)}</td></tr>`).join('')
+      const comentariosHtml = (r.comentarios || []).map((c:any) => `<li><strong>${esc(c.autor_nome || 'Usuário')}</strong> — ${new Date(c.criado_em).toLocaleString('pt-BR')}<br>${esc(c.comentario)}</li>`).join('') || '<li>Nenhum comentário.</li>'
+      const pontos = (r.pontuacoes || []).reduce((a:number,p:any)=>a+Number(p.pontos||0),0)
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relatório - ${esc(r.tarefa.titulo)}</title><style>body{font-family:Arial,sans-serif;color:#172033;padding:28px}h1{margin-bottom:4px}.meta{color:#667085;margin-bottom:24px}.box{border:1px solid #d0d5dd;border-radius:8px;padding:14px;margin:14px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left;font-size:12px}th{background:#f2f4f7}li{margin:10px 0}@media print{button{display:none}}</style></head><body><h1>${esc(r.tarefa.titulo)}</h1><div class="meta">Empresa: ${esc(r.tarefa.origem_nome || 'Não vinculada')} · Criada por: ${esc(r.tarefa.criado_por_nome || '')} · Gerado em ${new Date(r.gerado_em).toLocaleString('pt-BR')}</div><div class="box"><strong>Status:</strong> ${esc(r.tarefa.status)} &nbsp; <strong>Prioridade:</strong> ${esc(r.tarefa.prioridade)} &nbsp; <strong>Pontos aprovados:</strong> ${pontos}<p>${esc(r.tarefa.descricao || '')}</p></div><h2>Execução por item</h2><table><thead><tr><th>Item</th><th>Executor</th><th>Execução</th><th>Aval do gestor</th><th>Pontos</th></tr></thead><tbody>${itens}</tbody></table><h2>Comentários e relatos</h2><ul>${comentariosHtml}</ul><p class="meta">Relatório auditável gerado pelo Nexus Gestão.</p><script>window.onload=()=>window.print()<\/script></body></html>`
+      const w = window.open('', '_blank')
+      if (!w) throw new Error('Permita pop-ups para imprimir o relatório.')
+      w.document.open(); w.document.write(html); w.document.close()
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao gerar relatório.', 'error') }
+  }
 
   // Checklist marcável somente pelo executor real da tarefa.
   // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
@@ -2426,6 +2497,13 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             )}
                           </span>
                         </button>
+                        {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>Aprovar parte</button>
+                            <button className="btn btn-secondary btn-sm" type="button" onClick={() => revisarItem(item, 'devolver')} disabled={saving}>Devolver</button>
+                          </div>
+                        )}
+                        {isGestor && (item as any).aprovacao_status === 'aprovada' && <span className="badge badge-success">Aprovada · pontos liberados</span>}
                         {canAssumeThisItem && (
                           <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving}>
                             Assumir tarefa
@@ -2470,6 +2548,30 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           </section>
         )}
 
+        <section className="task-detail-section">
+          <div className="task-detail-section-head">
+            <h3>Comentários e acompanhamento</h3>
+            <span className="muted">Conversa auditável da lista ou de uma tarefa específica.</span>
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+            <select className="form-input" value={comentarioItemId} onChange={e => setComentarioItemId(e.target.value)}>
+              <option value="">Comentário geral da lista</option>
+              {displayChecklist.map(i => <option key={i.id} value={i.id}>Item: {checklistDisplayText(i)}</option>)}
+            </select>
+            <textarea className="form-input" rows={2} value={comentarioTexto} onChange={e => setComentarioTexto(e.target.value)} placeholder="Registre o que foi feito, uma dúvida, orientação ou devolutiva..." />
+            <button className="btn btn-secondary" type="button" onClick={enviarComentario} disabled={saving}><Send size={14} /> Registrar comentário</button>
+          </div>
+          {comentariosLoading ? <p className="muted">Carregando comentários...</p> : comentarios.length ? (
+            <div className="task-member-justification-list">{comentarios.map((c:any) => (
+              <div className="task-member-justification-card" key={c.id}>
+                <div className="task-member-justification-head"><strong>{c.autor_nome || 'Usuário'}</strong><span>{c.tipo}</span></div>
+                <p>{c.comentario}</p>
+                <div className="task-member-justification-meta"><span>{c.checklist_id ? `Item ${c.checklist_id}` : 'Lista geral'}</span><span>{fmtDateTime(c.criado_em)}</span></div>
+              </div>
+            ))}</div>
+          ) : <p className="muted">Nenhum comentário registrado.</p>}
+        </section>
+
         {isGestor && (
           <section className="task-detail-section task-member-justifications">
             <div className="task-detail-section-head">
@@ -2509,6 +2611,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
         <div className="modal-actions task-detail-actions" data-modal-actions>
           {isGestor && <button className="btn btn-secondary" type="button" onClick={() => onReminder(tarefa)}><MessageSquare size={14} /> Enviar lembrete</button>}
+          <button className="btn btn-secondary" type="button" onClick={imprimirRelatorio}><Printer size={14} /> Relatório / PDF</button>
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
           {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
           {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}

@@ -141,6 +141,23 @@ async function ensureTaskRuntimeSchema() {
         CREATE INDEX IF NOT EXISTS idx_ajuda_org    ON tarefas_ajuda(org_id, status, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_ajuda_dest   ON tarefas_ajuda(destinatario_id, status);
         CREATE INDEX IF NOT EXISTS idx_ajuda_solic  ON tarefas_ajuda(solicitante_id);
+
+        CREATE TABLE IF NOT EXISTS tarefas_comentarios (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+          tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+          checklist_id TEXT,
+          autor_id UUID NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+          comentario TEXT NOT NULL,
+          tipo TEXT NOT NULL DEFAULT 'comentario'
+            CHECK (tipo IN ('comentario','execucao','devolucao','aprovacao','sistema')),
+          criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          editado_em TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_tarefa
+          ON tarefas_comentarios(org_id, tarefa_id, criado_em ASC);
+        CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_checklist
+          ON tarefas_comentarios(org_id, tarefa_id, checklist_id, criado_em ASC);
       `);
     })().catch((err) => {
       taskRuntimeSchemaPromise = null;
@@ -644,6 +661,13 @@ function parseChecklistItems(
   aceita_por?: string;
   revelar_apos_assumir?: boolean;
   oculta_ate_assumir?: boolean;
+  enviado_em?: string;
+  aprovacao_status?: "aguardando" | "aprovada" | "devolvida";
+  aprovado_por?: string;
+  aprovado_em?: string;
+  devolvido_por?: string;
+  devolvido_em?: string;
+  ressalva_gestor?: string;
   subtarefas?: Array<{ id: string; texto: string; feito?: boolean }>;
 }> {
   const raw = (() => {
@@ -732,6 +756,13 @@ function parseChecklistItems(
           item?.ocultar_ate_assumir,
         ),
         feito: !!item?.feito,
+        enviado_em: item?.enviado_em || undefined,
+        aprovacao_status: ["aguardando", "aprovada", "devolvida"].includes(String(item?.aprovacao_status || "")) ? item.aprovacao_status : undefined,
+        aprovado_por: isUuid(item?.aprovado_por) ? item.aprovado_por : undefined,
+        aprovado_em: item?.aprovado_em || undefined,
+        devolvido_por: isUuid(item?.devolvido_por) ? item.devolvido_por : undefined,
+        devolvido_em: item?.devolvido_em || undefined,
+        ressalva_gestor: String(item?.ressalva_gestor || "").trim() || undefined,
       };
     })
     .filter((item: { texto: string }) => item.texto);
@@ -2244,6 +2275,11 @@ router.patch(
       }
 
       const current = items[index];
+      if (String((current as any).aprovacao_status || '') === 'aprovada') {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Este item já foi aprovado. Solicite ao gestor uma devolução antes de alterá-lo." });
+        return;
+      }
       if (!isChecklistItemExecutor(existing, current, userId)) {
         await client.query("ROLLBACK");
         res.status(403).json({ error: "Apenas o executor pode alterar esta tarefa da lista." });
@@ -2256,11 +2292,16 @@ router.patch(
           feito: true,
           concluido_por: userId,
           feito_por: userId,
+          enviado_em: new Date().toISOString(),
+          aprovacao_status: "aguardando",
         };
       } else {
         const reopened = { ...current, feito: false };
         delete reopened.concluido_por;
         delete reopened.feito_por;
+        delete reopened.enviado_em;
+        delete reopened.aprovacao_status;
+        delete reopened.ressalva_gestor;
         items[index] = reopened;
       }
 
@@ -4506,6 +4547,125 @@ router.patch("/ajuda/:ajudaId/resolver", async (req: Request, res: Response): Pr
   } catch (err) {
     res.status(500).json({ error: "Erro ao resolver pedido de ajuda." });
   }
+});
+
+
+// ── COMENTÁRIOS, APROVAÇÃO POR ITEM E RELATÓRIO AUDITÁVEL ──────────────────
+router.get("/:id/comentarios", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!;
+    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) {
+      res.status(404).json({ error: "Tarefa não encontrada." }); return;
+    }
+    const checklistId = String(req.query.checklist_id || "").trim();
+    const comentarios = await query<any>(
+      `SELECT c.id, c.tarefa_id, c.checklist_id, c.autor_id, p.nome AS autor_nome,
+              c.comentario, c.tipo, c.criado_em, c.editado_em
+         FROM tarefas_comentarios c
+         JOIN profiles p ON p.id = c.autor_id AND p.org_id = c.org_id
+        WHERE c.org_id = $1 AND c.tarefa_id = $2
+          AND ($3 = '' OR c.checklist_id = $3)
+        ORDER BY c.criado_em ASC`,
+      [orgId, req.params.id, checklistId],
+    );
+    res.json({ comentarios });
+  } catch (err) {
+    console.error("[TAREFAS] Erro ao listar comentários:", err);
+    res.status(500).json({ error: "Erro ao carregar comentários." });
+  }
+});
+
+router.post("/:id/comentarios", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId } = req.user!;
+    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) {
+      res.status(404).json({ error: "Tarefa não encontrada." }); return;
+    }
+    const comentario = String(req.body?.comentario || "").trim();
+    const checklistId = String(req.body?.checklist_id || "").trim() || null;
+    if (!comentario) { res.status(400).json({ error: "Escreva um comentário." }); return; }
+    if (comentario.length > 5000) { res.status(400).json({ error: "Comentário muito longo." }); return; }
+    if (checklistId) {
+      const item = parseChecklistItems(tarefa.checklist).find(i => String(i.id) === checklistId);
+      if (!item) { res.status(404).json({ error: "Item do checklist não encontrado." }); return; }
+      if (req.user!.role === "membro" && !isChecklistItemExecutor(tarefa, item, userId)) {
+        res.status(403).json({ error: "Você só pode comentar na tarefa atribuída a você." }); return;
+      }
+    }
+    const salvo = await queryOne<any>(
+      `INSERT INTO tarefas_comentarios (org_id, tarefa_id, checklist_id, autor_id, comentario, tipo)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [orgId, req.params.id, checklistId, userId, comentario, String(req.body?.tipo || "comentario")],
+    );
+    await addHistorico({ orgId, tarefaId: req.params.id, userId, acao: "comentario_adicionado",
+      statusAnterior: tarefa.status, statusNovo: tarefa.status, observacao: checklistId ? `Comentário no item ${checklistId}` : "Comentário geral" });
+    res.status(201).json({ comentario: salvo });
+  } catch (err) {
+    console.error("[TAREFAS] Erro ao comentar:", err);
+    res.status(500).json({ error: "Erro ao salvar comentário." });
+  }
+});
+
+router.patch("/:id/checklist/:itemId/revisao", async (req: Request, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    const { orgId, userId, role } = req.user!;
+    if (role === "membro") { res.status(403).json({ error: "Apenas a gestão pode revisar entregas." }); return; }
+    const decisao = String(req.body?.decisao || "");
+    if (!["aprovar", "devolver"].includes(decisao)) { res.status(400).json({ error: "Decisão inválida." }); return; }
+    await client.query("BEGIN");
+    const locked = await client.query(`SELECT * FROM tarefas WHERE id=$1 AND org_id=$2 FOR UPDATE`, [req.params.id, orgId]);
+    const tarefa = locked.rows[0];
+    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) { await client.query("ROLLBACK"); res.status(404).json({ error: "Tarefa não encontrada." }); return; }
+    const items = parseChecklistItems(tarefa.checklist);
+    const idx = items.findIndex(i => String(i.id) === String(req.params.itemId));
+    if (idx < 0) { await client.query("ROLLBACK"); res.status(404).json({ error: "Item não encontrado." }); return; }
+    const item:any = items[idx];
+    if (!item.feito && decisao === "aprovar") { await client.query("ROLLBACK"); res.status(409).json({ error: "O executor ainda não enviou este item." }); return; }
+    const agora = new Date().toISOString();
+    if (decisao === "aprovar") {
+      item.aprovacao_status = "aprovada"; item.aprovado_por = userId; item.aprovado_em = agora; item.ressalva_gestor = null;
+      const participante = checklistExecutorId(item, tarefa);
+      const pontos = calculateChecklistItemPoints(item, tarefa);
+      if (participante && pontos > 0 && tarefa.conta_ranking !== false && pontuacaoIncluiSubtarefas(taskPontuacaoEscopo(tarefa))) {
+        await client.query(
+          `INSERT INTO tarefas_pontuacao (org_id,tarefa_id,usuario_id,checklist_id,pontos,motivo,aprovado_por,aprovado_em,periodo_mes,tarefa_titulo_snapshot,item_titulo_snapshot,escopo_snapshot,conta_ranking_snapshot)
+           SELECT $1,$2,$3,$4,$5,$6,$7,NOW(),$8,$9,$10,$11,$12
+           WHERE EXISTS (SELECT 1 FROM profiles p WHERE p.id=$3 AND p.org_id=$1 AND p.ativo=TRUE AND p.role='membro')
+           ON CONFLICT (tarefa_id,usuario_id,motivo) DO UPDATE SET pontos=EXCLUDED.pontos, aprovado_por=EXCLUDED.aprovado_por, aprovado_em=EXCLUDED.aprovado_em, periodo_mes=EXCLUDED.periodo_mes, item_titulo_snapshot=EXCLUDED.item_titulo_snapshot`,
+          [orgId,tarefa.id,participante,item.id,pontos,`checklist_aprovado:${item.id}`,userId,periodMonth(),tarefa.titulo,item.texto,normalizeTaskScope(tarefa.escopo),tarefa.conta_ranking !== false]
+        );
+      }
+    } else {
+      item.aprovacao_status = "devolvida"; item.ressalva_gestor = String(req.body?.ressalva || "").trim() || "Necessita correção";
+      item.devolvido_por = userId; item.devolvido_em = agora; item.feito = false;
+      await client.query(`DELETE FROM tarefas_pontuacao WHERE org_id=$1 AND tarefa_id=$2 AND checklist_id=$3`, [orgId,tarefa.id,String(item.id)]);
+    }
+    items[idx] = item;
+    const updated = await client.query(`UPDATE tarefas SET checklist=$1::jsonb, status=CASE WHEN $2='devolver' THEN 'em_progresso' ELSE status END, updated_at=NOW() WHERE id=$3 AND org_id=$4 RETURNING *`, [JSON.stringify(items),decisao,tarefa.id,orgId]);
+    await client.query(`INSERT INTO tarefas_comentarios (org_id,tarefa_id,checklist_id,autor_id,comentario,tipo) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [orgId,tarefa.id,String(item.id),userId,String(req.body?.ressalva || (decisao === "aprovar" ? "Item aprovado pela gestão." : "Item devolvido para correção.")),decisao === "aprovar" ? "aprovacao" : "devolucao"]);
+    await client.query("COMMIT");
+    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) });
+  } catch (err) { await client.query("ROLLBACK").catch(()=>{}); console.error("[TAREFAS] Erro na revisão por item:",err); res.status(500).json({ error:"Erro ao revisar item." }); }
+  finally { client.release(); }
+});
+
+router.get("/:id/relatorio", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!;
+    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) { res.status(404).json({ error:"Tarefa não encontrada." }); return; }
+    const [comentarios, historico, pontuacoes, anexos] = await Promise.all([
+      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c JOIN profiles p ON p.id=c.autor_id WHERE c.org_id=$1 AND c.tarefa_id=$2 ORDER BY c.criado_em`,[orgId,tarefa.id]),
+      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h LEFT JOIN profiles p ON p.id=h.user_id WHERE h.org_id=$1 AND h.tarefa_id=$2 ORDER BY h.created_at`,[orgId,tarefa.id]).catch(()=>[]),
+      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp JOIN profiles p ON p.id=tp.usuario_id LEFT JOIN profiles a ON a.id=tp.aprovado_por WHERE tp.org_id=$1 AND tp.tarefa_id=$2 ORDER BY tp.aprovado_em`,[orgId,tarefa.id]),
+      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta LEFT JOIN profiles p ON p.id=ta.enviado_por WHERE ta.org_id=$1 AND ta.tarefa_id=$2 ORDER BY ta.created_at`,[orgId,tarefa.id]).catch(()=>[]),
+    ]);
+    res.json({ gerado_em:new Date().toISOString(), tarefa:{...tarefa, checklist:parseChecklistItems(tarefa.checklist)}, comentarios, historico, pontuacoes, anexos });
+  } catch(err) { console.error("[TAREFAS] Erro relatório:",err); res.status(500).json({error:"Erro ao gerar relatório."}); }
 });
 
 // Exportado somente para testes de regressão da regra de checklist/pontuação.

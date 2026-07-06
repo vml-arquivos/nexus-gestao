@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { v4 as uuidv4 } from 'uuid'
-import { query, queryOne } from '../db/pool'
+import pool, { query, queryOne } from '../db/pool'
 
 const router = Router()
 
@@ -134,6 +134,27 @@ function destravaSecret(): string {
   return String(process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || '').trim()
 }
 
+let destravaCacheSchemaPromise: Promise<void> | null = null
+async function ensureDestravaCacheSchema() {
+  if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = query(`
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
+      external_id TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'empresa', external_key TEXT, nome TEXT NOT NULL, documento TEXT, email TEXT, telefone TEXT, status TEXT,
+      source_url TEXT, metadata JSONB NOT NULL DEFAULT '{}'::jsonb, source_updated_at TIMESTAMPTZ,
+      sincronizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(), ativo BOOLEAN NOT NULL DEFAULT TRUE,
+      UNIQUE (org_id, external_id)
+    );
+    ALTER TABLE destrava_empresas_cache ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'empresa';
+    ALTER TABLE destrava_empresas_cache ADD COLUMN IF NOT EXISTS external_key TEXT;
+    UPDATE destrava_empresas_cache SET external_key = COALESCE(external_key, tipo || ':' || external_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_destrava_cache_org_external_key ON destrava_empresas_cache(org_id, external_key);
+    CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_nome ON destrava_empresas_cache(org_id, lower(nome));
+  `).then(() => undefined).catch(err => { destravaCacheSchemaPromise = null; throw err })
+  return destravaCacheSchemaPromise
+}
+
 async function callDestrava(path: string, options: RequestInit = {}) {
   const base = destravaBaseUrl()
   const secret = destravaSecret()
@@ -156,6 +177,79 @@ async function callDestrava(path: string, options: RequestInit = {}) {
   }
   return data
 }
+
+
+router.post('/destrava/empresas/sincronizar', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureDestravaCacheSchema()
+    const orgId = req.user!.orgId
+    const pageSize = 500
+    let page = 1
+    let hasMore = true
+    const items: any[] = []
+
+    while (hasMore) {
+      const data = await callDestrava(`/api/nexus/catalogo?tipo=todos&q=&limit=${pageSize}&page=${page}`)
+      const batch = Array.isArray(data?.items) ? data.items : []
+      items.push(...batch)
+      hasMore = Boolean(data?.pagination?.has_more)
+      page += 1
+      if (page > 10000) throw new Error('Sincronização interrompida por limite de segurança.')
+    }
+
+    const syncRunId = uuidv4()
+    let validos = 0
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      for (const raw of items) {
+        const externalId = String(raw?.id || raw?.external_id || '').trim()
+        const tipo = String(raw?.tipo || raw?.entidade_tipo || 'empresa').trim() === 'pessoa_fisica' ? 'pessoa_fisica' : 'empresa'
+        const externalKey = `${tipo}:${externalId}`
+        const nome = String(raw?.nome || raw?.razao_social || raw?.name || '').trim()
+        if (!externalId || !nome) continue
+        validos += 1
+        const meta = { ...(raw?.metadata && typeof raw.metadata === 'object' ? raw.metadata : raw), sync_run_id: syncRunId }
+        await client.query(`INSERT INTO destrava_empresas_cache
+          (org_id,external_id,tipo,external_key,nome,documento,email,telefone,status,source_url,metadata,source_updated_at,sincronizado_em,ativo)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),TRUE)
+          ON CONFLICT (org_id,external_key) DO UPDATE SET external_id=EXCLUDED.external_id, tipo=EXCLUDED.tipo,
+          nome=EXCLUDED.nome, documento=EXCLUDED.documento, email=EXCLUDED.email, telefone=EXCLUDED.telefone,
+          status=EXCLUDED.status, source_url=EXCLUDED.source_url, metadata=EXCLUDED.metadata,
+          source_updated_at=EXCLUDED.source_updated_at, sincronizado_em=NOW(), ativo=TRUE`,
+          [orgId,externalId,tipo,externalKey,nome,raw?.documento || null,raw?.email || null,raw?.telefone || null,raw?.status || null,raw?.url || null,JSON.stringify(meta),raw?.updated_at || null])
+      }
+      await client.query(`UPDATE destrava_empresas_cache
+        SET ativo=FALSE, sincronizado_em=NOW()
+        WHERE org_id=$1 AND COALESCE(metadata->>'sync_run_id','') <> $2`, [orgId, syncRunId])
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+
+    res.json({ ok:true, sincronizadas:validos, total_recebido:items.length, paginas:page - 1, sincronizado_em:new Date().toISOString() })
+  } catch (err:any) {
+    console.error('[INTEGRACOES] Erro sincronização catálogo Destrava:',err)
+    res.status(err?.status || 500).json({error:err?.message || 'Erro ao sincronizar empresas e pessoas físicas.'})
+  }
+})
+
+router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureDestravaCacheSchema()
+    const orgId = req.user!.orgId
+    const q = String(req.query.q || '').trim()
+    const limit = Math.max(1, Math.min(10000, Number(req.query.limit || 500)))
+    const empresas = await query<any>(`SELECT external_id AS id, tipo, nome, documento, email, telefone, status, source_url AS url, metadata, sincronizado_em
+      FROM destrava_empresas_cache WHERE org_id=$1 AND ativo=TRUE AND ($2='' OR nome ILIKE '%' || $2 || '%' OR COALESCE(documento,'') ILIKE '%' || $2 || '%')
+      ORDER BY nome LIMIT $3`,[orgId,q,limit])
+    const info = await queryOne<any>(`SELECT COUNT(*)::int total, MAX(sincronizado_em) ultima_sincronizacao FROM destrava_empresas_cache WHERE org_id=$1 AND ativo=TRUE`,[orgId])
+    res.json({ items:empresas.map(e=>({...e,tipo:e.tipo || 'empresa'})), ...info })
+  } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao carregar empresas sincronizadas.'}) }
+})
 
 // Rotas autenticadas para o próprio Nexus consultar o catálogo do Destrava sem expor a chave no navegador.
 router.get('/destrava/catalogo', authMiddleware, async (req: Request, res: Response): Promise<void> => {

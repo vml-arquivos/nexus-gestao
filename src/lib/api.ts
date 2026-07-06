@@ -70,6 +70,34 @@ export interface ChecklistItem {
   revelar_apos_assumir?: boolean
   /** Indica que o backend mascarou o conteúdo para o usuário atual. */
   oculta_ate_assumir?: boolean
+  aprovacao_status?: 'aguardando' | 'aprovada' | 'devolvida'
+  aprovado_por?: string
+  aprovado_em?: string
+  devolvido_por?: string
+  devolvido_em?: string
+  ressalva_gestor?: string
+}
+
+
+export interface TarefaComentario {
+  id: string
+  tarefa_id: string
+  checklist_id?: string
+  autor_id: string
+  autor_nome?: string
+  comentario: string
+  tipo: 'comentario' | 'execucao' | 'devolucao' | 'aprovacao' | 'sistema'
+  criado_em: string
+  editado_em?: string
+}
+
+export interface TarefaRelatorio {
+  gerado_em: string
+  tarefa: Tarefa
+  comentarios: TarefaComentario[]
+  historico: any[]
+  pontuacoes: any[]
+  anexos: TarefaAnexo[]
 }
 
 
@@ -590,7 +618,7 @@ export const api = {
 export const destravaApi = {
   async catalogo(params?: { tipo?: string; q?: string; limit?: number }): Promise<DestravaCatalogoItem[]> {
     const qs = '?' + new URLSearchParams({
-      tipo: params?.tipo || 'empresa',
+      tipo: params?.tipo || 'todos',
       q: params?.q || '',
       limit: String(params?.limit || 20),
     }).toString()
@@ -599,6 +627,13 @@ export const destravaApi = {
   },
   async empresaResumo(id: string): Promise<any> {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
+  },
+  async empresasSincronizadas(params?: { q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; ultima_sincronizacao?: string }> {
+    const qs = '?' + new URLSearchParams({ q: params?.q || '', limit: String(params?.limit || 5000) }).toString()
+    return apiJson(`/integracoes/destrava/empresas${qs}`)
+  },
+  async sincronizarEmpresas(): Promise<{ ok: boolean; sincronizadas: number; total_recebido: number; paginas?: number; sincronizado_em: string }> {
+    return apiJson('/integracoes/destrava/empresas/sincronizar', { method: 'POST' })
   },
 }
 
@@ -726,6 +761,26 @@ export const tarefasApi = {
       body: JSON.stringify({ feito }),
     })
     return data.tarefa
+  },
+
+  async comentarios(id: string, checklistId?: string): Promise<TarefaComentario[]> {
+    const qs = checklistId ? `?checklist_id=${encodeURIComponent(checklistId)}` : ''
+    const data = await apiJson<{ comentarios: TarefaComentario[] }>(`/tarefas/${id}/comentarios${qs}`)
+    return data.comentarios || []
+  },
+
+  async comentar(id: string, payload: { comentario: string; checklist_id?: string; tipo?: TarefaComentario['tipo'] }): Promise<TarefaComentario> {
+    const data = await apiJson<{ comentario: TarefaComentario }>(`/tarefas/${id}/comentarios`, { method: 'POST', body: JSON.stringify(payload) })
+    return data.comentario
+  },
+
+  async revisarChecklistItem(id: string, itemId: string, decisao: 'aprovar' | 'devolver', ressalva?: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}/revisao`, { method: 'PATCH', body: JSON.stringify({ decisao, ressalva }) })
+    return data.tarefa
+  },
+
+  async relatorio(id: string): Promise<TarefaRelatorio> {
+    return apiJson(`/tarefas/${id}/relatorio`)
   },
 
   async enviarLembrete(id: string, mensagem?: string): Promise<{ ok: boolean; enviados: number }> {
