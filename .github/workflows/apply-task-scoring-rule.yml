@@ -1,0 +1,32 @@
+name: Apply task scoring rule
+
+on:
+  push:
+    branches:
+      - fix-task-scoring-rule
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix-task-scoring-rule
+          fetch-depth: 0
+
+      - name: Apply deterministic patch
+        run: python3 scripts/apply_task_scoring_rule_patch.py
+
+      - name: Commit generated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/routes/tarefas.ts src/pages/Tarefas.tsx
+          git rm scripts/apply_task_scoring_rule_patch.py .github/workflows/apply-task-scoring-rule.yml
+          git commit -m "fix(tarefas): pontuar por item em listas multipessoa"
+          git push origin HEAD:fix-task-scoring-rule
