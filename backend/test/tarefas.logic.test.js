@@ -1,0 +1,132 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+
+const {
+  __taskChecklistTestUtils: utils,
+} = require('../dist/routes/tarefas.js')
+
+const USER_A = '11111111-1111-4111-8111-111111111111'
+const USER_B = '22222222-2222-4222-8222-222222222222'
+
+function parse(value) {
+  return typeof value === 'string' ? JSON.parse(value) : value
+}
+
+test('aceita explicitamente o escopo de pontuação ambos e preserva legado', () => {
+  assert.equal(utils.normalizePontuacaoEscopo('ambos'), 'ambos')
+  assert.equal(utils.normalizePontuacaoEscopo('task_and_checklist'), 'ambos')
+  assert.equal(utils.normalizePontuacaoEscopo(undefined), 'tarefa')
+})
+
+test('mantém a dificuldade nível 4 e a escala oficial de 5 pontos', () => {
+  assert.equal(utils.normalizeChecklistDifficulty('nivel_4'), 'nivel_4')
+  assert.equal(
+    utils.calculateChecklistItemPoints({ dificuldade: 'nivel_4', pontuacao: 5 }, {}),
+    5,
+  )
+})
+
+test('gera id legado determinístico em leituras repetidas', () => {
+  const legacy = [{ texto: 'Conferir documento', feito: false }]
+  const first = utils.parseChecklistItems(legacy)[0]
+  const second = utils.parseChecklistItems(legacy)[0]
+  assert.equal(first.id, second.id)
+  assert.match(first.id, /^legacy-check-/)
+})
+
+test('merge parcial do membro preserva itens invisíveis e registra autoria', () => {
+  const existing = [
+    { id: 'item-a', texto: 'Parte A', responsavel_id: USER_A, feito: false, pontuacao: 3 },
+    { id: 'item-b', texto: 'Parte B', responsavel_id: USER_B, feito: false, pontuacao: 5 },
+  ]
+  const submittedVisibleSlice = [
+    { id: 'item-a', texto: 'Parte A', responsavel_id: USER_A, feito: true, pontuacao: 3 },
+  ]
+  const merged = parse(
+    utils.mergeMemberChecklistUpdate(
+      existing,
+      submittedVisibleSlice,
+      { responsavel_id: null, criado_por: USER_B },
+      USER_A,
+    ),
+  )
+
+  assert.equal(merged.length, 2)
+  assert.equal(merged[0].feito, true)
+  assert.equal(merged[0].concluido_por, USER_A)
+  assert.equal(merged[0].feito_por, USER_A)
+  assert.equal(merged[1].id, 'item-b')
+  assert.equal(merged[1].feito, false)
+})
+
+test('membro não consegue alterar item de outro executor', () => {
+  const existing = [
+    { id: 'item-b', texto: 'Parte B', responsavel_id: USER_B, feito: false },
+  ]
+  assert.throws(
+    () => utils.mergeMemberChecklistUpdate(
+      existing,
+      [{ id: 'item-b', texto: 'Parte B', responsavel_id: USER_B, feito: true }],
+      { responsavel_id: null, criado_por: USER_A },
+      USER_A,
+    ),
+    /Apenas o executor/,
+  )
+})
+
+test('item concluído continua visível para o executor histórico', () => {
+  const task = {
+    escopo: 'equipe',
+    criado_por: USER_B,
+    responsavel_id: USER_B,
+    checklist: [
+      {
+        id: 'done-a',
+        texto: 'Executado por A',
+        responsavel_id: USER_B,
+        concluido_por: USER_A,
+        feito_por: USER_A,
+        feito: true,
+      },
+      {
+        id: 'private-b',
+        texto: 'Somente B',
+        responsavel_id: USER_B,
+        feito: false,
+      },
+    ],
+  }
+  const visible = utils.filterChecklistForUser(task, {
+    userId: USER_A,
+    orgId: '33333333-3333-4333-8333-333333333333',
+    role: 'membro',
+  })
+  assert.deepEqual(visible.map((item) => item.id), ['done-a'])
+})
+
+test('ranking prioriza quem concluiu, não uma reatribuição posterior', () => {
+  const executor = utils.checklistExecutorId(
+    {
+      feito: true,
+      responsavel_id: USER_B,
+      concluido_por: USER_A,
+      feito_por: USER_A,
+    },
+    { responsavel_id: USER_B },
+  )
+  assert.equal(executor, USER_A)
+})
+
+
+test('reatribuição remove poder de alteração do executor histórico sem apagar sua autoria', () => {
+  const item = {
+    feito: true,
+    responsavel_id: USER_B,
+    concluido_por: USER_A,
+    feito_por: USER_A,
+  }
+  const task = { responsavel_id: USER_B, criado_por: USER_B }
+  assert.equal(utils.isChecklistItemExecutor(task, item, USER_A), false)
+  assert.equal(utils.isChecklistItemExecutor(task, item, USER_B), true)
+  assert.equal(utils.checklistExecutorId(item, task), USER_A)
+})

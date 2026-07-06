@@ -54,6 +54,12 @@ export interface ChecklistItem {
   /** Responsável específico por executar este item do checklist. */
   responsavel_id?: string
   responsavel_nome?: string
+  /** Campos legados/operacionais preservados para identificar corretamente quem assumiu e quem concluiu. */
+  assumido_por?: string
+  executor_id?: string
+  aceita_por?: string
+  concluido_por?: string
+  feito_por?: string
   /** Grau de dificuldade da subtarefa: controla a pontuação base definida por nível: 0, 1, 3, 5 ou 20 pontos. */
   dificuldade?: ChecklistDifficulty
   /** Pontos manuais deste objetivo. Obrigatório quando o ranking pontua objetivos. */
@@ -711,6 +717,14 @@ export const tarefasApi = {
 
   async assumirChecklist(id: string, itemId: string): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}/assumir`, { method: 'POST' })
+    return data.tarefa
+  },
+
+  async atualizarChecklistItem(id: string, itemId: string, feito: boolean): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ feito }),
+    })
     return data.tarefa
   },
 

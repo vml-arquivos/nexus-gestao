@@ -48,9 +48,9 @@ const CHECKLIST_DIFFICULTY_OPTIONS: Array<{ value: ChecklistDifficulty; label: s
 ]
 
 function normalizeDifficultyValue(value?: ChecklistDifficulty | string): ChecklistDifficulty {
-  if (value === 'facil') return 'nivel_4'
-  if (value === 'medio') return 'nivel_4'
-  if (value === 'dificil') return 'nivel_5'
+  if (value === 'facil') return 'nivel_2'
+  if (value === 'medio') return 'nivel_3'
+  if (value === 'dificil') return 'nivel_4'
   if (value === 'hard') return 'nivel_5'
   if (value === 'iniciante') return 'nivel_1' as ChecklistDifficulty
   return (CHECKLIST_DIFFICULTY_OPTIONS.find(opt => opt.value === value)?.value || 'nivel_3') as ChecklistDifficulty
@@ -76,11 +76,16 @@ function normalizePontuacaoEscopo(value?: unknown): PontuacaoEscopo {
   const raw = String(value || '').trim().toLowerCase()
   if (['tarefa', 'task', 'somente_tarefa', 'apenas_tarefa'].includes(raw)) return 'tarefa'
   if (['subtarefa', 'subtarefas', 'checklist', 'checklists', 'somente_subtarefas', 'apenas_subtarefas'].includes(raw)) return 'subtarefas'
-  return 'ambos'
+  if (['ambos', 'both', 'tarefa_e_subtarefas', 'tarefa_subtarefas', 'task_and_checklist', 'task_checklist'].includes(raw)) return 'ambos'
+  // Tarefas antigas sem configuração explícita seguem a mesma regra do backend.
+  return 'tarefa'
 }
 
 function taskPontuacaoEscopo(tarefa?: Tarefa | null): PontuacaoEscopo {
-  const payload = (tarefa?.origem_payload || {}) as Record<string, any>
+  // Nova lista mantém a escolha padrão atual; registros antigos sem metadado
+  // explícito são interpretados de forma idêntica no frontend e no backend.
+  if (!tarefa) return 'ambos'
+  const payload = (tarefa.origem_payload || {}) as Record<string, any>
   return normalizePontuacaoEscopo((tarefa as any)?.pontuacao_escopo || payload?.nexus_pontuacao_escopo || payload?.pontuacao_escopo || payload?.pontuacao_tipo)
 }
 
@@ -234,6 +239,11 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
     data: item.data ? String(item.data).slice(0, 10) : undefined,
     responsavel_id: item.responsavel_id || undefined,
     responsavel_nome: item.responsavel_nome || undefined,
+    assumido_por: item.assumido_por || undefined,
+    executor_id: item.executor_id || undefined,
+    aceita_por: item.aceita_por || undefined,
+    concluido_por: item.concluido_por || undefined,
+    feito_por: item.feito_por || undefined,
     dificuldade: (item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3)),
     pontuacao: Math.max(0, Math.min(SCORE_MAX, Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)))),
     subtarefas: normalizeObjectiveSubitems((item as any).subtarefas || (item as any).subtasks),
@@ -256,10 +266,16 @@ function checklistItemBelongsToUser(item: ChecklistItem, userId?: string) {
   return item.responsavel_id === userId || anyItem.assumido_por === userId || anyItem.executor_id === userId || anyItem.aceita_por === userId || anyItem.concluido_por === userId || anyItem.feito_por === userId
 }
 
+function checklistItemAssignmentId(item: ChecklistItem) {
+  return item.responsavel_id || item.assumido_por || item.executor_id || item.aceita_por
+}
+
 function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
   if (!userId) return false
-  if (checklistItemBelongsToUser(item, userId)) return true
-  if (item.responsavel_id) return item.responsavel_id === userId
+  const currentOwner = checklistItemAssignmentId(item)
+  if (currentOwner) return currentOwner === userId
+  const completionOwner = item.concluido_por || item.feito_por
+  if (item.feito && completionOwner) return completionOwner === userId
   return tarefa.aceita_por === userId || tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
 }
 
@@ -286,14 +302,13 @@ function checklistProgressForUser(tarefa: Tarefa, userId?: string) {
 function taskHasChecklistForOtherMember(tarefa: Tarefa, userId?: string) {
   if (!userId) return false
   return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => {
-    const anyItem = item as any
-    const owner = item.responsavel_id || anyItem.assumido_por || anyItem.executor_id || anyItem.aceita_por
+    const owner = checklistItemAssignmentId(item)
     return !!owner && owner !== userId
   })
 }
 
 function taskHasDistributedChecklist(tarefa: Tarefa) {
-  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!item.responsavel_id)
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !!checklistItemAssignmentId(item))
 }
 
 function maskSurpriseChecklistItemForViewer(item: ChecklistItem, tarefa: Tarefa, userId?: string) {
@@ -316,7 +331,7 @@ function visibleChecklistItems(tarefa: Tarefa, userId: string, isGestor: boolean
   if (assigned.length) return assigned
   // Antes de assumir, ele vê apenas subtarefas livres em aberto. As surpresas ficam mascaradas.
   return items
-    .filter(item => !item.feito && !item.responsavel_id)
+    .filter(item => !item.feito && !checklistItemAssignmentId(item))
     .map(item => maskSurpriseChecklistItemForViewer(item, tarefa, userId))
 }
 
@@ -351,7 +366,7 @@ function checklistExecutorSummary(tarefa: Tarefa) {
 }
 
 function memberMatchesTask(tarefa: Tarefa, memberId: string) {
-  return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || tarefa.aceita_por === memberId || (tarefa.checklist || []).some(item => item.responsavel_id === memberId)
+  return tarefa.responsavel_id === memberId || tarefa.criado_por === memberId || tarefa.aceita_por === memberId || (tarefa.checklist || []).some(item => checklistItemBelongsToUser(item, memberId))
 }
 
 function taskScope(tarefa: Tarefa): 'pessoal' | 'equipe' {
@@ -367,7 +382,7 @@ function isFreeTeamTask(tarefa: Tarefa) {
 }
 
 function taskHasUnassignedChecklist(tarefa: Tarefa) {
-  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !item.feito && !item.responsavel_id)
+  return Array.isArray(tarefa.checklist) && tarefa.checklist.some(item => !item.feito && !checklistItemAssignmentId(item))
 }
 
 function isAvailableFreeTask(tarefa: Tarefa) {
@@ -384,7 +399,7 @@ function firstOpenChecklistItemForCurrentUser(tarefa: Tarefa, userId?: string) {
   return items.find(item =>
     !item.feito &&
     Boolean(item.id) &&
-    (!item.responsavel_id || item.responsavel_id === userId)
+    (!checklistItemAssignmentId(item) || checklistItemBelongsToUser(item, userId))
   )
 }
 
@@ -417,7 +432,7 @@ function mergeChecklistVisual(base: ChecklistItem[] = [], incoming: ChecklistIte
       (item.texto || '').trim().toLowerCase(),
       (item.data || '').slice(0, 10),
       (item.descricao || '').trim().toLowerCase(),
-      item.responsavel_id || '',
+      checklistItemAssignmentId(item) || '',
     ].join('::')
     const current = map.get(key)
     if (!current) {
@@ -1822,7 +1837,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const openSubtasksForMe = useMemo(() => {
     if (!userId || isGestor) return [] as Array<{ tarefa: Tarefa; item: ChecklistItem }>
     return (allTasks || []).flatMap(task => normalizeChecklistItems(task.checklist)
-      .filter(item => !item.feito && item.responsavel_id === userId && !['concluida','aprovada','cancelada'].includes(String(task.status)))
+      .filter(item => !item.feito && checklistItemBelongsToUser(item, userId) && !['concluida','aprovada','cancelada'].includes(String(task.status)))
       .map(item => ({ tarefa: task, item })))
   }, [allTasks, userId, isGestor])
   const hasOpenSubtaskElsewhere = false
@@ -1903,13 +1918,19 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     }
   }
 
-  async function persistChecklist(next: ChecklistItem[]) {
-    setChecklist(next)
+  async function persistChecklistItem(itemId: string, feito: boolean) {
+    const previous = checklist
+    setChecklist(prev => prev.map(item => item.id === itemId ? { ...item, feito } : item))
+    setSaving(true)
     try {
-      const saved = await tarefasApi.update(tarefa.id, { checklist: next })
+      const saved = await tarefasApi.atualizarChecklistItem(tarefa.id, itemId, feito)
+      setChecklist(normalizeChecklistItems(saved.checklist))
       onSaved(saved)
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao salvar tarefas.', 'error')
+      setChecklist(previous)
+      toast(e instanceof Error ? e.message : 'Erro ao salvar tarefa da lista.', 'error')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -1951,8 +1972,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   async function removerExecutorDasTarefas(memberId: string, nome?: string) {
     if (!isGestor) return
     if (!window.confirm(`Remover ${nome || 'este membro'} das tarefas desta lista? As tarefas dele voltarão a ficar livres para correção/delegação pelo gestor.`)) return
-    const next = checklist.map(item => item.responsavel_id === memberId
-      ? { ...item, responsavel_id: undefined, responsavel_nome: undefined, feito: false, concluido_por: undefined, feito_por: undefined }
+    const next = checklist.map(item => checklistItemBelongsToUser(item, memberId)
+      ? { ...item, responsavel_id: undefined, responsavel_nome: undefined, assumido_por: undefined, executor_id: undefined, aceita_por: undefined, feito: false, concluido_por: undefined, feito_por: undefined }
       : item)
     setSaving(true)
     try {
@@ -1994,8 +2015,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       toast('Apenas o executor desta tarefa pode marcar este item.', 'error')
       return
     }
-    const next = checklist.map(item => item.id === id ? { ...item, feito: !item.feito } : item)
-    persistChecklist(next)
+    void persistChecklistItem(id, !item.feito)
   }
 
   async function copiarChecklist() {
@@ -2380,7 +2400,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     <Calendar size={13} /> {checklistDateLabel(dateKey === 'sem-data' ? undefined : dateKey)}
                   </div>
                   {checklistByDate[dateKey].map(item => {
-                    const canAssumeThisItem = !isGestor && isFreeTeamTask(tarefa) && !item.feito && !item.responsavel_id
+                    const canAssumeThisItem = !isGestor && isFreeTeamTask(tarefa) && !item.feito && !checklistItemAssignmentId(item)
                     const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
                     return (
                       <div key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>

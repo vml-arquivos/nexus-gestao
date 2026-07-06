@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
-import { query, queryOne } from "../db/pool";
+import { createHash } from "crypto";
+import pool, { query, queryOne } from "../db/pool";
 import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";
 import { criarNotificacao } from "../lib/notifHelper";
 import {
@@ -306,18 +307,15 @@ function normalizeChecklistDifficulty(
     return "nivel_2";
   if (raw === "nivel_3" || raw === "nível_3" || raw === "n3" || raw === "3")
     return "nivel_3";
+  if (raw === "facil") return "nivel_2";
+  if (raw === "medio" || raw === "normal") return "nivel_3";
   if (
     raw === "nivel_4" ||
-    raw === "nível_4" ||
     raw === "n4" ||
     raw === "4" ||
-    raw === "facil" ||
-    raw === "fácil"
+    raw === "dificil"
   )
-    return "nivel_2";
-  if (raw === "medio" || raw === "médio" || raw === "normal")
-    return "nivel_3";
-  if (raw === "dificil" || raw === "difícil") return "nivel_4";
+    return "nivel_4";
   if (
     raw === "nivel_5" ||
     raw === "nível_5" ||
@@ -474,16 +472,18 @@ function calculateChecklistItemPoints(
 }
 
 function checklistExecutorId(item: any, task: any): string | null {
-  const candidates = [
+  const completionCandidates = [item?.concluido_por, item?.feito_por];
+  const assignmentCandidates = [
     item?.responsavel_id,
-    item?.concluido_por,
-    item?.feito_por,
     item?.executor_id,
     item?.assumido_por,
     item?.aceita_por,
-    task?.aceita_por,
-    task?.responsavel_id,
   ];
+  // Depois de concluído, a autoria real da execução prevalece sobre uma eventual
+  // reatribuição administrativa feita posteriormente pelo gestor.
+  const candidates = item?.feito
+    ? [...completionCandidates, ...assignmentCandidates, task?.aceita_por, task?.responsavel_id]
+    : [...assignmentCandidates, ...completionCandidates, task?.aceita_por, task?.responsavel_id];
   for (const candidate of candidates) {
     if (isUuid(candidate)) return candidate;
   }
@@ -593,11 +593,32 @@ function isUuid(value: unknown): value is string {
   );
 }
 
+function stableLegacyId(prefix: string, item: unknown, index: number) {
+  const source =
+    item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+  const explicit = String(source.id || "").trim();
+  if (explicit) return explicit;
+  const seed = JSON.stringify({
+    index,
+    texto: String(source.texto || source.title || source.label || item || "").trim(),
+    descricao: String(source.descricao || source.description || source.obs || "").trim(),
+    data: String(source.data || source.date || source.prazo || "").slice(0, 10),
+    responsavel_id: String(
+      source.responsavel_id ||
+        source.assumido_por ||
+        source.executor_id ||
+        source.aceita_por ||
+        "",
+    ),
+  });
+  return `${prefix}-${createHash("sha256").update(seed).digest("hex").slice(0, 24)}`;
+}
+
 function parseObjectiveSubitems(value: unknown): Array<{ id: string; texto: string; feito?: boolean }> {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item: any) => ({
-      id: isUuid(item?.id) ? item.id : uuidv4(),
+    .map((item: any, index: number) => ({
+      id: stableLegacyId("legacy-sub", item, index),
       texto: String(item?.texto || item?.title || item?.label || '').trim(),
       feito: Boolean(item?.feito),
     }))
@@ -620,6 +641,7 @@ function parseChecklistItems(
   feito_por?: string;
   executor_id?: string;
   assumido_por?: string;
+  aceita_por?: string;
   revelar_apos_assumir?: boolean;
   oculta_ate_assumir?: boolean;
   subtarefas?: Array<{ id: string; texto: string; feito?: boolean }>;
@@ -656,10 +678,10 @@ function parseChecklistItems(
   })();
 
   return raw
-    .map((item: any) => {
+    .map((item: any, index: number) => {
       if (typeof item === "string")
         return {
-          id: uuidv4(),
+          id: stableLegacyId("legacy-check", { texto: item }, index),
           texto: item.trim(),
           feito: false,
           dificuldade: "nivel_3" as ChecklistDifficulty,
@@ -680,7 +702,7 @@ function parseChecklistItems(
         pointsForDifficulty(dificuldade),
       );
       return {
-        id: isUuid(item?.id) ? item.id : uuidv4(),
+        id: stableLegacyId("legacy-check", item, index),
         texto: String(item?.texto || item?.label || item?.title || "").trim(),
         descricao:
           String(
@@ -700,6 +722,7 @@ function parseChecklistItems(
         assumido_por: isUuid(item?.assumido_por)
           ? item.assumido_por
           : undefined,
+        aceita_por: isUuid(item?.aceita_por) ? item.aceita_por : undefined,
         dificuldade,
         pontuacao,
         subtarefas: parseObjectiveSubitems(item?.subtarefas || item?.subtasks),
@@ -713,6 +736,8 @@ function parseChecklistItems(
     })
     .filter((item: { texto: string }) => item.texto);
 }
+
+type ParsedChecklistItem = ReturnType<typeof parseChecklistItems>[number];
 
 function normalizeChecklist(value: unknown) {
   return JSON.stringify(parseChecklistItems(value));
@@ -839,27 +864,16 @@ function isTaskExecutor(task: any, userId: string) {
 
 function isChecklistItemExecutor(
   task: any,
-  item: { responsavel_id?: string; assumido_por?: string; executor_id?: string; aceita_por?: string; concluido_por?: string; feito_por?: string },
+  item: { feito?: boolean; responsavel_id?: string; assumido_por?: string; executor_id?: string; aceita_por?: string; concluido_por?: string; feito_por?: string },
   userId: string,
 ) {
-  if (checklistItemBelongsToUser(item, userId)) return true;
-  const explicitOwner = checklistExecutorId(item, task);
-  if (explicitOwner) return explicitOwner === userId;
+  // A atribuição atual define quem pode alterar o item. A autoria histórica da
+  // conclusão continua visível e pontuável, mas não concede poder após reatribuição.
+  const currentOwner = checklistItemAssignmentId(item);
+  if (currentOwner) return currentOwner === userId;
+  const completionOwner = item?.concluido_por || item?.feito_por;
+  if (item?.feito && isUuid(completionOwner)) return completionOwner === userId;
   return isTaskExecutor(task, userId);
-}
-
-function changedChecklistDoneItems(before: unknown, after: unknown) {
-  const beforeItems = parseChecklistItems(before);
-  const afterItems = parseChecklistItems(after);
-  const beforeByKey = new Map(
-    beforeItems.map((item) => [`${item.id || ""}:${item.texto}`, !!item.feito]),
-  );
-  return afterItems.filter((item) => {
-    const key = `${item.id || ""}:${item.texto}`;
-    const beforeDone = beforeByKey.get(key);
-    if (beforeDone === undefined) return !!item.feito;
-    return beforeDone !== !!item.feito;
-  });
 }
 
 function checklistItemBelongsToUser(item: any, userId: string) {
@@ -871,6 +885,74 @@ function checklistItemBelongsToUser(item: any, userId: string) {
     item?.concluido_por === userId ||
     item?.feito_por === userId
   );
+}
+
+function checklistItemAssignmentId(item: Partial<ParsedChecklistItem>): string | null {
+  const candidates = [
+    item?.responsavel_id,
+    item?.assumido_por,
+    item?.executor_id,
+    item?.aceita_por,
+  ];
+  for (const candidate of candidates) {
+    if (isUuid(candidate)) return candidate;
+  }
+  return null;
+}
+
+function checklistItemKey(item: Partial<ParsedChecklistItem>) {
+  const id = String(item?.id || "").trim();
+  if (id) return `id:${id}`;
+  return `legacy:${normalizeTextForScore(item?.texto)}|${String(item?.data || "").slice(0, 10)}`;
+}
+
+function mergeMemberChecklistUpdate(
+  existingValue: unknown,
+  submittedValue: unknown,
+  task: Parameters<typeof isChecklistItemExecutor>[0],
+  userId: string,
+) {
+  const existingItems = parseChecklistItems(existingValue);
+  const submittedItems = parseChecklistItems(submittedValue);
+  const existingByKey = new Map(existingItems.map((item, index) => [checklistItemKey(item), index]));
+  const merged = existingItems.map((item) => ({ ...item }));
+
+  for (const submitted of submittedItems) {
+    const key = checklistItemKey(submitted);
+    const index = existingByKey.get(key);
+    if (index === undefined) {
+      throw Object.assign(
+        new Error("Membro não pode incluir, remover ou substituir tarefas da lista."),
+        { statusCode: 403 },
+      );
+    }
+
+    const current = existingItems[index];
+    const nextDone = Boolean(submitted.feito);
+    if (nextDone === Boolean(current.feito)) continue;
+    if (!isChecklistItemExecutor(task, current, userId)) {
+      throw Object.assign(
+        new Error("Apenas o executor pode alterar a conclusão desta tarefa da lista."),
+        { statusCode: 403 },
+      );
+    }
+
+    if (nextDone) {
+      merged[index] = {
+        ...current,
+        feito: true,
+        concluido_por: userId,
+        feito_por: userId,
+      };
+    } else {
+      const next = { ...current, feito: false };
+      delete next.concluido_por;
+      delete next.feito_por;
+      merged[index] = next;
+    }
+  }
+
+  return JSON.stringify(merged);
 }
 
 function hasChecklistAssignedTo(task: any, userId: string) {
@@ -888,7 +970,7 @@ function hasChecklistAssignedToOther(task: any, userId: string) {
 
 function hasUnassignedOpenChecklist(task: any) {
   return parseChecklistItems(task?.checklist).some(
-    (item) => !item.feito && !item.responsavel_id,
+    (item) => !item.feito && !checklistItemAssignmentId(item),
   );
 }
 
@@ -945,8 +1027,19 @@ function normalizePontuacaoEscopo(value: unknown): PontuacaoEscopo {
     ].includes(raw)
   )
     return "subtarefas";
+  if (
+    [
+      "ambos",
+      "both",
+      "tarefa_e_subtarefas",
+      "tarefa_subtarefas",
+      "task_and_checklist",
+      "task_checklist",
+    ].includes(raw)
+  )
+    return "ambos";
   // Tarefas antigas sem escopo explícito preservam o comportamento histórico:
-  // pontuação somente pela lista, evitando somar checklist retroativamente.
+  // pontuação somente pela tarefa, evitando somar checklist retroativamente.
   return "tarefa";
 }
 
@@ -1029,13 +1122,10 @@ function maskParentTaskContentForMember(
 ) {
   if (!shouldHideTeamTaskContentFromUser(task, user)) return task;
   const freeCount = checklist.filter(
-    (item) => !item.feito && !item.responsavel_id,
+    (item) => !item.feito && !checklistItemAssignmentId(item),
   ).length;
   const assignedCount = checklist.filter(
-    (item) =>
-      item.responsavel_id === user.userId ||
-      item.assumido_por === user.userId ||
-      item.executor_id === user.userId,
+    (item) => checklistItemBelongsToUser(item, user.userId),
   ).length;
   const pontos = Math.max(
     0,
@@ -1058,10 +1148,7 @@ function maskParentTaskContentForMember(
 }
 
 function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
-  const assignedToUser =
-    item?.responsavel_id === userId ||
-    item?.assumido_por === userId ||
-    item?.executor_id === userId;
+  const assignedToUser = checklistItemBelongsToUser(item, userId);
   // Em subtarefa surpresa, nem o responsável principal da tarefa revela tudo automaticamente.
   // O conteúdo só aparece para gestor/admin ou para quem assumiu/recebeu aquela subtarefa específica.
   if (!item?.revelar_apos_assumir || item?.feito || assignedToUser) return item;
@@ -1083,10 +1170,7 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
     return isTaskPersonalOwner(task, userId) ? items : [];
 
   const assignedToMe = items.filter(
-    (item) =>
-      item.responsavel_id === userId ||
-      item.assumido_por === userId ||
-      item.executor_id === userId,
+    (item) => checklistItemBelongsToUser(item, userId),
   );
   // Depois que o membro assume/recebe uma subtarefa, ele enxerga somente a parte dele.
   if (assignedToMe.length)
@@ -1097,7 +1181,7 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
   // Antes de assumir, membros veem apenas subtarefas livres em aberto, com conteúdo mascarado quando for surpresa.
   // Subtarefas de outros membros nunca são expostas.
   return items
-    .filter((item) => !item.feito && !item.responsavel_id)
+    .filter((item) => !item.feito && !checklistItemAssignmentId(item))
     .map((item) => maskSurpriseChecklistItem(item, userId, task));
 }
 
@@ -1187,7 +1271,7 @@ function checklistForUserProgress(task: any, userId: string) {
 
 function taskHasDistributedChecklist(task: any) {
   return parseChecklistItems(task?.checklist).some(
-    (item) => !!item.responsavel_id,
+    (item) => !!checklistItemAssignmentId(item),
   );
 }
 
@@ -1328,7 +1412,8 @@ async function getTaskReminderRecipients(task: any) {
   if (task.aceita_por) recipients.add(task.aceita_por);
   if (task.criado_por) recipients.add(task.criado_por);
   for (const item of parseChecklistItems(task.checklist)) {
-    if (item.responsavel_id) recipients.add(item.responsavel_id);
+    const owner = checklistItemAssignmentId(item);
+    if (owner) recipients.add(owner);
   }
   if (!task.responsavel_id || isFreeTeamTask(task)) {
     const equipe = await query<{ id: string }>(
@@ -1576,6 +1661,8 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
               t.updated_at AS tarefa_updated_at,
               t.created_at AS tarefa_created_at,
               t.status,
+              t.responsavel_id AS tarefa_responsavel_id,
+              t.aceita_por AS tarefa_aceita_por,
               COALESCE(t.escopo, tp.escopo_snapshot, 'equipe') AS escopo,
               COALESCE(t.conta_ranking, tp.conta_ranking_snapshot, TRUE) AS conta_ranking,
               p.role AS usuario_role,
@@ -1703,12 +1790,22 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
             (item) =>
               rankingChecklistKey(item) === key ||
               item.id === key ||
-              item.texto === key,
+              item.texto === key ||
+              item.texto === row.item_titulo_snapshot,
           )
         : null;
+      const participanteRegistrado = isChecklistScore && matched
+        ? checklistExecutorId(matched, {
+            responsavel_id: row.tarefa_responsavel_id,
+            aceita_por: row.tarefa_aceita_por,
+          }) || row.usuario_id
+        : row.usuario_id;
+      const pontosRegistrados = isChecklistScore && matched
+        ? calculateChecklistItemPoints(matched, row)
+        : Number(row.pontos || 0);
       touchMember(
-        row.usuario_id,
-        Number(row.pontos || 0),
+        participanteRegistrado,
+        pontosRegistrados,
         {
           id: row.tarefa_id,
           tarefa_id: row.tarefa_id,
@@ -1888,7 +1985,8 @@ router.post(
       const checklistAoAssumir = JSON.stringify(
         parseChecklistItems(existing.checklist).map((item) => {
           if (item.feito) return item;
-          if (item.responsavel_id && item.responsavel_id !== userId) return item;
+          const owner = checklistItemAssignmentId(item);
+          if (owner && owner !== userId) return item;
           return {
             ...item,
             responsavel_id: userId,
@@ -1960,7 +2058,7 @@ async function findOpenChecklistAssignedToUser(
   );
   for (const row of rows) {
     const item = parseChecklistItems(row.checklist).find(
-      (check) => check.responsavel_id === userId && !check.feito,
+      (check) => checklistItemBelongsToUser(check, userId) && !check.feito,
     );
     if (item) return { task: row, item };
   }
@@ -2043,7 +2141,8 @@ router.post(
         res.status(400).json({ error: "Este objetivo já foi concluído." });
         return;
       }
-      if (item.responsavel_id && item.responsavel_id !== userId) {
+      const currentOwner = checklistItemAssignmentId(item);
+      if (currentOwner && currentOwner !== userId) {
         res
           .status(409)
           .json({ error: "Este objetivo já está com outro responsável." });
@@ -2092,6 +2191,129 @@ router.post(
     } catch (err) {
       console.error("[TAREFAS] Erro ao assumir objetivo:", err);
       res.status(500).json({ error: "Erro ao assumir objetivo." });
+    }
+  },
+);
+
+// ── MARCAR/DESMARCAR UM ITEM DO CHECKLIST ───────────────────────────────────
+// Atualização atômica para evitar que dois membros sobrescrevam o checklist
+// completo ao mesmo tempo. Também preserva itens invisíveis ao usuário atual.
+router.patch(
+  "/:id/checklist/:itemId",
+  async (req: Request, res: Response): Promise<void> => {
+    const client = await pool.connect();
+    try {
+      const { orgId, userId } = req.user!;
+      if (typeof req.body?.feito !== "boolean") {
+        res.status(400).json({ error: "Informe o estado do item como verdadeiro ou falso." });
+        return;
+      }
+      const nextDone = req.body.feito;
+
+      await client.query("BEGIN");
+      const locked = await client.query(
+        `SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE`,
+        [req.params.id, orgId],
+      );
+      const existing = locked.rows[0];
+      if (!existing) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Tarefa não encontrada." });
+        return;
+      }
+
+      if (!(await userCanAccessTask(existing, req.user!))) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Acesso negado." });
+        return;
+      }
+      if (["aprovada", "cancelada"].includes(String(existing.status || ""))) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Tarefa finalizada não pode ser alterada." });
+        return;
+      }
+
+      const items = parseChecklistItems(existing.checklist);
+      const index = items.findIndex(
+        (item) => String(item.id || "") === String(req.params.itemId || ""),
+      );
+      if (index < 0) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Tarefa da lista não encontrada." });
+        return;
+      }
+
+      const current = items[index];
+      if (!isChecklistItemExecutor(existing, current, userId)) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Apenas o executor pode alterar esta tarefa da lista." });
+        return;
+      }
+
+      if (nextDone) {
+        items[index] = {
+          ...current,
+          feito: true,
+          concluido_por: userId,
+          feito_por: userId,
+        };
+      } else {
+        const reopened = { ...current, feito: false };
+        delete reopened.concluido_por;
+        delete reopened.feito_por;
+        items[index] = reopened;
+      }
+
+      const checklistJson = JSON.stringify(items);
+      const shouldReopen =
+        !nextDone && ["concluida", "aprovada"].includes(String(existing.status || ""));
+
+      const updated = await client.query(
+        `UPDATE tarefas SET
+           checklist = $1,
+           status = CASE
+             WHEN $4::boolean THEN 'pendente'
+             WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso'
+             ELSE status
+           END,
+           status_gestor = CASE WHEN $4::boolean THEN 'aguardando' ELSE status_gestor END,
+           data_inicio = CASE WHEN $4::boolean THEN NULL ELSE COALESCE(data_inicio, NOW()) END,
+           data_conclusao = CASE WHEN $4::boolean THEN NULL ELSE data_conclusao END,
+           aprovada_em = CASE WHEN $4::boolean THEN NULL ELSE aprovada_em END,
+           aprovada_por = CASE WHEN $4::boolean THEN NULL ELSE aprovada_por END,
+           updated_at = NOW()
+         WHERE id = $2 AND org_id = $3
+         RETURNING *`,
+        [checklistJson, req.params.id, orgId, shouldReopen],
+      );
+      await client.query("COMMIT");
+
+      await syncChecklistTable({
+        orgId,
+        tarefaId: req.params.id,
+        userId,
+        checklist: checklistJson,
+      });
+      await addHistorico({
+        orgId,
+        tarefaId: req.params.id,
+        userId,
+        acao: nextDone ? "subtarefa_concluida" : "subtarefa_reaberta",
+        statusAnterior: existing.status,
+        statusNovo: updated.rows[0]?.status || existing.status,
+        observacao: current.texto,
+      });
+
+      const tarefa = await getTaskForAccess(req.params.id, orgId).catch(
+        () => updated.rows[0],
+      );
+      res.json({ tarefa: sanitizeTaskForUser(tarefa || updated.rows[0], req.user!) });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[TAREFAS] Erro ao atualizar item do checklist:", err);
+      res.status(500).json({ error: "Erro ao atualizar tarefa da lista." });
+    } finally {
+      client.release();
     }
   },
 );
@@ -2345,18 +2567,15 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       }).catch(() => {});
     }
 
-    const checklistExecutores = parseChecklistItems(
-      checklistNormalizado,
-    ).filter(
-      (item) =>
-        item.responsavel_id &&
-        item.responsavel_id !== userId &&
-        item.responsavel_id !== responsavelId,
-    );
-    for (const item of checklistExecutores) {
+    const checklistExecutores = parseChecklistItems(checklistNormalizado)
+      .map((item) => ({ item, owner: checklistItemAssignmentId(item) }))
+      .filter(
+        ({ owner }) => owner && owner !== userId && owner !== responsavelId,
+      );
+    for (const { item, owner } of checklistExecutores) {
       await criarNotificacao({
         orgId,
-        userId: item.responsavel_id!,
+        userId: owner!,
         tipo: "nova_tarefa",
         titulo: "📋 Tarefa da lista atribuída a você",
         body: `"${item.texto}" dentro da lista "${tituloFinal}"${item.data ? ` — data: ${new Date(item.data).toLocaleDateString("pt-BR")}` : ""}`,
@@ -2637,7 +2856,12 @@ router.post(
       const checklistExecutado = checklistAtual.map((item) => {
         if (isChecklistItemExecutor(existing, item, userId) && !item.feito) {
           alterouChecklist = true;
-          return { ...item, feito: true };
+          return {
+            ...item,
+            feito: true,
+            concluido_por: userId,
+            feito_por: userId,
+          };
         }
         return item;
       });
@@ -3545,23 +3769,14 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           "surpresa_tarefa",
         ];
 
+    let memberChecklistMerged: string | null = null;
     if (isMember && (req.body as any).checklist !== undefined) {
-      const changedItems = changedChecklistDoneItems(
+      memberChecklistMerged = mergeMemberChecklistUpdate(
         existing.checklist,
         (req.body as any).checklist,
+        existing,
+        userId,
       );
-      const invalidItem = changedItems.find(
-        (item) => !isChecklistItemExecutor(existing, item, userId),
-      );
-      if (invalidItem) {
-        res
-          .status(403)
-          .json({
-            error:
-              "Apenas o executor de cada tarefa da lista pode marcar a própria tarefa.",
-          });
-        return;
-      }
     }
 
     // Usa um mapa de colunas para evitar erro PostgreSQL "multiple assignments to same column".
@@ -3707,14 +3922,16 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
         const requestedFinalScope = normalizeTaskScope(
           (req.body as any).escopo ?? existing.escopo,
         );
-        const nextChecklist = requestedFinalScope === "pessoal"
-          ? await normalizePersonalChecklist((req.body as any)[key], orgId, userId)
-          : await normalizeChecklistForOrg(
-              (req.body as any)[key],
-              orgId,
-              userId,
-              role,
-            );
+        const nextChecklist = isMember && memberChecklistMerged !== null
+          ? memberChecklistMerged
+          : requestedFinalScope === "pessoal"
+            ? await normalizePersonalChecklist((req.body as any)[key], orgId, userId)
+            : await normalizeChecklistForOrg(
+                (req.body as any)[key],
+                orgId,
+                userId,
+                role,
+              );
         nextChecklistForSync = nextChecklist;
         setValue("checklist", nextChecklist);
 
@@ -4290,5 +4507,18 @@ router.patch("/ajuda/:ajudaId/resolver", async (req: Request, res: Response): Pr
     res.status(500).json({ error: "Erro ao resolver pedido de ajuda." });
   }
 });
+
+// Exportado somente para testes de regressão da regra de checklist/pontuação.
+// Não altera nem expõe nenhuma rota da API.
+export const __taskChecklistTestUtils = {
+  normalizeChecklistDifficulty,
+  normalizePontuacaoEscopo,
+  parseChecklistItems,
+  mergeMemberChecklistUpdate,
+  filterChecklistForUser,
+  isChecklistItemExecutor,
+  checklistExecutorId,
+  calculateChecklistItemPoints,
+};
 
 export default router;
