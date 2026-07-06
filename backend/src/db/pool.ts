@@ -35,7 +35,7 @@ pool.on('error', (err) => {
 // - cria o índice único que serve como alvo do ON CONFLICT;
 // - é idempotente e não bloqueia o restante do sistema se a tabela ainda não
 //   existir durante a execução inicial das migrations.
-const rawConnect = pool.connect.bind(pool)
+const rawConnect: (...args: any[]) => any = (pool.connect as any).bind(pool)
 let taskScoreCompatibilityReady = false
 let taskScoreCompatibilityPromise: Promise<void> | null = null
 
@@ -110,7 +110,7 @@ async function prepareTaskScoreCompatibilitySafely() {
 ;(pool as any).connect = (callback?: unknown) => {
   if (typeof callback === 'function') {
     void prepareTaskScoreCompatibilitySafely().then(() => {
-      ;(rawConnect as any)(callback)
+      rawConnect(callback)
     })
     return undefined
   }
