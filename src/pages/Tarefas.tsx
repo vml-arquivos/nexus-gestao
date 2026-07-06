@@ -617,13 +617,22 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [acoesListaTexto, setAcoesListaTexto] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
+  const [destravaTipo, setDestravaTipo] = useState<'empresa' | 'pessoa_fisica'>(() => {
+    const origemTipo = String(tarefa?.origem_tipo || '').toLowerCase()
+    return ['pessoa_fisica', 'pf', 'cliente', 'cliente_pf', 'clientes_pf'].includes(origemTipo) ? 'pessoa_fisica' : 'empresa'
+  })
   const [destravaLoading, setDestravaLoading] = useState(false)
   const [destravaItens, setDestravaItens] = useState<DestravaCatalogoItem[]>([])
+  const [destravaPesquisaExecutada, setDestravaPesquisaExecutada] = useState(false)
+  const [destravaTotalResultados, setDestravaTotalResultados] = useState(0)
+  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)
   const [destravaSelecionado, setDestravaSelecionado] = useState<DestravaCatalogoItem | null>(() => {
     if (tarefa?.origem_sistema === 'destrava' && tarefa?.origem_id) {
       return {
         id: tarefa.origem_id,
-        tipo: tarefa.origem_tipo || 'empresa',
+        tipo: ['pessoa_fisica', 'pf', 'cliente', 'cliente_pf', 'clientes_pf'].includes(String(tarefa.origem_tipo || '').toLowerCase())
+          ? 'pessoa_fisica'
+          : 'empresa',
         nome: tarefa.origem_nome || 'Registro do Destrava',
         url: tarefa.origem_url || undefined,
         metadata: tarefa.origem_payload || undefined,
@@ -637,24 +646,49 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const gestoresParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id && ['admin','dev','gestor','sub_gestor'].includes(String(m.role || '')))
   const isMemberRequest = !isGestor && tipoTarefa === 'equipe' && !!responsavelId && responsavelId !== user?.id
 
-  useEffect(() => {
-    let alive = true
-    if (!isGestor) {
-      setDestravaItens([])
-      setDestravaLoading(false)
-      return () => { alive = false }
+  async function buscarCadastroDestrava() {
+    const termo = destravaBusca.trim()
+    if (termo.length < 2) {
+      toast('Digite pelo menos 2 caracteres para pesquisar por nome, CPF/CNPJ, e-mail ou telefone.', 'error')
+      return
     }
 
     setDestravaLoading(true)
-    destravaApi.sincronizarEmpresas()
-      .catch(() => null)
-      .then(() => destravaApi.empresasSincronizadas({ q: '', limit: 5000 }))
-      .then(data => { if (alive) setDestravaItens(Array.isArray(data.items) ? data.items : []) })
-      .catch(() => destravaApi.catalogo({ tipo: 'todos', q: '', limit: 500 }).then(items => { if (alive) setDestravaItens(Array.isArray(items) ? items : []) }))
-      .finally(() => { if (alive) setDestravaLoading(false) })
+    setDestravaPesquisaExecutada(true)
+    try {
+      const data = await destravaApi.empresasSincronizadas({
+        tipo: destravaTipo,
+        q: termo,
+        limit: 50,
+      })
+      setDestravaItens(Array.isArray(data.items) ? data.items : [])
+      setDestravaTotalResultados(Number(data.total || 0))
+      setDestravaTotalCatalogo(Number(data.total_catalogo || 0))
+    } catch (e) {
+      setDestravaItens([])
+      setDestravaTotalResultados(0)
+      toast(e instanceof Error ? e.message : 'Erro ao pesquisar cadastros da Destrava.', 'error')
+    } finally {
+      setDestravaLoading(false)
+    }
+  }
 
-    return () => { alive = false }
-  }, [isGestor])
+  function selecionarTipoDestrava(tipo: 'empresa' | 'pessoa_fisica') {
+    setDestravaTipo(tipo)
+    setDestravaItens([])
+    setDestravaPesquisaExecutada(false)
+    setDestravaTotalResultados(0)
+    if (destravaSelecionado && destravaSelecionado.tipo !== tipo) {
+      setDestravaSelecionado(null)
+    }
+  }
+
+  function limparPesquisaDestrava() {
+    setDestravaBusca('')
+    setDestravaItens([])
+    setDestravaPesquisaExecutada(false)
+    setDestravaTotalResultados(0)
+  }
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
@@ -861,42 +895,127 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         {isGestor && (
           <div className="form-group">
-            <label className="form-label">Empresa ou pessoa física da Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
-            <select
-              className="form-input"
-              value={destravaSelecionado ? `${destravaSelecionado.tipo}-${destravaSelecionado.id}` : ''}
-              onChange={e => {
-                const value = e.target.value
-                if (!value) { setDestravaSelecionado(null); setDestravaBusca(''); return }
-                const item = destravaSelectOptions.find(i => `${i.tipo}-${i.id}` === value) || null
-                setDestravaSelecionado(item)
-                setDestravaBusca(item?.nome || '')
-              }}
-            >
-              <option value="">Selecione uma empresa ou pessoa física cadastrada na Destrava</option>
-              {destravaLoading && <option value="" disabled>Carregando cadastros...</option>}
-              {!destravaLoading && destravaSelectOptions.map(item => (
-                <option key={`${item.tipo}-${item.id}`} value={`${item.tipo}-${item.id}`}>
-                  {item.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'} · {item.nome}{item.documento ? ` · ${item.documento}` : ''}
+            <label className="form-label">Cliente da Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+
+            <div className="task-type-selector" role="radiogroup" aria-label="Tipo de cliente da Destrava" style={{ marginBottom: 10 }}>
+              <button
+                type="button"
+                className={destravaTipo === 'empresa' ? 'active' : ''}
+                aria-pressed={destravaTipo === 'empresa'}
+                onClick={() => selecionarTipoDestrava('empresa')}
+              >
+                Clientes PJ
+              </button>
+              <button
+                type="button"
+                className={destravaTipo === 'pessoa_fisica' ? 'active' : ''}
+                aria-pressed={destravaTipo === 'pessoa_fisica'}
+                onClick={() => selecionarTipoDestrava('pessoa_fisica')}
+              >
+                Clientes PF
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
+              <input
+                className="form-input"
+                value={destravaBusca}
+                onChange={e => {
+                  setDestravaBusca(e.target.value)
+                  setDestravaPesquisaExecutada(false)
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void buscarCadastroDestrava()
+                  }
+                }}
+                placeholder={destravaTipo === 'pessoa_fisica'
+                  ? 'Digite nome, CPF, e-mail ou telefone'
+                  : 'Digite razão social, nome fantasia, CNPJ, e-mail ou telefone'}
+                autoComplete="off"
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                disabled={destravaLoading || destravaBusca.trim().length < 2}
+                onClick={() => void buscarCadastroDestrava()}
+              >
+                {destravaLoading ? <Loader size={14} /> : <Search size={14} />} Pesquisar
+              </button>
+            </div>
+
+            <div className="muted" style={{ marginTop: 6 }}>
+              A pesquisa inicia somente após 2 caracteres e retorna até 50 resultados, mantendo o formulário rápido mesmo com milhares de cadastros.
+            </div>
+
+            {(destravaPesquisaExecutada || destravaSelecionado) && (
+              <select
+                className="form-input"
+                style={{ marginTop: 10 }}
+                value={destravaSelecionado ? `${destravaSelecionado.tipo}-${destravaSelecionado.id}` : ''}
+                onChange={e => {
+                  const value = e.target.value
+                  if (!value) { setDestravaSelecionado(null); return }
+                  const item = destravaSelectOptions.find(i => `${i.tipo}-${i.id}` === value) || null
+                  setDestravaSelecionado(item)
+                  if (item) setDestravaTipo(item.tipo === 'pessoa_fisica' ? 'pessoa_fisica' : 'empresa')
+                }}
+              >
+                <option value="">
+                  {destravaLoading
+                    ? 'Pesquisando cadastros...'
+                    : destravaItens.length
+                      ? `Selecione um cliente ${destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}`
+                      : 'Nenhum cadastro selecionado'}
                 </option>
-              ))}
-            </select>
+                {destravaSelectOptions.map(item => (
+                  <option key={`${item.tipo}-${item.id}`} value={`${item.tipo}-${item.id}`}>
+                    {item.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'} · {item.nome}{item.documento ? ` · ${item.documento}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {destravaPesquisaExecutada && !destravaLoading && (
+              <div className="muted" style={{ marginTop: 7 }}>
+                {destravaTotalResultados > 0
+                  ? `${destravaTotalResultados} resultado(s) encontrado(s). ${destravaItens.length < destravaTotalResultados ? `Exibindo os primeiros ${destravaItens.length}. Refine a busca para localizar mais rápido.` : ''}`
+                  : destravaTotalCatalogo === 0
+                    ? 'O catálogo local ainda está vazio. Sincronize PJ e PF antes da primeira pesquisa.'
+                    : 'Nenhum cadastro encontrado para os filtros informados.'}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
               <button className="btn btn-secondary btn-sm" type="button" disabled={destravaLoading} onClick={async () => {
                 setDestravaLoading(true)
                 try {
                   const sync = await destravaApi.sincronizarEmpresas()
-                  const data = await destravaApi.empresasSincronizadas({ limit: 5000 })
-                  setDestravaItens(data.items || [])
                   toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
-                } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao sincronizar empresas.', 'error') }
+                  if (destravaBusca.trim().length >= 2) {
+                    const data = await destravaApi.empresasSincronizadas({ tipo: destravaTipo, q: destravaBusca.trim(), limit: 50 })
+                    setDestravaItens(data.items || [])
+                    setDestravaTotalResultados(Number(data.total || 0))
+                    setDestravaTotalCatalogo(Number(data.total_catalogo || sync.sincronizadas || 0))
+                    setDestravaPesquisaExecutada(true)
+                  } else {
+                    setDestravaTotalCatalogo(Number(sync.sincronizadas || 0))
+                  }
+                } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao sincronizar clientes da Destrava.', 'error') }
                 finally { setDestravaLoading(false) }
               }}>{destravaLoading ? <Loader size={13} /> : <RotateCcw size={13} />} Sincronizar PJ e PF</button>
-              <span className="muted">{destravaSelectOptions.length} cadastro(s) disponíveis no Nexus.</span>
+              {(destravaBusca || destravaPesquisaExecutada) && (
+                <button className="btn btn-ghost btn-sm" type="button" disabled={destravaLoading} onClick={limparPesquisaDestrava}>
+                  <X size={13} /> Limpar busca
+                </button>
+              )}
             </div>
+
             {destravaSelecionado && (
               <div className="integration-help">
-                Vinculada ao Destrava: {destravaSelecionado.documento || destravaSelecionado.subtitulo || destravaSelecionado.tipo}. Ao executar ou anexar arquivos, o histórico do cadastro na Destrava será atualizado.
+                <strong>{destravaSelecionado.tipo === 'pessoa_fisica' ? 'Cliente PF' : 'Cliente PJ'}:</strong> {destravaSelecionado.nome}
+                {destravaSelecionado.documento ? ` · ${destravaSelecionado.documento}` : ''}. Ao executar ou anexar arquivos, o histórico do cadastro na Destrava será atualizado.
               </div>
             )}
           </div>

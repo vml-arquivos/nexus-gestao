@@ -628,8 +628,12 @@ export const destravaApi = {
   async empresaResumo(id: string): Promise<any> {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
-  async empresasSincronizadas(params?: { q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; ultima_sincronizacao?: string }> {
-    const qs = '?' + new URLSearchParams({ q: params?.q || '', limit: String(params?.limit || 5000) }).toString()
+  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string }> {
+    const qs = '?' + new URLSearchParams({
+      tipo: params?.tipo || '',
+      q: params?.q || '',
+      limit: String(params?.limit || 50),
+    }).toString()
     return apiJson(`/integracoes/destrava/empresas${qs}`)
   },
   async sincronizarEmpresas(): Promise<{ ok: boolean; sincronizadas: number; total_recebido: number; paginas?: number; sincronizado_em: string }> {

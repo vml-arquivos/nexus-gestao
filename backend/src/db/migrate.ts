@@ -8,6 +8,7 @@ const SCHEMA = `
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- ── ORGANIZAÇÕES ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS organizacoes (
@@ -788,6 +789,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_destrava_cache_org_external_key ON destrava
 CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_nome ON destrava_empresas_cache(org_id, lower(nome));
 CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_ativo ON destrava_empresas_cache(org_id, ativo, sincronizado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_destrava_cache_org_tipo_nome ON destrava_empresas_cache(org_id, tipo, lower(nome));
+CREATE INDEX IF NOT EXISTS idx_destrava_cache_busca_trgm
+ON destrava_empresas_cache USING GIN (
+  lower(COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')) gin_trgm_ops
+);
 
 CREATE TABLE IF NOT EXISTS tarefas_comentarios (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,6 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- Catálogo local completo da Destrava: PJ e PF.
 CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
@@ -64,6 +65,10 @@ CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_ativo
   ON destrava_empresas_cache(org_id, ativo, sincronizado_em DESC);
 CREATE INDEX IF NOT EXISTS idx_destrava_cache_org_tipo_nome
   ON destrava_empresas_cache(org_id, tipo, lower(nome));
+CREATE INDEX IF NOT EXISTS idx_destrava_cache_busca_trgm
+  ON destrava_empresas_cache USING GIN (
+    lower(COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')) gin_trgm_ops
+  );
 
 -- Comentários e auditoria por tarefa/item de checklist.
 CREATE TABLE IF NOT EXISTS tarefas_comentarios (

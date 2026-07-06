@@ -138,19 +138,59 @@ let destravaCacheSchemaPromise: Promise<void> | null = null
 async function ensureDestravaCacheSchema() {
   if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = query(`
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE EXTENSION IF NOT EXISTS "pg_trgm";
     CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-      external_id TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'empresa', external_key TEXT, nome TEXT NOT NULL, documento TEXT, email TEXT, telefone TEXT, status TEXT,
-      source_url TEXT, metadata JSONB NOT NULL DEFAULT '{}'::jsonb, source_updated_at TIMESTAMPTZ,
-      sincronizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(), ativo BOOLEAN NOT NULL DEFAULT TRUE,
-      UNIQUE (org_id, external_id)
+      external_id TEXT NOT NULL,
+      tipo TEXT NOT NULL DEFAULT 'empresa',
+      external_key TEXT,
+      nome TEXT NOT NULL,
+      documento TEXT,
+      email TEXT,
+      telefone TEXT,
+      status TEXT,
+      source_url TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      source_updated_at TIMESTAMPTZ,
+      sincronizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ativo BOOLEAN NOT NULL DEFAULT TRUE
     );
-    ALTER TABLE destrava_empresas_cache ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'empresa';
+    ALTER TABLE destrava_empresas_cache ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'empresa';
     ALTER TABLE destrava_empresas_cache ADD COLUMN IF NOT EXISTS external_key TEXT;
-    UPDATE destrava_empresas_cache SET external_key = COALESCE(external_key, tipo || ':' || external_id);
+    UPDATE destrava_empresas_cache
+       SET tipo = CASE
+         WHEN lower(COALESCE(NULLIF(btrim(tipo), ''), 'empresa')) IN ('pf','cliente','clientes','pessoa fisica','pessoa_fisica')
+           THEN 'pessoa_fisica'
+         ELSE 'empresa'
+       END;
+    UPDATE destrava_empresas_cache
+       SET external_key = tipo || ':' || external_id
+     WHERE external_key IS NULL OR btrim(external_key) = '';
+    ALTER TABLE destrava_empresas_cache ALTER COLUMN tipo SET DEFAULT 'empresa';
+    ALTER TABLE destrava_empresas_cache ALTER COLUMN tipo SET NOT NULL;
+    ALTER TABLE destrava_empresas_cache ALTER COLUMN external_key SET NOT NULL;
+    DO $$
+    DECLARE c RECORD;
+    BEGIN
+      FOR c IN
+        SELECT conname
+          FROM pg_constraint
+         WHERE conrelid = 'destrava_empresas_cache'::regclass
+           AND contype = 'u'
+           AND pg_get_constraintdef(oid) = 'UNIQUE (org_id, external_id)'
+      LOOP
+        EXECUTE format('ALTER TABLE destrava_empresas_cache DROP CONSTRAINT %I', c.conname);
+      END LOOP;
+    END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS ux_destrava_cache_org_external_key ON destrava_empresas_cache(org_id, external_key);
     CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_nome ON destrava_empresas_cache(org_id, lower(nome));
+    CREATE INDEX IF NOT EXISTS idx_destrava_empresas_cache_org_ativo ON destrava_empresas_cache(org_id, ativo, sincronizado_em DESC);
+    CREATE INDEX IF NOT EXISTS idx_destrava_cache_org_tipo_nome ON destrava_empresas_cache(org_id, tipo, lower(nome));
+    CREATE INDEX IF NOT EXISTS idx_destrava_cache_busca_trgm
+      ON destrava_empresas_cache USING GIN (
+        lower(COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')) gin_trgm_ops
+      );
   `).then(() => undefined).catch(err => { destravaCacheSchemaPromise = null; throw err })
   return destravaCacheSchemaPromise
 }
@@ -242,13 +282,34 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
     await ensureDestravaCacheSchema()
     const orgId = req.user!.orgId
     const q = String(req.query.q || '').trim()
-    const limit = Math.max(1, Math.min(10000, Number(req.query.limit || 500)))
+    const tipoParam = String(req.query.tipo || '').trim().toLowerCase()
+    const tipo = tipoParam === 'pessoa_fisica' || tipoParam === 'pf'
+      ? 'pessoa_fisica'
+      : tipoParam === 'empresa' || tipoParam === 'pj'
+        ? 'empresa'
+        : ''
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)))
+    const params = [orgId, tipo, q, limit]
+    const filtro = `org_id=$1 AND ativo=TRUE
+      AND ($2='' OR tipo=$2)
+      AND ($3='' OR lower(
+        COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')
+      ) LIKE '%' || lower($3) || '%')`
     const empresas = await query<any>(`SELECT external_id AS id, tipo, nome, documento, email, telefone, status, source_url AS url, metadata, sincronizado_em
-      FROM destrava_empresas_cache WHERE org_id=$1 AND ativo=TRUE AND ($2='' OR nome ILIKE '%' || $2 || '%' OR COALESCE(documento,'') ILIKE '%' || $2 || '%')
-      ORDER BY nome LIMIT $3`,[orgId,q,limit])
-    const info = await queryOne<any>(`SELECT COUNT(*)::int total, MAX(sincronizado_em) ultima_sincronizacao FROM destrava_empresas_cache WHERE org_id=$1 AND ativo=TRUE`,[orgId])
+      FROM destrava_empresas_cache
+      WHERE ${filtro}
+      ORDER BY lower(nome), external_id
+      LIMIT $4`, params)
+    const info = await queryOne<any>(`SELECT
+        COUNT(*) FILTER (WHERE ($2='' OR tipo=$2) AND ($3='' OR lower(
+          COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')
+        ) LIKE '%' || lower($3) || '%'))::int AS total,
+        COUNT(*)::int AS total_catalogo,
+        MAX(sincronizado_em) AS ultima_sincronizacao
+      FROM destrava_empresas_cache
+      WHERE org_id=$1 AND ativo=TRUE`, [orgId, tipo, q])
     res.json({ items:empresas.map(e=>({...e,tipo:e.tipo || 'empresa'})), ...info })
-  } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao carregar empresas sincronizadas.'}) }
+  } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao pesquisar clientes sincronizados da Destrava.'}) }
 })
 
 // Rotas autenticadas para o próprio Nexus consultar o catálogo do Destrava sem expor a chave no navegador.
