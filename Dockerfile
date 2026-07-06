@@ -12,10 +12,20 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
     NPM_CONFIG_CACHE=/root/.npm
 
+RUN apk add --no-cache python3
+
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
-COPY backend/ .
+
+# O patch é determinístico, versionado e falha imediatamente se o código-base
+# esperado tiver mudado. Assim o backend e o frontend usam a mesma alteração
+# sem substituições silenciosas ou regressões durante o deploy.
+WORKDIR /app
+COPY . .
+RUN python3 scripts/apply_tarefas_client_select_patch.py
+
+WORKDIR /app/backend
 RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
 
 # ── STAGE 2: Build do Frontend ─────────────────────────────
@@ -27,11 +37,13 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
     NPM_CONFIG_CACHE=/root/.npm
 
+RUN apk add --no-cache python3
+
 WORKDIR /app/frontend
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN rm -rf backend
+RUN python3 scripts/apply_tarefas_client_select_patch.py && rm -rf backend
 
 # Força o BuildKit a concluir o build TypeScript do backend antes do build do frontend.
 # Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
