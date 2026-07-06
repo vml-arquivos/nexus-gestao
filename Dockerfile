@@ -18,12 +18,12 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
-# O patch é determinístico, versionado e falha imediatamente se o código-base
-# esperado tiver mudado. Assim o backend e o frontend usam a mesma alteração
-# sem substituições silenciosas ou regressões durante o deploy.
+# Os patches são determinísticos, versionados e falham imediatamente se o código-base
+# esperado tiver mudado. Assim backend e frontend recebem exatamente a mesma regra.
 WORKDIR /app
 COPY . .
-RUN python3 scripts/apply_tarefas_client_select_patch.py
+RUN python3 scripts/apply_tarefas_client_select_patch.py \
+    && python3 scripts/apply_task_scoring_ui_patch.py
 
 WORKDIR /app/backend
 RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
@@ -43,7 +43,9 @@ WORKDIR /app/frontend
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN python3 scripts/apply_tarefas_client_select_patch.py && rm -rf backend
+RUN python3 scripts/apply_tarefas_client_select_patch.py \
+    && python3 scripts/apply_task_scoring_ui_patch.py \
+    && rm -rf backend
 
 # Força o BuildKit a concluir o build TypeScript do backend antes do build do frontend.
 # Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
