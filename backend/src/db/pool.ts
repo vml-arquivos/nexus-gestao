@@ -26,6 +26,89 @@ pool.on('error', (err) => {
   console.error('[DB] Erro inesperado no pool:', err.message)
 })
 
+// Bancos antigos podem ter a tabela tarefas_pontuacao criada antes da chave
+// UNIQUE (tarefa_id, usuario_id, motivo). As rotas de aprovação usam
+// ON CONFLICT nessas três colunas; sem a chave, o PostgreSQL retorna 500.
+//
+// A preparação roda antes de entregar a primeira conexão ao backend:
+// - mantém apenas o registro lógico mais recente quando houver duplicidade;
+// - cria o índice único que serve como alvo do ON CONFLICT;
+// - é idempotente e não bloqueia o restante do sistema se a tabela ainda não
+//   existir durante a execução inicial das migrations.
+const rawConnect = pool.connect.bind(pool)
+let taskScoreCompatibilityReady = false
+let taskScoreCompatibilityPromise: Promise<void> | null = null
+
+async function ensureTaskScoreCompatibility(): Promise<void> {
+  if (taskScoreCompatibilityReady) return
+  if (taskScoreCompatibilityPromise) return taskScoreCompatibilityPromise
+
+  taskScoreCompatibilityPromise = (async () => {
+    const client = await rawConnect()
+    let transactionStarted = false
+    try {
+      const tableResult = await client.query<{ table_name: string | null }>(
+        "SELECT to_regclass('public.tarefas_pontuacao')::text AS table_name",
+      )
+      if (!tableResult.rows[0]?.table_name) return
+
+      await client.query('BEGIN')
+      transactionStarted = true
+      await client.query('SELECT pg_advisory_xact_lock(732145987)')
+      await client.query(`
+        DELETE FROM tarefas_pontuacao atual
+        USING (
+          SELECT id
+          FROM (
+            SELECT
+              id,
+              ROW_NUMBER() OVER (
+                PARTITION BY tarefa_id, usuario_id, motivo
+                ORDER BY aprovado_em DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+              ) AS ordem
+            FROM tarefas_pontuacao
+            WHERE tarefa_id IS NOT NULL
+              AND motivo IS NOT NULL
+          ) ranqueado
+          WHERE ordem > 1
+        ) duplicado
+        WHERE atual.id = duplicado.id
+      `)
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo
+          ON tarefas_pontuacao (tarefa_id, usuario_id, motivo)
+      `)
+      await client.query('COMMIT')
+      transactionStarted = false
+      taskScoreCompatibilityReady = true
+    } catch (err) {
+      if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined)
+      throw err
+    } finally {
+      client.release()
+    }
+  })().finally(() => {
+    taskScoreCompatibilityPromise = null
+  })
+
+  return taskScoreCompatibilityPromise
+}
+
+// O migrate e o servidor usam o mesmo módulo em processos separados. Durante a
+// criação inicial do banco a tabela pode ainda não existir; nesse caso a próxima
+// conexão tentará novamente sem impedir a migration principal.
+;(pool as any).connect = async () => {
+  try {
+    await ensureTaskScoreCompatibility()
+  } catch (err) {
+    console.warn(
+      '[DB] Compatibilidade da pontuação de tarefas não pôde ser preparada nesta conexão:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+  return rawConnect()
+}
+
 export default pool
 
 export async function query<T = Record<string, unknown>>(
