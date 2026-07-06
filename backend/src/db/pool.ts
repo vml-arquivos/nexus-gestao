@@ -94,10 +94,7 @@ async function ensureTaskScoreCompatibility(): Promise<void> {
   return taskScoreCompatibilityPromise
 }
 
-// O migrate e o servidor usam o mesmo módulo em processos separados. Durante a
-// criação inicial do banco a tabela pode ainda não existir; nesse caso a próxima
-// conexão tentará novamente sem impedir a migration principal.
-;(pool as any).connect = async () => {
+async function prepareTaskScoreCompatibilitySafely() {
   try {
     await ensureTaskScoreCompatibility()
   } catch (err) {
@@ -106,7 +103,19 @@ async function ensureTaskScoreCompatibility(): Promise<void> {
       err instanceof Error ? err.message : err,
     )
   }
-  return rawConnect()
+}
+
+// O pg usa connect tanto como Promise quanto com callback dentro de pool.query.
+// Preservar as duas assinaturas evita regressão nas consultas existentes.
+;(pool as any).connect = (callback?: unknown) => {
+  if (typeof callback === 'function') {
+    void prepareTaskScoreCompatibilitySafely().then(() => {
+      ;(rawConnect as any)(callback)
+    })
+    return undefined
+  }
+
+  return prepareTaskScoreCompatibilitySafely().then(() => rawConnect())
 }
 
 export default pool
