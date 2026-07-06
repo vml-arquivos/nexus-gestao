@@ -9,6 +9,7 @@ import pool from './db/pool'
 
 // Rotas
 import authRoutes       from './routes/auth'
+import tarefasScoringRoutes from './routes/tarefasScoring'
 import tarefasRoutes    from './routes/tarefas'
 import equipeRoutes     from './routes/equipe'
 import agendaRoutes     from './routes/agenda'
@@ -81,7 +82,7 @@ app.use(rateLimit({
 
 // Rate limiting mais restrito para auth
 // Anteriormente utilizávamos um limitador dedicado com mensagem de "Muitas tentativas de login" e
-// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
+// bloqueio por 15 minutos. Esse comportamento prejudicava a experiência do usuário ao atualizar a
 // página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
 
 
@@ -115,6 +116,7 @@ app.get('/health', async (_req, res) => {
 // ── ROTAS API ─────────────────────────────────────────────────────────────────
 // A rota de autenticação não utiliza mais o authLimiter específico.
 app.use('/api/auth',        authRoutes)
+app.use('/api/tarefas',     tarefasScoringRoutes)
 app.use('/api/tarefas',     tarefasRoutes)
 app.use('/api/equipe',      equipeRoutes)
 app.use('/api/agenda',      agendaRoutes)
