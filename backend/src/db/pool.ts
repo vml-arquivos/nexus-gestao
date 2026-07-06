@@ -47,7 +47,7 @@ async function ensureTaskScoreCompatibility(): Promise<void> {
     const client = await rawConnect()
     let transactionStarted = false
     try {
-      const tableResult = await client.query<{ table_name: string | null }>(
+      const tableResult = await client.query(
         "SELECT to_regclass('public.tarefas_pontuacao')::text AS table_name",
       )
       if (!tableResult.rows[0]?.table_name) return
