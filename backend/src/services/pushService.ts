@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import { query, queryOne } from '../db/pool'
+import '../routes/tarefasScoringMount'
 
 let schemaReady: Promise<void> | null = null
 
