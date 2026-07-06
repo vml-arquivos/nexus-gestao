@@ -30,3 +30,5 @@ jobs:
           git rm scripts/apply_task_scoring_rule_patch.py .github/workflows/apply-task-scoring-rule.yml
           git commit -m "fix(tarefas): pontuar por item em listas multipessoa"
           git push origin HEAD:fix-task-scoring-rule
+
+# Triggered after the workflow file became available on the branch.
