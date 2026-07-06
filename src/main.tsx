@@ -7,6 +7,9 @@ import App from './App.tsx'
 import { ThemeProvider } from './lib/ThemeContext'
 import { AuthProvider } from './lib/AuthContext.tsx'
 import { loadSavedTokens, applyAllTokens } from './hooks/useDesignTokens'
+import { installTaskScoringUiBridge } from './lib/taskScoringUiBridge'
+
+installTaskScoringUiBridge()
 
 // ═══ APLICA TEMA ANTES DO REACT PARA EVITAR FLASH E ESTADO QUEBRADO ═══
 const savedTheme = localStorage.getItem('nexus-theme')
@@ -90,7 +93,6 @@ document.addEventListener('touchmove', (e) => {
     e.preventDefault()
   }
 }, { passive: false })
-
 
 // ═══ CONTROLE GLOBAL DE MODAIS/SHEETS ═══
 // Qualquer tela que abrir modal passa a sinalizar body.modal-open.
