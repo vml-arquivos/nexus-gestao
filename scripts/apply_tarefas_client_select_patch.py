@@ -58,7 +58,7 @@ search_helpers = assignee_block + """
 function normalizeDestravaSearch(value: unknown) {
   return String(value || '')
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase('pt-BR')
     .replace(/[^a-z0-9@.+-]+/g, ' ')
     .trim()
@@ -70,7 +70,7 @@ function destravaItemMatches(item: DestravaCatalogoItem, rawSearch: string) {
 
   const normalizedName = normalizeDestravaSearch(item.nome)
   const initials = normalizedName
-    .split(/\\s+/)
+    .split(/\s+/)
     .filter(Boolean)
     .map(part => part[0])
     .join('')
@@ -83,7 +83,7 @@ function destravaItemMatches(item: DestravaCatalogoItem, rawSearch: string) {
   ].filter(Boolean).join(' '))
 
   return search
-    .split(/\\s+/)
+    .split(/\s+/)
     .filter(Boolean)
     .every(term => searchable.includes(term) || initials.includes(term))
 }
@@ -97,7 +97,8 @@ tarefas = replace_once(
     "  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)\n"
     "  const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)\n"
     "  const destravaSelectRef = useRef<HTMLDivElement | null>(null)\n"
-    "  const destravaBuscaRef = useRef<HTMLInputElement | null>(null)\n",
+    "  const destravaBuscaRef = useRef<HTMLInputElement | null>(null)\n"
+    "  const destravaAutoSyncRef = useRef(false)\n",
     "estado do combobox",
 )
 
@@ -142,7 +143,24 @@ new_functions = """  async function carregarCadastrosDestrava(tipo: 'empresa' | 
 
   async function abrirSeletorDestrava() {
     setDestravaSelectOpen(true)
-    if (!destravaPesquisaExecutada) void carregarCadastrosDestrava(destravaTipo)
+    if (!destravaPesquisaExecutada) {
+      if (!destravaAutoSyncRef.current) {
+        destravaAutoSyncRef.current = true
+        setDestravaLoading(true)
+        try {
+          await destravaApi.sincronizarEmpresas()
+        } catch (e) {
+          destravaAutoSyncRef.current = false
+          toast(
+            e instanceof Error
+              ? `${e.message} Exibindo o cache local disponível.`
+              : 'Não foi possível atualizar o catálogo. Exibindo o cache local disponível.',
+            'error',
+          )
+        }
+      }
+      await carregarCadastrosDestrava(destravaTipo)
+    }
     window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
   }
 
@@ -355,6 +373,7 @@ new_ui = """            <div className="destrava-client-select-grid">
                 setDestravaLoading(true)
                 try {
                   const sync = await destravaApi.sincronizarEmpresas()
+                  destravaAutoSyncRef.current = true
                   toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
                   setDestravaPesquisaExecutada(false)
                   await carregarCadastrosDestrava(destravaTipo)
