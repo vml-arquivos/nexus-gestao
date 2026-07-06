@@ -162,14 +162,6 @@ async function waitForDb(retries = 30, delay = 3000): Promise<void> {
 async function start() {
   await waitForDb()
 
-  try {
-    const { execSync } = require('child_process')
-    execSync('node dist/db/migrate.js', { stdio: 'inherit' })
-    console.log('[MIGRATE] ✅ Migrations executadas.')
-  } catch {
-    console.warn('[MIGRATE] Migração automática ignorada — execute manualmente se necessário.')
-  }
-
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[SERVER] ✅ Nexus API rodando na porta ${PORT}`)
     console.log(`[SERVER] 🌐 Frontend: ${FRONTEND_URL}`)
