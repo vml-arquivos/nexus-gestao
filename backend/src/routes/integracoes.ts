@@ -288,7 +288,7 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       : tipoParam === 'empresa' || tipoParam === 'pj'
         ? 'empresa'
         : ''
-    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)))
+    const limit = Math.max(1, Math.min(300, Number(req.query.limit || 50)))
     const params = [orgId, tipo, q, limit]
     const filtro = `org_id=$1 AND ativo=TRUE
       AND ($2='' OR tipo=$2)

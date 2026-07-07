@@ -3024,6 +3024,18 @@ router.post(
 );
 
 // ── APROVAR ─────────────────────────────────────────────────────────────────
+// ATENÇÃO (auditoria 2026-07-07): backend/src/index.ts monta
+// `tarefasScoringRoutes` em '/api/tarefas' ANTES de `tarefasRoutes` (este
+// arquivo). O Express casa rotas na ordem de registro, então para
+// PATCH /api/tarefas/:id/aprovar quem responde SEMPRE é o handler
+// equivalente em tarefasScoring.ts — este daqui nunca é executado em
+// produção. Não é dead code por acaso: foi verificado e confirmado.
+// Não remova sem primeiro portar qualquer lógica aqui que não exista lá
+// (ex.: fica pendente decidir se a regra de pontuação por escopo
+// tarefa/subtarefas/ambos, implementada aqui via
+// pontuacaoIncluiSubtarefas/taskPontuacaoEscopo, deveria substituir a
+// heurística isMultiExecutor usada no handler que realmente roda — ver
+// relatório técnico). Mantido apenas para referência/histórico.
 router.patch(
   "/:id/aprovar",
   async (req: Request, res: Response): Promise<void> => {
@@ -4608,6 +4620,10 @@ router.post("/:id/comentarios", async (req: Request, res: Response): Promise<voi
   }
 });
 
+// ATENÇÃO (auditoria 2026-07-07): mesma situação do PATCH '/:id/aprovar'
+// acima — este handler é sombreado por tarefasScoring.ts (montado antes em
+// backend/src/index.ts) e NUNCA executa em produção. Mantido só para
+// referência histórica; não editar esperando efeito real.
 router.patch("/:id/checklist/:itemId/revisao", async (req: Request, res: Response): Promise<void> => {
   const client = await pool.connect();
   try {

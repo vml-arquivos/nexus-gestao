@@ -809,6 +809,42 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_tarefa ON tarefas_comentarios
 CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_checklist ON tarefas_comentarios(org_id, tarefa_id, checklist_id, criado_em ASC);
 
 -- ============================================================
+-- Correção 2026-07-07: erro 500 ao aprovar/revisar itens de checklist.
+--
+-- Causa raiz: em bancos criados antes da constraint UNIQUE(tarefa_id,
+-- usuario_id, motivo) existir em tarefas_pontuacao, o único mecanismo que
+-- criava esse índice era uma chamada silenciosa em runtime
+-- (ensureCompatibilitySchema, em tarefasScoring.ts) protegida por
+-- ".catch(() => undefined)". Se já existissem linhas duplicadas para a
+-- mesma combinação (ex.: pontuação registrada antes desse esquema de
+-- idempotência existir), o CREATE UNIQUE INDEX falhava sempre, o erro era
+-- descartado, e toda aprovação que dependia de "ON CONFLICT (tarefa_id,
+-- usuario_id, motivo)" passava a responder 42P10 -> HTTP 500.
+--
+-- Esta migration remove as duplicatas de forma segura (mantendo a linha
+-- mais recente de cada combinação, sem apagar pontuação legítima de
+-- combinações distintas) e garante a existência do índice único de forma
+-- definitiva e idempotente, para nunca mais depender só do runtime.
+-- ============================================================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tarefas_pontuacao') THEN
+    DELETE FROM tarefas_pontuacao tp
+     WHERE tp.tarefa_id IS NOT NULL
+       AND tp.motivo IS NOT NULL
+       AND tp.id NOT IN (
+         SELECT DISTINCT ON (tarefa_id, usuario_id, motivo) id
+           FROM tarefas_pontuacao
+          WHERE tarefa_id IS NOT NULL AND motivo IS NOT NULL
+          ORDER BY tarefa_id, usuario_id, motivo, aprovado_em DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+       );
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo
+  ON tarefas_pontuacao (tarefa_id, usuario_id, motivo);
+
+-- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================
 `

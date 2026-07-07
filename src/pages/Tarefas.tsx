@@ -659,7 +659,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       const data = await destravaApi.empresasSincronizadas({
         tipo: destravaTipo,
         q: termo,
-        limit: 50,
+        limit: 100,
       })
       setDestravaItens(Array.isArray(data.items) ? data.items : [])
       setDestravaTotalResultados(Number(data.total || 0))
@@ -994,7 +994,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   const sync = await destravaApi.sincronizarEmpresas()
                   toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
                   if (destravaBusca.trim().length >= 2) {
-                    const data = await destravaApi.empresasSincronizadas({ tipo: destravaTipo, q: destravaBusca.trim(), limit: 50 })
+                    const data = await destravaApi.empresasSincronizadas({ tipo: destravaTipo, q: destravaBusca.trim(), limit: 100 })
                     setDestravaItens(data.items || [])
                     setDestravaTotalResultados(Number(data.total || 0))
                     setDestravaTotalCatalogo(Number(data.total_catalogo || sync.sincronizadas || 0))

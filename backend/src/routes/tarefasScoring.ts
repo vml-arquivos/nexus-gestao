@@ -134,9 +134,17 @@ async function ensureCompatibilitySchema() {
   if (!compatibilityPromise) {
     compatibilityPromise = (async () => {
       await query(`ALTER TABLE tarefas_ajuda ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`)
+      // Nota: em produção este índice já é criado de forma definitiva (com
+      // deduplicação prévia) pela migration em backend/src/db/migrate.ts.
+      // Esta chamada permanece apenas como reforço best-effort para bancos
+      // que ainda não rodaram a migration mais recente; se falhar, o erro é
+      // logado (não mais engolido silenciosamente) para ficar visível em
+      // observabilidade, já que a ausência desse índice quebra o
+      // ON CONFLICT usado pela aprovação de tarefas.
       await query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo ON tarefas_pontuacao (tarefa_id, usuario_id, motivo)`)
     })().catch(err => {
       compatibilityPromise = null
+      console.error('[TAREFAS-SCORING] Falha ao garantir schema de compatibilidade (rode a migration mais recente em backend/src/db/migrate.ts):', err)
       throw err
     })
   }
@@ -223,11 +231,12 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       res.status(403).json({ error: 'Apenas a gestão pode revisar entregas.' })
       return
     }
-    const decision = String(req.body?.decisao || '')
-    if (!['aprovar', 'devolver'].includes(decision)) {
+    const decisionRaw = String(req.body?.decisao || '')
+    if (decisionRaw !== 'aprovar' && decisionRaw !== 'devolver') {
       res.status(400).json({ error: 'Decisão inválida.' })
       return
     }
+    const decision: 'aprovar' | 'devolver' = decisionRaw
 
     await client.query('BEGIN')
     const locked = await client.query('SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE', [req.params.id, orgId])
@@ -287,7 +296,11 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       [JSON.stringify(items), decision, task.id, orgId],
     )
 
-    if (!alreadyApproved || decision === 'devolver') {
+    // Nota: `alreadyApproved` só pode ser true quando decision === 'aprovar'
+    // (ver definição acima), então a condição já cobre 'devolver' sozinha —
+    // simplificado para não depender de checagem redundante e impossível
+    // para o TypeScript (TS2367), mantendo exatamente o mesmo comportamento.
+    if (!alreadyApproved) {
       await client.query(
         `INSERT INTO tarefas_comentarios
            (org_id, tarefa_id, checklist_id, autor_id, comentario, tipo)
