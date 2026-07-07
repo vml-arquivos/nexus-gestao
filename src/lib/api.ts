@@ -636,7 +636,7 @@ export const destravaApi = {
     }).toString()
     return apiJson(`/integracoes/destrava/empresas${qs}`)
   },
-  async sincronizarEmpresas(): Promise<{ ok: boolean; sincronizadas: number; total_recebido: number; paginas?: number; sincronizado_em: string }> {
+  async sincronizarEmpresas(): Promise<{ ok: boolean; sincronizadas: number; total_recebido: number; total_reportado_destrava?: number | null; paginas?: number; sincronizado_em: string }> {
     return apiJson('/integracoes/destrava/empresas/sincronizar', { method: 'POST' })
   },
 }

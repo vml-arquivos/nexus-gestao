@@ -209,7 +209,19 @@ async function callDestrava(path: string, options: RequestInit = {}) {
     ...(options.headers as Record<string, string> || {}),
   }
   const res = await fetch(`${base}${path}`, { ...options, headers })
-  const data: any = await res.json().catch(() => ({}))
+  const rawBody = await res.text()
+  let data: any
+  try {
+    data = rawBody ? JSON.parse(rawBody) : {}
+  } catch {
+    // Resposta não é JSON válido (ex.: gateway/proxy retornou HTML de erro com
+    // status 200, timeout truncando o corpo, etc.). Antes isso virava um {}
+    // silencioso e a sincronização interpretava como "sem mais páginas",
+    // truncando o catálogo sem avisar. Agora é sempre um erro explícito.
+    const err = new Error(`Resposta inválida da Destrava em ${path} (não é JSON).`) as Error & { status?: number }
+    err.status = 502
+    throw err
+  }
   if (!res.ok) {
     const err = new Error(data?.error || `Erro ${res.status} na integração Destrava.`) as Error & { status?: number }
     err.status = res.status
@@ -226,15 +238,29 @@ router.post('/destrava/empresas/sincronizar', authMiddleware, async (req: Reques
     const pageSize = 500
     let page = 1
     let hasMore = true
+    let totalReportadoPelaDestrava: number | null = null
     const items: any[] = []
 
     while (hasMore) {
       const data = await callDestrava(`/api/nexus/catalogo?tipo=todos&q=&limit=${pageSize}&page=${page}`)
-      const batch = Array.isArray(data?.items) ? data.items : []
+      if (!data || typeof data !== 'object' || !Array.isArray(data.items) || !data.pagination || typeof data.pagination !== 'object') {
+        throw new Error(`Resposta inesperada da Destrava na página ${page} da sincronização (formato inválido). Sincronização interrompida sem alterar o catálogo anterior.`)
+      }
+      const batch = data.items
       items.push(...batch)
-      hasMore = Boolean(data?.pagination?.has_more)
+      if (totalReportadoPelaDestrava === null && Number.isFinite(Number(data.pagination.total))) {
+        totalReportadoPelaDestrava = Number(data.pagination.total)
+      }
+      hasMore = Boolean(data.pagination.has_more)
       page += 1
       if (page > 10000) throw new Error('Sincronização interrompida por limite de segurança.')
+    }
+
+    if (totalReportadoPelaDestrava !== null && items.length < totalReportadoPelaDestrava) {
+      throw new Error(
+        `Sincronização incompleta: a Destrava reportou ${totalReportadoPelaDestrava} registro(s) no total, mas apenas ${items.length} foram recebidos. `
+        + 'Catálogo anterior preservado sem alterações — tente sincronizar novamente.',
+      )
     }
 
     const syncRunId = uuidv4()
@@ -270,7 +296,14 @@ router.post('/destrava/empresas/sincronizar', authMiddleware, async (req: Reques
       client.release()
     }
 
-    res.json({ ok:true, sincronizadas:validos, total_recebido:items.length, paginas:page - 1, sincronizado_em:new Date().toISOString() })
+    res.json({
+      ok: true,
+      sincronizadas: validos,
+      total_recebido: items.length,
+      total_reportado_destrava: totalReportadoPelaDestrava,
+      paginas: page - 1,
+      sincronizado_em: new Date().toISOString(),
+    })
   } catch (err:any) {
     console.error('[INTEGRACOES] Erro sincronização catálogo Destrava:',err)
     res.status(err?.status || 500).json({error:err?.message || 'Erro ao sincronizar empresas e pessoas físicas.'})

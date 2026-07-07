@@ -2582,6 +2582,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
             </div>
           </div>
+          {canReviewTask && tarefa.status === 'concluida' && (
+            <div className="task-approve-banner">
+              <span><CheckCircle2 size={16} /> Todas as tarefas da lista foram concluídas. Aprove para liberar a pontuação no ranking, ou devolva se precisar de correção.</span>
+              <div className="task-approve-banner-actions">
+                <button className="btn btn-primary btn-sm" type="button" onClick={() => onApprove(tarefa)}>Aprovar lista</button>
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>
+              </div>
+            </div>
+          )}
           {displayTotal > 0 ? (
             <div className="task-checklist-run">
               {checklistDateKeys.map(dateKey => (
@@ -3658,13 +3667,16 @@ export default function Tarefas() {
   }
 
   async function approve(t: Tarefa) {
+    if (actionTaskId === t.id) return // já em andamento — ignora clique duplicado
     if (!confirm('Aprovar esta tarefa? Verifique os arquivos da tarefa antes de aprovar.')) return
+    setActionTaskId(t.id)
     try {
       updateSaved(await tarefasApi.aprovar(t.id))
       await Promise.all([load(), loadRanking(periodoRanking)])
       toast('Tarefa aprovada e pontuação do ranking atualizada.')
     }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro ao aprovar.', 'error') }
+    finally { setActionTaskId(null) }
   }
 
   async function devolver(t: Tarefa) {

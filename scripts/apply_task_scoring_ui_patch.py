@@ -189,7 +189,7 @@ text = replace_once(
 text = replace_once(
     text,
     "                        {isGestor && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n",
-    "                        {isGestor && scoreByChecklistItem && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && item.feito && <span className=\"badge\">Concluída · aguardando aprovação final da lista</span>}\n",
+    "                        {isGestor && scoreByChecklistItem && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && item.feito && tarefa.status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && item.feito && tarefa.status !== 'aprovada' && <span className=\"badge\">Concluída · aguardando aprovação final da lista</span>}\n",
     'status visual conforme regra',
 )
 

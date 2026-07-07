@@ -7354,6 +7354,38 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
   }
 }
 
+/* Banner de aprovação da lista, no topo do checklist (evita ter que rolar
+   até o rodapé do modal para encontrar o botão Aprovar). */
+.task-approve-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 185, 129, .35);
+  background: rgba(16, 185, 129, .10);
+}
+.task-approve-banner span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text1);
+}
+.task-approve-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .task-approve-banner { flex-direction: column; align-items: stretch; }
+  .task-approve-banner-actions { justify-content: flex-end; }
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
    HOTFIX URGENTE 2026-06-09 — Mobile de tarefas sem texto vertical
    Corrige o problema visto no iPhone: campos do modal espremidos em colunas
