@@ -3187,6 +3187,71 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
 
 const MEDALHAS = ['🥇', '🥈', '🥉']
 
+function TarefaBoardCard({ tarefa, userId, isGestor, onOpen }: {
+  tarefa: Tarefa
+  userId: string
+  isGestor: boolean
+  onOpen: (t: Tarefa) => void
+}) {
+  const sc = statusCfg(tarefa.status)
+  const pc = prioridadeCfg(tarefa.prioridade)
+  const Icon = sc.icon
+  const isPersonal = taskScope(tarefa) === 'pessoal'
+  const overdue = isOverdue(tarefa.prazo, tarefa.status)
+  const checklistForCard = visibleChecklistItems(tarefa, userId, isGestor)
+  const checkTotal = checklistForCard.length
+  const checkDone = checklistForCard.filter(i => i.feito).length
+  const progressPct = checkTotal > 0 ? Math.max(6, Math.round((checkDone / checkTotal) * 100)) : 0
+  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
+  const responsavelLabel = livreDisponivel
+    ? 'Livre para assumir'
+    : tarefa.responsavel_id
+      ? (tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || 'Responsável')
+      : isPersonal ? 'Lista pessoal' : 'Lista da equipe'
+  const iniciais = (responsavelLabel || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase()
+
+  return (
+    <article className="task-board-card" onClick={() => onOpen(tarefa)} title="Clique para abrir a lista">
+      <div className="task-board-card-top">
+        <span className={isPersonal ? 'badge task-board-scope task-board-scope--pessoal' : 'badge task-board-scope task-board-scope--equipe'}>
+          {isPersonal ? 'PESSOAL' : 'EQUIPE'}
+        </span>
+        <span className="task-board-card-priority" style={{ color: pc.color }}>{pc.label}</span>
+      </div>
+
+      <h4 className="task-board-card-title">{tarefa.titulo}</h4>
+
+      {checkTotal > 0 && (
+        <div className="task-board-card-progress">
+          <div className="task-board-card-progress-bar">
+            <div className="task-board-card-progress-fill" style={{ width: `${progressPct}%`, background: sc.color }} />
+          </div>
+          <span>{checkDone}/{checkTotal}</span>
+        </div>
+      )}
+
+      <div className="task-board-card-foot">
+        <span className="task-board-card-owner" title={responsavelLabel}>
+          <span className="task-board-card-avatar">{iniciais || '?'}</span>
+          {responsavelLabel}
+        </span>
+        {tarefa.prazo && (
+          <span className={overdue ? 'task-board-card-deadline task-board-card-deadline--late' : 'task-board-card-deadline'}>
+            {fmtDate(tarefa.prazo)}
+          </span>
+        )}
+      </div>
+
+      <div className="task-board-card-tags">
+        <span className="task-board-card-status" style={{ color: sc.color, background: sc.bg }}><Icon size={11} /> {sc.label}</span>
+        {livreDisponivel && <span className="task-board-card-flag task-board-card-flag--free">Livre</span>}
+        {aceitaPorOutro && <span className="task-board-card-flag">Outro membro</span>}
+      </div>
+    </article>
+  )
+}
+
 function RankingEquipe({ ranking, onChangePeriodo }: {
   ranking: { periodo: string; ranking: any[]; resumo: any } | null
   onChangePeriodo: (p: string) => void
@@ -3936,24 +4001,9 @@ export default function Tarefas() {
                   {tarefasColuna.length === 0 ? (
                     <div className="task-board-empty">Nada aqui.</div>
                   ) : tarefasColuna.map(t => (
-                    <TarefaCard
-                      key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
-                      helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(t.id)}
-                      helpRequestedByMe={minhasAjudasPorTarefa.get(t.id) || null}
+                    <TarefaBoardCard
+                      key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
                       onOpen={setDetalhe}
-                      onEdit={(x) => { setEdit(x); setModalOpen(true) }}
-                      onDelete={remove}
-                      onStart={startTask}
-                      onPegar={pegarTarefa}
-                      onResponder={setDetalhe}
-                      onApprove={approve}
-                      onReturn={devolver}
-                      onComplemento={setComplemento}
-                      onHistory={setHistorico}
-                      onAnexos={setAnexos}
-                      onReminder={enviarLembreteManual}
-                      onPedirAjuda={setAjuda}
-                      onPainelAjuda={setPainelAjuda}
                     />
                   ))}
                 </div>
