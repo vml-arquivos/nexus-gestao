@@ -263,6 +263,12 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
     }
 
     const alreadyApproved = decision === 'aprovar' && item.aprovacao_status === 'aprovada'
+    if (alreadyApproved) {
+      await client.query('ROLLBACK')
+      res.status(409).json({ error: 'Este item já foi aprovado e não pode ser aprovado novamente.' })
+      return
+    }
+
     const now = new Date().toISOString()
     if (decision === 'aprovar') {
       item.aprovacao_status = 'aprovada'
@@ -296,18 +302,12 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       [JSON.stringify(items), decision, task.id, orgId],
     )
 
-    // Nota: `alreadyApproved` só pode ser true quando decision === 'aprovar'
-    // (ver definição acima), então a condição já cobre 'devolver' sozinha —
-    // simplificado para não depender de checagem redundante e impossível
-    // para o TypeScript (TS2367), mantendo exatamente o mesmo comportamento.
-    if (!alreadyApproved) {
-      await client.query(
-        `INSERT INTO tarefas_comentarios
-           (org_id, tarefa_id, checklist_id, autor_id, comentario, tipo)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [orgId, task.id, String(item.id || ''), userId, String(req.body?.ressalva || (decision === 'aprovar' ? 'Item aprovado pela gestão.' : 'Item devolvido para correção.')), decision === 'aprovar' ? 'aprovacao' : 'devolucao'],
-      )
-    }
+    await client.query(
+      `INSERT INTO tarefas_comentarios
+         (org_id, tarefa_id, checklist_id, autor_id, comentario, tipo)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [orgId, task.id, String(item.id || ''), userId, String(req.body?.ressalva || (decision === 'aprovar' ? 'Item aprovado pela gestão.' : 'Item devolvido para correção.')), decision === 'aprovar' ? 'aprovacao' : 'devolucao'],
+    )
 
     await client.query('COMMIT')
 
@@ -354,6 +354,11 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
     if (String(task.escopo || 'pessoal') !== 'equipe') {
       await client.query('ROLLBACK')
       res.status(403).json({ error: 'Tarefas pessoais não passam por aprovação do gestor.' })
+      return
+    }
+    if (String(task.status || '') === 'aprovada') {
+      await client.query('ROLLBACK')
+      res.status(409).json({ error: 'Esta lista já foi aprovada e não pode ser aprovada novamente.' })
       return
     }
     if (!['concluida', 'reenviada'].includes(String(task.status || ''))) {
