@@ -162,3 +162,340 @@
     width: 100% !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   QUADRO DE TAREFAS — LAYOUT FINAL RESPONSIVO
+   Somente apresentação: não altera dados, regras ou permissões.
+   ═══════════════════════════════════════════════════════════════ */
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0;
+  margin: 0 !important;
+  padding: clamp(18px, 2vw, 28px) clamp(18px, 2.4vw, 34px)
+    calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 28px) !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-page-header {
+  width: 100%;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-smart-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(5, minmax(116px, 1fr)) !important;
+  width: min(100%, 760px);
+  max-width: 760px;
+  gap: 9px !important;
+  margin-bottom: 14px !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-smart-tab {
+  min-width: 0;
+  min-height: 50px;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tabs {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px !important;
+  margin: 0 0 14px !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tab {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  grid-template-areas: none !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: max-content;
+  min-height: 40px;
+  padding: 8px 14px;
+  text-align: center;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tab strong,
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tab span {
+  grid-area: auto !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-search-row {
+  display: grid !important;
+  grid-template-columns: minmax(320px, 1fr) auto auto !important;
+  align-items: stretch;
+  width: 100%;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-search-wrap {
+  min-width: 0;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-view-toggle,
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-filter-btn {
+  min-height: 46px;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(260px, 1fr)) !important;
+  width: 100%;
+  min-width: 0;
+  gap: 14px !important;
+  align-items: stretch;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding: 2px 2px 14px !important;
+  scroll-padding-inline: 2px;
+  scrollbar-gutter: stable;
+  overscroll-behavior-x: contain;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column {
+  --task-column-accent: #64748b;
+  display: flex !important;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 480px !important;
+  height: clamp(480px, calc(100dvh - 350px), 720px);
+  max-height: none !important;
+  overflow: hidden !important;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--task-column-accent);
+  border-radius: 16px !important;
+  background: color-mix(in srgb, var(--bg2) 93%, var(--bg3));
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .07);
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column:nth-child(1) { --task-column-accent: #f59e0b; }
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column:nth-child(2) { --task-column-accent: #3b82f6; }
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column:nth-child(3) { --task-column-accent: #8b5cf6; }
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column:nth-child(4) { --task-column-accent: #10b981; }
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 50px;
+  padding: 13px 14px !important;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg2) 96%, transparent) !important;
+  backdrop-filter: blur(12px);
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column-head strong {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column-head .tab-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex !important;
+  flex-direction: column;
+  gap: 12px !important;
+  padding: 12px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card {
+  flex: 0 0 auto;
+  display: flex !important;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 148px !important;
+  padding: 13px !important;
+  gap: 10px;
+  overflow: hidden;
+  border-radius: 14px !important;
+  background: var(--bg2);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .11);
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-title {
+  display: -webkit-box;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 14px !important;
+  line-height: 1.38 !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-foot {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin-top: auto !important;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-owner {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-avatar,
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-deadline {
+  flex: 0 0 auto;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-tags {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px !important;
+  min-width: 0;
+}
+
+:where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-empty {
+  min-height: 120px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+@media (min-width: 720px) and (max-width: 1279px) {
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board {
+    grid-template-columns: repeat(2, minmax(280px, 1fr)) !important;
+    overflow-x: hidden !important;
+    overflow-y: visible !important;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column {
+    height: 560px;
+  }
+}
+
+@media (max-width: 719px) {
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) {
+    padding: 12px 12px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px) !important;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-page-header {
+    align-items: flex-start;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-new-btn {
+    min-height: 40px;
+    padding-inline: 12px;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-smart-tabs,
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tabs {
+    display: flex !important;
+    width: 100%;
+    max-width: none;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-smart-tabs::-webkit-scrollbar,
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-smart-tab {
+    flex: 0 0 132px;
+    scroll-snap-align: start;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-flow-tab {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-search-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 8px;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-search-wrap {
+    grid-column: 1 / -1;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-view-toggle,
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-filter-dropdown,
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-filter-btn {
+    width: 100%;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board {
+    grid-template-columns: none !important;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(86vw, 320px);
+    gap: 12px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-column {
+    scroll-snap-align: start;
+    min-height: 420px !important;
+    height: min(64dvh, 620px);
+  }
+}
+
+@media (max-width: 420px) {
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .tarefas-page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board {
+    grid-auto-columns: calc(100vw - 28px);
+  }
+
+  :where(.tarefas-page-shell, .page-scroll > div:has(> .tarefas-page-header)) .task-board-card-foot {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
