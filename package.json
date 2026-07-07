@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/apply_task_visibility_board_patch.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/apply_task_visibility_board_patch.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
