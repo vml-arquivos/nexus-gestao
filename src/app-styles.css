@@ -9610,3 +9610,241 @@ textarea.form-input,
   .task-member-justification-head,
   .task-member-justification-meta { align-items: flex-start; flex-direction: column; }
 }
+
+
+/* ── SELECT PESQUISÁVEL DE CLIENTES DESTRAVA ── */
+.destrava-client-select-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, .42fr) minmax(0, 1.58fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.destrava-client-select-grid .form-group {
+  margin-bottom: 0;
+}
+
+.destrava-search-select {
+  position: relative;
+  width: 100%;
+}
+
+.destrava-search-select__trigger {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--bg2);
+}
+
+.destrava-search-select__trigger > svg:last-child {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--text3);
+}
+
+.destrava-search-select__placeholder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text3);
+}
+
+.destrava-search-select__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.destrava-search-select__badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 31px;
+  height: 23px;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--primary-dim);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.destrava-search-select__panel {
+  position: absolute;
+  z-index: calc(var(--z-modal) + 20);
+  top: calc(100% + 7px);
+  left: 0;
+  right: 0;
+  min-width: min(680px, calc(96vw - 48px));
+  overflow: hidden;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-lg);
+  background: var(--bg2);
+  box-shadow: var(--shadow-xl);
+}
+
+.destrava-search-select__search {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text3);
+}
+
+.destrava-search-select__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.destrava-search-select__search input::placeholder {
+  color: var(--text3);
+}
+
+.destrava-search-select__clear {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+}
+
+.destrava-search-select__clear:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+
+.destrava-search-select__options {
+  max-height: 310px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+
+.destrava-search-select__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.destrava-search-select__option:hover,
+.destrava-search-select__option.is-selected {
+  background: var(--primary-dim2);
+}
+
+.destrava-search-select__option.is-selected {
+  outline: 1px solid var(--primary-dim);
+}
+
+.destrava-search-select__option > svg:last-child {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--success);
+}
+
+.destrava-search-select__option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.destrava-search-select__option-copy strong,
+.destrava-search-select__option-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.destrava-search-select__option-copy strong {
+  font-size: 14px;
+}
+
+.destrava-search-select__option-copy small {
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.destrava-search-select__empty {
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  color: var(--text2);
+  text-align: center;
+}
+
+.destrava-search-select__footer {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 11px;
+  border-top: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.destrava-search-select__footer button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.destrava-client-select-help {
+  margin-top: 7px;
+}
+
+.destrava-client-select-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+@media (max-width: 720px) {
+  .destrava-client-select-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .destrava-search-select__panel {
+    min-width: 100%;
+  }
+}
