@@ -19,7 +19,8 @@
   text-align: left !important;
 }
 
-.task-review-actions {
+.task-review-actions,
+.task-detail-modal .task-check-item > div {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-end !important;
@@ -28,7 +29,8 @@
   min-width: max-content !important;
 }
 
-.task-detail-modal .task-review-actions .btn {
+.task-detail-modal .task-review-actions .btn,
+.task-detail-modal .task-check-item > div .btn {
   width: auto !important;
   min-width: 112px !important;
   max-width: none !important;
@@ -40,13 +42,15 @@
 }
 
 .task-detail-modal .task-review-actions .btn-primary,
-.task-detail-modal .task-review-actions .btn-success {
+.task-detail-modal .task-review-actions .btn-success,
+.task-detail-modal .task-check-item > div .btn-primary {
   background: var(--success) !important;
   color: #fff !important;
   border: 1px solid var(--success) !important;
 }
 
-.task-detail-modal .task-review-actions .btn-secondary {
+.task-detail-modal .task-review-actions .btn-secondary,
+.task-detail-modal .task-check-item > div .btn-secondary {
   background: var(--bg2) !important;
   color: var(--text) !important;
   border: 1px solid var(--border2) !important;
@@ -129,13 +133,15 @@
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
-  .task-review-actions {
+  .task-review-actions,
+  .task-detail-modal .task-check-item > div {
     width: 100% !important;
     min-width: 0 !important;
     justify-content: stretch !important;
   }
 
-  .task-detail-modal .task-review-actions .btn {
+  .task-detail-modal .task-review-actions .btn,
+  .task-detail-modal .task-check-item > div .btn {
     flex: 1 1 140px !important;
     width: 100% !important;
     min-width: 0 !important;
