@@ -289,7 +289,8 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
         ? 'empresa'
         : ''
     const limit = Math.max(1, Math.min(300, Number(req.query.limit || 50)))
-    const params = [orgId, tipo, q, limit]
+    const offset = Math.max(0, Math.trunc(Number(req.query.offset || 0)) || 0)
+    const params = [orgId, tipo, q, limit, offset]
     const filtro = `org_id=$1 AND ativo=TRUE
       AND ($2='' OR tipo=$2)
       AND ($3='' OR lower(
@@ -299,7 +300,7 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       FROM destrava_empresas_cache
       WHERE ${filtro}
       ORDER BY lower(nome), external_id
-      LIMIT $4`, params)
+      LIMIT $4 OFFSET $5`, params)
     const info = await queryOne<any>(`SELECT
         COUNT(*) FILTER (WHERE ($2='' OR tipo=$2) AND ($3='' OR lower(
           COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')
@@ -308,7 +309,14 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
         MAX(sincronizado_em) AS ultima_sincronizacao
       FROM destrava_empresas_cache
       WHERE org_id=$1 AND ativo=TRUE`, [orgId, tipo, q])
-    res.json({ items:empresas.map(e=>({...e,tipo:e.tipo || 'empresa'})), ...info })
+    const total = Number(info?.total || 0)
+    res.json({
+      items: empresas.map(e => ({ ...e, tipo: e.tipo || 'empresa' })),
+      ...info,
+      offset,
+      limit,
+      has_more: offset + empresas.length < total,
+    })
   } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao pesquisar clientes sincronizados da Destrava.'}) }
 })
 

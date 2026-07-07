@@ -628,11 +628,12 @@ export const destravaApi = {
   async empresaResumo(id: string): Promise<any> {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
-  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string }> {
+  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number; offset?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string; offset?: number; has_more?: boolean }> {
     const qs = '?' + new URLSearchParams({
       tipo: params?.tipo || '',
       q: params?.q || '',
       limit: String(params?.limit || 50),
+      offset: String(params?.offset || 0),
     }).toString()
     return apiJson(`/integracoes/destrava/empresas${qs}`)
   },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode, DragEvent } from 'react'
 import {
@@ -617,6 +617,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [acoesListaTexto, setAcoesListaTexto] = useState('')
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
+  const destravaBuscaRequestIdRef = useRef(0)
   const [destravaTipo, setDestravaTipo] = useState<'empresa' | 'pessoa_fisica'>(() => {
     const origemTipo = String(tarefa?.origem_tipo || '').toLowerCase()
     return ['pessoa_fisica', 'pf', 'cliente', 'cliente_pf', 'clientes_pf'].includes(origemTipo) ? 'pessoa_fisica' : 'empresa'
@@ -626,6 +627,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [destravaPesquisaExecutada, setDestravaPesquisaExecutada] = useState(false)
   const [destravaTotalResultados, setDestravaTotalResultados] = useState(0)
   const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)
+  const [destravaOffset, setDestravaOffset] = useState(0)
+  const [destravaHasMore, setDestravaHasMore] = useState(false)
+  const [destravaLoadingMore, setDestravaLoadingMore] = useState(false)
+  const DESTRAVA_PAGE_SIZE = 150
   const [destravaSelecionado, setDestravaSelecionado] = useState<DestravaCatalogoItem | null>(() => {
     if (tarefa?.origem_sistema === 'destrava' && tarefa?.origem_id) {
       return {
@@ -646,38 +651,71 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const gestoresParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id && ['admin','dev','gestor','sub_gestor'].includes(String(m.role || '')))
   const isMemberRequest = !isGestor && tipoTarefa === 'equipe' && !!responsavelId && responsavelId !== user?.id
 
-  async function buscarCadastroDestrava() {
-    const termo = destravaBusca.trim()
-    if (termo.length < 2) {
-      toast('Digite pelo menos 2 caracteres para pesquisar por nome, CPF/CNPJ, e-mail ou telefone.', 'error')
-      return
-    }
-
-    setDestravaLoading(true)
+  // Busca/navegação no catálogo completo sincronizado da Destrava (PJ e PF).
+  // Sem termo digitado -> lista TODO o catálogo daquele tipo, paginado.
+  // Com termo (2+ caracteres) -> filtra dentro do catálogo inteiro, também paginado.
+  // `append` controla se é a primeira página (substitui a lista) ou "carregar mais" (acrescenta).
+  async function buscarCadastroDestrava(termoForcado?: string, append = false) {
+    const termo = (termoForcado ?? destravaBusca).trim()
+    const requestId = ++destravaBuscaRequestIdRef.current
+    const offsetAlvo = append ? destravaOffset : 0
+    if (append) setDestravaLoadingMore(true)
+    else setDestravaLoading(true)
     setDestravaPesquisaExecutada(true)
     try {
       const data = await destravaApi.empresasSincronizadas({
         tipo: destravaTipo,
         q: termo,
-        limit: 100,
+        limit: DESTRAVA_PAGE_SIZE,
+        offset: offsetAlvo,
       })
-      setDestravaItens(Array.isArray(data.items) ? data.items : [])
+      if (requestId !== destravaBuscaRequestIdRef.current) return // resposta antiga, uma busca mais nova já foi disparada
+      const novos = Array.isArray(data.items) ? data.items : []
+      setDestravaItens(prev => append ? [...prev, ...novos] : novos)
       setDestravaTotalResultados(Number(data.total || 0))
       setDestravaTotalCatalogo(Number(data.total_catalogo || 0))
+      setDestravaOffset(offsetAlvo + novos.length)
+      setDestravaHasMore(Boolean(data.has_more))
     } catch (e) {
-      setDestravaItens([])
-      setDestravaTotalResultados(0)
-      toast(e instanceof Error ? e.message : 'Erro ao pesquisar cadastros da Destrava.', 'error')
+      if (requestId !== destravaBuscaRequestIdRef.current) return
+      if (!append) { setDestravaItens([]); setDestravaTotalResultados(0) }
+      toast(e instanceof Error ? e.message : 'Erro ao carregar cadastros da Destrava.', 'error')
     } finally {
-      setDestravaLoading(false)
+      if (requestId === destravaBuscaRequestIdRef.current) { setDestravaLoading(false); setDestravaLoadingMore(false) }
     }
   }
+
+  // Ao abrir o tipo (PJ/PF) sem nenhum termo digitado, já carrega a primeira
+  // página do catálogo inteiro sincronizado — o usuário não precisa digitar
+  // nada para começar a ver e escolher qualquer empresa/pessoa cadastrada.
+  useEffect(() => {
+    if (destravaBusca.trim().length >= 2) return
+    void buscarCadastroDestrava('', false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destravaTipo])
+
+  // Busca automática (estilo combobox): dispara sozinha 350ms depois que o
+  // usuário para de digitar, sem precisar clicar em "Pesquisar". O clique e o
+  // Enter continuam funcionando como atalho imediato. Campo vazio volta a
+  // listar o catálogo inteiro (comportamento acima).
+  useEffect(() => {
+    const termo = destravaBusca.trim()
+    if (termo.length < 2) {
+      if (termo.length === 0) void buscarCadastroDestrava('', false)
+      return
+    }
+    const timer = setTimeout(() => { void buscarCadastroDestrava(termo, false) }, 350)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destravaBusca, destravaTipo])
 
   function selecionarTipoDestrava(tipo: 'empresa' | 'pessoa_fisica') {
     setDestravaTipo(tipo)
     setDestravaItens([])
     setDestravaPesquisaExecutada(false)
     setDestravaTotalResultados(0)
+    setDestravaOffset(0)
+    setDestravaHasMore(false)
     if (destravaSelecionado && destravaSelecionado.tipo !== tipo) {
       setDestravaSelecionado(null)
     }
@@ -685,9 +723,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function limparPesquisaDestrava() {
     setDestravaBusca('')
-    setDestravaItens([])
-    setDestravaPesquisaExecutada(false)
-    setDestravaTotalResultados(0)
+    setDestravaOffset(0)
+    // O useEffect acima recarrega automaticamente o catálogo inteiro do tipo atual.
   }
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
@@ -927,26 +964,26 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
-                    void buscarCadastroDestrava()
+                    void buscarCadastroDestrava(undefined, false)
                   }
                 }}
                 placeholder={destravaTipo === 'pessoa_fisica'
-                  ? 'Digite nome, CPF, e-mail ou telefone'
-                  : 'Digite razão social, nome fantasia, CNPJ, e-mail ou telefone'}
+                  ? 'Digite nome, CPF, e-mail ou telefone (ou deixe em branco para ver todos)'
+                  : 'Digite razão social, nome fantasia, CNPJ, e-mail ou telefone (ou deixe em branco para ver todos)'}
                 autoComplete="off"
               />
               <button
                 className="btn btn-primary btn-sm"
                 type="button"
-                disabled={destravaLoading || destravaBusca.trim().length < 2}
-                onClick={() => void buscarCadastroDestrava()}
+                disabled={destravaLoading}
+                onClick={() => void buscarCadastroDestrava(undefined, false)}
               >
                 {destravaLoading ? <Loader size={14} /> : <Search size={14} />} Pesquisar
               </button>
             </div>
 
             <div className="muted" style={{ marginTop: 6 }}>
-              A pesquisa inicia somente após 2 caracteres e retorna até 50 resultados, mantendo o formulário rápido mesmo com milhares de cadastros.
+              Acesso a todo o catálogo sincronizado: deixe o campo em branco para ver {destravaTipo === 'pessoa_fisica' ? 'todas as pessoas físicas' : 'todas as empresas'} (carregadas em blocos de {DESTRAVA_PAGE_SIZE}, com botão "Carregar mais" até esgotar o catálogo), ou digite (2+ caracteres) para filtrar automaticamente — sem precisar clicar em nada.
             </div>
 
             {(destravaPesquisaExecutada || destravaSelecionado) && (
@@ -964,7 +1001,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               >
                 <option value="">
                   {destravaLoading
-                    ? 'Pesquisando cadastros...'
+                    ? 'Carregando cadastros...'
                     : destravaItens.length
                       ? `Selecione um cliente ${destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}`
                       : 'Nenhum cadastro selecionado'}
@@ -980,10 +1017,23 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             {destravaPesquisaExecutada && !destravaLoading && (
               <div className="muted" style={{ marginTop: 7 }}>
                 {destravaTotalResultados > 0
-                  ? `${destravaTotalResultados} resultado(s) encontrado(s). ${destravaItens.length < destravaTotalResultados ? `Exibindo os primeiros ${destravaItens.length}. Refine a busca para localizar mais rápido.` : ''}`
+                  ? `${destravaTotalResultados} cadastro(s) no total. Exibindo ${destravaItens.length}.`
                   : destravaTotalCatalogo === 0
-                    ? 'O catálogo local ainda está vazio. Sincronize PJ e PF antes da primeira pesquisa.'
+                    ? 'O catálogo local ainda está vazio. Sincronize PJ e PF antes da primeira consulta.'
                     : 'Nenhum cadastro encontrado para os filtros informados.'}
+              </div>
+            )}
+
+            {destravaHasMore && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  disabled={destravaLoading || destravaLoadingMore}
+                  onClick={() => void buscarCadastroDestrava(undefined, true)}
+                >
+                  {destravaLoadingMore ? <Loader size={13} /> : null} Carregar mais ({destravaItens.length}/{destravaTotalResultados})
+                </button>
               </div>
             )}
 
@@ -993,19 +1043,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 try {
                   const sync = await destravaApi.sincronizarEmpresas()
                   toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
-                  if (destravaBusca.trim().length >= 2) {
-                    const data = await destravaApi.empresasSincronizadas({ tipo: destravaTipo, q: destravaBusca.trim(), limit: 100 })
-                    setDestravaItens(data.items || [])
-                    setDestravaTotalResultados(Number(data.total || 0))
-                    setDestravaTotalCatalogo(Number(data.total_catalogo || sync.sincronizadas || 0))
-                    setDestravaPesquisaExecutada(true)
-                  } else {
-                    setDestravaTotalCatalogo(Number(sync.sincronizadas || 0))
-                  }
+                  setDestravaTotalCatalogo(Number(sync.sincronizadas || 0))
+                  await buscarCadastroDestrava(undefined, false)
                 } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao sincronizar clientes da Destrava.', 'error') }
                 finally { setDestravaLoading(false) }
               }}>{destravaLoading ? <Loader size={13} /> : <RotateCcw size={13} />} Sincronizar PJ e PF</button>
-              {(destravaBusca || destravaPesquisaExecutada) && (
+              {destravaBusca && (
                 <button className="btn btn-ghost btn-sm" type="button" disabled={destravaLoading} onClick={limparPesquisaDestrava}>
                   <X size={13} /> Limpar busca
                 </button>
