@@ -39,6 +39,7 @@
   line-height: 1.2 !important;
 }
 
+.task-detail-modal .task-review-actions .btn-primary,
 .task-detail-modal .task-review-actions .btn-success {
   background: var(--success) !important;
   color: #fff !important;
@@ -74,13 +75,30 @@
   color: var(--text) !important;
 }
 
-/* Lista já aprovada: preserva os itens antigos no payload e no histórico,
- * mas não os reapresenta para edição. O gestor vê somente o formulário da nova tarefa.
- */
 .task-inline-editor--append-only > .grid-2,
 .task-inline-editor--append-only > .form-group,
-.task-inline-editor--append-only > .task-points-box {
+.task-inline-editor--append-only > .task-points-box,
+.task-runtime-append-only > .grid-2,
+.task-runtime-append-only > .form-group,
+.task-runtime-append-only > .task-points-box {
   display: none !important;
+}
+
+.task-detail-modal .task-runtime-archived,
+.task-detail-modal .task-runtime-archived-row {
+  display: none !important;
+}
+
+.task-runtime-append-only::before {
+  content: 'Histórico preservado: inclua somente a nova demanda. As tarefas concluídas continuam disponíveis no histórico e no relatório.';
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg3);
+  color: var(--text2);
+  padding: 11px 13px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .task-detail-modal .task-inline-add-subtask {
@@ -97,6 +115,13 @@
 
 .task-detail-modal .task-inline-checklist-editor:empty {
   display: none !important;
+}
+
+.task-detail-modal .objective-subtasks-editor {
+  border: 1px dashed var(--border2) !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+  background: var(--bg3) !important;
 }
 
 @media (max-width: 820px) {
