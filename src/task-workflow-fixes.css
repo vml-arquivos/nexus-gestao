@@ -1,0 +1,164 @@
+/*
+ * NEXUS — Fluxo profissional de aprovação e inclusão incremental de tarefas.
+ * Arquivo carregado somente pela página de Tarefas, depois dos estilos globais.
+ * O escopo deliberadamente restrito evita regressões em outros módulos.
+ */
+
+.task-detail-modal .task-check-item {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px !important;
+}
+
+.task-detail-modal .task-check-main-button {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  text-align: left !important;
+}
+
+.task-review-actions,
+.task-detail-modal .task-check-item > div {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  min-width: max-content !important;
+}
+
+.task-detail-modal .task-review-actions .btn,
+.task-detail-modal .task-check-item > div .btn {
+  width: auto !important;
+  min-width: 112px !important;
+  max-width: none !important;
+  min-height: 40px !important;
+  padding: 8px 14px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.2 !important;
+}
+
+.task-detail-modal .task-review-actions .btn-primary,
+.task-detail-modal .task-review-actions .btn-success,
+.task-detail-modal .task-check-item > div .btn-primary {
+  background: var(--success) !important;
+  color: #fff !important;
+  border: 1px solid var(--success) !important;
+}
+
+.task-detail-modal .task-review-actions .btn-secondary,
+.task-detail-modal .task-check-item > div .btn-secondary {
+  background: var(--bg2) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border2) !important;
+}
+
+.task-detail-modal .task-detail-section-head > .btn,
+.task-detail-modal .task-inline-add-subtask > .btn {
+  width: auto !important;
+  max-width: none !important;
+}
+
+.task-append-only-note,
+.task-archived-summary,
+.task-active-empty {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  background: var(--bg3) !important;
+  color: var(--text2) !important;
+  padding: 11px 13px !important;
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+.task-append-only-note strong,
+.task-archived-summary strong {
+  color: var(--text) !important;
+}
+
+.task-inline-editor--append-only > .grid-2,
+.task-inline-editor--append-only > .form-group,
+.task-inline-editor--append-only > .task-points-box,
+.task-runtime-append-only > .grid-2,
+.task-runtime-append-only > .form-group,
+.task-runtime-append-only > .task-points-box {
+  display: none !important;
+}
+
+.task-detail-modal .task-runtime-archived,
+.task-detail-modal .task-runtime-archived-row {
+  display: none !important;
+}
+
+.task-runtime-append-only::before {
+  content: 'Histórico preservado: inclua somente a nova demanda. As tarefas concluídas continuam disponíveis no histórico e no relatório.';
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg3);
+  color: var(--text2);
+  padding: 11px 13px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.task-detail-modal .task-inline-add-subtask {
+  display: grid !important;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr) !important;
+  align-items: end !important;
+  gap: 12px !important;
+}
+
+.task-detail-modal .task-inline-add-subtask .task-inline-desc,
+.task-detail-modal .task-inline-add-subtask .task-inline-steps {
+  grid-column: 1 / -1 !important;
+}
+
+.task-detail-modal .task-inline-checklist-editor:empty {
+  display: none !important;
+}
+
+.task-detail-modal .objective-subtasks-editor {
+  border: 1px dashed var(--border2) !important;
+  border-radius: 10px !important;
+  padding: 10px !important;
+  background: var(--bg3) !important;
+}
+
+@media (max-width: 820px) {
+  .task-detail-modal .task-check-item {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .task-review-actions,
+  .task-detail-modal .task-check-item > div {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: stretch !important;
+  }
+
+  .task-detail-modal .task-review-actions .btn,
+  .task-detail-modal .task-check-item > div .btn {
+    flex: 1 1 140px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .task-detail-modal .task-inline-add-subtask {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .task-detail-modal .task-inline-add-subtask > *,
+  .task-detail-modal .task-inline-add-subtask .task-inline-desc,
+  .task-detail-modal .task-inline-add-subtask .task-inline-steps {
+    grid-column: 1 / -1 !important;
+  }
+
+  .task-detail-modal .task-detail-section-head > .btn,
+  .task-detail-modal .task-inline-add-subtask > .btn {
+    width: 100% !important;
+  }
+}

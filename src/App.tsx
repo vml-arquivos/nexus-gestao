@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
+import TaskWorkflowEffects from './components/TaskWorkflowEffects'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Inteligencia from './pages/Inteligencia'
@@ -98,7 +99,7 @@ export default function App() {
           element={
             user?.role === 'membro'
               ? <Navigate to="/minhas-tarefas" replace />
-              : <Tarefas />
+              : <><TaskWorkflowEffects /><Tarefas /></>
           }
         />
         <Route
