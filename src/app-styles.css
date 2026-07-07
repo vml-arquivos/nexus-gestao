@@ -8782,6 +8782,87 @@ textarea.form-input,
 }
 .tarefas-search-clear:hover { color: var(--text); }
 
+/* ── Alternância Lista / Quadro ──────────────────────────────── */
+.tarefas-view-toggle {
+  display: flex;
+  flex-shrink: 0;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tarefas-view-toggle button {
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tarefas-view-toggle button.active {
+  background: var(--primary);
+  color: #fff;
+}
+.tarefas-view-toggle button:not(.active):hover {
+  background: var(--bg3);
+}
+
+/* ── Quadro (visão estilo kanban) ─────────────────────────────
+   Colunas fixas nas etapas reais do fluxo de trabalho. Sem
+   arrastar-e-soltar de propósito: mudar de coluna aqui equivaleria
+   a pular etapas do fluxo (execução, aprovação, pontuação) que têm
+   regra de negócio por trás. As ações continuam sendo os mesmos
+   botões de sempre em cada card. */
+.task-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(420px, 1fr));
+  gap: 14px;
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.task-board-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  max-height: calc(100vh - 320px);
+}
+.task-board-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.task-board-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow-y: auto;
+}
+.task-board-column-body .task-report-row { margin: 0; }
+.task-board-empty {
+  font-size: 12px;
+  color: var(--text3);
+  text-align: center;
+  padding: 18px 8px;
+}
+@media (max-width: 1100px) {
+  .task-board { grid-template-columns: repeat(2, minmax(380px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .task-board { grid-template-columns: minmax(300px, 1fr); }
+  .tarefas-search-row { flex-wrap: wrap; }
+  .tarefas-view-toggle { order: 3; width: 100%; }
+  .tarefas-view-toggle button { flex: 1; }
+}
+
 /* ── Filtros avançados (dropdown) ────────────────────────────── */
 .tarefas-filter-dropdown { position: relative; flex-shrink: 0; }
 .tarefas-filter-btn {

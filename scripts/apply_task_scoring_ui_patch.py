@@ -115,8 +115,8 @@ text = replace_once(text, creation_before, creation_after, 'interface automátic
 text = replace_once(
     text,
     "      toast(decisao === 'aprovar' ? 'Item aprovado e pontuação liberada.' : 'Item devolvido ao executor para correção.')\n",
-    "      toast(decisao === 'aprovar' ? 'Item aprovado e pontuação liberada no ranking.' : 'Item devolvido ao executor para correção.')\n      if (decisao === 'aprovar') onClose()\n",
-    'fechamento após aprovação da parte',
+    "      toast(decisao === 'aprovar' ? (scoreByChecklistItem ? 'Item aprovado e pontuação liberada no ranking.' : 'Item aprovado. Os pontos sobem quando a lista inteira for aprovada.') : 'Item devolvido ao executor para correção.')\n",
+    'mensagem honesta sobre quando os pontos sobem',
 )
 
 text = replace_once(
@@ -181,22 +181,22 @@ text = replace_once(
 
 text = replace_once(
     text,
-    "                        {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (\n",
-    "                        {isGestor && scoreByChecklistItem && item.feito && (item as any).aprovacao_status !== 'aprovada' && (\n",
-    'aprovação por parte somente para vários executores',
+    "                            <button className=\"btn btn-primary btn-sm\" type=\"button\" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>Aprovar parte</button>\n",
+    "                            <button className=\"btn btn-primary btn-sm\" type=\"button\" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>{scoreByChecklistItem ? 'Aprovar parte' : 'Aprovar item'}</button>\n",
+    'rótulo do botão conforme a regra',
 )
 
 text = replace_once(
     text,
     "                        {isGestor && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n",
-    "                        {isGestor && scoreByChecklistItem && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && item.feito && tarefa.status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && item.feito && tarefa.status !== 'aprovada' && <span className=\"badge\">Concluída · aguardando aprovação final da lista</span>}\n",
+    "                        {isGestor && scoreByChecklistItem && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && tarefa.status === 'aprovada' && item.feito && <span className=\"badge badge-success\">Aprovada · pontos liberados</span>}\n                        {isGestor && !scoreByChecklistItem && tarefa.status !== 'aprovada' && (item as any).aprovacao_status === 'aprovada' && <span className=\"badge\">Revisado pela gestão · pontos na aprovação final da lista</span>}\n                        {isGestor && !scoreByChecklistItem && tarefa.status !== 'aprovada' && (item as any).aprovacao_status !== 'aprovada' && item.feito && <span className=\"badge\">Concluída · aguardando revisão</span>}\n",
     'status visual conforme regra',
 )
 
 text = replace_once(
     text,
     "              <strong>{isPersonal ? 'Progresso pessoal:' : 'Fluxo da lista:'}</strong> {isPersonal ? 'marque cada tarefa conforme concluir. O progresso fica salvo imediatamente e não gera pontuação.' : 'cada membro conclui somente suas tarefas e envia sua parte. O gestor visualiza os arquivos enviados e aprova ou devolve a lista inteira.'}\n",
-    "              <strong>{isPersonal ? 'Progresso pessoal:' : 'Fluxo da lista:'}</strong> {isPersonal ? 'marque cada tarefa conforme concluir. O progresso fica salvo imediatamente e não gera pontuação.' : scoreByChecklistItem ? 'cada membro conclui sua tarefa; o gestor aprova cada parte e os pontos sobem imediatamente para o respectivo executor.' : 'uma pessoa executa a lista; os pontos sobem uma única vez na aprovação final da lista.'}\n",
+    "              <strong>{isPersonal ? 'Progresso pessoal:' : 'Fluxo da lista:'}</strong> {isPersonal ? 'marque cada tarefa conforme concluir. O progresso fica salvo imediatamente e não gera pontuação.' : scoreByChecklistItem ? 'cada membro conclui sua tarefa; o gestor pode aprovar ou devolver cada parte assim que ela for concluída, sem esperar as demais. Cada aprovação libera os pontos na hora para o respectivo executor.' : 'o gestor pode revisar, aprovar ou devolver cada tarefa da lista assim que for concluída, sem esperar as demais — mas os pontos da lista só sobem quando ela for aprovada por inteiro.'}\n",
     'explicação do fluxo de pontuação',
 )
 

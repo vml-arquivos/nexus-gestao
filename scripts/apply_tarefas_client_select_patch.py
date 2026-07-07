@@ -374,7 +374,12 @@ new_ui = """            <div className="destrava-client-select-grid">
                 try {
                   const sync = await destravaApi.sincronizarEmpresas()
                   destravaAutoSyncRef.current = true
-                  toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
+                  toast(
+                    sync.total_reportado_destrava != null && sync.total_reportado_destrava !== sync.sincronizadas
+                      ? `${sync.sincronizadas} cadastro(s) sincronizado(s), mas a Destrava reportou ${sync.total_reportado_destrava} no total. Tente sincronizar de novo.`
+                      : `${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`,
+                    sync.total_reportado_destrava != null && sync.total_reportado_destrava !== sync.sincronizadas ? 'error' : 'success',
+                  )
                   setDestravaPesquisaExecutada(false)
                   await carregarCadastrosDestrava(destravaTipo)
                   setDestravaSelectOpen(true)

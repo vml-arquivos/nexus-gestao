@@ -3394,6 +3394,9 @@ export default function Tarefas() {
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
   const [offlineQueueCount, setOfflineQueueCount] = useState(() => Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
   const [actionTaskId, setActionTaskId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'lista' | 'quadro'>(() =>
+    (localStorage.getItem('nexus:tarefas-view') as 'lista' | 'quadro') || 'lista'
+  )
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -3863,6 +3866,22 @@ export default function Tarefas() {
               <button className="tarefas-search-clear" type="button" onClick={() => setSearch('')}><X size={14} /></button>
             )}
           </div>
+          <div className="tarefas-view-toggle" role="group" aria-label="Modo de visualização">
+            <button
+              type="button"
+              className={viewMode === 'lista' ? 'active' : ''}
+              onClick={() => { setViewMode('lista'); localStorage.setItem('nexus:tarefas-view', 'lista') }}
+            >
+              Lista
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'quadro' ? 'active' : ''}
+              onClick={() => { setViewMode('quadro'); localStorage.setItem('nexus:tarefas-view', 'quadro') }}
+            >
+              Quadro
+            </button>
+          </div>
           {isGestor && (
             <FilterPanel
               membroFiltro={membroFiltro} setMembroFiltro={setMembroFiltro}
@@ -3897,6 +3916,50 @@ export default function Tarefas() {
           {(search || membroFiltro !== 'todos' || mesFiltro !== 'todos' || anoFiltro !== 'todos' || prioridade !== 'todos' || statusTab !== 'todos') && (
             <button className="btn btn-ghost" type="button" onClick={limparFiltros}>Limpar filtros</button>
           )}
+        </div>
+      ) : viewMode === 'quadro' ? (
+        <div className="task-board">
+          {[
+            { id: 'pendente', label: 'Pendente', statuses: ['pendente'] },
+            { id: 'execucao', label: 'Em execução', statuses: ['em_progresso', 'devolvida', 'reenviada', 'nao_concluida'] },
+            { id: 'revisao', label: 'Aguardando aprovação', statuses: ['concluida'] },
+            { id: 'concluida', label: 'Concluída', statuses: ['aprovada', 'cancelada'] },
+          ].map(coluna => {
+            const tarefasColuna = filtered.filter(t => coluna.statuses.includes(String(t.status || 'pendente')))
+            return (
+              <div key={coluna.id} className="task-board-column">
+                <div className="task-board-column-head">
+                  <strong>{coluna.label}</strong>
+                  <span className="tab-count">{tarefasColuna.length}</span>
+                </div>
+                <div className="task-board-column-body">
+                  {tarefasColuna.length === 0 ? (
+                    <div className="task-board-empty">Nada aqui.</div>
+                  ) : tarefasColuna.map(t => (
+                    <TarefaCard
+                      key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
+                      helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(t.id)}
+                      helpRequestedByMe={minhasAjudasPorTarefa.get(t.id) || null}
+                      onOpen={setDetalhe}
+                      onEdit={(x) => { setEdit(x); setModalOpen(true) }}
+                      onDelete={remove}
+                      onStart={startTask}
+                      onPegar={pegarTarefa}
+                      onResponder={setDetalhe}
+                      onApprove={approve}
+                      onReturn={devolver}
+                      onComplemento={setComplemento}
+                      onHistory={setHistorico}
+                      onAnexos={setAnexos}
+                      onReminder={enviarLembreteManual}
+                      onPedirAjuda={setAjuda}
+                      onPainelAjuda={setPainelAjuda}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
         </div>
       ) : (
         <div className="task-report-list">
