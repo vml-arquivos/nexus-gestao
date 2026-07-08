@@ -384,4 +384,93 @@ router.delete('/limpar/tudo', async (req: Request, res: Response): Promise<void>
   }
 })
 
+/* ── GET /api/admin/pontuacao ───────────────────────────────────
+   Lista os lançamentos de pontuação da organização, para revisão antes
+   de editar ou apagar (ex.: identificar pontos de teste). */
+router.get('/pontuacao', async (req: Request, res: Response): Promise<void> => {
+  const { orgId } = req.user!
+  try {
+    const rows = await query<any>(
+      `SELECT tp.id, tp.usuario_id, p.nome AS usuario_nome, tp.tarefa_id,
+              COALESCE(tp.tarefa_titulo_snapshot, t.titulo, '(tarefa removida)') AS tarefa_titulo,
+              tp.item_titulo_snapshot, tp.motivo, tp.pontos, tp.aprovado_por, tp.aprovado_em
+         FROM tarefas_pontuacao tp
+         LEFT JOIN profiles p ON p.id = tp.usuario_id
+         LEFT JOIN tarefas t ON t.id = tp.tarefa_id
+        WHERE tp.org_id = $1
+        ORDER BY tp.aprovado_em DESC NULLS LAST
+        LIMIT 1000`,
+      [orgId],
+    )
+    res.json({ items: rows, total: rows.length })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao listar pontuação:', err)
+    res.status(500).json({ error: 'Erro ao listar pontuação.' })
+  }
+})
+
+/* ── PATCH /api/admin/pontuacao/:id ─────────────────────────────
+   Corrige manualmente o valor de pontos de um lançamento específico
+   (ex.: reverter um valor de teste). Não recalcula ranking automaticamente
+   além da soma normal — o ranking já agrega ao vivo a partir desta tabela. */
+router.patch('/pontuacao/:id', async (req: Request, res: Response): Promise<void> => {
+  const { orgId } = req.user!
+  const pontos = Number(req.body?.pontos)
+  if (!Number.isFinite(pontos) || pontos < 0 || pontos > 999) {
+    res.status(400).json({ error: 'Valor de pontos inválido (use um número entre 0 e 999).' })
+    return
+  }
+  try {
+    const updated = await query<any>(
+      `UPDATE tarefas_pontuacao SET pontos = $1 WHERE id = $2 AND org_id = $3 RETURNING id`,
+      [pontos, req.params.id, orgId],
+    )
+    if (!updated.length) {
+      res.status(404).json({ error: 'Lançamento de pontuação não encontrado.' })
+      return
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao editar pontuação:', err)
+    res.status(500).json({ error: 'Erro ao editar pontuação.' })
+  }
+})
+
+/* ── DELETE /api/admin/pontuacao/:id ────────────────────────────
+   Apaga um único lançamento de pontuação (ex.: um ponto de teste isolado). */
+router.delete('/pontuacao/:id', async (req: Request, res: Response): Promise<void> => {
+  const { orgId } = req.user!
+  try {
+    const deleted = await query<any>(
+      `DELETE FROM tarefas_pontuacao WHERE id = $1 AND org_id = $2 RETURNING id`,
+      [req.params.id, orgId],
+    )
+    if (!deleted.length) {
+      res.status(404).json({ error: 'Lançamento de pontuação não encontrado.' })
+      return
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao apagar pontuação:', err)
+    res.status(500).json({ error: 'Erro ao apagar pontuação.' })
+  }
+})
+
+/* ── DELETE /api/admin/limpar/pontuacao ─────────────────────────
+   Zera o ranking inteiro da organização. Ação separada e explícita de
+   /limpar/tarefas de propósito: apagar tarefas preserva a pontuação
+   histórica por padrão (ver migration 2026-06-18-preservar-pontuacao-
+   apos-exclusao.sql); esta rota existe só para quando você realmente
+   quer limpar dados de teste do ranking também. */
+router.delete('/limpar/pontuacao', async (req: Request, res: Response): Promise<void> => {
+  const { orgId } = req.user!
+  try {
+    await hardQuery('DELETE FROM tarefas_pontuacao WHERE org_id = $1', [orgId])()
+    res.json({ ok: true, mensagem: 'Ranking e histórico de pontuação apagados.' })
+  } catch (err) {
+    console.error('[ADMIN] Erro ao limpar pontuação:', err)
+    res.status(500).json({ error: 'Erro ao apagar pontuação.' })
+  }
+})
+
 export default router

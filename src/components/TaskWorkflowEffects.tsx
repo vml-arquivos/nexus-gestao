@@ -2,10 +2,6 @@ import { useEffect } from 'react'
 
 const APPROVE_TEXTS = new Set(['Aprovar', 'Aprovar lista', 'Aprovar item', 'Aprovar parte'])
 
-function normalizedText(value: string | null | undefined) {
-  return String(value || '').replace(/\s+/g, ' ').replace(/\s+Surpresa$/, '').trim().toLocaleLowerCase('pt-BR')
-}
-
 function labelOf(button: HTMLButtonElement) {
   return String(button.textContent || '').replace(/\s+/g, ' ').trim()
 }
@@ -24,34 +20,6 @@ function isApprovalSuccess(node: Node) {
   // modal de propósito — o gestor pode revisar e aprovar vários itens da
   // mesma lista numa única sessão, sem precisar reabrir a tela a cada clique.
   return text.includes('Tarefa aprovada e pontuação')
-}
-
-function syncTaskUi() {
-  document.querySelectorAll<HTMLElement>('.task-detail-modal').forEach(modal => {
-    const cards = Array.from(modal.querySelectorAll<HTMLElement>('.task-check-item'))
-    const approvedTexts = new Set<string>()
-
-    cards.forEach(card => {
-      const approved = Boolean(
-        card.querySelector('[data-checklist-status="aprovada"], [data-approval-status="aprovada"]') ||
-        card.textContent?.includes('Aprovada · pontos liberados')
-      )
-      card.classList.toggle('task-runtime-archived', approved)
-      if (approved) {
-        const text = normalizedText(card.querySelector<HTMLElement>('.task-check-text')?.textContent)
-        if (text) approvedTexts.add(text)
-      }
-    })
-
-    const editor = modal.querySelector<HTMLElement>('.task-inline-editor')
-    const allApproved = cards.length > 0 && cards.every(card => card.classList.contains('task-runtime-archived'))
-    editor?.classList.toggle('task-runtime-append-only', allApproved)
-
-    modal.querySelectorAll<HTMLElement>('.task-inline-checklist-row').forEach(row => {
-      const title = normalizedText(row.querySelector<HTMLInputElement>('input.form-input')?.value)
-      row.classList.toggle('task-runtime-archived-row', Boolean(title && approvedTexts.has(title)))
-    })
-  })
 }
 
 export default function TaskWorkflowEffects() {
@@ -82,7 +50,6 @@ export default function TaskWorkflowEffects() {
     }
 
     const observer = new MutationObserver(records => {
-      syncTaskUi()
       if (!pendingApproval) return
       for (const record of records) {
         for (const node of Array.from(record.addedNodes)) {
@@ -94,13 +61,10 @@ export default function TaskWorkflowEffects() {
       }
     })
 
-    syncTaskUi()
     document.addEventListener('click', onClick, true)
-    document.addEventListener('input', syncTaskUi, true)
     observer.observe(document.body, { childList: true, subtree: true })
     return () => {
       document.removeEventListener('click', onClick, true)
-      document.removeEventListener('input', syncTaskUi, true)
       observer.disconnect()
     }
   }, [])

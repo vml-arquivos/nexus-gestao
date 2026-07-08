@@ -27,6 +27,12 @@ export default function Configuracoes() {
   const { theme, setTheme } = useTheme()
   const { t } = useVisualTexts()
 
+  const [pontuacaoAberto, setPontuacaoAberto] = useState(false)
+  const [pontuacaoLoading, setPontuacaoLoading] = useState(false)
+  const [pontuacaoItens, setPontuacaoItens] = useState<Array<{ id: string; usuario_nome?: string; tarefa_titulo?: string; item_titulo_snapshot?: string; motivo?: string; pontos: number; aprovado_em?: string }>>([])
+  const [pontuacaoEditId, setPontuacaoEditId] = useState<string | null>(null)
+  const [pontuacaoEditValor, setPontuacaoEditValor] = useState('')
+
   const [nome, setNome]           = useState(user?.nome || '')
   const [email, setEmail]         = useState(user?.email || '')
   const [senhaAtual, setSenhaAtual]   = useState('')
@@ -126,6 +132,57 @@ export default function Configuracoes() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao desativar', 'error')
     } finally { setPushLoading(false) }
+  }
+
+  async function carregarPontuacao() {
+    setPontuacaoLoading(true)
+    try {
+      const data = await api.get<{ items: typeof pontuacaoItens }>('/admin/pontuacao')
+      setPontuacaoItens(data.items || [])
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao carregar pontuação.', 'error')
+    } finally {
+      setPontuacaoLoading(false)
+    }
+  }
+
+  async function salvarPontuacaoEditada(id: string) {
+    const valor = Number(pontuacaoEditValor)
+    if (!Number.isFinite(valor) || valor < 0 || valor > 999) {
+      toast('Use um número entre 0 e 999.', 'error')
+      return
+    }
+    try {
+      await api.patch(`/admin/pontuacao/${id}`, { pontos: valor })
+      setPontuacaoItens(prev => prev.map(item => item.id === id ? { ...item, pontos: valor } : item))
+      setPontuacaoEditId(null)
+      toast('Pontuação atualizada.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao salvar pontuação.', 'error')
+    }
+  }
+
+  async function apagarPontuacaoItem(id: string) {
+    if (!confirm('Apagar este lançamento de pontuação? Essa ação não pode ser desfeita.')) return
+    try {
+      await api.delete(`/admin/pontuacao/${id}`)
+      setPontuacaoItens(prev => prev.filter(item => item.id !== id))
+      toast('Lançamento apagado.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao apagar lançamento.', 'error')
+    }
+  }
+
+  async function limparRankingCompleto() {
+    if (!confirm('Isso apaga TODO o histórico de pontuação e zera o ranking da organização inteira. Essa ação não pode ser desfeita. Confirma?')) return
+    if (!confirm('Tem certeza mesmo? Todos os pontos de todos os membros serão perdidos, inclusive de trabalho real, não só de teste.')) return
+    try {
+      await api.delete('/admin/limpar/pontuacao')
+      setPontuacaoItens([])
+      toast('Ranking e histórico de pontuação apagados.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao apagar ranking.', 'error')
+    }
   }
 
   async function gerarBackup() {
@@ -326,6 +383,89 @@ export default function Configuracoes() {
             <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={gerarBackup} disabled={gerandoBackup}>
               <Download size={14} /> {gerandoBackup ? 'Gerando backup completo…' : t('settings.backupButton')}
             </button>
+          </div>
+        )}
+
+        {/* Ranking / Pontuação (avançado) */}
+        {isGestorLike(user?.role) && (
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Shield size={16} color="#F59E0B" />
+                <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 15 }}>Ranking e pontuação (avançado)</span>
+              </div>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={() => {
+                  const next = !pontuacaoAberto
+                  setPontuacaoAberto(next)
+                  if (next && !pontuacaoItens.length) void carregarPontuacao()
+                }}
+              >
+                {pontuacaoAberto ? 'Recolher' : 'Abrir'}
+              </button>
+            </div>
+            {pontuacaoAberto && (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 14, lineHeight: 1.6 }}>
+                  Corrija ou remova lançamentos individuais de pontuação (útil para limpar pontos de teste), ou apague o ranking inteiro da organização. Apagar uma tarefa <strong>não</strong> apaga a pontuação automaticamente — use esta ferramenta quando precisar limpar de propósito.
+                </p>
+                {pontuacaoLoading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text3)' }}>
+                    <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Carregando lançamentos...
+                  </div>
+                ) : pontuacaoItens.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhum lançamento de pontuação encontrado.</p>
+                ) : (
+                  <div style={{ display: 'grid', gap: 6, maxHeight: 360, overflowY: 'auto', marginBottom: 14 }}>
+                    {pontuacaoItens.map(item => (
+                      <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg3)', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.usuario_nome || 'Usuário removido'}</div>
+                          <div style={{ color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.tarefa_titulo || '(tarefa removida)'}{item.item_titulo_snapshot ? ` · ${item.item_titulo_snapshot}` : ''}
+                          </div>
+                        </div>
+                        {pontuacaoEditId === item.id ? (
+                          <>
+                            <input
+                              className="form-input"
+                              type="number"
+                              min={0}
+                              max={999}
+                              value={pontuacaoEditValor}
+                              onChange={e => setPontuacaoEditValor(e.target.value)}
+                              style={{ width: 70, flexShrink: 0 }}
+                            />
+                            <button className="btn btn-primary" style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0 }} onClick={() => salvarPontuacaoEditada(item.id)}>Salvar</button>
+                            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0 }} onClick={() => setPontuacaoEditId(null)}>Cancelar</button>
+                          </>
+                        ) : (
+                          <>
+                            <strong style={{ flexShrink: 0 }}>{item.pontos} pts</strong>
+                            <button
+                              className="btn btn-ghost"
+                              style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0 }}
+                              onClick={() => { setPontuacaoEditId(item.id); setPontuacaoEditValor(String(item.pontos)) }}
+                            >
+                              Editar
+                            </button>
+                            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0, color: '#EF4444' }} onClick={() => apagarPontuacaoItem(item.id)}>
+                              Apagar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={carregarPontuacao} disabled={pontuacaoLoading}>Recarregar lista</button>
+                  <button className="btn btn-danger" style={{ fontSize: 12 }} onClick={limparRankingCompleto}>Apagar ranking inteiro</button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

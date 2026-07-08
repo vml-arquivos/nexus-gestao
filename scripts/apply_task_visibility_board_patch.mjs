@@ -142,18 +142,13 @@ tarefas = replaceOnce(
 
 write(tarefasPath, tarefas)
 
-const effectsPath = 'src/components/TaskWorkflowEffects.tsx'
-let effects = read(effectsPath)
-effects = replaceOnce(
-  effects,
-  `      const approved = Boolean(card.querySelector(':scope > .badge'))`,
-  `      const approved = Boolean(
-        card.querySelector('[data-checklist-status="aprovada"], [data-approval-status="aprovada"]') ||
-        card.textContent?.includes('Aprovada · pontos liberados')
-      )`,
-  'approved-card-detection',
-)
-write(effectsPath, effects)
+// Nota (2026-07-08): o passo que editava TaskWorkflowEffects.tsx para
+// refinar a detecção de "card aprovado" foi removido. Aquele mecanismo
+// (syncTaskUi/task-runtime-archived) escondia itens de checklist já
+// aprovados do formulário de edição — um comportamento não desejado que
+// impedia reabrir/editar tarefas concluídas quantas vezes fosse preciso.
+// TaskWorkflowEffects.tsx hoje só cuida de proteção contra duplo clique
+// na aprovação e fechamento do modal na aprovação final da lista.
 
 const cssPath = 'src/app-styles.css'
 let css = read(cssPath)

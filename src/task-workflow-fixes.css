@@ -79,31 +79,12 @@
   color: var(--text) !important;
 }
 
-.task-inline-editor--append-only > .grid-2,
-.task-inline-editor--append-only > .form-group,
-.task-inline-editor--append-only > .task-points-box,
-.task-runtime-append-only > .grid-2,
-.task-runtime-append-only > .form-group,
-.task-runtime-append-only > .task-points-box {
-  display: none !important;
-}
-
-.task-detail-modal .task-runtime-archived,
-.task-detail-modal .task-runtime-archived-row {
-  display: none !important;
-}
-
-.task-runtime-append-only::before {
-  content: 'Histórico preservado: inclua somente a nova demanda. As tarefas concluídas continuam disponíveis no histórico e no relatório.';
-  display: block;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg3);
-  color: var(--text2);
-  padding: 11px 13px;
-  font-size: 13px;
-  line-height: 1.45;
-}
+/* Removido (2026-07-08): as regras abaixo escondiam (display:none) itens
+   de checklist já aprovados e travavam o formulário de edição em modo
+   "somente inclusão". Isso impedia reabrir/editar tarefas concluídas ou
+   aprovadas, o que quebrava um fluxo real de uso — o gestor precisa poder
+   reabrir e editar qualquer item quantas vezes for necessário. Mantido
+   como comentário, não como regra ativa, para não reintroduzir por engano. */
 
 .task-detail-modal .task-inline-add-subtask {
   display: grid !important;
