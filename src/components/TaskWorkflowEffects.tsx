@@ -19,7 +19,11 @@ function closeTaskModal() {
 
 function isApprovalSuccess(node: Node) {
   const text = node.textContent || ''
-  return text.includes('Item aprovado') || text.includes('Tarefa aprovada e pontuação')
+  // Só a aprovação final da lista inteira fecha o modal automaticamente.
+  // A aprovação de um item isolado ("Item aprovado...") NÃO fecha mais o
+  // modal de propósito — o gestor pode revisar e aprovar vários itens da
+  // mesma lista numa única sessão, sem precisar reabrir a tela a cada clique.
+  return text.includes('Tarefa aprovada e pontuação')
 }
 
 function syncTaskUi() {
@@ -28,7 +32,10 @@ function syncTaskUi() {
     const approvedTexts = new Set<string>()
 
     cards.forEach(card => {
-      const approved = Boolean(card.querySelector(':scope > .badge'))
+      const approved = Boolean(
+        card.querySelector('[data-checklist-status="aprovada"], [data-approval-status="aprovada"]') ||
+        card.textContent?.includes('Aprovada · pontos liberados')
+      )
       card.classList.toggle('task-runtime-archived', approved)
       if (approved) {
         const text = normalizedText(card.querySelector<HTMLElement>('.task-check-text')?.textContent)

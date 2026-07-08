@@ -131,7 +131,7 @@ function destravaBaseUrl(): string {
 }
 
 function destravaSecret(): string {
-  return String(process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || '').trim()
+  return String(process.env.NEXUS_INTEGRATION_SECRET || process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || '').trim()
 }
 
 let destravaCacheSchemaPromise: Promise<void> | null = null

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import type { ReactNode, DragEvent } from 'react'
+import type { ReactNode, DragEvent, CSSProperties } from 'react'
 import {
-  Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle,
+  Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle, ChevronRight,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer,
 } from 'lucide-react'
@@ -232,25 +232,39 @@ function normalizeObjectiveSubitems(value?: unknown): ObjectiveSubitem[] {
 
 function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[] {
   if (!Array.isArray(items)) return []
-  return items.map(item => ({
-    id: item.id || nanoid(),
-    texto: item.texto || '',
-    descricao: item.descricao || undefined,
-    data: item.data ? String(item.data).slice(0, 10) : undefined,
-    responsavel_id: item.responsavel_id || undefined,
-    responsavel_nome: item.responsavel_nome || undefined,
-    assumido_por: item.assumido_por || undefined,
-    executor_id: item.executor_id || undefined,
-    aceita_por: item.aceita_por || undefined,
-    concluido_por: item.concluido_por || undefined,
-    feito_por: item.feito_por || undefined,
-    dificuldade: (item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3)),
-    pontuacao: Math.max(0, Math.min(SCORE_MAX, Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)))),
-    subtarefas: normalizeObjectiveSubitems((item as any).subtarefas || (item as any).subtasks),
-    revelar_apos_assumir: Boolean((item as any).revelar_apos_assumir),
-    oculta_ate_assumir: Boolean((item as any).oculta_ate_assumir),
-    feito: Boolean(item.feito),
-  }))
+  return items.map(rawItem => {
+    const item = rawItem as ChecklistItem & Record<string, any>
+    const dificuldade = item.dificuldade || item.difficulty || difficultyFromPoints(Number(item.pontuacao ?? item.pontos ?? 3))
+    const pontosInformados = Number(item.pontuacao ?? item.pontos ?? difficultyPoints(dificuldade))
+    const pontuacao = Number.isFinite(pontosInformados)
+      ? Math.max(0, Math.min(SCORE_MAX, pontosInformados))
+      : difficultyPoints(dificuldade)
+
+    // Preserva todos os metadados atuais e legados (aprovação, devolução,
+    // executor e auditoria). Antes, a normalização recriava o objeto e
+    // descartava campos não enumerados, causando comportamento diferente
+    // entre listas novas e antigas.
+    return {
+      ...item,
+      id: item.id || item.checklist_id || item.item_id || nanoid(),
+      texto: item.texto || item.title || item.label || '',
+      descricao: item.descricao || item.description || undefined,
+      data: (item.data || item.date || item.due_date) ? String(item.data || item.date || item.due_date).slice(0, 10) : undefined,
+      responsavel_id: item.responsavel_id || item.responsavelId || item.assigned_to || item.assignedToId || undefined,
+      responsavel_nome: item.responsavel_nome || item.responsavelNome || item.assigned_to_name || item.assignedToName || undefined,
+      assumido_por: item.assumido_por || item.assumidoPor || item.claimed_by || item.claimedBy || undefined,
+      executor_id: item.executor_id || item.executorId || undefined,
+      aceita_por: item.aceita_por || item.aceitaPor || undefined,
+      concluido_por: item.concluido_por || item.concluidoPor || item.completed_by || undefined,
+      feito_por: item.feito_por || item.feitoPor || item.done_by || undefined,
+      dificuldade,
+      pontuacao,
+      subtarefas: normalizeObjectiveSubitems(item.subtarefas || item.subtasks || item.etapas),
+      revelar_apos_assumir: Boolean(item.revelar_apos_assumir ?? item.revelarAposAssumir ?? item.surpresa),
+      oculta_ate_assumir: Boolean(item.oculta_ate_assumir ?? item.ocultaAteAssumir),
+      feito: Boolean(item.feito ?? item.concluido ?? item.completed ?? item.done),
+    } as ChecklistItem
+  })
 }
 
 function checklistExecutorName(item: ChecklistItem, tarefa: Tarefa) {
@@ -326,13 +340,16 @@ function maskSurpriseChecklistItemForViewer(item: ChecklistItem, tarefa: Tarefa,
 function visibleChecklistItems(tarefa: Tarefa, userId: string, isGestor: boolean) {
   const items = normalizeChecklistItems(tarefa.checklist)
   if (isGestor) return items
-  const assigned = items.filter(item => isChecklistItemExecutor(item, tarefa, userId))
-  // Depois de assumir/receber uma subtarefa, o membro vê somente a parte dele.
-  if (assigned.length) return assigned
-  // Antes de assumir, ele vê apenas subtarefas livres em aberto. As surpresas ficam mascaradas.
-  return items
-    .filter(item => !item.feito && !checklistItemAssignmentId(item))
-    .map(item => maskSurpriseChecklistItemForViewer(item, tarefa, userId))
+
+  // Visibilidade e permissão de execução são responsabilidades diferentes:
+  // o membro sempre enxerga a lista completa para compreender o fluxo,
+  // enquanto isChecklistItemExecutor continua limitando quem pode marcar.
+  // Itens surpresa de outro executor permanecem mascarados até a assunção.
+  return items.map(item =>
+    isSurpriseChecklistItem(item) && !isChecklistItemExecutor(item, tarefa, userId)
+      ? maskSurpriseChecklistItemForViewer(item, tarefa, userId)
+      : item
+  )
 }
 
 function isSurpriseChecklistItem(item: ChecklistItem) {
@@ -3212,7 +3229,19 @@ function TarefaBoardCard({ tarefa, userId, isGestor, onOpen }: {
   const iniciais = (responsavelLabel || '?').trim().split(/\s+/).slice(0, 2).map(p => p[0]).join('').toUpperCase()
 
   return (
-    <article className="task-board-card" onClick={() => onOpen(tarefa)} title="Clique para abrir a lista">
+    <article
+      className="task-board-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(tarefa)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen(tarefa)
+        }
+      }}
+      title="Clique para abrir a lista"
+    >
       <div className="task-board-card-top">
         <span className={isPersonal ? 'badge task-board-scope task-board-scope--pessoal' : 'badge task-board-scope task-board-scope--equipe'}>
           {isPersonal ? 'PESSOAL' : 'EQUIPE'}
@@ -3462,6 +3491,9 @@ export default function Tarefas() {
   const [viewMode, setViewMode] = useState<'lista' | 'quadro'>(() =>
     (localStorage.getItem('nexus:tarefas-view') as 'lista' | 'quadro') || 'lista'
   )
+  const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('nexus:tarefas-quadro-colapsadas') || '[]') } catch { return [] }
+  })
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -3814,7 +3846,7 @@ export default function Tarefas() {
   }
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto', padding: '16px 16px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 24px)' }}>
+    <div className="tarefas-page-shell">
 
       {/* ── CABEÇALHO ─────────────────────────────────────── */}
       <header className="tarefas-page-header">
@@ -3985,28 +4017,45 @@ export default function Tarefas() {
       ) : viewMode === 'quadro' ? (
         <div className="task-board">
           {[
-            { id: 'pendente', label: 'Pendente', statuses: ['pendente'] },
-            { id: 'execucao', label: 'Em execução', statuses: ['em_progresso', 'devolvida', 'reenviada', 'nao_concluida'] },
-            { id: 'revisao', label: 'Aguardando aprovação', statuses: ['concluida'] },
-            { id: 'concluida', label: 'Concluída', statuses: ['aprovada', 'cancelada'] },
+            { id: 'pendente', label: 'Pendente', statuses: ['pendente'], color: '#F59E0B' },
+            { id: 'execucao', label: 'Em execução', statuses: ['em_progresso', 'devolvida', 'reenviada', 'nao_concluida'], color: '#3B82F6' },
+            { id: 'revisao', label: 'Aguardando aprovação', statuses: ['concluida'], color: '#8B5CF6' },
+            { id: 'concluida', label: 'Concluída', statuses: ['aprovada', 'cancelada'], color: '#10B981' },
           ].map(coluna => {
             const tarefasColuna = filtered.filter(t => coluna.statuses.includes(String(t.status || 'pendente')))
+            const colapsada = colunasColapsadas.includes(coluna.id)
             return (
-              <div key={coluna.id} className="task-board-column">
-                <div className="task-board-column-head">
-                  <strong>{coluna.label}</strong>
+              <div key={coluna.id} className={colapsada ? 'task-board-column task-board-column--collapsed' : 'task-board-column'} style={{ '--column-accent': coluna.color } as CSSProperties}>
+                <button
+                  type="button"
+                  className="task-board-column-head"
+                  onClick={() => {
+                    const next = colapsada ? colunasColapsadas.filter(id => id !== coluna.id) : [...colunasColapsadas, coluna.id]
+                    setColunasColapsadas(next)
+                    localStorage.setItem('nexus:tarefas-quadro-colapsadas', JSON.stringify(next))
+                  }}
+                  title={colapsada ? 'Clique para expandir' : 'Clique para recolher'}
+                >
+                  <span className="task-board-column-head-label">
+                    <ChevronRight size={14} className="task-board-column-chevron" />
+                    <strong>{coluna.label}</strong>
+                  </span>
                   <span className="tab-count">{tarefasColuna.length}</span>
-                </div>
-                <div className="task-board-column-body">
-                  {tarefasColuna.length === 0 ? (
-                    <div className="task-board-empty">Nada aqui.</div>
-                  ) : tarefasColuna.map(t => (
-                    <TarefaBoardCard
-                      key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
-                      onOpen={setDetalhe}
-                    />
-                  ))}
-                </div>
+                </button>
+                {!colapsada && (
+                  <div className="task-board-column-body">
+                    {tarefasColuna.length === 0 ? (
+                      <div className="task-board-empty">Nada aqui.</div>
+                    ) : tarefasColuna.map((t, idx) => (
+                      <div key={t.id} className="task-board-card-enter" style={{ '--enter-delay': `${Math.min(idx, 8) * 25}ms` } as CSSProperties}>
+                        <TarefaBoardCard
+                          tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
+                          onOpen={setDetalhe}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}

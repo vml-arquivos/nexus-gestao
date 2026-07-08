@@ -268,7 +268,6 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       res.status(409).json({ error: 'Este item já foi aprovado e não pode ser aprovado novamente.' })
       return
     }
-
     const now = new Date().toISOString()
     if (decision === 'aprovar') {
       item.aprovacao_status = 'aprovada'

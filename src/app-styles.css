@@ -8828,16 +8828,48 @@ textarea.form-input,
   min-width: 0;
   background: var(--bg3);
   border: 1px solid var(--border);
+  border-top: 3px solid var(--column-accent, var(--border));
   border-radius: 14px;
   max-height: calc(100vh - 320px);
+  transition: max-height .2s ease;
+}
+.task-board-column--collapsed {
+  max-height: none;
 }
 .task-board-column-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 12px 14px;
+  border: none;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
   font-size: 13px;
+  color: var(--text1);
+  cursor: pointer;
+  text-align: left;
+}
+.task-board-column--collapsed .task-board-column-head {
+  border-bottom: none;
+}
+.task-board-column-head:hover {
+  background: color-mix(in srgb, var(--column-accent, var(--text3)) 8%, transparent);
+}
+.task-board-column-head-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-board-column-chevron {
+  color: var(--column-accent, var(--text3));
+  transition: transform .18s ease;
+  transform: rotate(90deg);
+  flex-shrink: 0;
+}
+.task-board-column--collapsed .task-board-column-chevron {
+  transform: rotate(0deg);
 }
 .task-board-column-body {
   display: flex;
@@ -8845,6 +8877,18 @@ textarea.form-input,
   gap: 10px;
   padding: 10px;
   overflow-y: auto;
+}
+.task-board-card-enter {
+  animation: task-board-card-enter .22s ease both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+@keyframes task-board-card-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-board-card-enter { animation: none; }
+  .task-board-column { transition: none; }
 }
 .task-board-empty {
   font-size: 12px;
@@ -10101,5 +10145,196 @@ textarea.form-input,
 
   .destrava-search-select__panel {
     min-width: 100%;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   NEXUS — TASK BOARD LAYOUT HARDENING 2026-07-07
+   Quadro amplo no desktop, responsivo no tablet e navegação
+   horizontal previsível no mobile, sem alterar regras de negócio.
+═══════════════════════════════════════════════════════════════ */
+.tarefas-page-shell {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 20px clamp(14px, 2vw, 28px) calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 28px);
+}
+
+.tarefas-page-shell .tarefas-page-header {
+  margin-bottom: 16px;
+}
+
+.tarefas-page-shell .tarefas-search-row {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.tarefas-page-shell .task-board {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+  overflow: visible;
+  padding: 2px 2px 12px;
+}
+
+.tarefas-page-shell .task-board-column {
+  min-width: 0;
+  min-height: 340px;
+  max-height: calc(100dvh - 310px);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg3) 88%, var(--bg2));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .06);
+  overflow: hidden;
+}
+
+.tarefas-page-shell .task-board-column-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 48px;
+  padding: 13px 14px;
+  background: color-mix(in srgb, var(--bg2) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.tarefas-page-shell .task-board-column-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 12px;
+  padding: 12px;
+  overscroll-behavior: contain;
+}
+
+.tarefas-page-shell .task-board-card {
+  min-height: 132px;
+  padding: 13px;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+  outline: none;
+}
+
+.tarefas-page-shell .task-board-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, .10);
+}
+
+.tarefas-page-shell .task-board-card:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-dim), 0 10px 24px rgba(15, 23, 42, .10);
+}
+
+.tarefas-page-shell .task-board-card-title {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.tarefas-page-shell .task-board-card-foot {
+  margin-top: auto;
+}
+
+@media (min-width: 1500px) {
+  .tarefas-page-shell .task-board {
+    grid-template-columns: repeat(4, minmax(250px, 1fr));
+  }
+}
+
+@media (min-width: 701px) and (max-width: 1499px) {
+  .tarefas-page-shell {
+    max-width: 1180px;
+  }
+
+  .tarefas-page-shell .task-board {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+  }
+
+  .tarefas-page-shell .task-board-column {
+    max-height: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .tarefas-page-shell {
+    max-width: none;
+    padding: 12px 12px calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 20px);
+  }
+
+  .tarefas-page-shell .tarefas-page-header {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .tarefas-page-shell .tarefas-new-btn {
+    min-height: 40px;
+    padding-inline: 12px;
+  }
+
+  .tarefas-page-shell .tarefas-search-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .tarefas-page-shell .tarefas-view-toggle,
+  .tarefas-page-shell .tarefas-filter-dropdown,
+  .tarefas-page-shell .tarefas-filter-btn {
+    width: 100%;
+  }
+
+  .tarefas-page-shell .tarefas-filter-panel {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: calc(var(--bottom-nav-h, 72px) + env(safe-area-inset-bottom) + 12px);
+    width: auto;
+    max-width: none;
+    max-height: min(70dvh, 560px);
+    overflow-y: auto;
+  }
+
+  .tarefas-page-shell .task-board {
+    display: grid;
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(84vw, 320px);
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 2px;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 2px 2px 14px;
+  }
+
+  .tarefas-page-shell .task-board-column {
+    scroll-snap-align: start;
+    min-height: 360px;
+    max-height: calc(100dvh - 300px);
+  }
+
+  .tarefas-page-shell .task-board-column-body {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tarefas-page-shell .task-board-card {
+    min-height: 126px;
+  }
+}
+
+@media (max-width: 390px) {
+  .tarefas-page-shell .task-board {
+    grid-auto-columns: calc(100vw - 32px);
+  }
+
+  .tarefas-page-shell .task-board-card-foot {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

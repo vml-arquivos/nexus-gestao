@@ -23,7 +23,8 @@ RUN npm ci --no-audit --no-fund
 WORKDIR /app
 COPY . .
 RUN python3 scripts/apply_tarefas_client_select_patch.py \
-    && python3 scripts/apply_task_scoring_ui_patch.py
+    && python3 scripts/apply_task_scoring_ui_patch.py \
+    && node scripts/apply_task_visibility_board_patch.mjs
 
 WORKDIR /app/backend
 RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
@@ -45,6 +46,7 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 RUN python3 scripts/apply_tarefas_client_select_patch.py \
     && python3 scripts/apply_task_scoring_ui_patch.py \
+    && node scripts/apply_task_visibility_board_patch.mjs \
     && rm -rf backend
 
 # Força o BuildKit a concluir o build TypeScript do backend antes do build do frontend.
