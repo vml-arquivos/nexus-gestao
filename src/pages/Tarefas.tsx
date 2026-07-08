@@ -2534,42 +2534,76 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <button className="btn btn-secondary" type="button" onClick={addInlineSubtask}><Plus size={14} /> Incluir tarefa</button>
             </div>
 
-            <div className="task-inline-checklist-editor">
-              {checklist.map(item => (
-                <div key={item.id} className="task-inline-checklist-row">
-                  <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Nome da tarefa" />
-                  {!isPersonal && (
-                    <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
-                      {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}</select>
-                  )}
-                  <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
-                  {!isPersonal && (
-                    <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
-                      <option value="">Livre / responsável principal</option>
-                      {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
-                  )}
-                  {!isPersonal && !listSurprise && (
-                    <label className="task-surprise-toggle compact" title="Revelar conteúdo apenas após assumir">
-                      <input type="checkbox" checked={Boolean((item as any).revelar_apos_assumir)} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, revelar_apos_assumir: e.target.checked } : i))} />
-                      <span>Surpresa</span>
-                    </label>
-                  )}
-                  {!isPersonal && listSurprise && <span className="task-surprise-badge">Surpresa</span>}
-                  <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
-                  <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta tarefa" />
-                  <div className="objective-subtasks-editor task-inline-row-desc">
-                    <div className="objective-subtasks-title">Etapas desta tarefa</div>
-                    {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
-                      <div key={sub.id} className="objective-subtask-row">
-                        <input className="form-input" value={sub.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).map((s: ObjectiveSubitem) => s.id === sub.id ? { ...s, texto: e.target.value } : s) } : i))} placeholder="Subtarefa interna" />
-                        <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).filter((s: ObjectiveSubitem) => s.id !== sub.id) } : i))}><Trash2 size={14} /></button>
+            {(() => {
+              const isArchived = (item: typeof checklist[number]) =>
+                (item as any).aprovacao_status === 'aprovada' || (tarefa.status === 'aprovada' && item.feito)
+              const checklistAtivo = checklist.filter(item => !isArchived(item))
+              const checklistHistorico = checklist.filter(isArchived)
+              return (
+                <>
+                  <div className="task-inline-checklist-editor">
+                    {checklistAtivo.map(item => (
+                      <div key={item.id} className="task-inline-checklist-row">
+                        <input className="form-input" value={item.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, texto: e.target.value } : i))} placeholder="Nome da tarefa" />
+                        {!isPersonal && (
+                          <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
+                            {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}</select>
+                        )}
+                        <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
+                        {!isPersonal && (
+                          <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
+                            <option value="">Livre / responsável principal</option>
+                            {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
+                        )}
+                        {!isPersonal && !listSurprise && (
+                          <label className="task-surprise-toggle compact" title="Revelar conteúdo apenas após assumir">
+                            <input type="checkbox" checked={Boolean((item as any).revelar_apos_assumir)} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, revelar_apos_assumir: e.target.checked } : i))} />
+                            <span>Surpresa</span>
+                          </label>
+                        )}
+                        {!isPersonal && listSurprise && <span className="task-surprise-badge">Surpresa</span>}
+                        <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.filter(i => i.id !== item.id))}><Trash2 size={14} /></button>
+                        <textarea className="form-input task-inline-row-desc" rows={2} value={item.descricao || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))} placeholder="Descrição opcional desta tarefa" />
+                        <div className="objective-subtasks-editor task-inline-row-desc">
+                          <div className="objective-subtasks-title">Etapas desta tarefa</div>
+                          {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
+                            <div key={sub.id} className="objective-subtask-row">
+                              <input className="form-input" value={sub.texto} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).map((s: ObjectiveSubitem) => s.id === sub.id ? { ...s, texto: e.target.value } : s) } : i))} placeholder="Subtarefa interna" />
+                              <button className="btn btn-ghost danger" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: ((i as any).subtarefas || []).filter((s: ObjectiveSubitem) => s.id !== sub.id) } : i))}><Trash2 size={14} /></button>
+                            </div>
+                          ))}
+                          <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova etapa', feito: false }] } : i))}><Plus size={14} /> Adicionar etapa nesta tarefa</button>
+                        </div>
                       </div>
                     ))}
-                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, subtarefas: [...((i as any).subtarefas || []), { id: nanoid(), texto: 'Nova etapa', feito: false }] } : i))}><Plus size={14} /> Adicionar etapa nesta tarefa</button>
+                    {checklistAtivo.length === 0 && checklistHistorico.length > 0 && (
+                      <div className="task-checklist-all-done">Todas as tarefas desta lista já foram concluídas e aprovadas. Use "Incluir tarefa" acima para adicionar uma nova demanda.</div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
+
+                  {checklistHistorico.length > 0 && (
+                    <div className="task-checklist-history">
+                      <div className="task-checklist-history-head">
+                        <History size={13} /> <strong>Histórico</strong> <span className="tab-count">{checklistHistorico.length}</span>
+                      </div>
+                      <div className="task-checklist-history-list">
+                        {checklistHistorico.map(item => (
+                          <div key={item.id} className="task-checklist-history-row">
+                            <span className="task-checklist-history-title">{item.texto}</span>
+                            <span className="task-checklist-history-meta">
+                              {!isPersonal && <>{difficultyLabel((item as any).dificuldade)} · {Number((item as any).pontuacao ?? 0)} pts</>}
+                              {item.data && ` · ${fmtDate(item.data)}`}
+                              {item.responsavel_nome && ` · ${item.responsavel_nome}`}
+                            </span>
+                            <span className="badge badge-success task-checklist-history-badge">Aprovada</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </section>
         )}
 

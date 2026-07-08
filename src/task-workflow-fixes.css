@@ -480,3 +480,92 @@
     gap: 6px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   Histórico de tarefas aprovadas dentro do modal de edição (2026-07-08)
+   Itens já aprovados saem do formulário editável e ficam aqui: compactos,
+   somente leitura, sem poluir a área de inclusão de novas tarefas.
+═══════════════════════════════════════════════════════════════ */
+.task-checklist-all-done {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 13px;
+  text-align: center;
+}
+
+.task-checklist-history {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.task-checklist-history-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.task-checklist-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-checklist-history-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--bg3);
+  border: 1px solid transparent;
+  opacity: .82;
+  transition: opacity .15s ease, border-color .15s ease;
+}
+
+.task-checklist-history-row:hover {
+  opacity: 1;
+  border-color: var(--border);
+}
+
+.task-checklist-history-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  text-decoration: line-through;
+  text-decoration-color: var(--border2, var(--border));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-checklist-history-meta {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text3);
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-checklist-history-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 2px 8px;
+}
+
+@media (max-width: 560px) {
+  .task-checklist-history-meta { display: none; }
+}
+
