@@ -183,9 +183,6 @@ function DateListEditor({ dates, setDates }: { dates: string[]; setDates: (dates
           className="form-input"
           type="date"
           value={date}
-          onFocus={e => {
-            try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-          }}
           onChange={e => setDate(e.target.value)}
         />
         <button type="button" className="btn btn-secondary" onClick={addDate} style={{ whiteSpace: 'nowrap' }}>
@@ -1149,9 +1146,6 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
                   className="form-input"
                   type="date"
                   value={data}
-                  onFocus={e => {
-                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                  }}
                   onChange={e => setData(e.target.value)}
                 />
               </div>
@@ -1531,8 +1525,6 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 value={vencimento}
                 min={new Date().toISOString().slice(0, 10)}
                 placeholder="dd/mm/aaaa"
-                onClick={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
-                onFocus={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
                 onChange={e => setVencimento(e.target.value)}
                 style={{ cursor: 'pointer' }}
               />
@@ -1623,9 +1615,6 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                   className="form-input"
                   type="date"
                   value={recorrenciaFim}
-                  onFocus={e => {
-                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                  }}
                   onChange={e => setRecorrenciaFim(e.target.value)}
                 />
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>Deixe vazio quando for salário, mensalidade ou custo contínuo sem data final definida.</div>
@@ -1642,10 +1631,6 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
                 className="form-input"
                 type="date"
                 value={pagoEm}
-                onClick={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
-                onFocus={e => {
-                  try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                }}
                 onChange={e => setPagoEm(e.target.value)}
               />
             </div>

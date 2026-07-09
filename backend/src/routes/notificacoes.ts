@@ -135,7 +135,7 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(String(role || ''))
 
     const tarefasRows = await query<any>(
-      `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por, checklist,
+      `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por, checklist, escopo,
               COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao,
               (CURRENT_DATE - prazo::date)::int AS dias_atraso
        FROM tarefas
@@ -150,6 +150,9 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     const tarefas = tarefasRows.filter(t => {
       if (gestorLike) return true
       if (t.responsavel_id === userId || t.criado_por === userId || t.aceita_por === userId) return true
+      // Tarefa de escopo pessoal nunca aparece para outro usuário, mesmo sem responsavel_id definido.
+      const escopo = t.escopo === 'equipe' ? 'equipe' : 'pessoal'
+      if (escopo === 'pessoal') return false
       if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') return true
       const raw = Array.isArray(t.checklist) ? t.checklist : []
       return raw.some((i: any) => i?.responsavel_id === userId)

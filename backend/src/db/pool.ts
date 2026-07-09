@@ -1,4 +1,16 @@
-import { Pool } from 'pg'
+import { Pool, types } from 'pg'
+
+// ── CORREÇÃO DE FUSO HORÁRIO EM COLUNAS DATE ──────────────────────────────────
+// Por padrão, o driver `pg` converte colunas do tipo DATE em objetos JS Date
+// interpretados como meia-noite UTC. Ao serializar essa data em JSON
+// (ex: "2026-07-23T00:00:00.000Z") e exibi-la no fuso do Brasil (UTC-3),
+// o valor pode aparecer um dia (e, em datas de início/fim de mês, um mês)
+// antes do que foi realmente salvo.
+// OID 1082 = tipo `date` do PostgreSQL. Retornar a string bruta ("YYYY-MM-DD")
+// em vez de um objeto Date remove essa ambiguidade em todas as tabelas
+// (tarefas.prazo, pagamentos.vencimento, agenda, etc.) sem alterar nenhuma
+// query existente.
+types.setTypeParser(1082, (value: string) => value)
 
 // ── POOL DE CONEXÃO POSTGRESQL ────────────────────────────────────────────────
 // Usa a variável DATABASE_URL definida no .env / Coolify

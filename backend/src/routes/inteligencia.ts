@@ -60,7 +60,9 @@ async function destinatariosDaTarefa(tarefa: any, orgId: string, remetenteId: st
   if (tarefa.responsavel_id) recipients.add(tarefa.responsavel_id)
   if (tarefa.aceita_por) recipients.add(tarefa.aceita_por)
   if (tarefa.criado_por) recipients.add(tarefa.criado_por)
-  if (!tarefa.responsavel_id || tarefa.modo_distribuicao === 'livre_equipe') {
+  // Tarefa de escopo pessoal nunca é transmitida para toda a equipe, mesmo sem responsável definido.
+  const escopoTarefa = tarefa?.escopo === 'equipe' ? 'equipe' : 'pessoal'
+  if (escopoTarefa === 'equipe' && (!tarefa.responsavel_id || tarefa.modo_distribuicao === 'livre_equipe')) {
     const equipe = await query<{ id: string }>('SELECT id FROM profiles WHERE org_id = $1 AND ativo = TRUE', [orgId]).catch(() => [])
     for (const membro of equipe) recipients.add(membro.id)
   }

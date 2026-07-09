@@ -1044,9 +1044,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               className="form-input"
               type="date"
               value={prazo}
-              onFocus={e => {
-                try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-              }}
               onChange={e => setPrazo(e.target.value)}
             />
           </div>
@@ -1219,9 +1216,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   type="date"
                   value={novoItemData}
-                  onFocus={e => {
-                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                  }}
                   onChange={e => setNovoItemData(e.target.value)}
                   title="Data desta ação"
                 />
@@ -1323,9 +1317,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   type="date"
                   value={item.data || ''}
-                  onFocus={e => {
-                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                  }}
                   onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
                   title="Data desta ação opcional"
                 />
@@ -1515,7 +1506,6 @@ function ComplementoModal({ tarefa, membros, onClose, onSaved }: { tarefa: Taref
               className="form-input"
               type="date"
               value={prazo}
-              onFocus={e => { try { (e.target as HTMLInputElement).showPicker?.() } catch {} }}
               onChange={e => setPrazo(e.target.value)}
             />
           </div>
@@ -2445,9 +2435,6 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     className="form-input"
                     type="date"
                     value={editPrazo}
-                    onFocus={e => {
-                      try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                    }}
                     onChange={e => setEditPrazo(e.target.value)}
                   />
                 </div>
@@ -2513,9 +2500,6 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   className="form-input"
                   type="date"
                   value={newSubtaskDate}
-                  onFocus={e => {
-                    try { (e.target as HTMLInputElement).showPicker?.() } catch {}
-                  }}
                   onChange={e => setNewSubtaskDate(e.target.value)}
                 />
               </div>

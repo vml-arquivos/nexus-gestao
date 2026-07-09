@@ -81,12 +81,21 @@ export default function Layout() {
   const [moreOpen, setMoreOpen]       = useState(false)
   const [fabOpen, setFabOpen]         = useState(false)
   const [notifOpen, setNotifOpen]     = useState(false)
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const [atrasosResumo, setAtrasosResumo] = useState<AtrasosResumo | null>(null)
   const [atrasosPopupOpen, setAtrasosPopupOpen] = useState(false)
   const [pushBannerDismissed, setPushBannerDismissed] = useState(() =>
     localStorage.getItem('nexus:push-banner-dismissed') === 'true'
   )
   const notifRef = useRef<HTMLDivElement>(null)
+  const avatarMenuRef = useRef<HTMLDivElement>(null)
+
+  function handleLogoutClick() {
+    setAvatarMenuOpen(false)
+    if (window.confirm('Deseja sair da sua conta?')) {
+      logout()
+    }
+  }
 
   function dismissPushBanner() {
     localStorage.setItem('nexus:push-banner-dismissed', 'true')
@@ -102,6 +111,7 @@ export default function Layout() {
     setMoreOpen(false)
     setFabOpen(false)
     setNotifOpen(false)
+    setAvatarMenuOpen(false)
   }
 
   // Calcula itens principais do bottom nav conforme o papel do usuário
@@ -146,6 +156,17 @@ export default function Layout() {
     if (notifOpen) document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [notifOpen])
+
+  // Fecha menu do avatar ao clicar fora
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (avatarMenuRef.current && !avatarMenuRef.current.contains(e.target as Node)) {
+        setAvatarMenuOpen(false)
+      }
+    }
+    if (avatarMenuOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [avatarMenuOpen])
 
   // Popup diário de atrasos ao acessar o sistema.
   useEffect(() => {
@@ -341,7 +362,7 @@ export default function Layout() {
               </div>
             </div>
             <button
-              onClick={logout}
+              onClick={handleLogoutClick}
               title="Sair"
               style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 4, borderRadius: 6 }}
             >
@@ -535,18 +556,64 @@ export default function Layout() {
               )}
             </div>
 
-            <button
-              onClick={logout}
-              title="Sair"
-              style={{
-                width: 32, height: 32, borderRadius: '50%',
-                background: 'var(--primary-dim)', border: '2px solid var(--primary-dim)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 700, fontSize: 12, color: 'var(--primary)', cursor: 'pointer',
-              }}
-            >
-              {initials}
-            </button>
+            <div ref={avatarMenuRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => { setNotifOpen(false); setAvatarMenuOpen(v => !v) }}
+                title={user?.nome || 'Conta'}
+                aria-haspopup="menu"
+                aria-expanded={avatarMenuOpen}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: 'var(--primary-dim)', border: '2px solid var(--primary-dim)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 700, fontSize: 12, color: 'var(--primary)', cursor: 'pointer',
+                }}
+              >
+                {initials}
+              </button>
+              {avatarMenuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute', top: '110%', right: 0, minWidth: 190,
+                    background: 'var(--bg2)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', boxShadow: '0 12px 32px rgba(0,0,0,.28)',
+                    zIndex: 'calc(var(--z-modal) + 20)' as any, overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {user?.nome || 'Usuário'}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', textTransform: 'capitalize' }}>
+                      {roleLabel(user?.role)}
+                    </div>
+                  </div>
+                  <Link
+                    to="/configuracoes"
+                    role="menuitem"
+                    onClick={() => setAvatarMenuOpen(false)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                      fontSize: 13, color: 'var(--text2)', textDecoration: 'none',
+                    }}
+                  >
+                    <Settings size={15} /> Configurações
+                  </Link>
+                  <button
+                    role="menuitem"
+                    onClick={handleLogoutClick}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                      fontSize: 13, color: 'var(--text2)', background: 'none', border: 'none',
+                      width: '100%', textAlign: 'left', cursor: 'pointer',
+                    }}
+                  >
+                    <LogOut size={15} /> Sair
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
