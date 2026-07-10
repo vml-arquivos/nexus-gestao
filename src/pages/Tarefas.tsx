@@ -565,6 +565,14 @@ function getYearValue(value?: string) {
   return String(d.getFullYear())
 }
 
+// Elegível para aprovação em lote: mesma regra que o backend já aplica em
+// /:id/aprovar (escopo equipe, status concluída/reenviada) — usada só para
+// decidir a exibição do checkbox; o backend continua sendo a autoridade
+// final em cada chamada individual.
+function elegivelParaAprovacaoLote(t: Tarefa) {
+  return t.escopo === 'equipe' && ['concluida', 'reenviada'].includes(t.status)
+}
+
 function statusCfg(status?: string) {
   return STATUS_CONFIG[status || 'pendente'] || STATUS_CONFIG.pendente
 }
@@ -2989,13 +2997,16 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
+function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
   actionBusy?: boolean
   helpPendingForMe?: boolean
   helpRequestedByMe?: any | null
+  selectMode?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
   onOpen: (t: Tarefa) => void
   onEdit: (t: Tarefa) => void
   onDelete: (id: string) => void
@@ -3065,10 +3076,21 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
         'task-report-row',
         tarefa.data_reabertura && !isTaskFinalizada ? 'task-report-row--reaberta' : '',
         listSurprise ? 'task-report-row--surpresa' : '',
+        selectMode && elegivelParaAprovacaoLote(tarefa) ? 'task-report-row--selectable' : '',
       ].filter(Boolean).join(' ')}
       onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
       title="Clique para abrir a lista"
     >
+      {selectMode && elegivelParaAprovacaoLote(tarefa) && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect?.(tarefa.id)}
+          className="task-report-select-checkbox"
+          aria-label={`Selecionar "${tarefa.titulo}" para aprovação em lote`}
+          onClick={e => e.stopPropagation()}
+        />
+      )}
       {/* COLUNA PRINCIPAL — título + meta */}
       <div className="task-report-main">
         <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>
@@ -3503,6 +3525,9 @@ export default function Tarefas() {
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' ? true : navigator.onLine)
   const [offlineQueueCount, setOfflineQueueCount] = useState(() => Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
   const [actionTaskId, setActionTaskId] = useState<string | null>(null)
+  const [modoSelecao, setModoSelecao] = useState(false)
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
+  const [aprovandoLote, setAprovandoLote] = useState(false)
   const [viewMode, setViewMode] = useState<'lista' | 'quadro'>(() =>
     (localStorage.getItem('nexus:tarefas-view') as 'lista' | 'quadro') || 'lista'
   )
@@ -3794,6 +3819,48 @@ export default function Tarefas() {
     finally { setActionTaskId(null) }
   }
 
+  // Elegível para aprovação em lote: ver função de módulo elegivelParaAprovacaoLote acima.
+
+  function toggleSelecao(id: string) {
+    setSelecionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function cancelarSelecao() {
+    setModoSelecao(false)
+    setSelecionadas(new Set())
+  }
+
+  async function aprovarSelecionadasEmLote() {
+    if (selecionadas.size === 0 || aprovandoLote) return
+    if (!confirm(`Aprovar ${selecionadas.size} tarefa(s) selecionada(s)? Isso libera a pontuação de cada uma imediatamente.`)) return
+    setAprovandoLote(true)
+    const ids = Array.from(selecionadas)
+    let sucesso = 0
+    const falhas: string[] = []
+    for (const id of ids) {
+      try {
+        await tarefasApi.aprovar(id)
+        sucesso++
+      } catch (e) {
+        const titulo = tarefas.find(t => t.id === id)?.titulo || id
+        falhas.push(`${titulo}: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+      }
+    }
+    await Promise.all([load(), loadRanking(periodoRanking)])
+    setAprovandoLote(false)
+    cancelarSelecao()
+    if (falhas.length === 0) {
+      toast(`${sucesso} tarefa(s) aprovada(s) com sucesso.`)
+    } else {
+      toast(`${sucesso} aprovada(s), ${falhas.length} não aprovada(s): ${falhas.slice(0, 2).join(' · ')}${falhas.length > 2 ? '…' : ''}`, 'error')
+    }
+  }
+
   async function devolver(t: Tarefa) {
     setDevolverTarget(t)
   }
@@ -3878,6 +3945,16 @@ export default function Tarefas() {
         <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
           <Plus size={17} /> Nova lista
         </button>
+        {isGestor && (
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => (modoSelecao ? cancelarSelecao() : setModoSelecao(true))}
+            style={{ marginLeft: 8 }}
+          >
+            {modoSelecao ? 'Cancelar seleção' : 'Selecionar'}
+          </button>
+        )}
       </header>
 
       {/* ── OFFLINE BANNER ────────────────────────────────── */}
@@ -4082,6 +4159,9 @@ export default function Tarefas() {
               key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(t.id)}
               helpRequestedByMe={minhasAjudasPorTarefa.get(t.id) || null}
+              selectMode={modoSelecao}
+              selected={selecionadas.has(t.id)}
+              onToggleSelect={toggleSelecao}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
               onDelete={remove}
@@ -4104,6 +4184,20 @@ export default function Tarefas() {
       {modalOpen && <TarefaModal tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
       {responder && <RespostaModal tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal tarefa={historico} onClose={() => setHistorico(null)} />}
+      {modoSelecao && selecionadas.size > 0 && (
+        <div className="bulk-approve-bar">
+          <span>{selecionadas.size} tarefa{selecionadas.size > 1 ? 's' : ''} selecionada{selecionadas.size > 1 ? 's' : ''}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={cancelarSelecao} disabled={aprovandoLote}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn-primary" onClick={aprovarSelecionadasEmLote} disabled={aprovandoLote}>
+              {aprovandoLote ? 'Aprovando...' : `Aprovar ${selecionadas.size} agora`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {detalhe && <TarefaDetalheModal tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
       {complemento && <ComplementoModal tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
