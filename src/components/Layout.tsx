@@ -11,7 +11,8 @@ import { useAuth } from '../lib/AuthContext'
 import { GlobalSearch } from './GlobalSearch'
 import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
-import { apiJson } from '../lib/api'
+import type { Notificacao } from '../hooks/useNotificacoes'
+import { apiJson, tarefasApi } from '../lib/api'
 import { NotificacaoToast } from './NotificacaoToast'
 import { GlobalMic } from './GlobalMic'
 import { isGestorLike, roleLabel } from '../lib/roles'
@@ -83,6 +84,8 @@ export default function Layout() {
   const [fabOpen, setFabOpen]         = useState(false)
   const [notifOpen, setNotifOpen]     = useState(false)
   const [searchOpen, setSearchOpen]   = useState(false)
+  const [aprovandoNotifId, setAprovandoNotifId] = useState<string | null>(null)
+  const [erroAprovacaoNotif, setErroAprovacaoNotif] = useState<{ id: string; msg: string } | null>(null)
 
   // Atalho de teclado: Ctrl+K (Windows/Linux) ou Cmd+K (Mac) abre a busca global de qualquer tela.
   useEffect(() => {
@@ -108,6 +111,22 @@ export default function Layout() {
     setAvatarMenuOpen(false)
     if (window.confirm('Deseja sair da sua conta?')) {
       logout()
+    }
+  }
+
+  async function aprovarRapido(n: Notificacao, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!n.referencia_id || aprovandoNotifId) return
+    setAprovandoNotifId(n.id)
+    setErroAprovacaoNotif(null)
+    try {
+      await tarefasApi.aprovar(n.referencia_id)
+      marcarLida(n.id)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Não foi possível aprovar. Abra a tarefa para revisar.'
+      setErroAprovacaoNotif({ id: n.id, msg })
+    } finally {
+      setAprovandoNotifId(null)
     }
   }
 
@@ -571,6 +590,27 @@ export default function Layout() {
                               }}>
                                 {n.body}
                               </div>
+                            )}
+                            {n.tipo === 'tarefa_concluida' && !n.lida && n.referencia_id && (
+                              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={e => aprovarRapido(n, e)}
+                                  disabled={aprovandoNotifId === n.id}
+                                  style={{
+                                    fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
+                                    background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.35)',
+                                    color: '#10B981', cursor: aprovandoNotifId === n.id ? 'not-allowed' : 'pointer',
+                                    opacity: aprovandoNotifId === n.id ? .6 : 1,
+                                  }}
+                                >
+                                  {aprovandoNotifId === n.id ? 'Aprovando...' : '✓ Aprovar agora'}
+                                </button>
+                                <span style={{ fontSize: 11, color: 'var(--text3)' }}>ou clique para revisar</span>
+                              </div>
+                            )}
+                            {erroAprovacaoNotif?.id === n.id && (
+                              <div style={{ marginTop: 4, fontSize: 11, color: '#EF4444' }}>{erroAprovacaoNotif.msg}</div>
                             )}
                           </div>
                           <div style={{
