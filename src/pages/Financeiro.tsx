@@ -1836,7 +1836,7 @@ function normalizarGruposFinanceiros(input: GrupoPagamento[]): GrupoPagamento[] 
   })
 }
 
-function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGerenciar, onDetalhes, canDeleteFinanceiro }: {
+function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGerenciar, onDetalhes, canDeleteFinanceiro, selectMode = false, forceExpanded = false, isParcelaSelected, onToggleParcela }: {
   g: GrupoPagamento
   onEdit: (p: Pagamento) => void
   onDelete: (id: string) => void
@@ -1845,8 +1845,13 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
   onGerenciar: (g: GrupoPagamento) => void
   onDetalhes: (g: GrupoPagamento) => void
   canDeleteFinanceiro: boolean
+  selectMode?: boolean
+  forceExpanded?: boolean
+  isParcelaSelected?: (id: string) => boolean
+  onToggleParcela?: (id: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expandedLocal, setExpandedLocal] = useState(false)
+  const expanded = expandedLocal || forceExpanded
   const isGrupo = Boolean(g.is_grupo || g.parcelas.length > 1)
   const valorColor = g.tipo === 'recebimento' ? '#10B981' : '#EF4444'
   const sinal = g.tipo === 'recebimento' ? '+' : '-'
@@ -1861,7 +1866,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
 
   return (
     <div style={{ background: 'var(--bg2)', border: `1px solid ${g.vencido ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`, borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-      <div style={{ padding: '14px 16px', cursor: isGrupo ? 'pointer' : 'default' }} onClick={() => isGrupo && setExpanded(e => !e)}>
+      <div style={{ padding: '14px 16px', cursor: isGrupo ? 'pointer' : 'default' }} onClick={() => isGrupo && setExpandedLocal(e => !e)}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1941,7 +1946,7 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
             <button title="Visualizar detalhes" onClick={e => { e.stopPropagation(); onDetalhes(g) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
               <Eye size={13} />
             </button>
-            <button title="Mostrar parcelas no card" onClick={e => { e.stopPropagation(); setExpanded(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
+            <button title="Mostrar parcelas no card" onClick={e => { e.stopPropagation(); setExpandedLocal(ex => !ex) }} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: 'var(--bg3)', color: 'var(--text2)', cursor: 'pointer' }}>
               {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
             {canDeleteFinanceiro && (
@@ -1966,15 +1971,27 @@ function GrupoBetaCard({ g, onEdit, onDelete, onDeleteGrupo, onMarkPaid, onGeren
             return compareNullableDates(a.vencimento, b.vencimento)
           }).map((p, i) => (
             <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: i < g.parcelas.length - 1 ? '1px solid var(--border)' : 'none', background: p.status === 'pago' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
-                  {i + 1}ª parcela
-                  {p.status === 'pago' && <span style={{ marginLeft: 6, fontSize: 11, color: '#10B981' }}>Paga</span>}
-                  {p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0,10)}T00:00:00`) < new Date() && (
-                    <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>Vencida</span>
-                  )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {selectMode && p.status === 'pendente' && (
+                  <input
+                    type="checkbox"
+                    checked={isParcelaSelected?.(p.id) || false}
+                    onChange={() => onToggleParcela?.(p.id)}
+                    onClick={e => e.stopPropagation()}
+                    aria-label={`Selecionar parcela ${i + 1} para marcar como paga`}
+                    style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)', flexShrink: 0 }}
+                  />
+                )}
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: p.status === 'pago' ? 'var(--text3)' : 'var(--text1)' }}>
+                    {i + 1}ª parcela
+                    {p.status === 'pago' && <span style={{ marginLeft: 6, fontSize: 11, color: '#10B981' }}>Paga</span>}
+                    {p.status === 'pendente' && p.vencimento && new Date(`${p.vencimento.slice(0,10)}T00:00:00`) < new Date() && (
+                      <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>Vencida</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDate(p.vencimento)}</div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDate(p.vencimento)}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 500, fontSize: 13, color: p.status === 'pago' ? '#10B981' : valorColor }}>{fmt(Number(p.valor))}</span>
@@ -2212,6 +2229,9 @@ export default function Financeiro() {
   const [filtroMes, setFiltroMes] = useState('todos')
   const [filtroAno, setFiltroAno] = useState('todos')
   const [filtroGrupo, setFiltroGrupo] = useState('todos')
+  const [modoSelecaoFin, setModoSelecaoFin] = useState(false)
+  const [parcelasSelecionadas, setParcelasSelecionadas] = useState<Set<string>>(new Set())
+  const [marcandoLotePago, setMarcandoLotePago] = useState(false)
 
   // Abre o lançamento certo quando chega por link direto (ex: busca global).
   useEffect(() => {
@@ -2287,6 +2307,48 @@ export default function Financeiro() {
       toast('Marcado como pago!')
       load()
     } catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
+  }
+
+  function toggleParcelaSelecionada(id: string) {
+    setParcelasSelecionadas(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function cancelarSelecaoFin() {
+    setModoSelecaoFin(false)
+    setParcelasSelecionadas(new Set())
+  }
+
+  async function marcarSelecionadasComoPagas() {
+    if (parcelasSelecionadas.size === 0 || marcandoLotePago) return
+    if (!confirm(`Marcar ${parcelasSelecionadas.size} lançamento(s) como pago(s)/recebido(s) hoje?`)) return
+    setMarcandoLotePago(true)
+    const hoje = new Date().toISOString().slice(0, 10)
+    const ids = Array.from(parcelasSelecionadas)
+    let sucesso = 0
+    const falhas: string[] = []
+    for (const id of ids) {
+      try {
+        await pagamentosApi.update(id, { status: 'pago', pago_em: hoje })
+        sucesso++
+      } catch (e) {
+        const todas = grupos.flatMap(g => g.parcelas)
+        const titulo = todas.find(p => p.id === id)?.titulo || id
+        falhas.push(`${titulo}: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+      }
+    }
+    load()
+    setMarcandoLotePago(false)
+    cancelarSelecaoFin()
+    if (falhas.length === 0) {
+      toast(`${sucesso} lançamento(s) marcado(s) como pago(s).`)
+    } else {
+      toast(`${sucesso} marcado(s), ${falhas.length} falharam: ${falhas.slice(0, 2).join(' · ')}${falhas.length > 2 ? '…' : ''}`, 'error')
+    }
   }
 
   async function handleDelete(id: string) {
@@ -2412,7 +2474,16 @@ export default function Financeiro() {
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('finance.pageTitle')}</h1>
           <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Pagamentos, recebimentos, recorrências e datas personalizadas</p>
         </div>
-        <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => (modoSelecaoFin ? cancelarSelecaoFin() : setModoSelecaoFin(true))}
+          >
+            {modoSelecaoFin ? 'Cancelar seleção' : 'Selecionar'}
+          </button>
+          <button className="btn btn-primary" onClick={() => openLancamento()} style={{ gap: 6 }}><Plus size={16} /> Lançar</button>
+        </div>
       </div>
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 14 }}>
@@ -2690,6 +2761,10 @@ export default function Financeiro() {
                         onDeleteGrupo={g => handleDeleteGrupo(g)}
                         canDeleteFinanceiro={canDeleteFinanceiro}
                         onMarkPaid={p => handleMarcarPago(p)}
+                        selectMode={modoSelecaoFin}
+                        forceExpanded={modoSelecaoFin}
+                        isParcelaSelected={id => parcelasSelecionadas.has(id)}
+                        onToggleParcela={toggleParcelaSelecionada}
                       />
                     ))}
                   </div>
@@ -2727,6 +2802,10 @@ export default function Financeiro() {
                         onDeleteGrupo={g => handleDeleteGrupo(g)}
                         canDeleteFinanceiro={canDeleteFinanceiro}
                         onMarkPaid={p => handleMarcarPago(p)}
+                        selectMode={modoSelecaoFin}
+                        forceExpanded={modoSelecaoFin}
+                        isParcelaSelected={id => parcelasSelecionadas.has(id)}
+                        onToggleParcela={toggleParcelaSelecionada}
                       />
                     ))}
                   </div>
@@ -2779,6 +2858,20 @@ export default function Financeiro() {
           onUpdate={load}
           onClose={() => setGerenciarDivida(null)}
         />
+      )}
+
+      {modoSelecaoFin && parcelasSelecionadas.size > 0 && (
+        <div className="bulk-approve-bar">
+          <span>{parcelasSelecionadas.size} lançamento{parcelasSelecionadas.size > 1 ? 's' : ''} selecionado{parcelasSelecionadas.size > 1 ? 's' : ''}</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={cancelarSelecaoFin} disabled={marcandoLotePago}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn-primary" onClick={marcarSelecionadasComoPagas} disabled={marcandoLotePago}>
+              {marcandoLotePago ? 'Marcando...' : `Marcar ${parcelasSelecionadas.size} como pago(s)`}
+            </button>
+          </div>
+        </div>
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
