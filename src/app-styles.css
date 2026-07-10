@@ -472,6 +472,16 @@ select.form-input { cursor: pointer; }
   color: var(--primary);
   font-weight: var(--fw-semibold);
 }
+.nav-section-label {
+  padding: 14px 22px 4px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text3);
+  opacity: .65;
+}
+.nav-section-label:first-child { padding-top: 4px; }
 
 /* ── BOTTOM NAV ITEMS ─────────────────────────────────────────── */
 .bottom-nav-item {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
@@ -17,19 +17,19 @@ import { isGestorLike, roleLabel } from '../lib/roles'
 import { useVisualTexts, type VisualTextKey } from '../hooks/useVisualTexts'
 
 // ── Rotas de navegação ────────────────────────────────────────────────────────
-const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey }[] = [
-  { path: '/',             icon: LayoutDashboard, labelKey: 'nav.home'      },
-  { path: '/inteligencia', icon: BrainCircuit,    labelKey: 'nav.intelligence' },
-  { path: '/equipe',       icon: Users,           labelKey: 'nav.team'      },
-  { path: '/equipes',      icon: Grid3X3,          labelKey: 'nav.teams'     },
-  { path: '/tarefas',      icon: CheckCircle2,    labelKey: 'nav.tasks'     },
-  { path: '/agenda',       icon: Calendar,        labelKey: 'nav.agenda'    },
-  { path: '/financeiro',   icon: DollarSign,      labelKey: 'nav.finance'   },
-  { path: '/pessoas',      icon: Users,           labelKey: 'nav.people'    },
-  { path: '/documentos',   icon: FileText,        labelKey: 'nav.files'     },
-  { path: '/relatorios',   icon: BarChart3,       labelKey: 'nav.reports'   },
-  { path: '/usuarios',     icon: UserCog,         labelKey: 'nav.users'     },
-  { path: '/configuracoes',icon: Settings,        labelKey: 'nav.settings'  },
+const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey; section: string }[] = [
+  { path: '/',             icon: LayoutDashboard, labelKey: 'nav.home',         section: 'Principal' },
+  { path: '/inteligencia', icon: BrainCircuit,    labelKey: 'nav.intelligence', section: 'Principal' },
+  { path: '/tarefas',      icon: CheckCircle2,    labelKey: 'nav.tasks',        section: 'Trabalho' },
+  { path: '/agenda',       icon: Calendar,        labelKey: 'nav.agenda',       section: 'Trabalho' },
+  { path: '/financeiro',   icon: DollarSign,      labelKey: 'nav.finance',      section: 'Trabalho' },
+  { path: '/equipe',       icon: Users,           labelKey: 'nav.team',         section: 'Equipe' },
+  { path: '/equipes',      icon: Grid3X3,          labelKey: 'nav.teams',       section: 'Equipe' },
+  { path: '/pessoas',      icon: Users,           labelKey: 'nav.people',       section: 'Equipe' },
+  { path: '/relatorios',   icon: BarChart3,       labelKey: 'nav.reports',      section: 'Gestão' },
+  { path: '/usuarios',     icon: UserCog,         labelKey: 'nav.users',        section: 'Gestão' },
+  { path: '/documentos',   icon: FileText,        labelKey: 'nav.files',        section: 'Gestão' },
+  { path: '/configuracoes',icon: Settings,        labelKey: 'nav.settings',     section: 'Sistema' },
 ]
 
 // Mantemos NAV no escopo global. BOTTOM_MAIN será calculado dentro do componente Layout.
@@ -198,6 +198,23 @@ export default function Layout() {
   const isActive = (path: string) =>
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
+  const navVisivel = useMemo(() => {
+    if (!user) return []
+    const restritoParaMembro = ['/equipe', '/equipes', '/relatorios']
+    let secaoAnterior: string | null = null
+    const resultado: Array<typeof NAV[number] & { novaSecao: boolean }> = []
+    for (const item of NAV) {
+      // Esconde entradas restritas para membros: membros não gerenciam
+      // equipes/relatórios, mas acessam usuários abaixo deles e módulos
+      // pessoais de financeiro, pessoas e documentos, filtrados pelo backend.
+      if (!isGestorLike(user.role) && restritoParaMembro.includes(item.path)) continue
+      const novaSecao = item.section !== secaoAnterior
+      secaoAnterior = item.section
+      resultado.push({ ...item, novaSecao })
+    }
+    return resultado
+  }, [user])
+
   const pushBannerVisible = !!(
     user && pushStatus?.supported && pushStatus.configured &&
     pushStatus.permission !== 'granted' && !pushBannerDismissed
@@ -301,30 +318,23 @@ export default function Layout() {
         </div>
 
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto' }}>
-          {NAV.map(({ path, icon: Icon, labelKey }) => {
+          {navVisivel.map(({ path, icon: Icon, labelKey, section, novaSecao }) => {
             const label = t(labelKey)
-            if (!user) return null
-            // Esconde entradas restritas para membros
-            if (!isGestorLike(user.role)) {
-              // Membros não gerenciam equipes/relatórios, mas acessam usuários abaixo deles
-              // e módulos pessoais de financeiro, pessoas e documentos, filtrados pelo backend.
-              if ([
-                '/equipe',
-                '/equipes',
-                '/relatorios',
-              ].includes(path)) return null
-            }
             return (
-              <Link
-                key={path}
-                to={path}
-                className={`nav-item${isActive(path) ? ' active' : ''}`}
-                onClick={() => setSidebarOpen(false)}
-              >
-                <Icon size={17} />
-                <span>{label}</span>
-                {isActive(path) && <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
-              </Link>
+              <div key={path}>
+                {novaSecao && (
+                  <div className="nav-section-label">{section}</div>
+                )}
+                <Link
+                  to={path}
+                  className={`nav-item${isActive(path) ? ' active' : ''}`}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <Icon size={17} />
+                  <span>{label}</span>
+                  {isActive(path) && <ChevronRight size={14} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
+                </Link>
+              </div>
             )
           })}
         </nav>
