@@ -17,6 +17,8 @@ import {
   CalendarDays,
   ListChecks,
   Trophy,
+  Sparkles,
+  Flag,
 } from 'lucide-react'
 import { tarefasApi, agendaApi, pagamentosApi, equipeApi, type Tarefa, type Evento, type Pagamento, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -81,6 +83,67 @@ type PainelItem = {
 }
 
 const statusFinalTarefa = ['concluida', 'aprovada', 'cancelada']
+
+type FocoItem = {
+  id: string
+  titulo: string
+  motivo: string
+  urgencia: 'critica' | 'alta' | 'media'
+  to: string
+  score: number
+}
+
+/**
+ * Calcula, para a pessoa logada, as próximas ações mais importantes do dia —
+ * combinando atraso, prioridade e proximidade do prazo em um único score.
+ * Roda 100% no cliente, a partir de dados já carregados (sem custo extra
+ * de rede nem dependência de serviço externo de IA).
+ */
+function calcularFocoDoDia(tarefas: Tarefa[], userId: string | undefined, hoje: Date): FocoItem[] {
+  if (!userId) return []
+  const itens: FocoItem[] = []
+  const hojeKey = dateKey(hoje.toISOString())
+
+  function avaliar(id: string, titulo: string, prazo: Date | null, prioridade: string | undefined, to: string, extraMotivo?: string) {
+    let score = 1
+    const motivos: string[] = []
+
+    if (prazo) {
+      const prazoKey = dateKey(prazo.toISOString())
+      const diffDias = Math.round((new Date(prazoKey + 'T12:00:00').getTime() - new Date(hojeKey + 'T12:00:00').getTime()) / 86400000)
+      if (diffDias < 0) { score += 100 + Math.min(30, -diffDias * 3); motivos.push(diffDias === -1 ? 'Atrasada há 1 dia' : `Atrasada há ${-diffDias} dias`) }
+      else if (diffDias === 0) { score += 45; motivos.push('Vence hoje') }
+      else if (diffDias === 1) { score += 25; motivos.push('Vence amanhã') }
+      else if (diffDias <= 3) { score += 12; motivos.push(`Vence em ${diffDias} dias`) }
+    }
+    if (prioridade === 'alta') { score += 35; motivos.push('Prioridade alta') }
+    else if (prioridade === 'media') { score += 10 }
+    if (extraMotivo) motivos.push(extraMotivo)
+
+    itens.push({
+      id, titulo, to, score,
+      urgencia: score >= 100 ? 'critica' : score >= 40 ? 'alta' : 'media',
+      motivo: motivos.length > 0 ? motivos.join(' · ') : 'Em aberto',
+    })
+  }
+
+  tarefas.forEach(t => {
+    if (statusFinalTarefa.includes(t.status)) return
+    const souResponsavel = t.responsavel_id === userId || t.aceita_por === userId
+    const checklist = Array.isArray(t.checklist) ? t.checklist : []
+    const itensMeus = checklist.filter(c => !c.feito && c.responsavel_id === userId)
+
+    if (souResponsavel && itensMeus.length === 0) {
+      avaliar(`t-${t.id}`, t.titulo, taskDate(t), t.prioridade, `/tarefas?task=${t.id}`,
+        t.status === 'devolvida' ? 'Devolvida pelo gestor' : undefined)
+    }
+    itensMeus.forEach(item => {
+      avaliar(`i-${t.id}-${item.id}`, `${t.titulo} · ${item.texto}`, checklistActionDate(item) || taskDate(t), t.prioridade, `/tarefas?task=${t.id}`)
+    })
+  })
+
+  return itens.sort((a, b) => b.score - a.score).slice(0, 5)
+}
 
 function taskDate(t: Tarefa) {
   return parseDateSafe(t.prazo || t.data || t.created_at)
@@ -242,6 +305,8 @@ export default function Dashboard() {
     }
     load()
   }, [user])
+
+  const focoDoDia = useMemo(() => calcularFocoDoDia(tarefas, user?.id, hoje), [tarefas, user?.id, hoje])
 
   const monthOptions = useMemo(() => {
     const keys = new Set<string>([monthKeyFromDate(now)])
@@ -437,6 +502,30 @@ export default function Dashboard() {
           <Link to="/financeiro" className="dash-secondary-action"><WalletCards size={16} /> {t('dashboard.secondaryAction')}</Link>
         </div>
       </div>
+
+      {/* ── Foco do Dia ──────────────────────────────────────────────────── */}
+      {focoDoDia.length > 0 && (
+        <div className="dash-foco-dia">
+          <div className="dash-foco-dia-header">
+            <Sparkles size={16} color="#8B5CF6" />
+            <span>Foco do dia</span>
+            <span className="dash-foco-dia-sub">O que fazer agora, em ordem de urgência</span>
+          </div>
+          <div className="dash-foco-dia-list">
+            {focoDoDia.map((f, i) => (
+              <Link key={f.id} to={f.to} className={`dash-foco-item dash-foco-${f.urgencia}`}>
+                <span className="dash-foco-rank">{i + 1}</span>
+                <Flag size={13} className="dash-foco-flag" />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="dash-foco-titulo">{f.titulo}</div>
+                  <div className="dash-foco-motivo">{f.motivo}</div>
+                </div>
+                <ArrowRight size={14} className="dash-foco-arrow" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Banner do sub_gestor — mostra escopo de gestão */}
       {user?.role === 'sub_gestor' && membros.length > 0 && (

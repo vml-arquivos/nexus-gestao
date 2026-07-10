@@ -1881,6 +1881,68 @@ body:has([aria-modal="true"]) .bottom-nav {
 .dash-alert strong { color: #EF4444; }
 .dash-alert a { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: #EF4444; text-decoration: none; font-weight: 600; }
 
+/* ── Foco do Dia ────────────────────────────────────────────────────────── */
+.dash-foco-dia {
+  border-radius: 18px;
+  border: 1px solid rgba(139, 92, 246, .25);
+  background: linear-gradient(135deg, rgba(139, 92, 246, .08), rgba(37, 99, 235, .05));
+  padding: 14px 14px 10px;
+  margin-bottom: 14px;
+}
+.dash-foco-dia-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 800;
+  font-size: 13px;
+  font-family: var(--font-heading);
+}
+.dash-foco-dia-sub {
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--text3);
+  margin-left: 2px;
+}
+.dash-foco-dia-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dash-foco-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+.dash-foco-item:hover { transform: translateX(2px); border-color: var(--primary-light); }
+.dash-foco-rank {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+  background: var(--bg3); color: var(--text3);
+}
+.dash-foco-critica .dash-foco-rank { background: rgba(239, 68, 68, .15); color: #EF4444; }
+.dash-foco-alta .dash-foco-rank { background: rgba(245, 158, 11, .15); color: #F59E0B; }
+.dash-foco-flag { flex-shrink: 0; color: var(--text3); }
+.dash-foco-critica .dash-foco-flag { color: #EF4444; }
+.dash-foco-alta .dash-foco-flag { color: #F59E0B; }
+.dash-foco-titulo {
+  font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-foco-motivo { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.dash-foco-critica .dash-foco-motivo { color: #EF4444; font-weight: 600; }
+.dash-foco-arrow { flex-shrink: 0; color: var(--text3); }
+
 .dash-metrics-grid,
 .dash-summary-strip,
 .dash-finance-grid {
