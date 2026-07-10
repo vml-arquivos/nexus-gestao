@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, X, CheckCircle2, DollarSign, Users, FileText, Loader, CornerDownLeft } from 'lucide-react'
+import { Search, X, CheckCircle2, DollarSign, Users, FileText, Loader, CornerDownLeft, Zap } from 'lucide-react'
 import { tarefasApi, pagamentosApi, equipeApi, documentosApi, type Tarefa, type Pagamento, type Pessoa, type Documento } from '../lib/api'
 
 /**
  * Busca global do Nexus — um único campo que cobre Tarefas, Financeiro,
- * Pessoas e Documentos ao mesmo tempo, com navegação por teclado.
+ * Pessoas e Documentos ao mesmo tempo, com navegação por teclado, e
+ * também funciona como Command Palette: "Nova tarefa", "Novo lançamento"
+ * etc. abrem o formulário de criação direto, sem precisar navegar e
+ * clicar em nada.
  *
  * Os dados são buscados uma vez (na abertura) e filtrados no cliente a
  * cada tecla — evita 1 requisição por letra digitada e mantém a busca
@@ -20,6 +23,14 @@ type Resultado = {
   to: string
 }
 
+type AcaoRapida = {
+  id: string
+  titulo: string
+  subtitulo: string
+  atalho?: string[]
+  executar: (navigate: ReturnType<typeof useNavigate>) => void
+}
+
 const CATEGORIA_LABEL: Record<Resultado['categoria'], string> = {
   tarefa: 'Tarefas',
   financeiro: 'Financeiro',
@@ -32,6 +43,24 @@ const CATEGORIA_ICON: Record<Resultado['categoria'], typeof CheckCircle2> = {
   pessoa: Users,
   documento: FileText,
 }
+
+// Dispara o evento que as telas de Tarefas/Financeiro/Pessoas/Documentos/
+// Agenda já escutam para abrir o formulário de criação — só precisa dar
+// tempo da tela de destino montar e registrar o listener antes de disparar.
+function abrirCriacaoEm(navigate: ReturnType<typeof useNavigate>, rota: string) {
+  navigate(rota)
+  setTimeout(() => window.dispatchEvent(new Event('nexus:open-new')), 220)
+}
+
+const ACOES_RAPIDAS: AcaoRapida[] = [
+  { id: 'nova-tarefa', titulo: 'Nova tarefa / lista', subtitulo: 'Abrir criação em Tarefas', executar: nav => abrirCriacaoEm(nav, '/tarefas') },
+  { id: 'novo-lancamento', titulo: 'Novo lançamento financeiro', subtitulo: 'Abrir criação em Financeiro', executar: nav => abrirCriacaoEm(nav, '/financeiro') },
+  { id: 'novo-contato', titulo: 'Novo contato/pessoa', subtitulo: 'Abrir criação em Pessoas', executar: nav => abrirCriacaoEm(nav, '/pessoas') },
+  { id: 'novo-documento', titulo: 'Novo documento', subtitulo: 'Abrir upload em Documentos', executar: nav => abrirCriacaoEm(nav, '/documentos') },
+  { id: 'novo-evento', titulo: 'Novo evento na agenda', subtitulo: 'Abrir criação em Agenda', executar: nav => abrirCriacaoEm(nav, '/agenda') },
+  { id: 'ir-relatorios', titulo: 'Ir para Relatórios', subtitulo: 'Execução por membro, gráficos e exportação', executar: nav => nav('/relatorios') },
+  { id: 'ir-config', titulo: 'Ir para Configurações', subtitulo: '', executar: nav => nav('/configuracoes') },
+]
 
 function normalizar(s: string) {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -114,16 +143,33 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
     return out.slice(0, 30)
   }, [termo, dados])
 
+  const acoesFiltradas = useMemo<AcaoRapida[]>(() => {
+    const q = normalizar(termo.trim())
+    if (q.length === 0) return ACOES_RAPIDAS
+    return ACOES_RAPIDAS.filter(a => normalizar(a.titulo).includes(q) || normalizar(a.subtitulo).includes(q))
+  }, [termo])
+
   const irPara = useCallback((r: Resultado) => {
     navigate(r.to)
     onClose()
   }, [navigate, onClose])
 
+  const executarAcao = useCallback((a: AcaoRapida) => {
+    a.executar(navigate)
+    onClose()
+  }, [navigate, onClose])
+
+  const totalNavegavel = acoesFiltradas.length + resultados.length
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Escape') { onClose(); return }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setIndiceAtivo(i => Math.min(i + 1, resultados.length - 1)); return }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setIndiceAtivo(i => Math.min(i + 1, totalNavegavel - 1)); return }
     if (e.key === 'ArrowUp') { e.preventDefault(); setIndiceAtivo(i => Math.max(i - 1, 0)); return }
-    if (e.key === 'Enter' && resultados[indiceAtivo]) { irPara(resultados[indiceAtivo]); return }
+    if (e.key === 'Enter') {
+      if (indiceAtivo < acoesFiltradas.length) { executarAcao(acoesFiltradas[indiceAtivo]); return }
+      const r = resultados[indiceAtivo - acoesFiltradas.length]
+      if (r) irPara(r)
+    }
   }
 
   if (!open) return null
@@ -144,7 +190,7 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
             value={termo}
             onChange={e => { setTermo(e.target.value); setIndiceAtivo(0) }}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar em tarefas, financeiro, pessoas, documentos..."
+            placeholder="Buscar ou digitar uma ação (ex: nova tarefa)..."
             className="global-search-input"
           />
           {carregando && <Loader size={16} className="global-search-spinner" />}
@@ -154,29 +200,58 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
         </div>
 
         <div className="global-search-results">
-          {termo.trim().length < 2 ? (
-            <div className="global-search-empty">Digite pelo menos 2 letras para buscar.</div>
-          ) : resultados.length === 0 ? (
+          {acoesFiltradas.length > 0 && (
+            <div className="global-search-group">
+              <div className="global-search-group-label"><Zap size={11} style={{ verticalAlign: -1 }} /> Ações rápidas</div>
+              {acoesFiltradas.map((a, i) => {
+                const ativo = i === indiceAtivo
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className={`global-search-result${ativo ? ' active' : ''}`}
+                    onMouseEnter={() => setIndiceAtivo(i)}
+                    onClick={() => executarAcao(a)}
+                  >
+                    <Zap size={15} />
+                    <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                      <div className="global-search-result-title">{a.titulo}</div>
+                      {a.subtitulo && <div className="global-search-result-sub">{a.subtitulo}</div>}
+                    </div>
+                    {ativo && <CornerDownLeft size={13} className="global-search-enter-hint" />}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {termo.trim().length >= 2 && resultados.length === 0 && acoesFiltradas.length === 0 && (
             <div className="global-search-empty">Nenhum resultado para "{termo}".</div>
-          ) : (
-            agrupado.map(grupo => {
-              const Icon = CATEGORIA_ICON[grupo.cat]
-              return (
-                <div key={grupo.cat} className="global-search-group">
-                  <div className="global-search-group-label">{CATEGORIA_LABEL[grupo.cat]}</div>
-                  {grupo.itens.map(r => {
-                    contadorGlobal++
-                    const ativo = contadorGlobal === indiceAtivo
-                    return (
-                      <button
-                        key={r.id}
-                        type="button"
-                        className={`global-search-result${ativo ? ' active' : ''}`}
-                        onMouseEnter={() => setIndiceAtivo(contadorGlobal)}
-                        onClick={() => irPara(r)}
-                      >
-                        <Icon size={15} />
-                        <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+          )}
+
+          {termo.trim().length < 2 && acoesFiltradas.length === 0 && (
+            <div className="global-search-empty">Digite pelo menos 2 letras para buscar.</div>
+          )}
+
+          {agrupado.map(grupo => {
+            const Icon = CATEGORIA_ICON[grupo.cat]
+            return (
+              <div key={grupo.cat} className="global-search-group">
+                <div className="global-search-group-label">{CATEGORIA_LABEL[grupo.cat]}</div>
+                {grupo.itens.map(r => {
+                  contadorGlobal++
+                  const indiceReal = acoesFiltradas.length + contadorGlobal
+                  const ativo = indiceReal === indiceAtivo
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={`global-search-result${ativo ? ' active' : ''}`}
+                      onMouseEnter={() => setIndiceAtivo(indiceReal)}
+                      onClick={() => irPara(r)}
+                    >
+                      <Icon size={15} />
+                      <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
                           <div className="global-search-result-title">{r.titulo}</div>
                           <div className="global-search-result-sub">{r.subtitulo}</div>
                         </div>
@@ -186,8 +261,7 @@ export function GlobalSearch({ open, onClose }: { open: boolean; onClose: () => 
                   })}
                 </div>
               )
-            })
-          )}
+            })}
         </div>
       </div>
     </div>
