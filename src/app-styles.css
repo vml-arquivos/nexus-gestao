@@ -245,7 +245,7 @@ a:hover { text-decoration: underline; }
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
 }
 
 .form-label {
@@ -253,33 +253,48 @@ a:hover { text-decoration: underline; }
   font-weight: var(--fw-semibold);
   color: var(--text3);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.055em;
+  transition: color var(--transition-fast);
 }
 
 .form-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 14px;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--font-body);
   font-size: var(--text-base);
   font-weight: var(--fw-normal);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
   outline: none;
   -webkit-appearance: none;
   appearance: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
 }
 .form-input::placeholder { color: var(--text-muted); }
+.form-input:hover:not(:disabled):not(:focus) {
+  border-color: color-mix(in srgb, var(--border) 40%, var(--primary));
+}
 .form-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-dim);
+  box-shadow: 0 0 0 3.5px var(--primary-dim), 0 1px 2px rgba(15, 23, 42, .04);
   background: var(--bg2);
 }
-.form-input:disabled { opacity: 0.6; cursor: not-allowed; }
-textarea.form-input { resize: vertical; min-height: 72px; line-height: 1.5; }
-select.form-input { cursor: pointer; }
+.form-input:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+textarea.form-input { resize: vertical; min-height: 72px; line-height: 1.55; }
+select.form-input {
+  cursor: pointer;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 15px;
+}
+select.form-input:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b7cfa' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
 
 /* ── Campo de data BR (dd/mm/aaaa) ────────────────────────────────────── */
 .date-field-br {
@@ -7578,14 +7593,16 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
 .task-points-box {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 14px;
   align-items: end;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg3);
-  margin-bottom: 12px;
+  padding: 16px;
+  border: 1.5px solid color-mix(in srgb, var(--border) 70%, var(--primary));
+  border-radius: 16px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bg3) 92%, var(--primary)) 0%, var(--bg3) 60%);
+  margin-bottom: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
 }
+.task-points-box .form-group { gap: 6px; }
 .task-points-box .team-ranking-note,
 .task-points-box .task-surprise-toggle--task {
   grid-column: 1 / -1;
@@ -7597,7 +7614,8 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
 @media (max-width: 720px) {
   .task-points-box {
     grid-template-columns: 1fr !important;
-    padding: 10px;
+    padding: 13px;
+    gap: 12px;
   }
 }
 
