@@ -86,6 +86,9 @@ export default function Layout() {
   const [searchOpen, setSearchOpen]   = useState(false)
   const [aprovandoNotifId, setAprovandoNotifId] = useState<string | null>(null)
   const [erroAprovacaoNotif, setErroAprovacaoNotif] = useState<{ id: string; msg: string } | null>(null)
+  const [devolvendoNotifId, setDevolvendoNotifId] = useState<string | null>(null)
+  const [motivoDevolucaoNotif, setMotivoDevolucaoNotif] = useState('')
+  const [enviandoDevolucaoNotif, setEnviandoDevolucaoNotif] = useState(false)
 
   // Atalho de teclado: Ctrl+K (Windows/Linux) ou Cmd+K (Mac) abre a busca global de qualquer tela.
   useEffect(() => {
@@ -127,6 +130,30 @@ export default function Layout() {
       setErroAprovacaoNotif({ id: n.id, msg })
     } finally {
       setAprovandoNotifId(null)
+    }
+  }
+
+  function abrirDevolucaoRapida(n: Notificacao, e: React.MouseEvent) {
+    e.stopPropagation()
+    setDevolvendoNotifId(n.id)
+    setMotivoDevolucaoNotif('')
+    setErroAprovacaoNotif(null)
+  }
+
+  async function confirmarDevolucaoRapida(n: Notificacao, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!n.referencia_id || !motivoDevolucaoNotif.trim()) return
+    setEnviandoDevolucaoNotif(true)
+    try {
+      await tarefasApi.devolver(n.referencia_id, motivoDevolucaoNotif.trim())
+      marcarLida(n.id)
+      setDevolvendoNotifId(null)
+      setMotivoDevolucaoNotif('')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Não foi possível devolver. Abra a tarefa para revisar.'
+      setErroAprovacaoNotif({ id: n.id, msg })
+    } finally {
+      setEnviandoDevolucaoNotif(false)
     }
   }
 
@@ -592,21 +619,69 @@ export default function Layout() {
                               </div>
                             )}
                             {n.tipo === 'tarefa_concluida' && !n.lida && n.referencia_id && (
-                              <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <button
-                                  type="button"
-                                  onClick={e => aprovarRapido(n, e)}
-                                  disabled={aprovandoNotifId === n.id}
-                                  style={{
-                                    fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
-                                    background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.35)',
-                                    color: '#10B981', cursor: aprovandoNotifId === n.id ? 'not-allowed' : 'pointer',
-                                    opacity: aprovandoNotifId === n.id ? .6 : 1,
-                                  }}
-                                >
-                                  {aprovandoNotifId === n.id ? 'Aprovando...' : '✓ Aprovar agora'}
-                                </button>
-                                <span style={{ fontSize: 11, color: 'var(--text3)' }}>ou clique para revisar</span>
+                              <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
+                                {devolvendoNotifId === n.id ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <textarea
+                                      autoFocus
+                                      value={motivoDevolucaoNotif}
+                                      onChange={e => setMotivoDevolucaoNotif(e.target.value)}
+                                      placeholder="Explique o que precisa ser corrigido..."
+                                      rows={2}
+                                      className="form-input"
+                                      style={{ fontSize: 12, padding: 8 }}
+                                    />
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                      <button
+                                        type="button"
+                                        onClick={e => confirmarDevolucaoRapida(n, e)}
+                                        disabled={!motivoDevolucaoNotif.trim() || enviandoDevolucaoNotif}
+                                        style={{
+                                          fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
+                                          background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.35)',
+                                          color: '#F59E0B', cursor: !motivoDevolucaoNotif.trim() ? 'not-allowed' : 'pointer',
+                                          opacity: !motivoDevolucaoNotif.trim() || enviandoDevolucaoNotif ? .6 : 1,
+                                        }}
+                                      >
+                                        {enviandoDevolucaoNotif ? 'Enviando...' : 'Confirmar devolução'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={e => { e.stopPropagation(); setDevolvendoNotifId(null) }}
+                                        style={{ fontSize: 11.5, fontWeight: 600, padding: '5px 10px', borderRadius: 8, background: 'none', border: '1px solid var(--border)', color: 'var(--text3)', cursor: 'pointer' }}
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <button
+                                      type="button"
+                                      onClick={e => aprovarRapido(n, e)}
+                                      disabled={aprovandoNotifId === n.id}
+                                      style={{
+                                        fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
+                                        background: 'rgba(16,185,129,.12)', border: '1px solid rgba(16,185,129,.35)',
+                                        color: '#10B981', cursor: aprovandoNotifId === n.id ? 'not-allowed' : 'pointer',
+                                        opacity: aprovandoNotifId === n.id ? .6 : 1,
+                                      }}
+                                    >
+                                      {aprovandoNotifId === n.id ? 'Aprovando...' : '✓ Aprovar agora'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={e => abrirDevolucaoRapida(n, e)}
+                                      style={{
+                                        fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 8,
+                                        background: 'rgba(245,158,11,.12)', border: '1px solid rgba(245,158,11,.35)',
+                                        color: '#F59E0B', cursor: 'pointer',
+                                      }}
+                                    >
+                                      ↩ Devolver
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {erroAprovacaoNotif?.id === n.id && (
