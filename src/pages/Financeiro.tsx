@@ -843,6 +843,13 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
   const [historicoLocal, setHistoricoLocal] = useState<HistoricoFinanceiroItem[]>(historico || [])
   const sugestaoAplicadaRef = useRef<string | null>(null)
 
+  // Trava o scroll da página por trás enquanto o modal está aberto — mesmo
+  // ajuste feito no PagamentoModal, evita rolagem dupla (página + modal).
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   const saldo    = calcSaldoGrupo(parcelas)
   const valorNum = parseMoneyInput(valor)
   const valorCents = toCents(valorNum)
@@ -1042,10 +1049,10 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 300 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflow: 'hidden', zIndex: 300 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 520, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 520, maxHeight: 'min(90dvh, 780px)', overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 17, margin: 0 }}>Gerenciar dívida</h2>
@@ -1311,6 +1318,14 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   })
   const [saving, setSaving] = useState(false)
 
+  // Trava o scroll da página por trás enquanto o modal está aberto — sem
+  // isso, a página de fundo e o modal rolavam ao mesmo tempo, dando a
+  // sensação de duas barras de rolagem simultâneas.
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
   // ── Parcelado ──
   const [numParcelas, setNumParcelas] = useState('')
   const [taxaJuros, setTaxaJuros] = useState('')
@@ -1413,8 +1428,8 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflowY: 'auto', zIndex: 200 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 580, overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '16px', overflow: 'hidden', zIndex: 200 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--bg2)', borderRadius: '24px', padding: '28px 24px', width: '100%', maxWidth: 580, maxHeight: 'min(90dvh, 780px)', overflowY: 'auto', marginTop: 'auto', marginBottom: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 16 }}>{isEdit ? 'Editar lançamento' : 'Novo lançamento'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer' }}><X size={20} /></button>
@@ -2028,6 +2043,12 @@ function FinanceiroDetalhesModal({ grupo, onClose, onGerenciar, onEdit, onMarkPa
   const proxima = pendentes[0]
   const valorParcelaBase = parcelas.length ? Number(parcelas[0]?.valor || 0) : Number(grupo.valor_total || 0)
   const progresso = Number(grupo.valor_total || 0) > 0 ? Math.min(100, Math.round((Number(grupo.valor_pago || 0) / Number(grupo.valor_total || 1)) * 100)) : 0
+
+  // Trava o scroll da página por trás enquanto o modal está aberto.
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
   const entrada = grupo.tipo === 'recebimento'
   const valorColor = entrada ? '#10B981' : '#EF4444'
   const tituloTipo = entrada ? 'A receber' : 'A pagar'
