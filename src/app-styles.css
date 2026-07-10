@@ -281,6 +281,66 @@ a:hover { text-decoration: underline; }
 textarea.form-input { resize: vertical; min-height: 72px; line-height: 1.5; }
 select.form-input { cursor: pointer; }
 
+/* ── Campo de data BR (dd/mm/aaaa) ────────────────────────────────────── */
+.date-field-br {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+.date-field-br-input {
+  width: 100%;
+  padding: 10px 40px 10px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: var(--fw-normal);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.date-field-br-input::placeholder { color: var(--text-muted); }
+.date-field-br-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-dim);
+  background: var(--bg2);
+}
+.date-field-br-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.date-field-br-icon-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text3);
+  cursor: pointer;
+}
+.date-field-br-icon-btn:hover:not(:disabled) { background: var(--bg3); color: var(--primary); }
+.date-field-br-icon-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.date-field-br-native {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  opacity: 0;
+  pointer-events: none;
+  border: none;
+  padding: 0;
+}
+
 /* Cards */
 .card {
   background: var(--bg2);
@@ -6095,6 +6155,15 @@ button:disabled,
 @media (max-width: 640px) {
   .push-permission-banner { flex-direction: column; align-items: stretch; bottom: calc(88px + env(safe-area-inset-bottom)); }
   .push-permission-banner .btn { width: 100%; }
+  /* Reserva espaço no conteúdo rolável quando o banner de push está visível,
+     para o banner nunca ficar sobreposto a texto/cards do fim da página. */
+  .push-banner-active .page-scroll { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+}
+@media (min-width: 641px) and (max-width: 1023px) {
+  .push-banner-active .page-scroll { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+}
+@media (min-width: 1024px) {
+  .push-banner-active .page-scroll { padding-bottom: 110px; }
 }
 
 /* ── FIX CRÍTICO: Date/datetime picker nativo ─────────────────────────────── */

@@ -198,8 +198,13 @@ export default function Layout() {
   const isActive = (path: string) =>
     path === '/' ? pathname === '/' : pathname.startsWith(path)
 
+  const pushBannerVisible = !!(
+    user && pushStatus?.supported && pushStatus.configured &&
+    pushStatus.permission !== 'granted' && !pushBannerDismissed
+  )
+
   return (
-    <div className={`app-shell${sidebarOpen ? ' sidebar-is-open' : ''}`}>
+    <div className={`app-shell${sidebarOpen ? ' sidebar-is-open' : ''}${pushBannerVisible ? ' push-banner-active' : ''}`}>
       {/* ── TOASTS DE NOTIFICAÇÃO ──────────────────────────────────────── */}
       <NotificacaoToast toasts={toasts} onFechar={fecharToast} />
 

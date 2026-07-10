@@ -7,6 +7,7 @@ import {
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty } from '../lib/api'
+import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
@@ -1040,11 +1041,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Prazo <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(pode ser prorrogado pelo gestor)</span></label>
-            <input
-              className="form-input"
-              type="date"
+            <DateFieldBR
               value={prazo}
-              onChange={e => setPrazo(e.target.value)}
+              onChange={setPrazo}
             />
           </div>
           <div className="form-group">
@@ -1212,11 +1211,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               </div>
               <div className="form-group">
                 <label className="form-label">Data desta ação</label>
-                <input
-                  className="form-input"
-                  type="date"
+                <DateFieldBR
                   value={novoItemData}
-                  onChange={e => setNovoItemData(e.target.value)}
+                  onChange={setNovoItemData}
                   title="Data desta ação"
                 />
               </div>
@@ -1313,11 +1310,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}
                   </select>
                 )}
-                <input
-                  className="form-input"
-                  type="date"
+                <DateFieldBR
                   value={item.data || ''}
-                  onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))}
+                  onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))}
                   title="Data desta ação opcional"
                 />
                 {tipoTarefa === 'equipe' && (
@@ -1502,11 +1497,9 @@ function ComplementoModal({ tarefa, membros, onClose, onSaved }: { tarefa: Taref
           </div>
           <div className="form-group">
             <label className="form-label">Novo prazo <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(opcional)</span></label>
-            <input
-              className="form-input"
-              type="date"
+            <DateFieldBR
               value={prazo}
-              onChange={e => setPrazo(e.target.value)}
+              onChange={setPrazo}
             />
           </div>
         </div>
@@ -2431,11 +2424,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <div className="grid-2">
                 <div className="form-group">
                   <label className="form-label">Prazo <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(pode ser prorrogado pelo gestor)</span></label>
-                  <input
-                    className="form-input"
-                    type="date"
+                  <DateFieldBR
                     value={editPrazo}
-                    onChange={e => setEditPrazo(e.target.value)}
+                    onChange={setEditPrazo}
                   />
                 </div>
                 <div className="form-group">
@@ -2496,11 +2487,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               {!isPersonal && listSurprise && <div className="team-ranking-note">Lista surpresa ativa: esta nova tarefa também será surpresa.</div>}
               <div className="form-group">
                 <label className="form-label">Data de execução <span>(opcional)</span></label>
-                <input
-                  className="form-input"
-                  type="date"
+                <DateFieldBR
                   value={newSubtaskDate}
-                  onChange={e => setNewSubtaskDate(e.target.value)}
+                  onChange={setNewSubtaskDate}
                 />
               </div>
               {!isPersonal && (
@@ -2533,7 +2522,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                             {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}</select>
                         )}
-                        <input className="form-input" type="date" value={item.data || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: e.target.value || undefined } : i))} title="Data opcional" />
+                        <DateFieldBR value={item.data || ''} onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))} title="Data opcional" />
                         {!isPersonal && (
                           <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                             <option value="">Livre / responsável principal</option>

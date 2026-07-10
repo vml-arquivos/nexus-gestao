@@ -25,6 +25,7 @@ import {
   Eye,
 } from 'lucide-react'
 import { pagamentosApi, equipeApi, destravaApi, type Pagamento, type Pessoa, type GrupoPagamento, type ResumoPorPessoa, type ResumoFinanceiro, type DestravaCatalogoItem } from '../lib/api'
+import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 
@@ -179,11 +180,9 @@ function DateListEditor({ dates, setDates }: { dates: string[]; setDates: (dates
     <div className="form-group">
       <label className="form-label">Datas personalizadas</label>
       <div style={{ display: 'flex', gap: 8 }}>
-        <input
-          className="form-input"
-          type="date"
+        <DateFieldBR
           value={date}
-          onChange={e => setDate(e.target.value)}
+          onChange={setDate}
         />
         <button type="button" className="btn btn-secondary" onClick={addDate} style={{ whiteSpace: 'nowrap' }}>
           <Plus size={14} /> Data
@@ -1142,11 +1141,9 @@ function GerenciarDividaModal({ parcelas, tipo, historico = [], onUpdate, onClos
             {modo === 'abatimento' && (
               <div className="form-group" style={{ margin: 0 }}>
                 <label className="form-label">Data do pagamento</label>
-                <input
-                  className="form-input"
-                  type="date"
+                <DateFieldBR
                   value={data}
-                  onChange={e => setData(e.target.value)}
+                  onChange={setData}
                 />
               </div>
             )}
@@ -1519,14 +1516,10 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               <label className="form-label">
                 {scheduleMode === 'recorrente' ? 'Primeira data' : scheduleMode === 'parcelado' ? 'Data da 1ª parcela' : 'Data de vencimento'}
               </label>
-              <input
-                className="form-input"
-                type="date"
+              <DateFieldBR
                 value={vencimento}
                 min={new Date().toISOString().slice(0, 10)}
-                placeholder="dd/mm/aaaa"
-                onChange={e => setVencimento(e.target.value)}
-                style={{ cursor: 'pointer' }}
+                onChange={setVencimento}
               />
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>
                 Clique no campo para selecionar a data.
@@ -1611,11 +1604,9 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
               </div>
               <div className="form-group">
                 <label className="form-label">Repetir até <span style={{ color: 'var(--text3)', fontWeight: 400 }}>(opcional)</span></label>
-                <input
-                  className="form-input"
-                  type="date"
+                <DateFieldBR
                   value={recorrenciaFim}
-                  onChange={e => setRecorrenciaFim(e.target.value)}
+                  onChange={setRecorrenciaFim}
                 />
                 <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>Deixe vazio quando for salário, mensalidade ou custo contínuo sem data final definida.</div>
               </div>
@@ -1627,11 +1618,9 @@ function PagamentoModal({ pessoas, onSave, onClose, initial }: {
           {status === 'pago' && (
             <div className="form-group">
               <label className="form-label">Data do pagamento</label>
-              <input
-                className="form-input"
-                type="date"
+              <DateFieldBR
                 value={pagoEm}
-                onChange={e => setPagoEm(e.target.value)}
+                onChange={setPagoEm}
               />
             </div>
           )}
