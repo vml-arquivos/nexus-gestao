@@ -856,6 +856,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (loading) return
     const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
+    if (tipoTarefa === 'equipe' && pontuacaoEscopo === 'tarefa' && modoDistribuicao === 'normal' && !responsavelId) {
+      toast('Pontuação fixa da lista exige escolher um único responsável, ou deixe a lista livre para o time.', 'error')
+      return
+    }
     const exigePontosNasTarefas = tipoTarefa === 'equipe' && pontuacaoIncluiSubtarefas(pontuacaoEscopo)
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (exigePontosNasTarefas && ((item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))))
     if (invalidItem) { toast(exigePontosNasTarefas ? 'Cada tarefa precisa ter nome e pontuação.' : 'Cada ação do checklist precisa ter nome.', 'error'); return }
@@ -1133,7 +1137,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onClick={() => changeModoDistribuicao('livre_equipe')}
               >
                 <strong>Livre para o time</strong>
-                <span>Fica disponível para qualquer membro assumir.</span>
+                <span>{pontuacaoEscopo === 'tarefa' ? 'Fica disponível para qualquer membro assumir — quem assumir leva a lista inteira, com a pontuação fixa.' : 'Fica disponível para qualquer membro assumir.'}</span>
               </button>
             </div>
           </div>
@@ -1151,6 +1155,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <option value="subtarefas">Somente pontuação das tarefas da lista</option>
                 <option value="ambos">Pontuação da lista e das tarefas</option>
               </select>
+              {pontuacaoEscopo === 'tarefa' && (
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                  Como a pontuação é fixa para a lista inteira, ela só pode valer para uma única pessoa: escolha um responsável abaixo, ou deixe "Livre para o time" — quem assumir primeiro leva a lista inteira.
+                </div>
+              )}
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
               <>
@@ -1177,13 +1186,22 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
           <div className="form-group">
-            <label className="form-label">Responsável principal da lista</label>
+            <label className="form-label">
+              Responsável principal da lista
+              {pontuacaoEscopo === 'tarefa' && <span style={{ color: '#EF4444' }}> *</span>}
+            </label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Lista de tarefas da equipe sem responsável único</option>
+              {pontuacaoEscopo === 'tarefa'
+                ? <option value="">Selecione o responsável (obrigatório)</option>
+                : <option value="">Lista de tarefas da equipe sem responsável único</option>}
               {user?.id && <option value={user.id}>Eu como responsável principal</option>}
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Você pode direcionar a lista para um membro ou deixar sem responsável principal e distribuir as tarefas internas.</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+              {pontuacaoEscopo === 'tarefa'
+                ? 'Pontuação fixa da lista: obrigatório escolher uma única pessoa responsável por toda a execução.'
+                : 'Você pode direcionar a lista para um membro ou deixar sem responsável principal e distribuir as tarefas internas.'}
+            </div>
           </div>
         )}
         <div className="form-group">
@@ -1323,7 +1341,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))}
                   title="Data desta ação opcional"
                 />
-                {tipoTarefa === 'equipe' && (
+                {tipoTarefa === 'equipe' && pontuacaoEscopo !== 'tarefa' && (
                   <select
                     className="form-input"
                     value={item.responsavel_id || ''}
@@ -2460,6 +2478,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   <option value="subtarefas">Somente pontuação das tarefas da lista</option>
                   <option value="ambos">Pontuação da lista e das tarefas</option>
                 </select>
+                {editPontuacaoEscopo === 'tarefa' && (
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                    Pontuação fixa da lista: recomendado manter um único responsável (defina em "Responsável" acima) em vez de distribuir tarefas internas para pessoas diferentes.
+                  </div>
+                )}
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
                 <>
@@ -3648,6 +3671,17 @@ export default function Tarefas() {
     return (!!t.responsavel_id && t.responsavel_id !== uid) || taskHasChecklistForOtherMember(t, uid)
   }, [user?.id])
 
+  // Tarefas de equipe que o próprio usuário está executando (atribuídas a
+  // ele, aceitas por ele, ou com algum item do checklist sob sua
+  // responsabilidade) — usado para "Minhas" também trazer o que a pessoa
+  // está executando na equipe, não só as tarefas pessoais dela.
+  const isAssignedToMeInTeam = useCallback((t: Tarefa) => {
+    const uid = user?.id || ''
+    if (!uid) return false
+    if (taskScope(t) !== 'equipe') return false
+    return t.responsavel_id === uid || t.aceita_por === uid || taskHasChecklistForUser(t, uid)
+  }, [user?.id])
+
   const recentesIds = useMemo(() => new Set(
     [...tarefasVisiveis]
       .sort((a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime())
@@ -3656,13 +3690,13 @@ export default function Tarefas() {
   ), [tarefasVisiveis])
 
   const scoped = useMemo(() => tarefasVisiveis.filter(t => {
-    if (escopo === 'pessoais') return isPersonalTask(t)
+    if (escopo === 'pessoais') return isPersonalTask(t) || isAssignedToMeInTeam(t)
     if (escopo === 'equipe') return isTeamAssignedTask(t) || isAvailableFreeTask(t)
     if (escopo === 'disponiveis') return isAvailableFreeTask(t)
     if (escopo === 'ranking') return true
     if (escopo === 'recentes') return recentesIds.has(t.id)
     return true
-  }), [tarefasVisiveis, escopo, isPersonalTask, isTeamAssignedTask, recentesIds])
+  }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds])
 
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
@@ -3708,7 +3742,7 @@ export default function Tarefas() {
     return true
   }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, statusTab, prioridade, membroFiltro, mesFiltro, anoFiltro, recentesIds])
 
-  const pessoalCount = useMemo(() => tarefasVisiveis.filter(isPersonalTask).length, [tarefasVisiveis, isPersonalTask])
+  const pessoalCount = useMemo(() => tarefasVisiveis.filter(t => isPersonalTask(t) || isAssignedToMeInTeam(t)).length, [tarefasVisiveis, isPersonalTask, isAssignedToMeInTeam])
   const equipeCount = useMemo(() => tarefasVisiveis.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasVisiveis, isTeamAssignedTask])
   const recentesCount = recentesIds.size
   const disponiveisCount = useMemo(() => tarefasVisiveis.filter(isAvailableFreeTask).length, [tarefasVisiveis])
@@ -3935,7 +3969,7 @@ export default function Tarefas() {
         <div>
           <h1 className="tarefas-page-title">{t('tasks.pageTitle')}</h1>
           <p className="tarefas-page-sub">
-            {escopo === 'pessoais' ? 'Minhas listas pessoais'
+            {escopo === 'pessoais' ? 'Minhas tarefas (pessoais e da equipe atribuídas a mim)'
               : escopo === 'equipe' ? 'Listas da equipe'
               : escopo === 'disponiveis' ? 'Disponíveis para assumir'
               : escopo === 'ranking' ? 'Pontuação e reconhecimento'
@@ -3996,7 +4030,7 @@ export default function Tarefas() {
       {/* ── ABAS PRINCIPAIS ───────────────────────────────── */}
       <section className="task-smart-tabs" aria-label="Tipo de lista">
         {([
-          { id: 'pessoais',    label: 'Minhas',   count: pessoalCount,      hint: 'Pessoais' },
+          { id: 'pessoais',    label: 'Minhas',   count: pessoalCount,      hint: 'Pessoais + atribuídas' },
           { id: 'equipe',      label: 'Equipe',   count: equipeCount,       hint: 'Time' },
           { id: 'disponiveis', label: 'Livres',   count: disponiveisCount,  hint: 'Assumir' },
           { id: 'ranking',     label: 'Ranking',  count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },

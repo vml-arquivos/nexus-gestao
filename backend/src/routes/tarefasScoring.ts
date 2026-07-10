@@ -64,6 +64,44 @@ function isMultiExecutor(task: any): boolean {
   return executorIds(task).size > 1
 }
 
+// ── Escopo de pontuação (lista / itens / ambos) ──────────────────────────
+// Réplica isolada da mesma lógica de backend/src/routes/tarefas.ts — mantida
+// separada de propósito para não criar acoplamento entre os dois arquivos de
+// rota; qualquer mudança de regra precisa ser espelhada nos dois lugares.
+type PontuacaoEscopo = 'tarefa' | 'subtarefas' | 'ambos'
+
+function parseOriginPayloadSafe(value: unknown): Record<string, any> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  return typeof value === 'object' ? { ...(value as Record<string, any>) } : {}
+}
+
+function normalizePontuacaoEscopo(value: unknown): PontuacaoEscopo {
+  const raw = String(value || '').trim().toLowerCase()
+  if (['tarefa', 'task', 'somente_tarefa', 'apenas_tarefa'].includes(raw)) return 'tarefa'
+  if (['subtarefa', 'subtarefas', 'checklist', 'checklists', 'somente_subtarefas', 'apenas_subtarefas'].includes(raw)) return 'subtarefas'
+  return 'ambos'
+}
+
+// Diferente do frontend (que assume 'tarefa' como padrão para registros sem
+// configuração), aqui precisamos saber se a tarefa TEM ou NÃO uma escolha
+// explícita — tarefas antigas, criadas antes desta opção existir, continuam
+// usando a regra antiga (inferida pela quantidade de executores), para não
+// mudar retroativamente a pontuação de nada que já estava em andamento.
+function explicitPontuacaoEscopo(task: any): PontuacaoEscopo | null {
+  const payload = parseOriginPayloadSafe(task?.origem_payload)
+  const raw = task?.pontuacao_escopo || payload?.nexus_pontuacao_escopo || payload?.pontuacao_escopo || payload?.pontuacao_tipo
+  if (!raw) return null
+  return normalizePontuacaoEscopo(raw)
+}
+
 function officialScore(value: unknown, fallback = 3): number {
   const raw = Number(value)
   const n = Number.isFinite(raw) ? raw : fallback
@@ -274,7 +312,9 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       item.aprovado_por = userId
       item.aprovado_em = now
       item.ressalva_gestor = null
-      if (isMultiExecutor(task)) await upsertItemScore(client, task, item, userId)
+      const escopoExplicitoItem = explicitPontuacaoEscopo(task)
+      const incluiItensRevisao = escopoExplicitoItem ? (escopoExplicitoItem === 'subtarefas' || escopoExplicitoItem === 'ambos') : isMultiExecutor(task)
+      if (incluiItensRevisao) await upsertItemScore(client, task, item, userId)
     } else {
       item.aprovacao_status = 'devolvida'
       item.ressalva_gestor = String(req.body?.ressalva || '').trim() || 'Necessita correção'
@@ -368,20 +408,39 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
 
     const items = parseChecklist(task.checklist)
     const multi = isMultiExecutor(task)
-    if (multi) {
+
+    // Se a lista tem escolha explícita de escopo, ela manda — inclusive
+    // permitindo "ambos" (lista + itens ao mesmo tempo), que a regra antiga
+    // (baseada só em quantos executores existem) nunca conseguia expressar.
+    // Sem escolha explícita (tarefas antigas), mantém o comportamento de
+    // sempre: múltiplos executores pontuam por item, um único executor
+    // pontua pela tarefa.
+    const escopoExplicito = explicitPontuacaoEscopo(task)
+    const incluiItens = escopoExplicito ? (escopoExplicito === 'subtarefas' || escopoExplicito === 'ambos') : multi
+    const incluiTarefa = escopoExplicito ? (escopoExplicito === 'tarefa' || escopoExplicito === 'ambos') : !multi
+
+    if (incluiItens) {
       const pending = items.filter(item => item.feito && item.aprovacao_status !== 'aprovada')
       if (pending.length) {
         await client.query('ROLLBACK')
         res.status(409).json({ error: `Aprove cada parte antes da aprovação final (${pending.length} pendente(s)).` })
         return
       }
-      await client.query(`DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2 AND motivo = 'tarefa_aprovada'`, [orgId, task.id])
       for (const item of items) {
         if (item.feito && item.aprovacao_status === 'aprovada') await upsertItemScore(client, task, item, userId)
       }
     } else {
+      // Escopo atual não inclui pontos por item — remove pontuação de itens
+      // que possa ter ficado de uma configuração/aprovação anterior.
       await client.query(`DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2 AND motivo LIKE 'checklist_aprovado:%'`, [orgId, task.id])
+    }
+
+    if (incluiTarefa) {
       await upsertTaskScore(client, task, userId)
+    } else {
+      // Escopo atual não inclui pontuação fixa da lista — remove pontos de
+      // tarefa que possam ter ficado de uma configuração/aprovação anterior.
+      await client.query(`DELETE FROM tarefas_pontuacao WHERE org_id = $1 AND tarefa_id = $2 AND motivo = 'tarefa_aprovada'`, [orgId, task.id])
     }
 
     const updated = await client.query(
@@ -394,7 +453,10 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
       `INSERT INTO tarefas_historico
          (org_id, tarefa_id, user_id, acao, status_anterior, status_novo, observacao)
        VALUES ($1,$2,$3,'aprovada',$4,'aprovada',$5)`,
-      [orgId, task.id, userId, task.status, multi ? 'Pontuação liberada por item para os executores.' : 'Pontuação única liberada para o executor da lista.'],
+      [orgId, task.id, userId, task.status, incluiItens && incluiTarefa
+        ? 'Pontuação da lista e de cada item liberada.'
+        : incluiItens ? 'Pontuação liberada por item para os executores.'
+        : 'Pontuação única liberada para o executor da lista.'],
     ).catch(() => undefined)
     await client.query('COMMIT')
 
