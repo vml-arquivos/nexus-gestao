@@ -2213,6 +2213,14 @@ export default function Financeiro() {
   const [filtroAno, setFiltroAno] = useState('todos')
   const [filtroGrupo, setFiltroGrupo] = useState('todos')
 
+  // Abre o lançamento certo quando chega por link direto (ex: busca global).
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('id')
+    if (!id || grupos.length === 0) return
+    const achado = grupos.flatMap(g => g.parcelas).find(p => p.id === id)
+    if (achado) { setPrefill(null); setEditPag(achado); setModalOpen(true) }
+  }, [location.search, grupos])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {

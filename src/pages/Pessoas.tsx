@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, WalletCards, CircleDollarSign, Share2, MessageCircle, Copy, Briefcase, Wrench, Handshake, UserRound, Eye } from 'lucide-react'
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -222,6 +222,7 @@ export default function Pessoas() {
   const { user } = useAuth()
   const { t } = useVisualTexts()
   const navigate = useNavigate()
+  const location = useLocation()
   const canDeleteOwnRecords = !!user
 
   const [tab, setTab]               = useState<'pessoas' | 'membros'>('pessoas')
@@ -233,6 +234,14 @@ export default function Pessoas() {
   const [modalOpen, setModalOpen]   = useState(false)
   const [conviteOpen, setConviteOpen] = useState(false)
   const [editPessoa, setEditPessoa] = useState<Pessoa | null>(null)
+
+  // Abre a pessoa certa quando chega por link direto (ex: busca global).
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('id')
+    if (!id || pessoas.length === 0) return
+    const achada = pessoas.find(p => p.id === id)
+    if (achada) setEditPessoa(achada)
+  }, [location.search, pessoas])
 
   const load = useCallback(async () => {
     setLoading(true)

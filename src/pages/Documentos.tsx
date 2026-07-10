@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search, Camera } from 'lucide-react'
 import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
@@ -228,6 +229,17 @@ export default function Documentos() {
   const { user } = useAuth()
   const canDeleteOwnRecords = !!user
   const [documentos, setDocumentos]   = useState<Documento[]>([])
+  const location = useLocation()
+  const idAlvo = new URLSearchParams(location.search).get('id')
+  const cardAlvoRef = useRef<HTMLDivElement>(null)
+
+  // Rola até o documento certo e o destaca quando chega por link direto
+  // (ex: busca global).
+  useEffect(() => {
+    if (!idAlvo || documentos.length === 0) return
+    const t = setTimeout(() => cardAlvoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150)
+    return () => clearTimeout(t)
+  }, [idAlvo, documentos])
   const [pessoas, setPessoas]         = useState<Pessoa[]>([])
   const [pagamentos, setPagamentos]   = useState<Pagamento[]>([])
   const [loading, setLoading]         = useState(true)
@@ -310,7 +322,15 @@ export default function Documentos() {
           {filtrados.map(doc => {
             const tc = TIPO_CONFIG[doc.tipo] || TIPO_CONFIG.outro
             return (
-              <div key={doc.id} style={{ background: 'var(--bg2)', borderRadius: 'var(--radius)', border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <div
+                key={doc.id}
+                ref={doc.id === idAlvo ? cardAlvoRef : undefined}
+                style={{
+                  background: 'var(--bg2)', borderRadius: 'var(--radius)', overflow: 'hidden',
+                  border: doc.id === idAlvo ? '2px solid var(--primary)' : '1px solid var(--border)',
+                  boxShadow: doc.id === idAlvo ? '0 0 0 4px var(--primary-dim)' : undefined,
+                }}
+              >
                 {isImage(doc.mime_type) && <div style={{ height: 140, background: 'var(--bg3)', overflow: 'hidden' }}><img src={doc.arquivo_url} alt={doc.titulo} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>}
                 <div style={{ padding: '12px 14px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>

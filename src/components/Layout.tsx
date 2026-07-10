@@ -5,9 +5,10 @@ import {
   BrainCircuit,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
   LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
-  CheckCircle, XCircle, AlertTriangle,
+  CheckCircle, XCircle, AlertTriangle, Search,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
+import { GlobalSearch } from './GlobalSearch'
 import { useTheme } from '../lib/ThemeContext'
 import { useNotificacoes } from '../hooks/useNotificacoes'
 import { apiJson } from '../lib/api'
@@ -81,6 +82,19 @@ export default function Layout() {
   const [moreOpen, setMoreOpen]       = useState(false)
   const [fabOpen, setFabOpen]         = useState(false)
   const [notifOpen, setNotifOpen]     = useState(false)
+  const [searchOpen, setSearchOpen]   = useState(false)
+
+  // Atalho de teclado: Ctrl+K (Windows/Linux) ou Cmd+K (Mac) abre a busca global de qualquer tela.
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    document.addEventListener('keydown', handleShortcut)
+    return () => document.removeEventListener('keydown', handleShortcut)
+  }, [])
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
   const [atrasosResumo, setAtrasosResumo] = useState<AtrasosResumo | null>(null)
   const [atrasosPopupOpen, setAtrasosPopupOpen] = useState(false)
@@ -112,6 +126,7 @@ export default function Layout() {
     setFabOpen(false)
     setNotifOpen(false)
     setAvatarMenuOpen(false)
+    setSearchOpen(false)
   }
 
   // Calcula itens principais do bottom nav conforme o papel do usuário
@@ -410,6 +425,14 @@ export default function Layout() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
+              onClick={() => setSearchOpen(true)}
+              style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}
+              title="Buscar (Ctrl+K)"
+            >
+              <Search size={18} />
+            </button>
+
+            <button
               onClick={toggleTheme}
               style={{ background: 'none', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}
               title={theme === 'dark' ? 'Modo claro' : 'Modo escuro'}
@@ -636,6 +659,7 @@ export default function Layout() {
           <Outlet />
         </main>
         <GlobalMic />
+        <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
       </div>
 
       {/* ── BOTTOM NAV (mobile) ──────────────────────────────────────── */}
