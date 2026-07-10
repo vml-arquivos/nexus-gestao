@@ -2638,14 +2638,22 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
                     return (
                       <div key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>
-                        <button
-                          type="button"
-                          className="task-check-main-button"
-                          disabled={!canToggleThisItem}
-                          onClick={() => toggleCheck(item.id)}
-                          aria-pressed={!!item.feito}
-                        >
-                          <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
+                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem}>
+                          <button
+                            type="button"
+                            disabled={!canToggleThisItem}
+                            onClick={() => toggleCheck(item.id)}
+                            aria-pressed={!!item.feito}
+                            aria-label={item.feito ? 'Marcar como não concluído' : 'Marcar como concluído'}
+                            title={item.feito ? 'Marcar como não concluído' : 'Marcar como concluído'}
+                            style={{
+                              background: 'none', border: 'none', padding: 0, margin: 0,
+                              cursor: canToggleThisItem ? 'pointer' : 'not-allowed',
+                              flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >
+                            <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
+                          </button>
                           <span className="task-check-content">
                             <span className="task-check-text">{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
@@ -2659,7 +2667,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                               </span>
                             )}
                           </span>
-                        </button>
+                        </div>
                         {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>Aprovar parte</button>
