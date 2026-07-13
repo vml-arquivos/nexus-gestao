@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { DateFieldBR } from '../components/DateFieldBR'
 import {
   Link2, Copy, Trash2, Eye, Lock, Globe, Plus,
   CheckCircle2, Clock, Users, FileText, X, Share2,
@@ -226,11 +227,9 @@ function ModalNovoLink({ onClose, onCriar }: {
         {/* Expiração */}
         <div>
           <label style={labelStyle}>Expiração (opcional)</label>
-          <input
-            type="date"
-            style={inputStyle}
+          <DateFieldBR
             value={expira}
-            onChange={e => setExpira(e.target.value)}
+            onChange={setExpira}
           />
         </div>
 

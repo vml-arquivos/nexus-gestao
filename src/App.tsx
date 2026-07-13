@@ -20,7 +20,6 @@ import Configuracoes from './pages/Configuracoes'
 import PessoaDetalhe from './pages/PessoaDetalhe'
 import Usuarios from './pages/Usuarios'
 import AceitarConvite from './pages/AceitarConvite'
-import { useEffect } from 'react'
 import DesignEditor from './pages/DesignEditor'
 
 function FullScreenLoader() {
@@ -45,27 +44,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   const { user, loading } = useAuth()
   if (loading) return <FullScreenLoader />
-
-  // Ajuda a abrir o seletor nativo de data/hora quando um input type="date" ou "datetime-local" recebe foco.
-  useEffect(() => {
-    function handleFocus(e: FocusEvent) {
-      const el = e.target as HTMLElement | null
-      if (!el) return
-      if (el.tagName === 'INPUT') {
-        const input = el as HTMLInputElement
-        if (input.type === 'date' || input.type === 'datetime-local') {
-          try {
-            // showPicker é suportado nos navegadores modernos (Chrome/Edge). Não gera erro em navegadores sem suporte.
-            ;(input as any).showPicker?.()
-          } catch {}
-        }
-      }
-    }
-    document.addEventListener('focusin', handleFocus)
-    return () => {
-      document.removeEventListener('focusin', handleFocus)
-    }
-  }, [])
 
   return (
     <Routes>

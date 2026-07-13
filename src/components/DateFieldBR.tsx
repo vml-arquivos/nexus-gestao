@@ -62,6 +62,7 @@ export function DateFieldBR({
 }) {
   const [text, setText] = useState(() => isoToBR(value || ''))
   const nativeRef = useRef<HTMLInputElement>(null)
+  const textInputRef = useRef<HTMLInputElement>(null)
 
   // Mantém o texto exibido sincronizado quando o valor muda por fora
   // (ex: ao trocar de tarefa, ao carregar dados do servidor).
@@ -92,9 +93,21 @@ export function DateFieldBR({
     try { nativeRef.current?.showPicker?.() } catch { /* navegador sem suporte: segue só com digitação */ }
   }
 
+  function handleFieldMouseDown() {
+    // Abre o calendário só no clique que dá foco ao campo pela primeira vez.
+    // Se o campo já estava focado (clique pra reposicionar o cursor e
+    // digitar), não reabre — assim clicar continua abrindo o calendário
+    // em todo lugar sem atrapalhar quem prefere digitar a data direto.
+    const jaEstavaFocado = document.activeElement === textInputRef.current
+    if (!jaEstavaFocado && !disabled) {
+      setTimeout(openNativePicker, 0)
+    }
+  }
+
   return (
     <div className={`date-field-br${className ? ` ${className}` : ''}`}>
       <input
+        ref={textInputRef}
         type="text"
         inputMode="numeric"
         autoComplete="off"
@@ -102,6 +115,7 @@ export function DateFieldBR({
         value={text}
         onChange={handleTextChange}
         onBlur={handleBlur}
+        onMouseDown={handleFieldMouseDown}
         disabled={disabled}
         required={required}
         id={id}

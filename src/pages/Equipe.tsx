@@ -5,6 +5,7 @@ import {
   Send, Copy, Share2, Link, RefreshCw, Trophy,
 } from 'lucide-react'
 import { equipeApi, usersApi, tarefasApi, teamsApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem, type Equipe as EquipeTipo } from '../lib/api'
+import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -169,7 +170,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label"><Calendar size={11} style={{ display: 'inline', marginRight: 4 }} />Prazo</label>
-              <input type="date" className="form-input" value={prazo} onChange={e => setPrazo(e.target.value)} />
+              <DateFieldBR value={prazo} onChange={setPrazo} />
             </div>
             <div className="form-group">
               <label className="form-label">Prioridade</label>
@@ -221,11 +222,9 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                 </div>
                 <div className="form-group">
                   <label className="form-label">Data desta ação</label>
-                  <input
-                    className="form-input"
-                    type="date"
+                  <DateFieldBR
                     value={novoItemData}
-                    onChange={e => setNovoItemData(e.target.value)}
+                    onChange={setNovoItemData}
                     title="Data desta ação"
                   />
                 </div>
@@ -260,11 +259,9 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                     onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, texto: e.target.value } : it))}
                     placeholder="Ação do checklist"
                   />
-                  <input
-                    className="form-input"
-                    type="date"
+                  <DateFieldBR
                     value={item.data || ''}
-                    onChange={e => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
+                    onChange={v => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, data: v || undefined } : it))}
                     title="Data desta ação"
                   />
                   <input className="form-input" value={item.responsavel_nome || membro.nome} disabled title="Executor deste checklist" />

@@ -13,6 +13,7 @@ import {
   type Pessoa, type Tarefa, type ChecklistItem,
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { DateFieldBR } from '../components/DateFieldBR'
 import { nanoid } from '../lib/utils'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
@@ -545,11 +546,9 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="form-group">
               <label className="form-label">Prazo</label>
-              <input
-                className="form-input"
-                type="date"
+              <DateFieldBR
                 value={prazo}
-                onChange={e => setPrazo(e.target.value)}
+                onChange={setPrazo}
               />
             </div>
             <div className="form-group">
@@ -581,11 +580,9 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                 </div>
                 <div className="form-group">
                   <label className="form-label">Data desta ação</label>
-                  <input
-                    className="form-input"
-                    type="date"
+                  <DateFieldBR
                     value={novoItemData}
-                    onChange={e => setNovoItemData(e.target.value)}
+                    onChange={setNovoItemData}
                   />
                 </div>
               </div>
@@ -617,11 +614,9 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                     onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, texto: e.target.value } : it))}
                     placeholder="Ação do checklist"
                   />
-                  <input
-                    className="form-input"
-                    type="date"
+                  <DateFieldBR
                     value={item.data || ''}
-                    onChange={e => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, data: e.target.value || undefined } : it))}
+                    onChange={v => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, data: v || undefined } : it))}
                   />
                   <input className="form-input" value={item.responsavel_nome || pessoaNome} disabled title="Executor deste checklist" />
                   <button type="button" onClick={() => setChecklist(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}>
