@@ -5,10 +5,19 @@ PATH = ROOT / 'src/pages/Tarefas.tsx'
 
 
 def replace_once(text: str, before: str, after: str, label: str) -> str:
+    """Substitui um trecho exatamente uma vez, ou retorna sem erro se já foi substituído (idempotente)."""
+    # Se o trecho de destino já existe, a mudança já foi aplicada
+    if after in text:
+        return text
+    # Se o trecho original não existe, a mudança já foi aplicada
     count = text.count(before)
-    if count != 1:
-        raise RuntimeError(f'{label}: esperado 1 trecho, encontrado {count}')
-    return text.replace(before, after, 1)
+    if count == 0:
+        return text
+    # Se existe exatamente uma ocorrência, substitui
+    if count == 1:
+        return text.replace(before, after, 1)
+    # Mais de uma ocorrência é erro
+    raise RuntimeError(f'{label}: esperado 1 trecho, encontrado {count}')
 
 
 text = PATH.read_text(encoding='utf-8')
@@ -23,6 +32,7 @@ text = PATH.read_text(encoding='utf-8')
 # tinha). Essa versão foi revertida a pedido — a escolha manual é mais
 # clara para o gestor e evita confusão sobre quem está pontuando o quê.
 
+# Primeira ocorrência: modal de criação de nova lista
 text = replace_once(
     text,
     '''                <option value="tarefa">Somente pontuação da lista</option>
@@ -37,6 +47,7 @@ text = replace_once(
     'remove opção "ambos" (criação de lista)',
 )
 
+# Atualizar a nota de ranking
 text = replace_once(
     text,
     '''            <div className="team-ranking-note">
@@ -48,6 +59,7 @@ text = replace_once(
     'nota do ranking (criação de lista)',
 )
 
+# Segunda ocorrência: modal de edição de lista
 text = replace_once(
     text,
     '''                  <option value="tarefa">Somente pontuação da lista</option>
