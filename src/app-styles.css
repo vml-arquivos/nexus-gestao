@@ -10842,3 +10842,31 @@ textarea.form-input,
   overflow-wrap: anywhere !important;
   word-break: break-word !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIX 2026-07-13 (parte 3) — Ainda restava conteúdo (botões Aprovar
+   parte/Devolver, título de item sem outros elementos ao lado) saindo da
+   largura do modal, mesmo com min-width:0 na cadeia inteira.
+
+   Causa raiz real: .task-checklist-run e .task-checklist-date-group são
+   "display: grid" mas SEM grid-template-columns definido. Uma coluna
+   implícita de grid, sem template explícito, usa grid-auto-columns: auto
+   — ou seja, o tamanho da coluna é definido pelo conteúdo, exatamente a
+   mesma armadilha do min-width:auto do flexbox, só que min-width:0 no
+   PRÓPRIO container de grid não resolve isso: era preciso travar o
+   TAMANHO DA COLUNA (grid-template-columns), não só o container.
+   ═══════════════════════════════════════════════════════════════════════ */
+.tarefa-modal-box .task-checklist-run {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.tarefa-modal-box .task-checklist-date-group {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.tarefa-modal-box .task-checklist-date-group > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
