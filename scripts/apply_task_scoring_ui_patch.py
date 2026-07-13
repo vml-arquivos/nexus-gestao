@@ -5,6 +5,10 @@ PATH = ROOT / 'src/pages/Tarefas.tsx'
 
 
 def replace_once(text: str, before: str, after: str, label: str) -> str:
+    if after in text:
+        # Já aplicado (build re-executado sobre código-fonte que já recebeu a
+        # migração, ex.: rebuild sem checkout novo). Não é erro, só um no-op.
+        return text
     count = text.count(before)
     if count != 1:
         raise RuntimeError(f'{label}: esperado 1 trecho, encontrado {count}')
@@ -25,13 +29,13 @@ text = PATH.read_text(encoding='utf-8')
 
 text = replace_once(
     text,
-    '''                <option value="tarefa">Somente pontuação da lista</option>
-                <option value="subtarefas">Somente pontuação das tarefas da lista</option>
-                <option value="ambos">Pontuação da lista e das tarefas</option>
+    '''                <option value="tarefa">Pontuação pela lista completa</option>
+                <option value="subtarefas">Pontuação individual por tarefa</option>
+                <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
               </select>
             </div>''',
     '''                <option value="tarefa">Pontuação pela lista completa</option>
-                <option value="subtarefas">Pontuação individual por tarefa do checklist</option>
+                <option value="subtarefas">Pontuação individual por tarefa</option>
               </select>
             </div>''',
     'remove opção "ambos" (criação de lista)',
@@ -50,13 +54,13 @@ text = replace_once(
 
 text = replace_once(
     text,
-    '''                  <option value="tarefa">Somente pontuação da lista</option>
-                  <option value="subtarefas">Somente pontuação das tarefas da lista</option>
-                  <option value="ambos">Pontuação da lista e das tarefas</option>
+    '''                  <option value="tarefa">Pontuação pela lista completa</option>
+                  <option value="subtarefas">Pontuação individual por tarefa</option>
+                  <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
                 </select>
               </div>''',
     '''                  <option value="tarefa">Pontuação pela lista completa</option>
-                  <option value="subtarefas">Pontuação individual por tarefa do checklist</option>
+                  <option value="subtarefas">Pontuação individual por tarefa</option>
                 </select>
               </div>''',
     'remove opção "ambos" (edição de lista)',
