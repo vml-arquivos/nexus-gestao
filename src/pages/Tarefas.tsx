@@ -118,6 +118,16 @@ function pontuacaoIncluiSubtarefas(scope: PontuacaoEscopo) {
   return scope === 'subtarefas' || scope === 'ambos'
 }
 
+// A interface só oferece 2 opções (lista completa / por item) — "ambos" foi
+// removido do <select>. Isso protege contra o estado interno ficar em
+// "ambos" enquanto a caixa mostra outra coisa (dessincronia visual real que
+// já aconteceu): qualquer valor "ambos" salvo em tarefas antigas vira
+// "tarefa" só para exibição/edição — o dado salvo no banco não é alterado
+// até o gestor efetivamente salvar de novo.
+function clampPontuacaoEscopoParaSelecao(scope: PontuacaoEscopo): 'tarefa' | 'subtarefas' {
+  return scope === 'subtarefas' ? 'subtarefas' : 'tarefa'
+}
+
 function taskIsSurprise(tarefa?: Tarefa | null) {
   const payload = (tarefa?.origem_payload || {}) as Record<string, any>
   return Boolean(payload?.nexus_tarefa_surpresa || payload?.tarefa_surpresa || payload?.surpresa_tarefa)
@@ -653,7 +663,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
   const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao ?? 3))
-  const [pontuacaoEscopo, setPontuacaoEscopo] = useState<PontuacaoEscopo>(() => taskPontuacaoEscopo(tarefa))
+  const [pontuacaoEscopo, setPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
   const [tarefaSurpresa, setTarefaSurpresa] = useState(Boolean(taskIsSurprise(tarefa)))
   const [contaRanking, setContaRanking] = useState(tarefa?.conta_ranking !== false)
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
@@ -1182,7 +1192,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               >
                 <option value="tarefa">Pontuação pela lista completa</option>
                 <option value="subtarefas">Pontuação individual por tarefa</option>
-                <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
               </select>
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
@@ -1914,7 +1923,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [editPrazo, setEditPrazo] = useState(tarefa.prazo?.slice(0, 10) || '')
   const [editPrioridade, setEditPrioridade] = useState<Priority>(tarefa.prioridade || 'media')
   const [editPontuacao, setEditPontuacao] = useState(String(tarefa.pontuacao ?? 3))
-  const [editPontuacaoEscopo, setEditPontuacaoEscopo] = useState<PontuacaoEscopo>(() => taskPontuacaoEscopo(tarefa))
+  const [editPontuacaoEscopo, setEditPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
   const [newSubtaskDate, setNewSubtaskDate] = useState('')
@@ -2494,7 +2503,6 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 <select className="form-input" value={editPontuacaoEscopo} onChange={e => setEditPontuacaoEscopo(e.target.value as PontuacaoEscopo)}>
                   <option value="tarefa">Pontuação pela lista completa</option>
                   <option value="subtarefas">Pontuação individual por tarefa</option>
-                  <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
                 </select>
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
@@ -2671,8 +2679,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     const canAssumeThisItem = !isGestor && isFreeTeamTask(tarefa) && !item.feito && !checklistItemAssignmentId(item)
                     const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
                     return (
-                      <div key={item.id} className={item.feito ? 'task-check-item done' : 'task-check-item'}>
-                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem}>
+                      <div
+                        key={item.id}
+                        className={item.feito ? 'task-check-item done' : 'task-check-item'}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}
+                      >
+                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem} style={{ display: 'flex', width: '100%' }}>
                           <button
                             type="button"
                             disabled={!canToggleThisItem}
@@ -2688,7 +2700,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           >
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
-                          <span className="task-check-content">
+                          <span className="task-check-content" style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>
                             <span className="task-check-text">{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
