@@ -2682,9 +2682,26 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                       <div
                         key={item.id}
                         className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8, maxWidth: '100%', boxSizing: 'border-box' }}
+                        style={{
+                          position: 'relative',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'stretch',
+                          gap: 8,
+                          width: '100%',
+                          maxWidth: '100%',
+                          boxSizing: 'border-box',
+                          overflow: 'visible',
+                          border: '1px solid ' + (item.feito ? 'rgba(16,185,129,.45)' : 'var(--border)'),
+                          background: item.feito ? 'var(--success-dim)' : 'var(--bg3)',
+                          borderRadius: 12,
+                          padding: '10px 12px',
+                        }}
                       >
-                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem} style={{ display: 'flex', width: '100%', minWidth: 0 }}>
+                        <div
+                          aria-disabled={!canToggleThisItem}
+                          style={{ position: 'relative', display: 'flex', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', gap: 10 }}
+                        >
                           <button
                             type="button"
                             disabled={!canToggleThisItem}
@@ -2700,8 +2717,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           >
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
-                          <span className="task-check-content" style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>
-                            <span className="task-check-text" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
+                          <div style={{ position: 'static', minWidth: 0, maxWidth: '100%', flex: '1 1 0%', display: 'flex', flexDirection: 'column', gap: 3, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', boxSizing: 'border-box' }}>
+                            <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
@@ -2712,17 +2729,17 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                                 {((item as any).subtarefas as ObjectiveSubitem[]).map(sub => <em key={sub.id}>• {sub.texto}</em>)}
                               </span>
                             )}
-                          </span>
+                          </div>
                         </div>
                         {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>
-                            <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>Aprovar parte</button>
-                            <button className="btn btn-secondary btn-sm" type="button" onClick={() => revisarItem(item, 'devolver')} disabled={saving}>Devolver</button>
+                          <div style={{ position: 'static', display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' }}>
+                            <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving} style={{ position: 'static' }}>Aprovar parte</button>
+                            <button className="btn btn-secondary btn-sm" type="button" onClick={() => revisarItem(item, 'devolver')} disabled={saving} style={{ position: 'static' }}>Devolver</button>
                           </div>
                         )}
                         {isGestor && (item as any).aprovacao_status === 'aprovada' && <span className="badge badge-success">Aprovada · pontos liberados</span>}
                         {canAssumeThisItem && (
-                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving}>
+                          <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving} style={{ position: 'static', width: '100%' }}>
                             Assumir tarefa
                           </button>
                         )}
