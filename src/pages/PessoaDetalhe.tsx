@@ -14,7 +14,7 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { DateFieldBR } from '../components/DateFieldBR'
-import { nanoid } from '../lib/utils'
+import { localTodayIso, nanoid } from '../lib/utils'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -62,7 +62,7 @@ function extrairForma(obs?: string) {
   const m = obs?.match(/forma:([^|\s]+)/)
   return m ? m[1] : undefined
 }
-function hoje() { return new Date().toISOString().slice(0, 10) }
+function hoje() { return localTodayIso() }
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -470,6 +470,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
 
   function addItem() {
     if (!novoItem.trim()) return
+    if (novoItemData && novoItemData < localTodayIso()) { toast('A data de uma nova ação não pode ser anterior a hoje.', 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -489,6 +490,8 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
       toast('Título é obrigatório', 'error')
       return
     }
+    if (prazo && prazo < localTodayIso()) { toast('O prazo de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
+    if (checklist.some(item => item.data && item.data.slice(0, 10) < localTodayIso())) { toast('Uma tarefa nova não pode conter ações com data anterior a hoje.', 'error'); return }
     setSaving(true)
     try {
       await tarefasApi.create({
@@ -549,6 +552,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
               <DateFieldBR
                 value={prazo}
                 onChange={setPrazo}
+                min={localTodayIso()}
               />
             </div>
             <div className="form-group">
@@ -583,6 +587,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                   <DateFieldBR
                     value={novoItemData}
                     onChange={setNovoItemData}
+                    min={localTodayIso()}
                   />
                 </div>
               </div>
@@ -617,6 +622,7 @@ function ModalNovaTarefa({ pessoaId, pessoaNome, onClose, onSaved }: { pessoaId:
                   <DateFieldBR
                     value={item.data || ''}
                     onChange={v => setChecklist(prev => prev.map((it, idx) => idx === i ? { ...it, data: v || undefined } : it))}
+                    min={localTodayIso()}
                   />
                   <input className="form-input" value={item.responsavel_nome || pessoaNome} disabled title="Executor deste checklist" />
                   <button type="button" onClick={() => setChecklist(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 0, color: '#EF4444', padding: 6 }}>

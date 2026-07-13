@@ -7,7 +7,7 @@ import {
 import { equipeApi, usersApi, tarefasApi, teamsApi, type MembroEquipe, type UserProfile, type Tarefa, type ChecklistItem, type Equipe as EquipeTipo } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
-import { nanoid } from '../lib/utils'
+import { localTodayIso, nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 import { isGestorLike, isGestorOwner } from '../lib/roles'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -62,6 +62,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
 
   function addItem() {
     if (!novoItem.trim()) return
+    if (novoItemData && novoItemData < localTodayIso()) { toast('A data de uma nova ação não pode ser anterior a hoje.', 'error'); return }
     setChecklist(p => [...p, {
       id: nanoid(),
       texto: novoItem.trim(),
@@ -83,6 +84,8 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
 
   async function handleEnviar(fecharApos = false) {
     if (!titulo.trim()) { toast('Título é obrigatório', 'error'); return }
+    if (prazo && prazo < localTodayIso()) { toast('O prazo de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
+    if (checklist.some(item => item.data && item.data.slice(0, 10) < localTodayIso())) { toast('Uma tarefa nova não pode conter ações com data anterior a hoje.', 'error'); return }
     setLoading(true)
     try {
       await tarefasApi.create({
@@ -170,7 +173,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label"><Calendar size={11} style={{ display: 'inline', marginRight: 4 }} />Prazo</label>
-              <DateFieldBR value={prazo} onChange={setPrazo} />
+              <DateFieldBR value={prazo} onChange={setPrazo} min={localTodayIso()} />
             </div>
             <div className="form-group">
               <label className="form-label">Prioridade</label>
@@ -225,6 +228,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                   <DateFieldBR
                     value={novoItemData}
                     onChange={setNovoItemData}
+                    min={localTodayIso()}
                     title="Data desta ação"
                   />
                 </div>
@@ -262,6 +266,7 @@ function ModalNovaTarefa({ membro, onClose }: { membro: MembroEquipe; onClose: (
                   <DateFieldBR
                     value={item.data || ''}
                     onChange={v => setChecklist(p => p.map((it, idx) => idx === i ? { ...it, data: v || undefined } : it))}
+                    min={localTodayIso()}
                     title="Data desta ação"
                   />
                   <input className="form-input" value={item.responsavel_nome || membro.nome} disabled title="Executor deste checklist" />

@@ -11,7 +11,7 @@ import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
-import { nanoid } from '../lib/utils'
+import { localTodayIso, nanoid } from '../lib/utils'
 
 type Priority = Tarefa['prioridade']
 
@@ -82,12 +82,32 @@ function normalizePontuacaoEscopo(value?: unknown): PontuacaoEscopo {
   return 'tarefa'
 }
 
+function legacyExecutorIds(tarefa: Tarefa): Set<string> {
+  const ids = new Set<string>()
+  const items = Array.isArray(tarefa.checklist) ? tarefa.checklist : []
+  if (items.length) {
+    for (const item of items) {
+      const id = item.responsavel_id || item.assumido_por || item.executor_id
+        || item.concluido_por || item.feito_por
+        || tarefa.aceita_por || tarefa.responsavel_id
+      if (id) ids.add(id)
+    }
+  } else {
+    const id = tarefa.aceita_por || tarefa.responsavel_id
+    if (id) ids.add(id)
+  }
+  return ids
+}
+
 function taskPontuacaoEscopo(tarefa?: Tarefa | null): PontuacaoEscopo {
-  // Nova lista mantém a escolha padrão atual; registros antigos sem metadado
-  // explícito são interpretados de forma idêntica no frontend e no backend.
-  if (!tarefa) return 'ambos'
+  // Listas novas começam com pontuação somente pela lista completa.
+  if (!tarefa) return 'tarefa'
   const payload = (tarefa.origem_payload || {}) as Record<string, any>
-  return normalizePontuacaoEscopo((tarefa as any)?.pontuacao_escopo || payload?.nexus_pontuacao_escopo || payload?.pontuacao_escopo || payload?.pontuacao_tipo)
+  const explicito = (tarefa as any)?.pontuacao_escopo || payload?.nexus_pontuacao_escopo || payload?.pontuacao_escopo || payload?.pontuacao_tipo
+  if (explicito) return normalizePontuacaoEscopo(explicito)
+  // Preserva a regra histórica do backend: múltiplos executores pontuam por
+  // item; um único executor pontua pela lista, quando não havia configuração.
+  return legacyExecutorIds(tarefa).size > 1 ? 'subtarefas' : 'tarefa'
 }
 
 function pontuacaoIncluiTarefa(scope: PontuacaoEscopo) {
@@ -204,7 +224,12 @@ function fmtDateTime(value?: string) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+  return localTodayIso()
+}
+
+function minimumDatePreservingHistory(value?: string) {
+  const current = String(value || '').slice(0, 10)
+  return !current || current >= todayIso() ? todayIso() : undefined
 }
 
 function checklistItemDate(item: ChecklistItem) {
@@ -788,6 +813,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function gerarChecklistAutomatico() {
     const { tituloSugerido, acoes } = parseAcoesLista(acoesListaTexto)
+    if (novoItemData && novoItemData < todayIso()) {
+      toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error')
+      return
+    }
     if (!acoes.length) {
       toast('Cole as ações numeradas ou uma ação por linha para gerar o checklist.', 'error')
       return
@@ -822,6 +851,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   function addItem() {
     if (!novoItem.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
+    if (novoItemData && novoItemData < todayIso()) { toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
     if (tipoTarefa === 'equipe' && (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
@@ -855,7 +885,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   async function salvar() {
     if (loading) return
     const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
+    if (!tarefa?.id && prazo && prazo < todayIso()) { toast('O prazo de uma lista nova não pode ser anterior a hoje.', 'error'); return }
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
+    if (!tarefa?.id && checklist.some(item => item.data && item.data.slice(0, 10) < todayIso())) { toast('Uma lista nova não pode conter tarefas com data anterior a hoje.', 'error'); return }
     const exigePontosNasTarefas = tipoTarefa === 'equipe' && pontuacaoIncluiSubtarefas(pontuacaoEscopo)
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (exigePontosNasTarefas && ((item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))))
     if (invalidItem) { toast(exigePontosNasTarefas ? 'Cada tarefa precisa ter nome e pontuação.' : 'Cada ação do checklist precisa ter nome.', 'error'); return }
@@ -1052,6 +1084,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             <DateFieldBR
               value={prazo}
               onChange={setPrazo}
+              min={!tarefa?.id ? todayIso() : minimumDatePreservingHistory(prazo)}
             />
           </div>
           <div className="form-group">
@@ -1147,9 +1180,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 value={pontuacaoEscopo}
                 onChange={e => setPontuacaoEscopo(e.target.value as PontuacaoEscopo)}
               >
-                <option value="tarefa">Somente pontuação da lista</option>
-                <option value="subtarefas">Somente pontuação das tarefas da lista</option>
-                <option value="ambos">Pontuação da lista e das tarefas</option>
+                <option value="tarefa">Pontuação pela lista completa</option>
+                <option value="subtarefas">Pontuação individual por tarefa</option>
+                <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
               </select>
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
@@ -1222,6 +1255,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <DateFieldBR
                   value={novoItemData}
                   onChange={setNovoItemData}
+                  min={todayIso()}
                   title="Data desta ação"
                 />
               </div>
@@ -1321,6 +1355,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <DateFieldBR
                   value={item.data || ''}
                   onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))}
+                  min={!tarefa?.id ? todayIso() : minimumDatePreservingHistory(item.data)}
                   title="Data desta ação opcional"
                 />
                 {tipoTarefa === 'equipe' && (
@@ -2052,6 +2087,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
   function addInlineSubtask() {
     if (!newSubtask.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
+    if (newSubtaskDate && newSubtaskDate < todayIso()) { toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
     if (!isPersonal && (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     setChecklist(prev => [...prev, {
       id: nanoid(),
@@ -2456,9 +2492,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <div className="form-group">
                 <label className="form-label">Onde a pontuação será contabilizada?</label>
                 <select className="form-input" value={editPontuacaoEscopo} onChange={e => setEditPontuacaoEscopo(e.target.value as PontuacaoEscopo)}>
-                  <option value="tarefa">Somente pontuação da lista</option>
-                  <option value="subtarefas">Somente pontuação das tarefas da lista</option>
-                  <option value="ambos">Pontuação da lista e das tarefas</option>
+                  <option value="tarefa">Pontuação pela lista completa</option>
+                  <option value="subtarefas">Pontuação individual por tarefa</option>
+                  <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
                 </select>
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
@@ -2498,6 +2534,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 <DateFieldBR
                   value={newSubtaskDate}
                   onChange={setNewSubtaskDate}
+                  min={todayIso()}
                 />
               </div>
               {!isPersonal && (
@@ -2530,7 +2567,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           <select className="form-input" value={(item as any).dificuldade || difficultyFromPoints(Number((item as any).pontuacao ?? 3))} onChange={e => { const dificuldade = e.target.value as ChecklistDifficulty; setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, dificuldade, pontuacao: difficultyPoints(dificuldade) } : i)) }} title="Grau de dificuldade">
                             {CHECKLIST_DIFFICULTY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {opt.points} pts</option>)}</select>
                         )}
-                        <DateFieldBR value={item.data || ''} onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))} title="Data opcional" />
+                        <DateFieldBR value={item.data || ''} onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))} min={minimumDatePreservingHistory(item.data)} title="Data opcional" />
                         {!isPersonal && (
                           <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
                             <option value="">Livre / responsável principal</option>

@@ -70,23 +70,27 @@ export function DateFieldBR({
     setText(isoToBR(value || ''))
   }, [value])
 
+  function isWithinRange(iso: string) {
+    return (!min || iso >= min) && (!max || iso <= max)
+  }
+
   function handleTextChange(e: React.ChangeEvent<HTMLInputElement>) {
     const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
     const formatted = digitsToBR(digits)
     setText(formatted)
     if (digits.length === 8) {
       const iso = brToIsoIfValid(formatted)
-      if (iso) { onChange(iso); return }
+      if (iso && isWithinRange(iso)) { onChange(iso); return }
     }
     if (digits.length === 0) onChange('')
   }
 
   function handleBlur() {
-    // Se o que foi digitado não fecha uma data válida, volta a mostrar
-    // o último valor válido em vez de deixar o campo com texto quebrado.
+    // Se o que foi digitado não fecha uma data válida ou viola os limites,
+    // volta ao último valor aceito em vez de manter um texto enganoso.
     if (text === '') return
     const iso = brToIsoIfValid(text)
-    if (!iso) setText(isoToBR(value || ''))
+    if (!iso || !isWithinRange(iso)) setText(isoToBR(value || ''))
   }
 
   function openNativePicker() {
@@ -142,7 +146,10 @@ export function DateFieldBR({
         min={min}
         max={max}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const iso = e.target.value
+          if (!iso || isWithinRange(iso)) onChange(iso)
+        }}
         className="date-field-br-native"
         tabIndex={-1}
         aria-hidden="true"
