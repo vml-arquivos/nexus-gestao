@@ -8605,7 +8605,20 @@ html, body, #root, .app-shell, .main-content, .page-scroll {
   max-width: 100% !important;
   writing-mode: horizontal-tb !important;
   text-orientation: mixed !important;
-  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+/* overflow-wrap:break-word já resolve o caso comum (título com espaços);
+   overflow-wrap:anywhere só nos elementos de texto corrido, que é onde
+   uma sequência sem nenhum espaço (ex: link colado, texto colado sem
+   quebra) pode aparecer — não aplicamos "anywhere" em todo elemento do
+   modal pra não forçar quebra no meio de números/códigos curtos em
+   badges e botões, onde isso ficaria visualmente ruim. */
+.tarefa-modal-box .task-check-text,
+.tarefa-modal-box .task-check-desc,
+.tarefa-modal-box .task-check-content,
+.tarefa-modal-box p,
+.tarefa-modal-box span:not([class*="badge"]):not([class*="icon"]) {
+  overflow-wrap: anywhere !important;
 }
 
 .modal-box .form-label,
