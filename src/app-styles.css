@@ -10681,3 +10681,122 @@ textarea.form-input,
     margin-left: 0 !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIX 2026-07-13 — Modal de tarefa: espaçamentos excessivos entre itens
+   Correção cirúrgica sem regressão de layout ou lógica
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 1. Reduz gap entre grupos de data — o .task-checklist-run é o container
+      dos grupos; gap 8px é suficiente, estava acumulando com padding interno */
+.tarefa-modal-box .task-checklist-run {
+  gap: 8px !important;
+}
+
+/* 2. Cada grupo de data (card envolvendo itens do mesmo dia) fica mais compacto.
+      O padding 10px é mantido, mas removemos a borda dupla que criava ilusão de
+      espaço extra (o item já tem borda própria dentro do grupo) */
+.tarefa-modal-box .task-checklist-date-group {
+  gap: 6px !important;
+  padding: 8px 10px !important;
+  background: var(--bg2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+}
+
+/* 3. Título da data (Nível 3 · data) mais compacto — estava com margin-bottom
+      excessivo que empurrava o primeiro item para baixo */
+.tarefa-modal-box .task-checklist-date-title {
+  margin-bottom: 2px !important;
+  padding-bottom: 4px !important;
+  border-bottom: 1px solid var(--border) !important;
+  font-size: 11px !important;
+  color: var(--text3) !important;
+}
+
+/* 4. Cada item de checklist dentro do modal — padding reduzido mas legível */
+.tarefa-modal-box .task-check-item,
+.tarefa-modal-box .task-check-item.done {
+  padding: 9px 11px !important;
+  border-radius: 10px !important;
+  gap: 8px !important;
+}
+
+/* 5. task-check-text não trunca — garante que o título do item ocupe
+      toda a largura disponível sem overflow hidden acidental */
+.tarefa-modal-box .task-check-text {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  display: block !important;
+}
+
+/* 6. task-check-points (badge "Nível 3 · 3 ponto(s)") fica inline com o texto
+      sem criar nova linha em branco — usa display inline-flex dentro do grid */
+.tarefa-modal-box .task-check-points {
+  display: inline-flex !important;
+  margin-top: 3px !important;
+  align-self: flex-start !important;
+}
+
+/* 7. task-surprise-badge alinhado verticalmente com o texto do item */
+.tarefa-modal-box .task-surprise-badge {
+  vertical-align: middle !important;
+  display: inline-flex !important;
+  margin-left: 6px !important;
+  position: relative !important;
+  top: -1px !important;
+}
+
+/* 8. task-execution-summary ("Fluxo da lista:") — box de informação
+      com visual limpo, sem margin-top excessivo */
+.tarefa-modal-box .task-execution-summary {
+  margin-top: 10px !important;
+  padding: 10px 12px !important;
+  background: var(--bg3) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 3px !important;
+}
+.tarefa-modal-box .task-execution-summary strong {
+  color: var(--text) !important;
+  font-weight: 700 !important;
+}
+.tarefa-modal-box .task-execution-summary span {
+  color: var(--text3) !important;
+  display: block !important;
+}
+
+/* 9. Parágrafo "Tarefas bloqueadas" abaixo do execution-summary —
+      ficava sem separação visual do bloco anterior */
+.tarefa-modal-box .task-detail-section > .muted:last-of-type {
+  margin-top: 6px !important;
+  padding: 8px 12px !important;
+  background: var(--bg3) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  color: var(--text3) !important;
+  display: block !important;
+  line-height: 1.5 !important;
+}
+
+/* 10. task-check-desc (Executor: / Execução:) — gap entre linhas de meta
+       sem espaço excessivo */
+.tarefa-modal-box .task-check-desc {
+  gap: 4px !important;
+  margin-top: 0 !important;
+  line-height: 1.4 !important;
+  font-size: 12px !important;
+  color: var(--text3) !important;
+}
+
+/* 11. Garante que o task-check-content não cria linha em branco
+       entre task-check-text e o primeiro task-check-desc */
+.tarefa-modal-box .task-check-content {
+  gap: 3px !important;
+}
