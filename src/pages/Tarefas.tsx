@@ -2682,9 +2682,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                       <div
                         key={item.id}
                         className={item.feito ? 'task-check-item done' : 'task-check-item'}
-                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8 }}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 8, maxWidth: '100%', boxSizing: 'border-box' }}
                       >
-                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem} style={{ display: 'flex', width: '100%' }}>
+                        <div className="task-check-main-button" aria-disabled={!canToggleThisItem} style={{ display: 'flex', width: '100%', minWidth: 0 }}>
                           <button
                             type="button"
                             disabled={!canToggleThisItem}
@@ -2701,7 +2701,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
                           <span className="task-check-content" style={{ minWidth: 0, flex: 1, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>
-                            <span className="task-check-text">{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
+                            <span className="task-check-text" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
@@ -2715,7 +2715,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           </span>
                         </div>
                         {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>
                             <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving}>Aprovar parte</button>
                             <button className="btn btn-secondary btn-sm" type="button" onClick={() => revisarItem(item, 'devolver')} disabled={saving}>Devolver</button>
                           </div>
