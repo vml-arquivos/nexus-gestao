@@ -10800,3 +10800,32 @@ textarea.form-input,
 .tarefa-modal-box .task-check-content {
   gap: 3px !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIX 2026-07-13 (parte 2) — Título do item de checklist ainda não
+   quebrava linha em textos longos, mesmo com white-space:normal aplicado
+   no item 5 acima.
+
+   Causa raiz real: white-space:normal permite quebra, mas só funciona se
+   o container tiver largura limitada. Containers flex/grid, por padrão,
+   têm min-width:auto (não 0) — ou seja, se recusam a encolher abaixo da
+   largura do conteúdo. Isso vale em CADA nível aninhado até o topo:
+   .task-checklist-run é grid, .task-checklist-date-group é filho dele,
+   e nenhum dos dois tinha min-width:0 — então o texto longo simplesmente
+   "empurrava" a largura de todos eles pra fora do modal, em vez de
+   quebrar linha, mesmo com o white-space certo lá no fim da cadeia.
+   ═══════════════════════════════════════════════════════════════════════ */
+.tarefa-modal-box .task-checklist-run,
+.tarefa-modal-box .task-checklist-date-group,
+.tarefa-modal-box .task-check-item,
+.tarefa-modal-box .task-check-main-button,
+.tarefa-modal-box .task-check-content {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+.tarefa-modal-box .task-check-text {
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
