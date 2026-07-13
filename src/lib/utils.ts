@@ -27,6 +27,14 @@ export function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Retorna a data civil local em YYYY-MM-DD, sem conversão para UTC. */
+export function localTodayIso(date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function isOverdue(dateStr: string): boolean {
   return new Date(dateStr + 'T23:59') < new Date()
 }
