@@ -1200,6 +1200,17 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
   if (isPersonalScope(task))
     return isTaskPersonalOwner(task, userId) ? items : [];
 
+  // "Minha parte" só existe quando a lista tem divisão individual real, ou seja,
+  // pelo menos um item com atribuição explícita (responsavel_id/assumido_por/
+  // executor_id/aceita_por) — típico de lista livre da equipe, dividida entre
+  // membros. Sem essa divisão, a lista pertence à tarefa inteira (executor
+  // único definido no nível da tarefa) e concluir um item não pode esconder os
+  // demais itens dessa mesma lista.
+  const hasPerItemAssignment = items.some((item) => !!checklistItemAssignmentId(item));
+  if (!hasPerItemAssignment) {
+    return items.map((item) => maskSurpriseChecklistItem(item, userId, task));
+  }
+
   const assignedToMe = items.filter(
     (item) => checklistItemBelongsToUser(item, userId),
   );

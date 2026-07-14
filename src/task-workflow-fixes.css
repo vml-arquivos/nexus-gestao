@@ -565,3 +565,92 @@
   .task-checklist-history-meta { display: none; }
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Editor de itens do checklist (dentro do modal de tarefa) —
+   definição final e única do layout.
+   As várias regras antigas em app-styles.css (grids concorrentes com
+   colunas fixas em pixels, ex: minmax(84px,.45fr)) são a causa do nome
+   da tarefa cortado, da data cortada ("14" em vez de "14/07/2026") e
+   do "Executor" quebrando em 3 linhas. Não removemos as regras antigas
+   para não arriscar efeito colateral em outra tela — esta camada,
+   carregada por último no bundle, é quem prevalece.
+   ═══════════════════════════════════════════════════════════════ */
+.tarefa-modal-box .task-inline-checklist-row,
+.tarefa-modal-box .task-checklist-edit-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: flex-start !important;
+  gap: 10px !important;
+  width: 100% !important;
+  padding: 14px !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  background: var(--bg3) !important;
+  margin-bottom: 10px !important;
+  box-sizing: border-box !important;
+}
+
+/* Nome da tarefa: sempre sozinho, ocupando a linha inteira */
+.tarefa-modal-box .task-inline-checklist-row > input.form-input {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* Selects (dificuldade / executor): largura confortável para não cortar
+   texto como "Livre / responsável principal", lado a lado e quebrando
+   em telas estreitas em vez de espremer. */
+.tarefa-modal-box .task-inline-checklist-row > select.form-input {
+  flex: 1 1 210px !important;
+  width: auto !important;
+  min-width: 210px !important;
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
+}
+
+/* Campo de data: largura fixa suficiente para "dd/mm/aaaa" + ícone,
+   nunca fica em coluna de poucos pixels. */
+.tarefa-modal-box .task-inline-checklist-row > .date-field-br {
+  flex: 0 1 172px !important;
+  width: 172px !important;
+  min-width: 152px !important;
+  max-width: 100% !important;
+}
+
+/* Toggle "Surpresa" / badge: tamanho natural, não estica */
+.tarefa-modal-box .task-inline-checklist-row > .task-surprise-toggle,
+.tarefa-modal-box .task-inline-checklist-row > .task-surprise-badge {
+  flex: 0 0 auto !important;
+  align-self: center !important;
+}
+
+/* Botão de excluir a tarefa da lista: quadrado compacto, alinhado com os campos */
+.tarefa-modal-box .task-inline-checklist-row > button.btn.btn-ghost.danger {
+  flex: 0 0 auto !important;
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  align-self: center !important;
+}
+
+/* Descrição e etapas da tarefa: sempre linha inteira, isoladas */
+.tarefa-modal-box .task-inline-checklist-row > .task-inline-row-desc,
+.tarefa-modal-box .task-inline-checklist-row > .objective-subtasks-editor {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+}
+
+@media (max-width: 560px) {
+  .tarefa-modal-box .task-inline-checklist-row > select.form-input,
+  .tarefa-modal-box .task-inline-checklist-row > .date-field-br {
+    flex-basis: 100% !important;
+    width: 100% !important;
+  }
+}
+

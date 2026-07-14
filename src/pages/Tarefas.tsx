@@ -950,6 +950,13 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     }
   }
 
+  // Executor efetivo desta lista, para identificar o dono no placeholder do
+  // select "Executor desta tarefa" em vez de mostrar um "Livre" genérico
+  // quando a lista já tem responsável escolhido (ou já foi assumida).
+  const principalExecutorNome = responsavelId
+    ? checklistResponsibleName(responsavelId)
+    : (modoDistribuicao === 'livre_equipe' ? tarefa?.aceita_por_nome : undefined)
+
   return (
     <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
       <div className="task-form-modal">
@@ -1276,7 +1283,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     value={novoItemResponsavelId}
                     onChange={e => setNovoItemResponsavelId(e.target.value)}
                   >
-                    <option value="">Livre / usar responsável principal</option>
+                    <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / usar responsável principal'}</option>
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
                   </select>
                 </div>
@@ -1374,7 +1381,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}
                     title="Executor desta tarefa"
                   >
-                    <option value="">Livre / responsável principal</option>
+                    <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / responsável principal'}</option>
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
                   </select>
                 )}
@@ -2399,6 +2406,17 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     return a.localeCompare(b)
   })
 
+  // Executor efetivo da lista: quem foi delegado como responsável principal
+  // (modo "Direcionar"), ou quem assumiu a lista inteira (modo "Livre para o
+  // time"). Um item do checklist sem responsavel_id próprio herda este
+  // executor — por isso o editor de itens deve mostrar o nome dele em vez de
+  // um "Livre" genérico, e travar a reatribuição individual nesse caso
+  // (reatribuir a lista inteira continua disponível em "Delegar lista" /
+  // "Colocar lista como livre", mais abaixo neste modal).
+  const principalExecutorId = tarefa.responsavel_id || (tarefa.modo_distribuicao === 'livre_equipe' ? tarefa.aceita_por : undefined)
+  const principalExecutorNome = tarefa.responsavel_nome_perfil || tarefa.responsavel_nome
+    || (tarefa.modo_distribuicao === 'livre_equipe' ? tarefa.aceita_por_nome : undefined)
+
   return (
     <ModalBase title="Tarefa" onClose={onClose}>
       <div className="task-detail-modal">
@@ -2549,7 +2567,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 <div className="form-group">
                   <label className="form-label">Executor <span>(opcional)</span></label>
                   <select className="form-input" value={newSubtaskResp} onChange={e => setNewSubtaskResp(e.target.value)}>
-                    <option value="">Livre / responsável principal</option>
+                    <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / responsável principal'}</option>
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
                 </div>
               )}
@@ -2577,8 +2595,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                         )}
                         <DateFieldBR value={item.data || ''} onChange={v => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, data: v || undefined } : i))} min={minimumDatePreservingHistory(item.data)} title="Data opcional" />
                         {!isPersonal && (
-                          <select className="form-input" value={item.responsavel_id || ''} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}>
-                            <option value="">Livre / responsável principal</option>
+                          <select
+                            className="form-input"
+                            value={item.responsavel_id || ''}
+                            disabled={!item.responsavel_id && !!principalExecutorId}
+                            title={!item.responsavel_id && principalExecutorId ? `Atribuído a ${principalExecutorNome || 'responsável da lista'}. Para trocar, use "Delegar lista" ou "Colocar lista como livre".` : 'Executor desta tarefa'}
+                            onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, responsavel_id: e.target.value || undefined, responsavel_nome: checklistResponsibleName(e.target.value) } : i))}
+                          >
+                            <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / responsável principal'}</option>
                             {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
                         )}
                         {!isPersonal && !listSurprise && (

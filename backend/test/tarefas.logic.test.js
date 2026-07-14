@@ -104,6 +104,40 @@ test('item concluído continua visível para o executor histórico', () => {
   assert.deepEqual(visible.map((item) => item.id), ['done-a'])
 })
 
+test('concluir um item de lista de executor único não esconde os demais itens', () => {
+  const task = {
+    escopo: 'equipe',
+    criado_por: USER_A,
+    responsavel_id: USER_A,
+    checklist: [
+      { id: 'item-1', texto: 'testar a consulta do Rating', feito: false },
+      { id: 'item-2', texto: 'incluir o raio no sistema', feito: false },
+    ],
+  }
+  const antes = utils.filterChecklistForUser(task, {
+    userId: USER_A,
+    orgId: '33333333-3333-4333-8333-333333333333',
+    role: 'membro',
+  })
+  assert.deepEqual(antes.map((item) => item.id), ['item-1', 'item-2'])
+
+  const taskComItemConcluido = {
+    ...task,
+    checklist: [
+      { ...task.checklist[0], feito: true, concluido_por: USER_A, feito_por: USER_A },
+      task.checklist[1],
+    ],
+  }
+  const depois = utils.filterChecklistForUser(taskComItemConcluido, {
+    userId: USER_A,
+    orgId: '33333333-3333-4333-8333-333333333333',
+    role: 'membro',
+  })
+  assert.deepEqual(depois.map((item) => item.id), ['item-1', 'item-2'])
+  assert.equal(depois.find((item) => item.id === 'item-1').feito, true)
+  assert.equal(depois.find((item) => item.id === 'item-2').feito, false)
+})
+
 test('ranking prioriza quem concluiu, não uma reatribuição posterior', () => {
   const executor = utils.checklistExecutorId(
     {
