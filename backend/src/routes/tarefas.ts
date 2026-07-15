@@ -986,6 +986,14 @@ function mergeMemberChecklistUpdate(
   return JSON.stringify(merged);
 }
 
+function hasChecklistOwnedByOther(task: any, userId: string) {
+  return parseChecklistItems(task?.checklist).some((item) => {
+    const owner =
+      checklistItemAssignmentId(item) || item.concluido_por || item.feito_por;
+    return Boolean(owner) && owner !== userId;
+  });
+}
+
 function hasChecklistAssignedTo(task: any, userId: string) {
   return parseChecklistItems(task?.checklist).some((item) =>
     checklistItemBelongsToUser(item, userId),
@@ -2011,6 +2019,12 @@ router.post(
           .json({ error: "Esta tarefa já foi selecionada por outro membro." });
         return;
       }
+      if (hasChecklistOwnedByOther(existing, userId)) {
+        res
+          .status(409)
+          .json({ error: "Esta tarefa já tem tarefas da lista em andamento com outro membro." });
+        return;
+      }
       if (
         ["concluida", "aprovada", "cancelada"].includes(String(existing.status))
       ) {
@@ -2197,11 +2211,17 @@ router.post(
         responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
       };
       const checklistJson = JSON.stringify(items);
+      const isFreeList = isFreeTeamTask(existing);
       const tarefa = await queryOne<any>(
         `UPDATE tarefas SET checklist = $1, status = CASE WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso' ELSE status END,
-          status_gestor = 'aguardando', escopo = 'equipe', modo_distribuicao = 'livre_equipe', data_inicio = COALESCE(data_inicio, NOW()), updated_at = NOW()
+          status_gestor = 'aguardando', escopo = 'equipe', modo_distribuicao = 'livre_equipe', data_inicio = COALESCE(data_inicio, NOW()),
+          aceita_por = CASE WHEN $6 THEN COALESCE(aceita_por, $4) ELSE aceita_por END,
+          aceita_em = CASE WHEN $6 AND aceita_por IS NULL THEN NOW() ELSE aceita_em END,
+          responsavel_id = CASE WHEN $6 THEN COALESCE(responsavel_id, $4) ELSE responsavel_id END,
+          responsavel_nome = CASE WHEN $6 THEN COALESCE(responsavel_nome, $5) ELSE responsavel_nome END,
+          updated_at = NOW()
        WHERE id = $2 AND org_id = $3 RETURNING *`,
-        [checklistJson, req.params.id, orgId],
+        [checklistJson, req.params.id, orgId, userId, profile?.nome || "Membro", isFreeList],
       );
       await syncChecklistTable({
         orgId,
@@ -2320,6 +2340,21 @@ router.patch(
       const shouldReopen =
         !nextDone && ["concluida", "aprovada"].includes(String(existing.status || ""));
 
+      // Numa lista "livre para a equipe" ainda não assumida por ninguém, o ato de
+      // concluir um item já reivindica a lista inteira para quem a concluiu — do
+      // contrário ela seguiria aparecendo como "Livre para assumir" para o resto
+      // da equipe mesmo 100% concluída, permitindo duplicar o trabalho já feito.
+      // COALESCE garante que isso nunca sobrescreve uma reivindicação anterior.
+      const shouldAutoClaim = nextDone && isFreeTeamTask(existing) && !existing.aceita_por;
+      let claimerNome: string | null = null;
+      if (shouldAutoClaim) {
+        const claimer = await client.query<{ nome: string }>(
+          "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
+          [userId, orgId],
+        );
+        claimerNome = claimer.rows[0]?.nome || null;
+      }
+
       const updated = await client.query(
         `UPDATE tarefas SET
            checklist = $1,
@@ -2333,10 +2368,14 @@ router.patch(
            data_conclusao = CASE WHEN $4::boolean THEN NULL ELSE data_conclusao END,
            aprovada_em = CASE WHEN $4::boolean THEN NULL ELSE aprovada_em END,
            aprovada_por = CASE WHEN $4::boolean THEN NULL ELSE aprovada_por END,
+           aceita_por = CASE WHEN $5::boolean THEN COALESCE(aceita_por, $6) ELSE aceita_por END,
+           aceita_em = CASE WHEN $5::boolean AND aceita_por IS NULL THEN NOW() ELSE aceita_em END,
+           responsavel_id = CASE WHEN $5::boolean THEN COALESCE(responsavel_id, $6) ELSE responsavel_id END,
+           responsavel_nome = CASE WHEN $5::boolean THEN COALESCE(responsavel_nome, $7) ELSE responsavel_nome END,
            updated_at = NOW()
          WHERE id = $2 AND org_id = $3
          RETURNING *`,
-        [checklistJson, req.params.id, orgId, shouldReopen],
+        [checklistJson, req.params.id, orgId, shouldReopen, shouldAutoClaim, userId, claimerNome],
       );
       await client.query("COMMIT");
 
@@ -4706,6 +4745,8 @@ export const __taskChecklistTestUtils = {
   isChecklistItemExecutor,
   checklistExecutorId,
   calculateChecklistItemPoints,
+  hasChecklistOwnedByOther,
+  isFreeTeamTask,
 };
 
 export default router;

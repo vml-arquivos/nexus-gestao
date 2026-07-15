@@ -138,6 +138,20 @@ test('concluir um item de lista de executor único não esconde os demais itens'
   assert.equal(depois.find((item) => item.id === 'item-2').feito, false)
 })
 
+test('lista livre com item já concluído por alguém não pode ser assumida por outro (mesmo sem aceita_por gravado)', () => {
+  const task = {
+    escopo: 'equipe',
+    modo_distribuicao: 'livre_equipe',
+    checklist: [
+      { id: 'item-1', texto: 'testar a consulta do Rating', feito: true, responsavel_id: USER_A, concluido_por: USER_A, feito_por: USER_A },
+      { id: 'item-2', texto: 'incluir o raio no sistema', feito: true, responsavel_id: USER_A, concluido_por: USER_A, feito_por: USER_A },
+    ],
+  }
+  assert.equal(utils.isFreeTeamTask(task), true)
+  assert.equal(utils.hasChecklistOwnedByOther(task, USER_B), true)
+  assert.equal(utils.hasChecklistOwnedByOther(task, USER_A), false)
+})
+
 test('ranking prioriza quem concluiu, não uma reatribuição posterior', () => {
   const executor = utils.checklistExecutorId(
     {

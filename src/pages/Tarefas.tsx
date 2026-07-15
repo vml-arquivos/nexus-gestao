@@ -443,7 +443,12 @@ function isAvailableFreeTask(tarefa: Tarefa) {
   // Regra: se qualquer membro já assumiu a tarefa inteira (aceita_por preenchido), ela não fica disponível para outros.
   // Tarefas surpresa também seguem essa regra (assumida = não disponível).
   if (tarefa.aceita_por) return false
-  // Sem aceita_por: tarefa disponível para assumir
+  // Defesa extra para registros antigos: se algum item já tem dono (foi assumido
+  // individualmente) ou já foi concluído por alguém, a lista também não pode
+  // aparecer como livre, mesmo que aceita_por não tenha sido gravado na lista.
+  const items = Array.isArray(tarefa.checklist) ? tarefa.checklist : []
+  if (items.some(item => item.feito || checklistItemAssignmentId(item))) return false
+  // Sem aceita_por e sem nenhum item assumido: tarefa realmente disponível para assumir
   return true
 }
 
@@ -4299,7 +4304,7 @@ export default function Tarefas() {
         </div>
       )}
 
-      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={updateSaved} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
+      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
       {complemento && <ComplementoModal key={complemento.id} tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal key={ajuda.id} tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
       {painelAjuda && <PainelAjudaModal key={painelAjuda.id} tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}
