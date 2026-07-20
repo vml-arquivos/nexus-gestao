@@ -373,6 +373,125 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
   }
 })
 
+// ── CORREÇÃO DE PONTUAÇÃO (SOMENTE GESTOR) ──────────────────────────────────
+// Editar o campo "pontuacao" no checklist sozinho não corrige o valor já
+// lançado no ranking — tarefas_pontuacao é um retrato tirado no momento da
+// aprovação. Estas rotas corrigem os dois lugares de uma vez só, reusando o
+// mesmo UPSERT (ON CONFLICT) da aprovação normal, então nunca duplicam
+// pontos: cada correção substitui o valor anterior daquele mesmo item/lista.
+function isGestorEstrito(role: string): boolean {
+  return role === 'gestor' || canDeleteOrgRecords(role)
+}
+
+router.patch('/:id/checklist/:itemId/corrigir-pontuacao', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  await ensureCompatibilitySchema().catch(() => undefined)
+  const client = await pool.connect()
+  try {
+    const { orgId, userId, role } = req.user!
+    if (!isGestorEstrito(role)) {
+      res.status(403).json({ error: 'Somente o gestor pode corrigir uma pontuação já aprovada.' })
+      return
+    }
+    const novaPontuacao = Number(req.body?.pontuacao)
+    if (!Number.isFinite(novaPontuacao) || novaPontuacao < 0 || novaPontuacao > SCORE_MAX) {
+      res.status(400).json({ error: `Informe uma pontuação válida (0 a ${SCORE_MAX}).` })
+      return
+    }
+    await client.query('BEGIN')
+    const locked = await client.query('SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE', [req.params.id, orgId])
+    const task = locked.rows[0]
+    if (!task) {
+      await client.query('ROLLBACK')
+      res.status(404).json({ error: 'Tarefa não encontrada.' })
+      return
+    }
+    const items = parseChecklist(task.checklist)
+    const index = items.findIndex(item => String(item.id) === String(req.params.itemId))
+    if (index < 0) {
+      await client.query('ROLLBACK')
+      res.status(404).json({ error: 'Item não encontrado.' })
+      return
+    }
+    const item = { ...items[index] }
+    if (item.aprovacao_status !== 'aprovada') {
+      await client.query('ROLLBACK')
+      res.status(409).json({ error: 'Este item ainda não foi aprovado — use a revisão normal em vez de corrigir.' })
+      return
+    }
+    const pontosAntigos = itemPoints(item)
+    item.pontuacao = novaPontuacao
+    items[index] = item
+
+    const updated = await client.query(
+      `UPDATE tarefas SET checklist = $1::jsonb, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [JSON.stringify(items), task.id, orgId],
+    )
+    await upsertItemScore(client, { ...task, checklist: items }, item, userId)
+    await client.query(
+      `INSERT INTO tarefas_historico (org_id, tarefa_id, user_id, acao, observacao)
+       VALUES ($1,$2,$3,'pontuacao_corrigida',$4)`,
+      [orgId, task.id, userId, `Gestor corrigiu a pontuação de "${item.texto}" de ${pontosAntigos} para ${itemPoints(item)} ponto(s).`],
+    ).catch(() => undefined)
+    await client.query('COMMIT')
+    res.json({ tarefa: updated.rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação do item:', err)
+    res.status(500).json({ error: 'Erro ao corrigir pontuação.' })
+  } finally {
+    client.release()
+  }
+})
+
+router.patch('/:id/corrigir-pontuacao', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+  await ensureCompatibilitySchema().catch(() => undefined)
+  const client = await pool.connect()
+  try {
+    const { orgId, userId, role } = req.user!
+    if (!isGestorEstrito(role)) {
+      res.status(403).json({ error: 'Somente o gestor pode corrigir uma pontuação já aprovada.' })
+      return
+    }
+    const novaPontuacao = Number(req.body?.pontuacao)
+    if (!Number.isFinite(novaPontuacao) || novaPontuacao < 0 || novaPontuacao > SCORE_MAX) {
+      res.status(400).json({ error: `Informe uma pontuação válida (0 a ${SCORE_MAX}).` })
+      return
+    }
+    await client.query('BEGIN')
+    const locked = await client.query('SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE', [req.params.id, orgId])
+    const task = locked.rows[0]
+    if (!task) {
+      await client.query('ROLLBACK')
+      res.status(404).json({ error: 'Tarefa não encontrada.' })
+      return
+    }
+    if (String(task.status || '') !== 'aprovada') {
+      await client.query('ROLLBACK')
+      res.status(409).json({ error: 'Só é possível corrigir a pontuação de uma lista já aprovada.' })
+      return
+    }
+    const pontosAntigos = taskPoints(task)
+    const updated = await client.query(
+      `UPDATE tarefas SET pontuacao = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [novaPontuacao, task.id, orgId],
+    )
+    await upsertTaskScore(client, updated.rows[0], userId)
+    await client.query(
+      `INSERT INTO tarefas_historico (org_id, tarefa_id, user_id, acao, observacao)
+       VALUES ($1,$2,$3,'pontuacao_corrigida',$4)`,
+      [orgId, task.id, userId, `Gestor corrigiu a pontuação da lista "${task.titulo}" de ${pontosAntigos} para ${taskPoints(updated.rows[0])} ponto(s).`],
+    ).catch(() => undefined)
+    await client.query('COMMIT')
+    res.json({ tarefa: updated.rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação da lista:', err)
+    res.status(500).json({ error: 'Erro ao corrigir pontuação.' })
+  } finally {
+    client.release()
+  }
+})
+
 router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   await ensureCompatibilitySchema().catch(() => undefined)
   const client = await pool.connect()

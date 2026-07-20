@@ -2591,6 +2591,112 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Empresa já tem lista em aberto? Os itens novos entram nela em vez de
+    // criar outra lista separada para o mesmo cliente (evita "Lista de
+    // tarefas da equipe" duplicada para quem já tem uma em andamento).
+    // A lista aberta mais recente é escolhida quando há mais de uma.
+    // Não mexe em responsável/status/aceita_por já definidos — só soma itens.
+    if (escopo === "equipe" && origem_id) {
+      const mergeClient = await pool.connect();
+      try {
+        await mergeClient.query("BEGIN");
+        const listaAbertaResult = await mergeClient.query<any>(
+          `SELECT * FROM tarefas
+           WHERE org_id = $1
+             AND origem_id = $2
+             AND COALESCE(escopo, 'pessoal') = 'equipe'
+             AND status <> 'cancelada'
+           ORDER BY created_at DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [orgId, origem_id],
+        );
+        const listaAberta = listaAbertaResult.rows[0];
+        if (!listaAberta) {
+          await mergeClient.query("ROLLBACK");
+        } else {
+          const itensExistentes = parseChecklistItems(listaAberta.checklist);
+          const itensNovos = JSON.parse(checklistNormalizado);
+          const itensParaAdicionar = itensNovos.length
+            ? itensNovos
+            : [
+                {
+                  id: uuidv4(),
+                  texto: tituloFinal,
+                  descricao: descricao || undefined,
+                  data: prazo || data || undefined,
+                  pontuacao: pontuacao || undefined,
+                  feito: false,
+                },
+              ];
+          const checklistMesclado = JSON.stringify([
+            ...itensExistentes,
+            ...itensParaAdicionar,
+          ]);
+          const prazoFinal =
+            listaAberta.prazo && prazo
+              ? String(listaAberta.prazo).slice(0, 10) >= String(prazo).slice(0, 10)
+                ? listaAberta.prazo
+                : prazo
+              : listaAberta.prazo || prazo || null;
+
+          // Lista já estava finalizada (aprovada/concluída)? Reabre com o
+          // mesmo padrão já usado em /:id/reabrir — os itens novos, senão,
+          // ficariam presos numa lista que não aceita mais alterações, e o
+          // histórico de pontuação já paga por itens antigos não é apagado.
+          const estavaFinalizada = ["aprovada", "concluida"].includes(
+            String(listaAberta.status || ""),
+          );
+
+          const tarefaMescladaResult = await mergeClient.query<any>(
+            `UPDATE tarefas SET
+               checklist = $1,
+               prazo = $2,
+               status = CASE WHEN $5::boolean THEN 'pendente' ELSE status END,
+               status_gestor = CASE WHEN $5::boolean THEN 'aguardando' ELSE status_gestor END,
+               data_conclusao = CASE WHEN $5::boolean THEN NULL ELSE data_conclusao END,
+               aprovada_em = CASE WHEN $5::boolean THEN NULL ELSE aprovada_em END,
+               aprovada_por = CASE WHEN $5::boolean THEN NULL ELSE aprovada_por END,
+               data_reabertura = CASE WHEN $5::boolean THEN NOW() ELSE data_reabertura END,
+               reaberto_por = CASE WHEN $5::boolean THEN $6 ELSE reaberto_por END,
+               updated_at = NOW()
+             WHERE id = $3 AND org_id = $4
+             RETURNING *`,
+            [checklistMesclado, prazoFinal, listaAberta.id, orgId, estavaFinalizada, userId],
+          );
+          await mergeClient.query("COMMIT");
+
+          await syncChecklistTable({
+            orgId,
+            tarefaId: listaAberta.id,
+            userId,
+            checklist: checklistMesclado,
+          });
+          await addHistorico({
+            orgId,
+            tarefaId: listaAberta.id,
+            userId,
+            acao: estavaFinalizada ? "reaberta_para_novos_itens" : "itens_adicionados",
+            observacao: estavaFinalizada
+              ? `Lista finalizada reaberta: ${itensParaAdicionar.length} tarefa(s) nova(s) adicionada(s) para ${origem_nome || "empresa"} em vez de criar lista duplicada.`
+              : `${itensParaAdicionar.length} tarefa(s) nova(s) adicionada(s) à lista existente de ${origem_nome || "empresa"} em vez de criar lista duplicada.`,
+          });
+          const tarefaFinal = await getTaskForAccess(listaAberta.id, orgId).catch(
+            () => tarefaMescladaResult.rows[0],
+          );
+          res.status(200).json({
+            tarefa: sanitizeTaskForUser(tarefaFinal || tarefaMescladaResult.rows[0], req.user!),
+          });
+          return;
+        }
+      } catch (mergeErr) {
+        await mergeClient.query("ROLLBACK").catch(() => {});
+        throw mergeErr;
+      } finally {
+        mergeClient.release();
+      }
+    }
+
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
          (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)

@@ -945,9 +945,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           : (destravaSelecionado?.metadata || undefined),
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
+      const foiMescladaEmListaExistente = !tarefa?.id && saved.titulo !== tituloFinal
       onSaved(saved)
       onClose()
-      toast(tarefa?.id ? 'Lista atualizada.' : 'Lista criada com sucesso.')
+      toast(
+        tarefa?.id
+          ? 'Lista atualizada.'
+          : foiMescladaEmListaExistente
+            ? `Já havia uma lista em aberto para "${saved.origem_nome || 'esta empresa'}" — as tarefas novas foram adicionadas nela.`
+            : 'Lista criada com sucesso.'
+      )
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao salvar tarefa.', 'error')
     } finally {
@@ -2015,6 +2022,40 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     finally { setSaving(false) }
   }
 
+  // Corrige a pontuação de um item (ou da lista inteira) já aprovado.
+  // Só o gestor consegue (a rota confere de novo no servidor); reusa o mesmo
+  // UPSERT da aprovação normal, então corrige o ranking sem duplicar pontos.
+  async function corrigirPontuacaoItem(item: ChecklistItem) {
+    const atual = Number((item as any).pontuacao ?? difficultyPoints((item as any).dificuldade))
+    const resposta = window.prompt(`Nova pontuação para "${checklistDisplayText(item)}" (0 a ${SCORE_MAX}):`, String(atual))
+    if (resposta === null) return
+    const nova = Number(resposta)
+    if (!Number.isFinite(nova) || nova < 0 || nova > SCORE_MAX) { toast(`Informe um número entre 0 e ${SCORE_MAX}.`, 'error'); return }
+    setSaving(true)
+    try {
+      const atualizada = await tarefasApi.corrigirPontuacaoItem(tarefa.id, item.id, nova)
+      setChecklist(normalizeChecklistItems(atualizada.checklist))
+      onSaved(atualizada)
+      toast('Pontuação do item corrigida.')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao corrigir pontuação.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  async function corrigirPontuacaoLista() {
+    const atual = Number(tarefa.pontuacao || 0)
+    const resposta = window.prompt(`Nova pontuação para a lista "${tarefa.titulo}" (0 a ${SCORE_MAX}):`, String(atual))
+    if (resposta === null) return
+    const nova = Number(resposta)
+    if (!Number.isFinite(nova) || nova < 0 || nova > SCORE_MAX) { toast(`Informe um número entre 0 e ${SCORE_MAX}.`, 'error'); return }
+    setSaving(true)
+    try {
+      const atualizada = await tarefasApi.corrigirPontuacaoLista(tarefa.id, nova)
+      onSaved(atualizada)
+      toast('Pontuação da lista corrigida.')
+    } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao corrigir pontuação.', 'error') }
+    finally { setSaving(false) }
+  }
+
   async function imprimirRelatorio() {
     try {
       const r = await tarefasApi.relatorio(tarefa.id)
@@ -2043,6 +2084,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   // Gestor precisa aprovar/devolver mesmo quando também é criador/responsável.
   // A aprovação do gestor é a etapa que libera pontuação no ranking.
   const canReviewTask = !isPersonal && isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
+  // Independente de canReviewTask (que exclui 'aprovada' de propósito, pois
+  // aprovar de novo não faz sentido) — reabrir uma lista já finalizada para
+  // complementar ou corrigir é uma ação distinta, sempre disponível ao gestor.
+  const canReopenTask = !isPersonal && isGestor && ['aprovada', 'concluida'].includes(String(tarefa.status || ''))
   const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
@@ -2766,7 +2811,12 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             <button className="btn btn-secondary btn-sm" type="button" onClick={() => revisarItem(item, 'devolver')} disabled={saving} style={{ position: 'static' }}>Devolver</button>
                           </div>
                         )}
-                        {isGestor && (item as any).aprovacao_status === 'aprovada' && <span className="badge badge-success">Aprovada · pontos liberados</span>}
+                        {isGestor && (item as any).aprovacao_status === 'aprovada' && (
+                          <div style={{ position: 'static', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' }}>
+                            <span className="badge badge-success">Aprovada · pontos liberados</span>
+                            <button className="btn btn-secondary btn-sm" type="button" onClick={() => corrigirPontuacaoItem(item)} disabled={saving} style={{ position: 'static' }}>Corrigir pontuação</button>
+                          </div>
+                        )}
                         {canAssumeThisItem && (
                           <button className="btn btn-primary btn-sm task-check-assume" type="button" onClick={() => assumirChecklistItem(item)} disabled={saving} style={{ position: 'static', width: '100%' }}>
                             Assumir tarefa
@@ -2878,7 +2928,8 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           <button className="btn btn-ghost" type="button" onClick={onClose}>Fechar</button>
           {canReviewTask && tarefa.status === 'concluida' && <button className="btn btn-primary" type="button" onClick={() => onApprove(tarefa)}>Aprovar</button>}
           {canReviewTask && ['concluida', 'nao_concluida'].includes(tarefa.status) && <button className="btn btn-secondary" type="button" onClick={() => onReturn(tarefa)}>Devolver</button>}
-          {canReviewTask && (tarefa.status === 'aprovada' || (distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
+          {(canReopenTask || (canReviewTask && distributedTask && tarefa.status === 'concluida')) && <button className="btn btn-secondary" type="button" onClick={() => onComplemento(tarefa)}>Complementar</button>}
+          {isGestor && tarefa.status === 'aprovada' && <button className="btn btn-secondary" type="button" onClick={corrigirPontuacaoLista} disabled={saving}>Corrigir pontuação da lista</button>}
           {canExecuteTask && tarefa.status === 'devolvida' && <button className="btn btn-primary" type="button" onClick={reenviarCorrecao} disabled={saving}>{saving ? <Loader size={14} /> : <RotateCcw size={14} />} Reenviar correção</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-secondary" type="button" onClick={naoConcluir} disabled={saving}>Não concluí</button>}
           {canExecuteTask && tarefa.status !== 'devolvida' && <button className="btn btn-primary" type="button" onClick={concluir} disabled={saving}>{saving ? <Loader size={14} /> : <CheckCircle2 size={14} />} {distributedTask && myProgress.total > 0 && myProgress.total < geralProgress.total ? 'Enviar minha parte' : 'Enviar tarefa'}</button>}
@@ -3674,6 +3725,17 @@ export default function Tarefas() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
+    const refreshIfVisible = () => { if (document.visibilityState === 'visible') load() }
+    const interval = window.setInterval(refreshIfVisible, 25000)
+    window.addEventListener('visibilitychange', refreshIfVisible)
+    window.addEventListener('focus', refreshIfVisible)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('visibilitychange', refreshIfVisible)
+      window.removeEventListener('focus', refreshIfVisible)
+    }
+  }, [load])
+  useEffect(() => {
     const params = new URLSearchParams(location.search)
     const id = params.get('task')
     const openHelp = params.get('help') === '1'
@@ -3907,6 +3969,7 @@ export default function Tarefas() {
       toast('Tarefa assumida. Você já pode executar sua parte.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao assumir tarefa.', 'error')
+      await load()
     } finally {
       setActionTaskId(null)
     }

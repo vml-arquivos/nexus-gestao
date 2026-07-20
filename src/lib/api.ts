@@ -783,6 +783,16 @@ export const tarefasApi = {
     return data.tarefa
   },
 
+  async corrigirPontuacaoItem(id: string, itemId: string, pontuacao: number): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}/corrigir-pontuacao`, { method: 'PATCH', body: JSON.stringify({ pontuacao }) })
+    return data.tarefa
+  },
+
+  async corrigirPontuacaoLista(id: string, pontuacao: number): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/corrigir-pontuacao`, { method: 'PATCH', body: JSON.stringify({ pontuacao }) })
+    return data.tarefa
+  },
+
   async relatorio(id: string): Promise<TarefaRelatorio> {
     return apiJson(`/tarefas/${id}/relatorio`)
   },
