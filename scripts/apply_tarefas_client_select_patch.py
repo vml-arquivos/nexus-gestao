@@ -41,8 +41,8 @@ tarefas = replace_once(
 
 tarefas = replace_once(
     tarefas,
-    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer,\n",
-    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, ChevronDown, Check,\n",
+    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2,\n",
+    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,\n",
     "ícones do combobox",
 )
 
