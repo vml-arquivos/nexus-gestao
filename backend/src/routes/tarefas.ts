@@ -1303,14 +1303,21 @@ function canListTaskForUser(
   )
     return true;
   if (task.criado_por === userId) return true;
-  if (isFreeTeamTask(task) && !task.aceita_por) return true;
   // Tarefa surpresa livre é uma execução completa: depois de assumida por alguém,
   // objetivos livres internos não mantêm a tarefa disponível para outros membros.
   if (isTaskSurprise(task) && task.aceita_por && task.aceita_por !== userId) return false;
   // REGRA: lista livre já aceita por outro membro — não está mais disponível para nenhum outro.
-  // hasUnassignedOpenChecklist não justifica acesso quando a lista inteira já foi assumida.
   if (isFreeTeamTask(task) && task.aceita_por && task.aceita_por !== userId) return false;
-  if (isFreeTeamTask(task) && !task.aceita_por && hasUnassignedOpenChecklist(task)) return true;
+  // Lista livre ainda sem aceita_por gravado: só aparece pra quem não tem nada nela
+  // se realmente sobrar item sem dono pra pegar, ou a lista ainda estiver vazia
+  // (recém-criada, nada decidido ainda). Se todos os itens já foram delegados
+  // individualmente pra outra pessoa (comum quando o gestor escolhe "Executor desta
+  // tarefa" por item, sem passar pelo botão "Assumir tarefa" inteira), a lista some
+  // do painel do resto da equipe — mesmo sem aceita_por ter sido gravado na tarefa.
+  if (isFreeTeamTask(task) && !task.aceita_por) {
+    const itensDaLista = parseChecklistItems(task?.checklist);
+    if (!itensDaLista.length || hasUnassignedOpenChecklist(task)) return true;
+  }
   return false;
 }
 
@@ -4865,6 +4872,7 @@ export const __taskChecklistTestUtils = {
   hasChecklistOwnedByOther,
   isFreeTeamTask,
   sanitizeTaskForUser,
+  canListTaskForUser,
 };
 
 export default router;

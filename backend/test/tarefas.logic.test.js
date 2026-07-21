@@ -214,3 +214,33 @@ test('reatribuição remove poder de alteração do executor histórico sem apag
   assert.equal(utils.isChecklistItemExecutor(task, item, USER_B), true)
   assert.equal(utils.checklistExecutorId(item, task), USER_A)
 })
+
+test('lista com todos os itens delegados a outra pessoa não aparece mais no painel de quem não tem nada a ver com ela', () => {
+  const listaTotalmenteDelegada = {
+    escopo: 'equipe',
+    modo_distribuicao: 'livre_equipe',
+    aceita_por: null,
+    criado_por: '99999999-9999-4999-8999-999999999999',
+    checklist: [
+      { id: 'item-1', texto: 'Cadastrar no SISTDC', feito: false, responsavel_id: USER_B },
+      { id: 'item-2', texto: 'Gerar contrato', feito: false, responsavel_id: USER_B },
+      { id: 'item-3', texto: 'Enviar ao cliente', feito: false, responsavel_id: USER_B },
+    ],
+  }
+  const ctxUserA = { userId: USER_A, orgId: '33333333-3333-4333-8333-333333333333', role: 'membro' }
+  const ctxUserB = { userId: USER_B, orgId: '33333333-3333-4333-8333-333333333333', role: 'membro' }
+  assert.equal(utils.canListTaskForUser(listaTotalmenteDelegada, ctxUserA), false)
+  assert.equal(utils.canListTaskForUser(listaTotalmenteDelegada, ctxUserB), true)
+
+  // Não pode regredir: lista recém-criada, ainda vazia, continua aparecendo pra todo mundo.
+  const listaVazia = { ...listaTotalmenteDelegada, checklist: [] }
+  assert.equal(utils.canListTaskForUser(listaVazia, ctxUserA), true)
+
+  // Não pode regredir: lista livre com item de fato sem dono continua aparecendo.
+  const listaComItemLivre = {
+    ...listaTotalmenteDelegada,
+    checklist: [...listaTotalmenteDelegada.checklist, { id: 'item-4', texto: 'Item livre', feito: false }],
+  }
+  assert.equal(utils.canListTaskForUser(listaComItemLivre, ctxUserA), true)
+})
+
