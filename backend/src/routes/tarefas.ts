@@ -203,14 +203,31 @@ interface MulterTaskRequest extends Request {
   file?: Express.Multer.File;
 }
 
-function destravaEventUrl(): string | null {
-  const base = String(
+function destravaApiBase(): string {
+  return String(
     process.env.DESTRAVA_API_URL ||
       process.env.DESTRAVA_INTERNAL_API_URL ||
       process.env.DESTRAVA_PUBLIC_URL ||
       "",
   ).replace(/\/$/, "");
-  return base ? `${base}/api/nexus/eventos` : null;
+}
+
+function destravaIntegrationSecret(): string {
+  return String(
+    process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET ||
+      process.env.DESTRAVA_INTEGRATION_SECRET ||
+      process.env.INTEGRATION_SECRET ||
+      "",
+  ).trim();
+}
+
+function destravaApiUrl(path: string): string | null {
+  const base = destravaApiBase();
+  return base ? `${base}${path}` : null;
+}
+
+function destravaEventUrl(): string | null {
+  return destravaApiUrl("/api/nexus/eventos");
 }
 
 async function enviarEventoDestrava(
@@ -221,12 +238,7 @@ async function enviarEventoDestrava(
   if (!tarefa || tarefa.origem_sistema !== "destrava" || !tarefa.origem_id)
     return;
   const url = destravaEventUrl();
-  const secret = String(
-    process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET ||
-      process.env.DESTRAVA_INTEGRATION_SECRET ||
-      process.env.INTEGRATION_SECRET ||
-      "",
-  ).trim();
+  const secret = destravaIntegrationSecret();
   if (!url || !secret) return;
   try {
     await fetch(url, {
@@ -3756,7 +3768,8 @@ router.post(
         return;
       }
 
-      const { titulo, descricao, tipo = "evidencia" } = req.body;
+      const { titulo, descricao, tipo = "evidencia", sincronizar_destrava } = req.body;
+      const sincronizarComDestrava = String(sincronizar_destrava || "") === "true";
       const arquivoUrl = buildUploadUrl(req.file.filename);
       const anexo = await queryOne(
         `INSERT INTO tarefa_anexos
@@ -3809,7 +3822,18 @@ router.post(
         }).catch(() => {});
       }
 
-      res.status(201).json({ anexo });
+      res.status(201).json({
+        anexo,
+        sincronizacao_destrava: sincronizarComDestrava
+          ? await sincronizarAnexoComDestrava(
+              task,
+              safeUploadPathFromFilename(req.file.filename),
+              req.file.originalname || req.file.filename,
+              req.file.mimetype,
+              `Tarefa "${task.titulo}" — anexo enviado por ${req.user!.userId === task.criado_por ? "gestor" : "executor"}`,
+            )
+          : undefined,
+      });
     } catch (err) {
       if (req.file) {
         removeUploadByUrl(buildUploadUrl(req.file.filename));
@@ -3820,6 +3844,42 @@ router.post(
     }
   },
 );
+
+async function sincronizarAnexoComDestrava(
+  tarefa: any,
+  arquivoPath: string,
+  nomeOriginal: string,
+  mimeType: string | undefined,
+  contexto: string,
+): Promise<{ ok: boolean; erro?: string }> {
+  if (!tarefa || tarefa.origem_sistema !== "destrava" || !tarefa.origem_id)
+    return { ok: false, erro: "Esta tarefa não está vinculada a uma empresa do Destrava." };
+  const base = destravaApiBase();
+  const secret = destravaIntegrationSecret();
+  if (!base || !secret) return { ok: false, erro: "Integração com o Destrava não está configurada." };
+  try {
+    const buffer = await fs.promises.readFile(arquivoPath);
+    const form = new FormData();
+    form.append(
+      "file",
+      new Blob([buffer], { type: mimeType || "application/octet-stream" }),
+      nomeOriginal || "arquivo",
+    );
+    form.append("origem_nexus", contexto);
+    const resp = await fetch(`${base}/api/nexus/empresas/${tarefa.origem_id}/documentos`, {
+      method: "POST",
+      headers: { "x-nexus-integration-secret": secret },
+      body: form,
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      return { ok: false, erro: `Destrava respondeu ${resp.status}: ${body.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, erro: err instanceof Error ? err.message : "Falha ao enviar arquivo para o Destrava." };
+  }
+}
 
 // GET /api/tarefas/:id/anexos/:anexoId/arquivo
 // Entrega o arquivo pelo backend autenticado, evitando 404 de imagem por link /uploads antigo ou cache do Nginx.
@@ -3876,6 +3936,166 @@ router.get(
     } catch (err) {
       console.error("[TAREFAS] Erro ao abrir arquivo da tarefa:", err);
       res.status(500).json({ error: "Erro ao abrir arquivo da tarefa." });
+    }
+  },
+);
+
+// ── DADOS DA EMPRESA NO DESTRAVA (só quando a tarefa é vinculada a uma) ─────
+// GET /api/tarefas/:id/empresa-destrava
+router.get(
+  "/:id/empresa-destrava",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { orgId } = req.user!;
+      const task = await getTaskForAccess(req.params.id, orgId);
+      if (!task) {
+        res.status(404).json({ error: "Tarefa não encontrada." });
+        return;
+      }
+      if (!(await userCanAccessTask(task, req.user!))) {
+        res.status(403).json({ error: "Acesso negado." });
+        return;
+      }
+      if (task.origem_sistema !== "destrava" || !task.origem_id) {
+        res.status(404).json({ error: "Esta tarefa não está vinculada a uma empresa do Destrava." });
+        return;
+      }
+      const base = destravaApiBase();
+      const secret = destravaIntegrationSecret();
+      if (!base || !secret) {
+        res.status(503).json({ error: "Integração com o Destrava não está configurada." });
+        return;
+      }
+      const resp = await fetch(`${base}/api/nexus/empresas/${task.origem_id}/resumo`, {
+        headers: { "x-nexus-integration-secret": secret },
+      });
+      const data: any = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        res.status(resp.status).json({ error: data?.error || "Erro ao buscar dados da empresa no Destrava." });
+        return;
+      }
+      res.json(data);
+    } catch (err) {
+      console.error("[TAREFAS] Erro ao buscar empresa no Destrava:", err);
+      res.status(500).json({ error: "Erro ao buscar dados da empresa no Destrava." });
+    }
+  },
+);
+
+// GET /api/tarefas/:id/empresa-destrava/documentos/:docId/(download|view)
+// Faz o proxy do arquivo através do backend do Nexus — a chave de integração
+// nunca é exposta ao navegador, e o acesso continua condicionado a poder ver
+// esta tarefa (mesma checagem de todas as outras rotas de tarefa).
+async function proxyDocumentoEmpresaDestrava(req: Request, res: Response, inline: boolean) {
+  try {
+    const { orgId } = req.user!;
+    const task = await getTaskForAccess(req.params.id, orgId);
+    if (!task) {
+      res.status(404).json({ error: "Tarefa não encontrada." });
+      return;
+    }
+    if (!(await userCanAccessTask(task, req.user!))) {
+      res.status(403).json({ error: "Acesso negado." });
+      return;
+    }
+    if (task.origem_sistema !== "destrava" || !task.origem_id) {
+      res.status(404).json({ error: "Esta tarefa não está vinculada a uma empresa do Destrava." });
+      return;
+    }
+    const base = destravaApiBase();
+    const secret = destravaIntegrationSecret();
+    if (!base || !secret) {
+      res.status(503).json({ error: "Integração com o Destrava não está configurada." });
+      return;
+    }
+    const resp = await fetch(
+      `${base}/api/nexus/empresas/${task.origem_id}/documentos/${req.params.docId}/${inline ? "view" : "download"}`,
+      { headers: { "x-nexus-integration-secret": secret } },
+    );
+    if (!resp.ok || !resp.body) {
+      const data: any = await resp.json().catch(() => null);
+      res.status(resp.status || 502).json({ error: data?.error || "Erro ao buscar documento no Destrava." });
+      return;
+    }
+    const contentType = resp.headers.get("content-type");
+    const disposition = resp.headers.get("content-disposition");
+    if (contentType) res.setHeader("Content-Type", contentType);
+    if (disposition) res.setHeader("Content-Disposition", disposition);
+    const reader = resp.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    res.end();
+  } catch (err) {
+    console.error("[TAREFAS] Erro ao obter documento da empresa no Destrava:", err);
+    if (!res.headersSent) res.status(500).json({ error: "Erro ao obter documento no Destrava." });
+  }
+}
+router.get("/:id/empresa-destrava/documentos/:docId/download", (req: Request, res: Response) => {
+  void proxyDocumentoEmpresaDestrava(req, res, false);
+});
+router.get("/:id/empresa-destrava/documentos/:docId/view", (req: Request, res: Response) => {
+  void proxyDocumentoEmpresaDestrava(req, res, true);
+});
+
+// POST /api/tarefas/:id/empresa-destrava/documentos
+// Envia um arquivo direto para os documentos da empresa no Destrava (fora do
+// fluxo de anexo da tarefa) — usado quando o usuário quer arquivar algo na
+// empresa sem necessariamente anexar à tarefa.
+router.post(
+  "/:id/empresa-destrava/documentos",
+  uploadEvidenceFile,
+  async (req: MulterTaskRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: "Nenhum arquivo enviado." });
+        return;
+      }
+      const { orgId } = req.user!;
+      const task = await getTaskForAccess(req.params.id, orgId);
+      if (!task) {
+        removeUploadByUrl(buildUploadUrl(req.file.filename));
+        res.status(404).json({ error: "Tarefa não encontrada." });
+        return;
+      }
+      if (!(await userCanAccessTask(task, req.user!))) {
+        removeUploadByUrl(buildUploadUrl(req.file.filename));
+        res.status(403).json({ error: "Acesso negado." });
+        return;
+      }
+      if (task.origem_sistema !== "destrava" || !task.origem_id) {
+        removeUploadByUrl(buildUploadUrl(req.file.filename));
+        res.status(404).json({ error: "Esta tarefa não está vinculada a uma empresa do Destrava." });
+        return;
+      }
+      const resultado = await sincronizarAnexoComDestrava(
+        task,
+        safeUploadPathFromFilename(req.file.filename),
+        req.file.originalname || req.file.filename,
+        req.file.mimetype,
+        `Tarefa "${task.titulo}" — enviado direto para os arquivos da empresa`,
+      );
+      // O arquivo temporário local só existia para viabilizar o envio ao Destrava
+      // (não vira anexo da tarefa neste fluxo); removido após o envio.
+      removeUploadByUrl(buildUploadUrl(req.file.filename));
+      if (!resultado.ok) {
+        res.status(502).json({ error: resultado.erro || "Erro ao enviar arquivo para o Destrava." });
+        return;
+      }
+      await addHistorico({
+        orgId,
+        tarefaId: req.params.id,
+        userId: req.user!.userId,
+        acao: "documento_enviado_destrava",
+        observacao: `Arquivo "${req.file.originalname || req.file.filename}" enviado para os arquivos de ${task.origem_nome || "empresa"} no Destrava.`,
+      });
+      res.status(201).json({ ok: true });
+    } catch (err) {
+      if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename));
+      console.error("[TAREFAS] Erro ao enviar documento para a empresa no Destrava:", err);
+      res.status(500).json({ error: "Erro ao enviar documento para o Destrava." });
     }
   },
 );

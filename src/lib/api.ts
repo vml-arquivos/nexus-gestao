@@ -183,6 +183,26 @@ export interface TarefaAnexo {
   created_at: string
 }
 
+export interface EmpresaDestravaDocumento {
+  id: string
+  nome: string
+  tipo?: string
+  tamanho?: number
+  status_validacao?: string
+  data_vencimento?: string
+  created_at: string
+  preview_url?: string
+  download_url?: string
+}
+
+export interface EmpresaDestravaResumo {
+  empresa: Record<string, any>
+  historico: Array<{ id: string; tipo: string; descricao: string; autor?: string; created_at: string }>
+  documentos: EmpresaDestravaDocumento[]
+  contratos: Array<Record<string, any>>
+  simulacoes: Array<Record<string, any>>
+}
+
 export interface Pessoa {
   id: string
   org_id: string
@@ -845,20 +865,49 @@ export const tarefasApi = {
     return data.anexos || []
   },
 
-  async uploadAnexo(id: string, file: File, payload?: { titulo?: string; descricao?: string; tipo?: 'evidencia' | 'referencia' | 'correcao' | 'outro' }): Promise<TarefaAnexo> {
+  async uploadAnexo(id: string, file: File, payload?: { titulo?: string; descricao?: string; tipo?: 'evidencia' | 'referencia' | 'correcao' | 'outro'; sincronizarDestrava?: boolean }): Promise<{ anexo: TarefaAnexo; sincronizacao_destrava?: { ok: boolean; erro?: string } }> {
     const form = new FormData()
     form.append('file', file)
     form.append('titulo', payload?.titulo || file.name || 'Anexo da tarefa')
     if (payload?.descricao) form.append('descricao', payload.descricao)
     form.append('tipo', payload?.tipo || 'evidencia')
+    if (payload?.sincronizarDestrava) form.append('sincronizar_destrava', 'true')
 
     const res = await apiFetch(`/tarefas/${id}/anexos`, { method: 'POST', body: form })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.error || `Erro ${res.status}`)
     }
-    const data = await res.json() as { anexo: TarefaAnexo }
-    return data.anexo
+    return await res.json() as { anexo: TarefaAnexo; sincronizacao_destrava?: { ok: boolean; erro?: string } }
+  },
+
+  async empresaDestrava(id: string): Promise<EmpresaDestravaResumo> {
+    return apiJson<EmpresaDestravaResumo>(`/tarefas/${id}/empresa-destrava`)
+  },
+
+  async arquivoEmpresaDestrava(id: string, docId: string, download = false): Promise<{ blob: Blob; filename?: string; mime?: string }> {
+    const res = await apiFetch(`/tarefas/${id}/empresa-destrava/documentos/${docId}/${download ? 'download' : 'view'}`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    const disposition = res.headers.get('Content-Disposition') || ''
+    const filenameStar = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+    const filenamePlain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+    const filename = filenameStar ? decodeURIComponent(filenameStar) : filenamePlain ? decodeURIComponent(filenamePlain) : undefined
+    const blob = await res.blob()
+    return { blob, filename, mime: res.headers.get('Content-Type') || blob.type }
+  },
+
+  async uploadDocumentoEmpresaDestrava(id: string, file: File): Promise<{ ok: boolean }> {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await apiFetch(`/tarefas/${id}/empresa-destrava/documentos`, { method: 'POST', body: form })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || `Erro ${res.status}`)
+    }
+    return await res.json() as { ok: boolean }
   },
 
   async arquivoAnexo(id: string, anexoId: string, download = false): Promise<{ blob: Blob; filename?: string; mime?: string }> {

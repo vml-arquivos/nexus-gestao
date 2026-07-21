@@ -4,9 +4,9 @@ import type { ReactNode, DragEvent, CSSProperties } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle, ChevronRight,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
-  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer,
+  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2,
 } from 'lucide-react'
-import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty } from '../lib/api'
+import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -1740,6 +1740,8 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showGestorUpload, setShowGestorUpload] = useState(false)
+  const [sincronizarDestrava, setSincronizarDestrava] = useState(false)
+  const vinculadaAoDestrava = tarefa.origem_sistema === 'destrava' && !!tarefa.origem_id
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1755,19 +1757,26 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
     if (files.length === 0) { toast('Selecione pelo menos um arquivo.', 'error'); return }
     setSaving(true)
     try {
+      let falhaSincronizacao = false
       for (const file of files) {
-        await tarefasApi.uploadAnexo(tarefa.id, file, {
+        const resultado = await tarefasApi.uploadAnexo(tarefa.id, file, {
           titulo: file.name || 'Anexo da tarefa',
           descricao: descricao.trim() || undefined,
           tipo: isGestor ? 'referencia' : 'evidencia',
+          sincronizarDestrava,
         })
+        if (sincronizarDestrava && resultado.sincronizacao_destrava && !resultado.sincronizacao_destrava.ok) falhaSincronizacao = true
       }
       setDescricao('')
       setFiles([])
       setShowGestorUpload(false)
       await load()
       onChanged?.()
-      toast(isGestor ? 'Arquivo do gestor enviado.' : 'Arquivo enviado.')
+      if (falhaSincronizacao) {
+        toast('Arquivo salvo na tarefa, mas não foi possível sincronizar com o Destrava agora.', 'error')
+      } else {
+        toast(isGestor ? 'Arquivo do gestor enviado.' : 'Arquivo enviado.' + (sincronizarDestrava ? ' Também salvo nos arquivos da empresa no Destrava.' : ''))
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao anexar arquivo.', 'error')
     } finally { setSaving(false) }
@@ -1831,6 +1840,12 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
         <label className="form-label">Descrição da lista do anexo</label>
         <textarea className="form-input" rows={2} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={isGestor ? 'Ex.: referência, validação ou orientação...' : 'Ex.: foto do serviço finalizado, comprovante, relatório entregue...'} />
       </div>
+      {vinculadaAoDestrava && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text2)', cursor: 'pointer' }}>
+          <input type="checkbox" checked={sincronizarDestrava} onChange={e => setSincronizarDestrava(e.target.checked)} />
+          Também salvar nos arquivos de {tarefa.origem_nome || 'empresa'} no Destrava
+        </label>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <button className="btn btn-primary" type="button" onClick={enviar} disabled={saving}>{saving ? <Loader size={14} /> : <Upload size={14} />} {isGestor ? 'Enviar arquivo do gestor' : 'Enviar arquivo'}</button>
       </div>
@@ -1912,8 +1927,173 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   )
 }
 
+function EmpresaDestravaModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: () => void }) {
+  const [dados, setDados] = useState<EmpresaDestravaResumo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [enviando, setEnviando] = useState(false)
 
-function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda }: {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErro('')
+    try {
+      setDados(await tarefasApi.empresaDestrava(tarefa.id))
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao buscar dados da empresa no Destrava.')
+    } finally {
+      setLoading(false)
+    }
+  }, [tarefa.id])
+
+  useEffect(() => { load() }, [load])
+
+  async function abrirDocumento(doc: EmpresaDestravaDocumento) {
+    try {
+      const { blob } = await tarefasApi.arquivoEmpresaDestrava(tarefa.id, doc.id, false)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao abrir documento.', 'error')
+    }
+  }
+
+  async function baixarDocumento(doc: EmpresaDestravaDocumento) {
+    try {
+      const { blob, filename } = await tarefasApi.arquivoEmpresaDestrava(tarefa.id, doc.id, true)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || doc.nome || 'documento'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao baixar documento.', 'error')
+    }
+  }
+
+  async function enviarDocumentos() {
+    if (files.length === 0) { toast('Selecione pelo menos um arquivo.', 'error'); return }
+    setEnviando(true)
+    try {
+      for (const file of files) {
+        await tarefasApi.uploadDocumentoEmpresaDestrava(tarefa.id, file)
+      }
+      setFiles([])
+      toast(`${files.length} arquivo(s) enviado(s) para os documentos da empresa no Destrava.`)
+      await load()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao enviar arquivo para o Destrava.', 'error')
+    } finally { setEnviando(false) }
+  }
+
+  const empresa = dados?.empresa
+
+  return (
+    <ModalBase title="Empresa (Destrava)" onClose={onClose}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12, background: 'var(--bg3)', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <Building2 size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--primary)' }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>{tarefa.origem_nome || 'Empresa vinculada a esta tarefa'}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>Dados e documentos consultados diretamente no Destrava Crédito, em tempo real.</div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ color: 'var(--text3)' }}>Carregando dados da empresa...</div>
+        ) : erro ? (
+          <div style={{ color: '#EF4444', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12, fontSize: 13 }}>
+            {erro}
+            <div style={{ marginTop: 8 }}>
+              <button className="btn btn-secondary" type="button" onClick={load}><RotateCcw size={13} /> Tentar de novo</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {empresa && (
+              <section style={{ display: 'grid', gap: 6 }}>
+                <div style={{ fontWeight: 500 }}>Dados cadastrais</div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--bg2)', display: 'grid', gap: 4, fontSize: 13 }}>
+                  <div><strong>Razão social:</strong> {empresa.razao_social || empresa.nome_fantasia || '—'}</div>
+                  {empresa.nome_fantasia && empresa.razao_social && <div><strong>Nome fantasia:</strong> {empresa.nome_fantasia}</div>}
+                  <div><strong>CNPJ:</strong> {empresa.cnpj || '—'}</div>
+                  {empresa.email && <div><strong>E-mail:</strong> {empresa.email}</div>}
+                  {empresa.telefone && <div><strong>Telefone:</strong> {empresa.telefone}</div>}
+                  {(empresa.cidade || empresa.estado) && <div><strong>Local:</strong> {[empresa.cidade, empresa.estado].filter(Boolean).join('/')}</div>}
+                  {empresa.responsavel_nome && <div><strong>Responsável:</strong> {empresa.responsavel_nome}</div>}
+                  {empresa.status && <div><strong>Status:</strong> {empresa.status}</div>}
+                </div>
+              </section>
+            )}
+
+            <section style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontWeight: 500 }}>Documentos da empresa</div>
+                <span style={{ fontSize: 12, color: 'var(--text3)' }}>{dados?.documentos.length || 0} documento(s)</span>
+              </div>
+              {!dados?.documentos.length ? (
+                <div style={{ color: 'var(--text3)', fontSize: 13, padding: 14, border: '1px dashed var(--border)', borderRadius: 12 }}>Nenhum documento cadastrado para esta empresa no Destrava.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {dados.documentos.map(doc => (
+                    <div key={doc.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 10, background: 'var(--bg2)', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, overflowWrap: 'anywhere', display: 'flex', gap: 6, alignItems: 'center' }}><FileText size={14} /> {doc.nome}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fmtDateTime(doc.created_at)} {doc.tamanho ? `· ${formatSize(doc.tamanho)}` : ''} {doc.status_validacao ? `· ${doc.status_validacao}` : ''}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button className="btn btn-secondary" type="button" onClick={() => abrirDocumento(doc)} style={{ padding: '6px 10px', fontSize: 12 }}><FileText size={13} /> Visualizar</button>
+                        <button className="btn btn-secondary" type="button" onClick={() => baixarDocumento(doc)} style={{ padding: '6px 10px', fontSize: 12 }}><Download size={13} /> Baixar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 500 }}>Enviar novo documento para a empresa</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>O arquivo é salvo direto nos documentos de {tarefa.origem_nome || 'empresa'} no Destrava — fica disponível para todo mundo que acessa a empresa por lá.</div>
+              </div>
+              <FileDropzone
+                id={`empresa-destrava-${tarefa.id}`}
+                files={files}
+                onFiles={setFiles}
+                label="Enviar documento para a empresa"
+                help="Use PDF, imagem ou documento a arquivar no cadastro da empresa."
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="btn btn-primary" type="button" onClick={enviarDocumentos} disabled={enviando}>{enviando ? <Loader size={14} /> : <Upload size={14} />} Enviar para a empresa</button>
+              </div>
+            </section>
+
+            {dados?.historico && dados.historico.length > 0 && (
+              <section style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gap: 8 }}>
+                <div style={{ fontWeight: 500 }}>Histórico recente na empresa</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {dados.historico.slice(0, 8).map(h => (
+                    <div key={h.id} style={{ fontSize: 12, color: 'var(--text2)', borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
+                      <span style={{ color: 'var(--text3)' }}>{fmtDateTime(h.created_at)}{h.autor ? ` · ${h.autor}` : ''}</span>
+                      <div>{h.descricao}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </ModalBase>
+  )
+}
+
+
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda, onEmpresaDestrava }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   isGestor: boolean
@@ -1929,6 +2109,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   onReminder: (t: Tarefa) => void
   onPedirAjuda: (t: Tarefa) => void
   onPainelAjuda: (t: Tarefa) => void
+  onEmpresaDestrava: (t: Tarefa) => void
 }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(normalizeChecklistItems(tarefa.checklist))
   const [obs, setObs] = useState(tarefa.observacao_conclusao || tarefa.resposta_membro || '')
@@ -2497,6 +2678,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             {!isGestor && canExecuteTask && <button className="btn btn-secondary" type="button" onClick={() => onPedirAjuda(tarefa)}><MessageSquare size={14} /> Pedir ajuda</button>}
             {!isGestor && (canExecuteTask || (tarefa as any).pedido_ajuda_pendente) && <button className="btn btn-secondary" type="button" onClick={() => onPainelAjuda(tarefa)}><MessageSquare size={14} /> Ajuda / respostas</button>}
             <button className="btn btn-secondary" type="button" onClick={() => onAnexos(tarefa)}><Paperclip size={14} /> Arquivos {anexosCount ? `(${anexosCount})` : ''}</button>
+            {tarefa.origem_sistema === 'destrava' && tarefa.origem_id && <button className="btn btn-secondary" type="button" onClick={() => onEmpresaDestrava(tarefa)}><Building2 size={14} /> Empresa (Destrava)</button>}
           </div>
         </section>
 
@@ -3653,6 +3835,7 @@ export default function Tarefas() {
   const [responder, setResponder] = useState<Tarefa | null>(null)
   const [historico, setHistorico] = useState<Tarefa | null>(null)
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
+  const [empresaDestrava, setEmpresaDestrava] = useState<Tarefa | null>(null)
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [ajuda, setAjuda] = useState<Tarefa | null>(null)
@@ -4372,13 +4555,14 @@ export default function Tarefas() {
         </div>
       )}
 
-      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} />}
+      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
       {complemento && <ComplementoModal key={complemento.id} tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal key={ajuda.id} tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
       {painelAjuda && <PainelAjudaModal key={painelAjuda.id} tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}
       {devolverTarget && <DevolverModal key={devolverTarget.id} tarefa={devolverTarget} onClose={() => setDevolverTarget(null)} onSaved={(t) => { updateSaved(t); setDevolverTarget(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {lembreteTarget && <LembreteModal key={lembreteTarget.id} tarefa={lembreteTarget} membros={membros} onClose={() => setLembreteTarget(null)} />}
       {anexos && <AnexosModal key={anexos.id} tarefa={anexos} onClose={() => setAnexos(null)} onChanged={load} />}
+      {empresaDestrava && <EmpresaDestravaModal key={empresaDestrava.id} tarefa={empresaDestrava} onClose={() => setEmpresaDestrava(null)} />}
     </div>
   )
 }
