@@ -122,6 +122,11 @@ export interface Tarefa {
   aceita_por?: string
   aceita_por_nome?: string
   aceita_em?: string
+  /** Calculado no servidor a partir do checklist COMPLETO (antes do filtro de
+   * privacidade por membro) — usado para saber se a lista livre já tem dono,
+   * mesmo quando o próprio checklist retornado para este usuário vem vazio
+   * porque os itens pertencem a outra pessoa. */
+  possui_itens_atribuidos?: boolean
   pontuacao?: number
   /** Define onde a pontuação será contabilizada: tarefa, objetivos ou ambos. */
   pontuacao_escopo?: 'tarefa' | 'subtarefas' | 'ambos'

@@ -1237,11 +1237,21 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
 
 function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
   const checklist = filterChecklistForUser(task, user);
+  // Calculado sobre o checklist BRUTO (antes do filtro de privacidade acima),
+  // para que "está livre para assumir?" nunca dependa de quanto deste
+  // checklist o usuário atual tem permissão de enxergar. Sem isso, uma lista
+  // 100% delegada por item para outra pessoa aparecia como "Livre para
+  // assumir" para o resto da equipe, porque o checklist filtrado vinha vazio.
+  const checklistBruto = parseChecklistItems(task?.checklist);
+  const possuiItensAtribuidos = checklistBruto.some(
+    (item) => item.feito || !!checklistItemAssignmentId(item),
+  );
   if (!shouldRevealTaskToUser(task, user)) {
     const pts = taskSurprisePoints(task);
     return {
       ...task,
       checklist: [],
+      possui_itens_atribuidos: possuiItensAtribuidos,
       titulo: `Essa tarefa vale ${pts} ponto${pts === 1 ? "" : "s"} — assuma para revelar`,
       descricao: null,
       obs: null,
@@ -1255,7 +1265,7 @@ function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
     };
   }
   const protectedTask = maskParentTaskContentForMember(task, user, checklist);
-  return { ...protectedTask, checklist };
+  return { ...protectedTask, checklist, possui_itens_atribuidos: possuiItensAtribuidos };
 }
 
 function canListTaskForUser(
@@ -4853,6 +4863,7 @@ export const __taskChecklistTestUtils = {
   calculateChecklistItemPoints,
   hasChecklistOwnedByOther,
   isFreeTeamTask,
+  sanitizeTaskForUser,
 };
 
 export default router;

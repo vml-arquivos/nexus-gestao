@@ -443,6 +443,11 @@ function isAvailableFreeTask(tarefa: Tarefa) {
   // Regra: se qualquer membro já assumiu a tarefa inteira (aceita_por preenchido), ela não fica disponível para outros.
   // Tarefas surpresa também seguem essa regra (assumida = não disponível).
   if (tarefa.aceita_por) return false
+  // Sinal do servidor, calculado sobre o checklist COMPLETO (antes do filtro de
+  // privacidade por membro). Essencial: o checklist que ESTE usuário recebe pode
+  // vir vazio quando todos os itens já pertencem a outra pessoa — sem este sinal,
+  // a lista pareceria "livre" para qualquer membro, mesmo já 100% atribuída.
+  if ((tarefa as any).possui_itens_atribuidos) return false
   // Defesa extra para registros antigos: se algum item já tem dono (foi assumido
   // individualmente) ou já foi concluído por alguém, a lista também não pode
   // aparecer como livre, mesmo que aceita_por não tenha sido gravado na lista.

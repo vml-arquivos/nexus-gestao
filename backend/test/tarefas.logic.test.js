@@ -152,6 +152,42 @@ test('lista livre com item já concluído por alguém não pode ser assumida por
   assert.equal(utils.hasChecklistOwnedByOther(task, USER_A), false)
 })
 
+test('lista com todos os itens delegados a outra pessoa não aparece como livre para um terceiro, mesmo com checklist filtrado vazio', () => {
+  const task = {
+    id: '44444444-4444-4444-8444-444444444444',
+    org_id: '33333333-3333-4333-8333-333333333333',
+    escopo: 'equipe',
+    modo_distribuicao: 'livre_equipe',
+    status: 'em_progresso',
+    aceita_por: null,
+    criado_por: USER_B,
+    checklist: [
+      { id: 'item-1', texto: 'Cadastrar no SISTDC', feito: false, responsavel_id: USER_B, responsavel_nome: 'Raíssa Aragão' },
+      { id: 'item-2', texto: 'Gerar contrato', feito: false, responsavel_id: USER_B, responsavel_nome: 'Raíssa Aragão' },
+      { id: 'item-3', texto: 'Enviar ao cliente', feito: false, responsavel_id: USER_B, responsavel_nome: 'Raíssa Aragão' },
+    ],
+  }
+  // USER_A (terceiro membro, sem nenhum item seu) precisa continuar vendo só
+  // o que é dele — aqui, nada — mas o sinal de "já tem dono" tem que vir
+  // junto mesmo assim, senão o front-end acha que a lista está livre.
+  const sanitizado = utils.sanitizeTaskForUser(task, {
+    userId: USER_A,
+    orgId: task.org_id,
+    role: 'membro',
+  })
+  assert.deepEqual(sanitizado.checklist, [])
+  assert.equal(sanitizado.possui_itens_atribuidos, true)
+
+  // Para quem já é dono dos itens (USER_B), o checklist normal continua vindo.
+  const sanitizadoDono = utils.sanitizeTaskForUser(task, {
+    userId: USER_B,
+    orgId: task.org_id,
+    role: 'membro',
+  })
+  assert.equal(sanitizadoDono.checklist.length, 3)
+  assert.equal(sanitizadoDono.possui_itens_atribuidos, true)
+})
+
 test('ranking prioriza quem concluiu, não uma reatribuição posterior', () => {
   const executor = utils.checklistExecutorId(
     {
