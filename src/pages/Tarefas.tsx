@@ -626,14 +626,20 @@ function prioridadeCfg(prioridade?: string) {
   return PRIORIDADE_CONFIG[prioridade || 'media'] || PRIORIDADE_CONFIG.media
 }
 
+let modalOpenCount = 0
+
 function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   useEffect(() => {
+    modalOpenCount += 1
     document.documentElement.classList.add('modal-open')
     document.body.classList.add('modal-open')
 
     return () => {
-      document.documentElement.classList.remove('modal-open')
-      document.body.classList.remove('modal-open')
+      modalOpenCount = Math.max(0, modalOpenCount - 1)
+      if (modalOpenCount === 0) {
+        document.documentElement.classList.remove('modal-open')
+        document.body.classList.remove('modal-open')
+      }
     }
   }, [])
 

@@ -654,3 +654,39 @@
   }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   Cabeçalho da tarefa (task-detail-hero) — definição final e única.
+   A regra antiga em app-styles.css usava display:grid com a coluna de
+   ações em "auto" (cabe pelo conteúdo) e a do título em "minmax(0,1fr)"
+   (mínimo zero) — cada botão novo na barra de ações empurrava o título
+   pra mais perto de zero, até quebrar letra por letra (ex.: ao passar
+   de 4 para 5 botões, com a adição de "Empresa (Destrava)"). Título e
+   ações agora empilham em coluna, largura total cada um — o título
+   nunca mais é espremido, não importa quantos botões existam.
+   ═══════════════════════════════════════════════════════════════ */
+.tarefa-modal-box .task-detail-hero {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+}
+
+.tarefa-modal-box .task-detail-hero > div:first-child {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.tarefa-modal-box .task-detail-hero h2 {
+  width: 100% !important;
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+.tarefa-modal-box .task-detail-hero-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  width: 100% !important;
+}
