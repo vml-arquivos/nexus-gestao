@@ -1211,6 +1211,17 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </div>
           </div>
         )}
+        {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
+          <div className="form-group" style={{ border: '1px solid var(--primary-dim)', borderRadius: 12, padding: 12, background: 'var(--primary-dim2)' }}>
+            <label className="form-label">Direcionar para quem?</label>
+            <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
+              <option value="">Sem responsável único — distribuir por tarefa dentro da lista</option>
+              {user?.id && <option value={user.id}>Eu como responsável principal</option>}
+              {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
+            </select>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Escolha um membro pra ser o responsável pela lista inteira, ou deixe "sem responsável único" e escolha o executor de cada tarefa individualmente mais abaixo, em "Executor desta tarefa".</div>
+          </div>
+        )}
         {isGestor && tipoTarefa === 'equipe' && (
           <div className="task-points-box">
             <div className="form-group">
@@ -1245,17 +1256,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             <div className="team-ranking-note">
               O ranking respeita a escolha acima: pode pontuar só a lista, só as tarefas da lista ou os dois, sempre somente após aprovação do gestor.
             </div>
-          </div>
-        )}
-        {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
-          <div className="form-group">
-            <label className="form-label">Responsável principal da lista</label>
-            <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Lista de tarefas da equipe sem responsável único</option>
-              {user?.id && <option value={user.id}>Eu como responsável principal</option>}
-              {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
-            </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Você pode direcionar a lista para um membro ou deixar sem responsável principal e distribuir as tarefas internas.</div>
           </div>
         )}
         <div className="form-group">
@@ -2122,6 +2122,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [motivo, setMotivo] = useState('')
   const [files, setFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
+  const [expandirChecklistAprovado, setExpandirChecklistAprovado] = useState(false)
   const [execHistory, setExecHistory] = useState<any[]>([])
   const [execHistoryLoading, setExecHistoryLoading] = useState(false)
   const [comentarios, setComentarios] = useState<any[]>([])
@@ -2280,6 +2281,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   // aprovar de novo não faz sentido) — reabrir uma lista já finalizada para
   // complementar ou corrigir é uma ação distinta, sempre disponível ao gestor.
   const canReopenTask = !isPersonal && isGestor && ['aprovada', 'concluida'].includes(String(tarefa.status || ''))
+  // Lista já aprovada: por padrão mostra um histórico compacto em vez dos
+  // cartões completos de cada item, para não ocupar a tela toda com uma
+  // lista que já foi finalizada — o gestor pode expandir se precisar
+  // conferir algo específico (ex.: corrigir a pontuação de um item).
+  const listaFinalizada = tarefa.status === 'aprovada'
   const allChecklistDone = geralProgress.total === 0 || geralProgress.complete
   const myChecklistDone = myProgress.total === 0 || myProgress.complete
   const displayChecklist = visibleChecklistItems({ ...tarefa, checklist }, userId, isGestor)
@@ -2730,6 +2736,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <h3>Editar lista de tarefas e tarefas</h3>
               <button className="btn btn-primary btn-sm" type="button" onClick={saveInlineEdit} disabled={saving}>{saving ? <Loader size={14} /> : <Send size={14} />} Salvar alterações</button>
             </div>
+            {tarefa.origem_sistema === 'destrava' && tarefa.origem_id && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--primary)', fontWeight: 600, marginBottom: 4 }}>
+                <Building2 size={15} /> {tarefa.origem_nome || 'Empresa vinculada'}
+              </div>
+            )}
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Título da lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
@@ -2936,7 +2947,35 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
             </div>
           )}
           {displayTotal > 0 ? (
+            listaFinalizada && !expandirChecklistAprovado ? (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg3)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text2)' }}>
+                    <CheckCircle2 size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                    Lista aprovada · {displayTotal} tarefa(s) concluída(s), pontuação já liberada.
+                  </span>
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => setExpandirChecklistAprovado(true)}>Ver detalhes</button>
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)' }}>
+                  {displayChecklist.map(item => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                      <CheckCircle2 size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                      <span style={{ flex: '1 1 0%', minWidth: 0, overflowWrap: 'anywhere' }}>{checklistDisplayText(item)}</span>
+                      {!isPersonal && <span style={{ flexShrink: 0, color: 'var(--text3)', fontSize: 12 }}>{(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} pt(s)</span>}
+                      {isGestor && (
+                        <button className="btn btn-ghost btn-sm" type="button" onClick={() => corrigirPontuacaoItem(item)} disabled={saving} style={{ flexShrink: 0 }}>Corrigir pontuação</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="task-checklist-run">
+              {listaFinalizada && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost btn-sm" type="button" onClick={() => setExpandirChecklistAprovado(false)}>Ocultar detalhes</button>
+                </div>
+              )}
               {checklistDateKeys.map(dateKey => (
                 <div key={dateKey} className="task-checklist-date-group">
                   <div className="task-checklist-date-title">
@@ -3021,6 +3060,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 </div>
               ))}
             </div>
+            )
           ) : (
             <p className="muted">{isGestor ? 'Esta lista não possui tarefas.' : 'Nenhuma tarefa desta lista está atribuída a você.'}</p>
           )}
