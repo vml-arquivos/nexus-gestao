@@ -114,6 +114,7 @@ async function ensureTaskRuntimeSchema() {
         CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
         CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
+        CREATE INDEX IF NOT EXISTS idx_tarefas_org_origem_status ON tarefas(org_id, origem_id, status) WHERE origem_id IS NOT NULL;
 
         ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
         ALTER TABLE notificacoes ADD CONSTRAINT notificacoes_tipo_check

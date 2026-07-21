@@ -191,6 +191,16 @@ ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS external_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_tarefas_origem ON tarefas(origem_sistema, origem_tipo, origem_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_external_key ON tarefas(external_key);
 
+-- Usado pela mesclagem automática (criar tarefa para empresa que já tem
+-- lista em aberto/finalizada junta os itens em vez de duplicar a lista):
+-- SELECT ... WHERE org_id = $1 AND origem_id = $2 AND status <> 'cancelada'
+-- ORDER BY created_at DESC LIMIT 1 FOR UPDATE. Sem este índice, a consulta
+-- cairia em varredura sequencial da tabela inteira a cada tarefa criada
+-- para uma empresa, piorando conforme o volume de tarefas cresce.
+CREATE INDEX IF NOT EXISTS idx_tarefas_org_origem_status
+  ON tarefas(org_id, origem_id, status)
+  WHERE origem_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS nexus_external_links (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id         UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
