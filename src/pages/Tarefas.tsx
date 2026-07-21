@@ -326,6 +326,10 @@ function isChecklistItemExecutor(item: ChecklistItem, tarefa: Tarefa, userId?: s
   if (currentOwner) return currentOwner === userId
   const completionOwner = item.concluido_por || item.feito_por
   if (item.feito && completionOwner) return completionOwner === userId
+  // Item marcado como livre pelo gestor ao incluí-lo: mesmo numa lista
+  // "Direcionar", este item específico não é executado automaticamente pelo
+  // responsável principal — precisa ser assumido primeiro.
+  if ((item as any).livre === true) return false
   return tarefa.aceita_por === userId || tarefa.responsavel_id === userId || (!tarefa.responsavel_id && tarefa.criado_por === userId)
 }
 
@@ -850,13 +854,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
     if (!titulo.trim() && tituloSugerido) setTitulo(tituloSugerido)
 
+    const executorLivreLote = tipoTarefa !== 'pessoal' && novoItemResponsavelId === '__livre__'
     const novosItens: ChecklistItem[] = acoes.map(texto => ({
       id: nanoid(),
       texto,
       descricao: undefined,
       data: novoItemData || undefined,
-      responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (novoItemResponsavelId || undefined),
-      responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : checklistResponsibleName(novoItemResponsavelId),
+      responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreLote ? undefined : (novoItemResponsavelId || undefined)),
+      responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreLote ? undefined : checklistResponsibleName(novoItemResponsavelId)),
+      livre: executorLivreLote || undefined,
       dificuldade: tipoTarefa === 'pessoal' ? 'nivel_1' : novoItemDificuldade,
       pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
       subtarefas: [],
@@ -879,13 +885,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (!novoItem.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
     if (novoItemData && novoItemData < todayIso()) { toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
     if (tipoTarefa === 'equipe' && (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    const executorLivreItem = tipoTarefa !== 'pessoal' && novoItemResponsavelId === '__livre__'
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: novoItem.trim(),
       descricao: novoItemDescricao.trim() || undefined,
       data: novoItemData || undefined,
-      responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (novoItemResponsavelId || undefined),
-      responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : checklistResponsibleName(novoItemResponsavelId),
+      responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreItem ? undefined : (novoItemResponsavelId || undefined)),
+      responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreItem ? undefined : checklistResponsibleName(novoItemResponsavelId)),
+      livre: executorLivreItem || undefined,
       dificuldade: tipoTarefa === 'pessoal' ? 'nivel_1' : novoItemDificuldade,
       pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || 0))),
       subtarefas: [],
@@ -1307,6 +1315,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     onChange={e => setNovoItemResponsavelId(e.target.value)}
                   >
                     <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / usar responsável principal'}</option>
+                    {principalExecutorNome && <option value="__livre__">🔓 Livre — qualquer um da equipe pode assumir esta tarefa</option>}
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
                   </select>
                 </div>
@@ -2353,13 +2362,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     if (!newSubtask.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
     if (newSubtaskDate && newSubtaskDate < todayIso()) { toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
     if (!isPersonal && (newSubtaskPoints === '' || Number.isNaN(Number(newSubtaskPoints)) || Number(newSubtaskPoints) < 0 || Number(newSubtaskPoints) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    const executorLivre = !isPersonal && newSubtaskResp === '__livre__'
     setChecklist(prev => [...prev, {
       id: nanoid(),
       texto: newSubtask.trim(),
       descricao: newSubtaskDesc.trim() || undefined,
       data: newSubtaskDate || undefined,
-      responsavel_id: isPersonal ? (userId || undefined) : (newSubtaskResp || undefined),
-      responsavel_nome: isPersonal ? (checklistResponsibleName(userId) || tarefa.responsavel_nome || undefined) : checklistResponsibleName(newSubtaskResp),
+      responsavel_id: isPersonal ? (userId || undefined) : (executorLivre ? undefined : (newSubtaskResp || undefined)),
+      responsavel_nome: isPersonal ? (checklistResponsibleName(userId) || tarefa.responsavel_nome || undefined) : (executorLivre ? undefined : checklistResponsibleName(newSubtaskResp)),
+      livre: executorLivre || undefined,
       dificuldade: isPersonal ? 'nivel_1' : newSubtaskDifficulty,
       pontuacao: isPersonal ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(newSubtaskPoints || 0))),
       subtarefas: [],
@@ -2822,7 +2833,13 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   <label className="form-label">Executor <span>(opcional)</span></label>
                   <select className="form-input" value={newSubtaskResp} onChange={e => setNewSubtaskResp(e.target.value)}>
                     <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / responsável principal'}</option>
+                    {principalExecutorNome && <option value="__livre__">🔓 Livre — qualquer um da equipe pode assumir esta tarefa</option>}
                     {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
+                  {principalExecutorNome && (
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                      Deixando em branco, esta tarefa herda {principalExecutorNome} como executor. Escolha "Livre" pra deixar disponível pra qualquer um da equipe assumir, mesmo a lista sendo direcionada.
+                    </div>
+                  )}
                 </div>
               )}
               <div className="form-group task-inline-desc">
@@ -2982,7 +2999,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     <Calendar size={13} /> {checklistDateLabel(dateKey === 'sem-data' ? undefined : dateKey)}
                   </div>
                   {checklistByDate[dateKey].map(item => {
-                    const canAssumeThisItem = !isGestor && isFreeTeamTask(tarefa) && !item.feito && !checklistItemAssignmentId(item)
+                    const canAssumeThisItem = !isGestor && !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
                     const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
                     return (
                       <div
