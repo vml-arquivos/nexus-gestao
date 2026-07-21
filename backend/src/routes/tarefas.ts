@@ -908,7 +908,7 @@ function isTaskExecutor(task: any, userId: string) {
 
 function isChecklistItemExecutor(
   task: any,
-  item: { feito?: boolean; responsavel_id?: string; assumido_por?: string; executor_id?: string; aceita_por?: string; concluido_por?: string; feito_por?: string },
+  item: { feito?: boolean; responsavel_id?: string; assumido_por?: string; executor_id?: string; aceita_por?: string; concluido_por?: string; feito_por?: string; livre?: boolean },
   userId: string,
 ) {
   // A atribuição atual define quem pode alterar o item. A autoria histórica da
@@ -917,6 +917,11 @@ function isChecklistItemExecutor(
   if (currentOwner) return currentOwner === userId;
   const completionOwner = item?.concluido_por || item?.feito_por;
   if (item?.feito && isUuid(completionOwner)) return completionOwner === userId;
+  // Item marcado como livre pelo gestor ao incluí-lo: mesmo numa lista
+  // "Direcionar", este item específico não é executado automaticamente pelo
+  // responsável principal — precisa ser assumido primeiro (botão "Assumir
+  // tarefa"), igual ao funcionamento de uma lista livre para a equipe.
+  if (item?.livre === true) return false;
   return isTaskExecutor(task, userId);
 }
 
@@ -2244,7 +2249,9 @@ router.post(
       const isFreeList = isFreeTeamTask(existing);
       const tarefa = await queryOne<any>(
         `UPDATE tarefas SET checklist = $1, status = CASE WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso' ELSE status END,
-          status_gestor = 'aguardando', escopo = 'equipe', modo_distribuicao = 'livre_equipe', data_inicio = COALESCE(data_inicio, NOW()),
+          status_gestor = 'aguardando', escopo = 'equipe',
+          modo_distribuicao = CASE WHEN $6 THEN 'livre_equipe' ELSE modo_distribuicao END,
+          data_inicio = COALESCE(data_inicio, NOW()),
           aceita_por = CASE WHEN $6 THEN COALESCE(aceita_por, $4) ELSE aceita_por END,
           aceita_em = CASE WHEN $6 AND aceita_por IS NULL THEN NOW() ELSE aceita_em END,
           responsavel_id = CASE WHEN $6 THEN COALESCE(responsavel_id, $4) ELSE responsavel_id END,

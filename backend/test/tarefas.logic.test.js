@@ -244,3 +244,26 @@ test('lista com todos os itens delegados a outra pessoa não aparece mais no pai
   assert.equal(utils.canListTaskForUser(listaComItemLivre, ctxUserA), true)
 })
 
+test('item marcado como livre numa lista direcionada não é executado automaticamente pelo responsável principal', () => {
+  const task = {
+    escopo: 'equipe',
+    modo_distribuicao: 'normal',
+    responsavel_id: USER_B, // responsável principal da lista
+    criado_por: USER_B,
+  }
+  const itemLivre = { id: 'item-1', texto: 'Tarefa livre dentro de lista direcionada', feito: false, livre: true }
+  const itemNormal = { id: 'item-2', texto: 'Tarefa normal da lista', feito: false }
+
+  // O responsável principal (USER_B) executa o item normal automaticamente...
+  assert.equal(utils.isChecklistItemExecutor(task, itemNormal, USER_B), true)
+  // ...mas NÃO executa o item marcado como livre sem assumir primeiro.
+  assert.equal(utils.isChecklistItemExecutor(task, itemLivre, USER_B), false)
+  // Um terceiro membro (USER_A) também não executa antes de assumir.
+  assert.equal(utils.isChecklistItemExecutor(task, itemLivre, USER_A), false)
+
+  // Depois que alguém assume (responsavel_id preenchido), essa pessoa passa a poder.
+  const itemAssumido = { ...itemLivre, responsavel_id: USER_A }
+  assert.equal(utils.isChecklistItemExecutor(task, itemAssumido, USER_A), true)
+  assert.equal(utils.isChecklistItemExecutor(task, itemAssumido, USER_B), false)
+})
+

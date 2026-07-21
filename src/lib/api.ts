@@ -68,6 +68,11 @@ export interface ChecklistItem {
   subtarefas?: ObjectiveSubtask[]
   /** Quando verdadeiro, o objetivo aparece para a equipe só com pontuação; título e instruções são revelados apenas para quem assumir. */
   revelar_apos_assumir?: boolean
+  /** Quando verdadeiro, este item específico fica livre para qualquer membro
+   * da equipe assumir — mesmo que a lista tenha um responsável principal
+   * definido (modelo "Direcionar"). O responsável principal da lista NÃO
+   * executa este item automaticamente; alguém precisa assumi-lo primeiro. */
+  livre?: boolean
   /** Indica que o backend mascarou o conteúdo para o usuário atual. */
   oculta_ate_assumir?: boolean
   aprovacao_status?: 'aguardando' | 'aprovada' | 'devolvida'
