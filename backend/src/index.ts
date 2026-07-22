@@ -21,11 +21,14 @@ import usersRoutes      from './routes/users'
 import convitesRoutes       from './routes/convites'
 import notificacoesRoutes  from './routes/notificacoes'
 import integracoesRoutes   from './routes/integracoes'
+import automationRoutes, { opsRouter as automationOpsRoutes } from './routes/automation'
 import inteligenciaRoutes  from './routes/inteligencia'
 import adminRoutes         from './routes/admin'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 import { iniciarAgendaAutoSync } from './services/agendaSyncService'
 import { iniciarBackupAutomatico } from './services/backupAutoService'
+import { executarVarreduraOutboxAutomation } from './services/automation/dispatcher'
+import { avaliarAlertasAutomacao } from './services/automation/alertJob'
 
 const app = express()
 // Necessário em produção atrás do Coolify/Traefik para o express-rate-limit interpretar X-Forwarded-For corretamente.
@@ -86,7 +89,12 @@ app.use(rateLimit({
 // página diversas vezes e foi removido. Mantemos apenas o limitador global acima.
 
 
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({
+  limit: '10mb',
+  // Preserva o corpo bruto para verificação de assinatura HMAC do
+  // Automation Engine (middleware/webhookAuth.ts) -- não afeta o parsing normal.
+  verify: (req, _res, buf) => { (req as any).rawBody = buf },
+}))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 // ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
@@ -128,6 +136,8 @@ app.use('/api/users',       usersRoutes)
 app.use('/api/convites',       convitesRoutes)
 app.use('/api/notificacoes',  notificacoesRoutes)
 app.use('/api/integracoes',   integracoesRoutes)
+app.use('/api/integracoes',   automationRoutes)
+app.use('/api/automation',    automationOpsRoutes)
 app.use('/api/inteligencia',  inteligenciaRoutes)
 app.use('/api/admin',        adminRoutes)
 
@@ -172,6 +182,24 @@ async function start() {
     iniciarJobsNotificacao()
     iniciarAgendaAutoSync()
     iniciarBackupAutomatico()
+
+    // Automation Engine: varredura de retry do outbox (mesmo padrão setInterval
+    // dos jobs de notificação acima -- entrega eventos que o despacho imediato
+    // não conseguiu concluir).
+    const intervaloRetryMs = Number(process.env.AUTOMATION_RETRY_INTERVAL_MS || 60_000)
+    setInterval(() => {
+      executarVarreduraOutboxAutomation().catch((err) => {
+        console.error('[AUTOMATION] Erro na varredura do outbox:', err)
+      })
+    }, intervaloRetryMs)
+
+    // Ladder de alertas 7d/3d/1d/hoje/atrasado das rotinas e acompanhamentos.
+    setInterval(() => {
+      avaliarAlertasAutomacao().catch((err) => {
+        console.error('[AUTOMATION] Erro ao avaliar alertas:', err)
+      })
+    }, 30 * 60_000)
+    setTimeout(() => avaliarAlertasAutomacao().catch(() => {}), 30_000)
   })
 }
 

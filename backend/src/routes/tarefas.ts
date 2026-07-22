@@ -14,6 +14,7 @@ import {
 } from "../lib/uploadSecurity";
 import fs from "fs";
 import path from "path";
+import { publicarTarefaConcluidaSeAutomacao } from "./automationHandlers/publish";
 
 const router = Router();
 router.use(authMiddleware);
@@ -2435,6 +2436,7 @@ router.patch(
       const tarefa = await getTaskForAccess(req.params.id, orgId).catch(
         () => updated.rows[0],
       );
+      publicarTarefaConcluidaSeAutomacao(tarefa || updated.rows[0]);
       res.json({ tarefa: sanitizeTaskForUser(tarefa || updated.rows[0], req.user!) });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
@@ -4539,6 +4541,7 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
       });
     }
 
+    publicarTarefaConcluidaSeAutomacao(tarefa);
     res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
   } catch (err) {
     console.error("[TAREFAS] Erro ao atualizar:", err);
@@ -4613,6 +4616,7 @@ router.post(
         statusNovo: status,
         observacao: resposta_obs || null,
       });
+      publicarTarefaConcluidaSeAutomacao(tarefa);
       res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
     } catch (err) {
       console.error("[TAREFAS] Erro ao responder:", err);

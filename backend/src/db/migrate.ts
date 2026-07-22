@@ -676,24 +676,22 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_external_key  ON tarefas(external_key);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel   ON tarefas(responsavel_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
 
--- ── LINKS EXTERNOS (integração Destrava) ─────────────────────
-CREATE TABLE IF NOT EXISTS nexus_external_links (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id        UUID NOT NULL,
-  source_system TEXT NOT NULL DEFAULT 'destrava',
-  external_type TEXT NOT NULL,
-  external_id   TEXT NOT NULL,
-  external_name TEXT,
-  nexus_type    TEXT NOT NULL,
-  nexus_id      UUID NOT NULL,
-  source_url    TEXT,
-  metadata      JSONB DEFAULT '{}',
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_nexus_external_links_lookup
-  ON nexus_external_links(source_system, external_type, external_id);
-CREATE INDEX IF NOT EXISTS idx_nexus_external_links_nexus
-  ON nexus_external_links(nexus_type, nexus_id);
+-- (Definição de nexus_external_links fica a cargo do bloco original lá em
+-- cima, linha ~204 -- havia uma segunda CREATE TABLE IF NOT EXISTS duplicada
+-- aqui, mais fraca (sem FK em org_id, sem updated_at), que nunca chegava a
+-- rodar de verdade por causa do IF NOT EXISTS, mas confundia quem lesse o
+-- schema. Removida; a UNIQUE constraint abaixo é o que faltava de verdade
+-- para o ON CONFLICT DO NOTHING em routes/integracoes.ts funcionar -- sem
+-- ela, duas chamadas concorrentes de POST /destrava/tarefas podiam inserir
+-- dois links para o mesmo par (external_id, nexus_id).
+DELETE FROM nexus_external_links a USING nexus_external_links b
+ WHERE a.id < b.id
+   AND a.org_id = b.org_id AND a.source_system = b.source_system
+   AND a.external_type = b.external_type AND a.external_id = b.external_id
+   AND a.nexus_type = b.nexus_type;
+ALTER TABLE nexus_external_links DROP CONSTRAINT IF EXISTS ux_nexus_external_links_source;
+ALTER TABLE nexus_external_links ADD CONSTRAINT ux_nexus_external_links_source
+  UNIQUE (org_id, source_system, external_type, external_id, nexus_type);
 
 -- ── COLUNAS ADICIONAIS EM PROFILES (idempotente) ─────────────
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS primeiro_acesso    BOOLEAN DEFAULT FALSE;
@@ -853,6 +851,81 @@ END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo
   ON tarefas_pontuacao (tarefa_id, usuario_id, motivo);
+
+-- ── AUTOMATION ENGINE (outbox de eventos Destrava <-> Nexus) ──
+-- Espelha automation_events/automation_audit_log do lado Destrava. Todo
+-- evento que o Nexus precisa emitir (ex.: TarefaConcluidaNexus) é gravado
+-- aqui antes do despacho, garantindo entrega at-least-once e idempotência
+-- via UNIQUE(event_type, idempotency_key).
+CREATE TABLE IF NOT EXISTS automation_events (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID REFERENCES organizacoes(id) ON DELETE CASCADE,
+  event_type      VARCHAR(60) NOT NULL,
+  event_version   INT NOT NULL DEFAULT 1,
+  aggregate_type  VARCHAR(60),
+  aggregate_id    UUID,
+  idempotency_key VARCHAR(200) NOT NULL,
+  payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  correlation_id  UUID,
+  status          VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dispatched', 'failed', 'dead')),
+  attempts        INT NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  dispatched_at   TIMESTAMPTZ,
+  UNIQUE (event_type, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_automation_events_status_created ON automation_events (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_automation_events_aggregate ON automation_events (aggregate_type, aggregate_id);
+
+CREATE TABLE IF NOT EXISTS automation_audit_log (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id       UUID REFERENCES automation_events(id) ON DELETE SET NULL,
+  evento         VARCHAR(60) NOT NULL,
+  origem_sistema VARCHAR(20) NOT NULL DEFAULT 'nexus' CHECK (origem_sistema IN ('destrava', 'nexus')),
+  org_id         UUID REFERENCES organizacoes(id) ON DELETE SET NULL,
+  executado_por  VARCHAR(120),
+  executado_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  tempo_ms       INT,
+  resultado      VARCHAR(20) NOT NULL CHECK (resultado IN ('sucesso', 'falha', 'ignorado_duplicado')),
+  erro           TEXT,
+  detalhe        JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_automation_audit_log_org ON automation_audit_log (org_id);
+CREATE INDEX IF NOT EXISTS idx_automation_audit_log_executado_em ON automation_audit_log (executado_em DESC);
+
+-- Recorrência e agrupamento de tarefas (Workflow 1 e 2 do Automation Engine).
+-- Não existia recorrência para tarefas antes -- só para pagamentos (ver
+-- coluna "recorrencia" lá em cima). Segue o mesmo padrão de nomenclatura.
+-- "projeto_grupo_id"/"workflow_tipo" substituem uma entidade Project própria
+-- (que este app nunca teve): como uma linha de tarefas já funciona como "a
+-- lista", essas colunas de cabeçalho bastam para agrupar as N tarefas
+-- semanais de um acompanhamento sem inventar uma tabela nova.
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia TEXT NOT NULL DEFAULT 'nenhum';
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_recorrencia_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_recorrencia_check CHECK (recorrencia IN ('nenhum', 'semanal', 'mensal'));
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_dia_mes INT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_dia_semana INT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_fim DATE;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS grupo_recorrencia_id UUID;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS competencia TEXT;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS projeto_grupo_id UUID;
+ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS workflow_tipo TEXT;
+ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_workflow_tipo_check;
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_workflow_tipo_check
+  CHECK (workflow_tipo IS NULL OR workflow_tipo IN ('rotina_cnd', 'rotina_cemprot', 'acompanhamento_bancario'));
+
+CREATE INDEX IF NOT EXISTS idx_tarefas_projeto_competencia
+  ON tarefas(org_id, projeto_grupo_id, competencia, workflow_tipo);
+CREATE INDEX IF NOT EXISTS idx_tarefas_grupo_recorrencia ON tarefas(grupo_recorrencia_id);
+
+-- Corrige a não-idempotência de external_key: routes/integracoes.ts incluía
+-- Date.now() na chave, então uma reentrega do Destrava (mesmo external_id)
+-- nunca batia com a chave já gravada e gerava tarefa duplicada. A rota foi
+-- corrigida para gerar uma chave determinística; o índice único abaixo é o
+-- que de fato impede a duplicata (linhas antigas com sufixo de timestamp
+-- continuam distintas entre si, então não há conflito com dados históricos).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
+  ON tarefas(org_id, external_key) WHERE external_key IS NOT NULL;
 
 -- ============================================================
 -- SCHEMA PRONTO

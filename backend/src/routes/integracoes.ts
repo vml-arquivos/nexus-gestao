@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
+import crypto from 'crypto'
 import { authMiddleware } from '../middleware/auth'
+import { requireWebhookSignature } from '../middleware/webhookAuth'
 import { v4 as uuidv4 } from 'uuid'
 import pool, { query, queryOne } from '../db/pool'
 
@@ -7,7 +9,7 @@ const router = Router()
 
 const VALID_PRIORIDADES = ['baixa', 'media', 'alta'] as const
 
-type NexusUser = {
+export type NexusUser = {
   id: string
   org_id: string
   nome: string
@@ -22,7 +24,7 @@ function getIntegrationSecret(req: Request): string {
   return direct.trim()
 }
 
-function requireIntegrationSecret(req: Request, res: Response, next: NextFunction) {
+export function requireIntegrationSecret(req: Request, res: Response, next: NextFunction) {
   const configured = process.env.NEXUS_DESTRAVA_INTEGRATION_SECRET || process.env.INTEGRATION_SECRET || ''
   if (!configured) {
     res.status(503).json({ error: 'Integração Destrava/Nexus não configurada no Nexus.' })
@@ -35,7 +37,7 @@ function requireIntegrationSecret(req: Request, res: Response, next: NextFunctio
   next()
 }
 
-function normalizeChecklistItems(value: unknown): Array<{ id: string; texto: string; feito: boolean }> {
+export function normalizeChecklistItems(value: unknown): Array<{ id: string; texto: string; feito: boolean }> {
   const raw = Array.isArray(value)
     ? value
     : typeof value === 'string'
@@ -54,7 +56,7 @@ function normalizeChecklistItems(value: unknown): Array<{ id: string; texto: str
     .filter(item => item.texto)
 }
 
-async function findActiveUserByEmail(email?: string | null): Promise<NexusUser | null> {
+export async function findActiveUserByEmail(email?: string | null): Promise<NexusUser | null> {
   if (!email || !email.trim()) return null
   return queryOne<NexusUser>(
     `SELECT id, org_id, nome, email, role
@@ -66,7 +68,7 @@ async function findActiveUserByEmail(email?: string | null): Promise<NexusUser |
   )
 }
 
-async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
+export async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
   const candidates = [
     payload?.criado_por_email,
     payload?.responsavel_email,
@@ -111,7 +113,7 @@ async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
   )
 }
 
-async function addHistorico(orgId: string, tarefaId: string, userId: string, acao: string, observacao?: string | null) {
+export async function addHistorico(orgId: string, tarefaId: string, userId: string, acao: string, observacao?: string | null) {
   await query(
     `INSERT INTO tarefas_historico (org_id, tarefa_id, user_id, acao, status_anterior, status_novo, observacao)
      VALUES ($1,$2,$3,$4,NULL,'pendente',$5)`,
@@ -376,6 +378,129 @@ router.get('/destrava/status', async (_req: Request, res: Response): Promise<voi
   res.json({ ok: true, sistema: 'nexus', integracao: 'destrava', timestamp: new Date().toISOString() })
 })
 
+// ── Workflow 2 (Acompanhamento Bancário): leitura/escrita direta de UMA tarefa ──
+// Usadas pela tela de acompanhamento bancário do Destrava para renderizar e
+// atualizar, em tempo real, a tarefa que vive no Nexus (system of record) --
+// o Destrava nunca cria sua própria cópia da tarefa, só consome esta.
+// POST em vez de GET de propósito: todo o transporte assinado do Automation
+// Engine sempre envia um corpo JSON (mesmo vazio) para a verificação de
+// assinatura ser consistente -- e `fetch()` no Node rejeita corpo em GET.
+router.post('/destrava/tarefas/:id', requireWebhookSignature, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const tarefa = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1`, [req.params.id])
+    if (!tarefa) {
+      res.status(404).json({ error: 'Tarefa não encontrada.' })
+      return
+    }
+    const historico = await query(
+      `SELECT * FROM tarefas_historico WHERE tarefa_id = $1 ORDER BY created_at DESC LIMIT 30`,
+      [req.params.id]
+    ).catch(() => [])
+    const comentarios = await query(
+      `SELECT * FROM tarefas_comentarios WHERE tarefa_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    ).catch(() => [])
+    const anexos = await query(`SELECT * FROM tarefa_anexos WHERE tarefa_id = $1 ORDER BY created_at ASC`, [req.params.id]).catch(() => [])
+    res.json({ tarefa, historico, comentarios, anexos })
+  } catch (err) {
+    console.error('[INTEGRACOES] Erro ao buscar tarefa para Destrava:', err)
+    res.status(500).json({ error: 'Erro ao buscar tarefa.' })
+  }
+})
+
+router.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async (req: Request, res: Response): Promise<void> => {
+  const client = await pool.connect()
+  try {
+    const { item_id, feito, executado_por_nome, executado_por_email } = req.body || {}
+    if (!item_id || typeof feito !== 'boolean') {
+      res.status(400).json({ error: 'item_id e feito (booleano) são obrigatórios.' })
+      return
+    }
+
+    await client.query('BEGIN')
+    const locked = await client.query(`SELECT * FROM tarefas WHERE id = $1 FOR UPDATE`, [req.params.id])
+    const existing = locked.rows[0]
+    if (!existing) {
+      await client.query('ROLLBACK')
+      res.status(404).json({ error: 'Tarefa não encontrada.' })
+      return
+    }
+
+    const items = Array.isArray(existing.checklist) ? existing.checklist : []
+    const index = items.findIndex((item: any) => String(item?.id || '') === String(item_id))
+    if (index < 0) {
+      await client.query('ROLLBACK')
+      res.status(404).json({ error: 'Item do checklist não encontrado.' })
+      return
+    }
+
+    items[index] = {
+      ...items[index],
+      feito,
+      feito_por_destrava: executado_por_nome || executado_por_email || 'Destrava',
+      enviado_em: new Date().toISOString(),
+    }
+
+    const updated = await client.query(
+      `UPDATE tarefas SET checklist = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [JSON.stringify(items), req.params.id]
+    )
+    await client.query('COMMIT')
+
+    await addHistorico(
+      existing.org_id,
+      req.params.id,
+      existing.criado_por,
+      feito ? 'item_concluido_destrava' : 'item_reaberto_destrava',
+      `Executado no Destrava por ${executado_por_nome || executado_por_email || 'usuário'}.`
+    )
+
+    res.json({ tarefa: updated.rows[0] })
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    console.error('[INTEGRACOES] Erro ao atualizar checklist a partir do Destrava:', err)
+    res.status(500).json({ error: 'Erro ao atualizar checklist.' })
+  } finally {
+    client.release()
+  }
+})
+
+router.patch('/destrava/tarefas/:id/status', requireWebhookSignature, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { status, executado_por_nome, executado_por_email } = req.body || {}
+    const validos = ['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'cancelada']
+    if (!validos.includes(status)) {
+      res.status(400).json({ error: `Status inválido. Valores aceitos: ${validos.join(', ')}` })
+      return
+    }
+
+    const existing = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1`, [req.params.id])
+    if (!existing) {
+      res.status(404).json({ error: 'Tarefa não encontrada.' })
+      return
+    }
+
+    const tarefa = await queryOne<any>(
+      `UPDATE tarefas SET status = $1, data_conclusao = CASE WHEN $1 IN ('concluida','nao_concluida') THEN NOW() ELSE data_conclusao END, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [status, req.params.id]
+    )
+
+    await addHistorico(
+      existing.org_id,
+      req.params.id,
+      existing.criado_por,
+      status,
+      `Status atualizado no Destrava por ${executado_por_nome || executado_por_email || 'usuário'}.`
+    )
+
+    res.json({ tarefa })
+  } catch (err) {
+    console.error('[INTEGRACOES] Erro ao atualizar status a partir do Destrava:', err)
+    res.status(500).json({ error: 'Erro ao atualizar status.' })
+  }
+})
+
 router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<void> => {
   try {
     let externalType = String(req.query.external_type || 'empresa').trim()
@@ -452,54 +577,93 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
       cnpj: body.cnpj || null,
     }
     const sourceUrl = body.source_url ? String(body.source_url) : null
-    const externalKey = `destrava:${externalType}:${externalId}:${Date.now()}`
+    // Chave determinística: antes incluía Date.now(), o que tornava toda
+    // reentrega (ex.: retry de rede) uma tarefa nova. Agora é um hash do
+    // conteúdo (titulo+prazo+descricao) combinado ao external_id -- uma
+    // reentrega idêntica cai na mesma chave (idempotente), mas duas tarefas
+    // legitimamente diferentes para a mesma empresa (conteúdo diferente)
+    // continuam gerando chaves distintas.
+    const chaveConteudo = crypto
+      .createHash('sha256')
+      .update(`${titulo}|${body.prazo || ''}|${body.descricao || ''}`)
+      .digest('hex')
+      .slice(0, 16)
+    const externalKey = `destrava:${externalType}:${externalId}:${chaveConteudo}`
 
-    const tarefa = await queryOne<any>(
-      `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
-          checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
-          origem_payload, external_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17)
-       RETURNING *`,
-      [
-        orgId,
-        creator.id,
-        responsavel.id,
-        responsavel.nome,
-        titulo,
-        body.descricao ? String(body.descricao) : null,
-        body.data || null,
-        body.prazo || null,
-        prioridade,
-        JSON.stringify(checklist),
-        body.obs ? String(body.obs) : null,
-        externalType,
-        externalId,
-        externalName || null,
-        sourceUrl,
-        JSON.stringify(metadata),
-        externalKey,
-      ]
-    )
+    const client = await pool.connect()
+    let tarefa: any = null
+    let criada = false
+    try {
+      await client.query('BEGIN')
+      // Serializa duas entregas concorrentes da mesma chave (ex.: despacho
+      // imediato + varredura de retry do Destrava chegando quase juntos).
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [externalKey])
+
+      const inserted = await client.query(
+        `INSERT INTO tarefas
+           (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
+            checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
+            origem_payload, external_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17)
+         ON CONFLICT (org_id, external_key) DO NOTHING
+         RETURNING *`,
+        [
+          orgId,
+          creator.id,
+          responsavel.id,
+          responsavel.nome,
+          titulo,
+          body.descricao ? String(body.descricao) : null,
+          body.data || null,
+          body.prazo || null,
+          prioridade,
+          JSON.stringify(checklist),
+          body.obs ? String(body.obs) : null,
+          externalType,
+          externalId,
+          externalName || null,
+          sourceUrl,
+          JSON.stringify(metadata),
+          externalKey,
+        ]
+      )
+
+      if (inserted.rows[0]) {
+        tarefa = inserted.rows[0]
+        criada = true
+      } else {
+        const existing = await client.query(`SELECT * FROM tarefas WHERE org_id = $1 AND external_key = $2`, [orgId, externalKey])
+        tarefa = existing.rows[0] || null
+      }
+      await client.query('COMMIT')
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw err
+    } finally {
+      client.release()
+    }
 
     if (!tarefa) {
       res.status(500).json({ error: 'Erro ao criar tarefa integrada.' })
       return
     }
 
-    await query(
-      `INSERT INTO nexus_external_links
-         (org_id, source_system, external_type, external_id, external_name, nexus_type, nexus_id, source_url, metadata)
-       VALUES ($1,'destrava',$2,$3,$4,'tarefa',$5,$6,$7)
-       ON CONFLICT DO NOTHING`,
-      [orgId, externalType, externalId, externalName || null, tarefa.id, sourceUrl, JSON.stringify(metadata)]
-    ).catch(() => {})
+    if (criada) {
+      await query(
+        `INSERT INTO nexus_external_links
+           (org_id, source_system, external_type, external_id, external_name, nexus_type, nexus_id, source_url, metadata)
+         VALUES ($1,'destrava',$2,$3,$4,'tarefa',$5,$6,$7)
+         ON CONFLICT DO NOTHING`,
+        [orgId, externalType, externalId, externalName || null, tarefa.id, sourceUrl, JSON.stringify(metadata)]
+      ).catch(() => {})
 
-    await addHistorico(orgId, tarefa.id, creator.id, 'criada_integracao_destrava', `Tarefa criada a partir do Destrava${externalName ? ` — ${externalName}` : ''}`)
+      await addHistorico(orgId, tarefa.id, creator.id, 'criada_integracao_destrava', `Tarefa criada a partir do Destrava${externalName ? ` — ${externalName}` : ''}`)
+    }
 
     const frontend = (process.env.FRONTEND_URL || '').replace(/\/$/, '')
-    res.status(201).json({
+    res.status(criada ? 201 : 200).json({
       tarefa,
+      duplicado: !criada,
       link: frontend ? `${frontend}/tarefas?origem=destrava&external_id=${encodeURIComponent(externalId)}` : null,
     })
   } catch (err) {
