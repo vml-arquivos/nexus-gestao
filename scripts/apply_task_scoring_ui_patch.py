@@ -29,13 +29,13 @@ text = PATH.read_text(encoding='utf-8')
 
 text = replace_once(
     text,
-    '''                <option value="tarefa">Pontuação pela lista completa</option>
-                <option value="subtarefas">Pontuação individual por tarefa</option>
+    '''                <option value="tarefa">Pontos pela lista toda</option>
+                <option value="subtarefas">Pontos por cada tarefa</option>
                 <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
               </select>
             </div>''',
-    '''                <option value="tarefa">Pontuação pela lista completa</option>
-                <option value="subtarefas">Pontuação individual por tarefa</option>
+    '''                <option value="tarefa">Pontos pela lista toda</option>
+                <option value="subtarefas">Pontos por cada tarefa</option>
               </select>
             </div>''',
     'remove opção "ambos" (criação de lista)',
@@ -54,13 +54,13 @@ text = replace_once(
 
 text = replace_once(
     text,
-    '''                  <option value="tarefa">Pontuação pela lista completa</option>
-                  <option value="subtarefas">Pontuação individual por tarefa</option>
+    '''                  <option value="tarefa">Pontos pela lista toda</option>
+                  <option value="subtarefas">Pontos por cada tarefa</option>
                   <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
                 </select>
               </div>''',
-    '''                  <option value="tarefa">Pontuação pela lista completa</option>
-                  <option value="subtarefas">Pontuação individual por tarefa</option>
+    '''                  <option value="tarefa">Pontos pela lista toda</option>
+                  <option value="subtarefas">Pontos por cada tarefa</option>
                 </select>
               </div>''',
     'remove opção "ambos" (edição de lista)',

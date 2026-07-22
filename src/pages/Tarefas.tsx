@@ -1200,7 +1200,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         )}
         {isGestor && tipoTarefa === 'equipe' && (
           <div className="form-group">
-            <label className="form-label">Modelo de distribuição</label>
+            <label className="form-label">Quem faz esta lista?</label>
             <div className="task-type-selector" role="radiogroup" aria-label="Modelo de distribuição da tarefa">
               <button
                 type="button"
@@ -1208,7 +1208,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onClick={() => changeModoDistribuicao('normal')}
               >
                 <strong>Direcionar</strong>
-                <span>Escolha um responsável ou distribua pelas tarefas da lista.</span>
+                <span>Uma pessoa cuida de tudo.</span>
               </button>
               <button
                 type="button"
@@ -1216,33 +1216,33 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onClick={() => changeModoDistribuicao('livre_equipe')}
               >
                 <strong>Livre para o time</strong>
-                <span>Fica disponível para qualquer membro assumir.</span>
+                <span>Qualquer um do time pode pegar.</span>
               </button>
             </div>
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && modoDistribuicao !== 'livre_equipe' && (
           <div className="form-group" style={{ border: '1px solid var(--primary-dim)', borderRadius: 12, padding: 12, background: 'var(--primary-dim2)' }}>
-            <label className="form-label">Direcionar para quem?</label>
+            <label className="form-label">Escolher quem?</label>
             <select className="form-input" value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-              <option value="">Sem responsável único — distribuir por tarefa dentro da lista</option>
+              <option value="">Sem responsável fixo — decidir tarefa por tarefa</option>
               {user?.id && <option value={user.id}>Eu como responsável principal</option>}
               {membros.filter(m => m.id !== user?.id).map(m => <option key={m.id} value={m.id}>{m.nome} · {m.role}</option>)}
             </select>
-            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Escolha um membro pra ser o responsável pela lista inteira, ou deixe "sem responsável único" e escolha o executor de cada tarefa individualmente mais abaixo, em "Executor desta tarefa".</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Escolha uma pessoa pra tocar a lista toda. Ou deixe em branco e escolha quem faz cada tarefa mais abaixo, em "Executor desta tarefa".</div>
           </div>
         )}
         {isGestor && tipoTarefa === 'equipe' && (
           <div className="task-points-box">
             <div className="form-group">
-              <label className="form-label">Onde a pontuação será contabilizada?</label>
+              <label className="form-label">Como contar os pontos?</label>
               <select
                 className="form-input"
                 value={pontuacaoEscopo}
                 onChange={e => setPontuacaoEscopo(e.target.value as PontuacaoEscopo)}
               >
-                <option value="tarefa">Pontuação pela lista completa</option>
-                <option value="subtarefas">Pontuação individual por tarefa</option>
+                <option value="tarefa">Pontos pela lista toda</option>
+                <option value="subtarefas">Pontos por cada tarefa</option>
               </select>
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
@@ -1309,7 +1309,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 />
               </div>
               {tipoTarefa === 'equipe' && (
-                <div className="form-group">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                   <label className="form-label">Executor desta tarefa</label>
                   <div
                     className="task-type-selector"
@@ -1323,7 +1323,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                         className={!novoItemEscolherPessoa && novoItemResponsavelId === '' ? 'task-type-option active' : 'task-type-option'}
                         onClick={() => { setNovoItemResponsavelId(''); setNovoItemEscolherPessoa(false) }}
                       >
-                        <strong>👤 Herdar</strong>
+                        <strong>👤 Padrão</strong>
                         <span>{principalExecutorNome} · responsável da lista</span>
                       </button>
                     )}
@@ -1340,7 +1340,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                       className={novoItemEscolherPessoa ? 'task-type-option active' : 'task-type-option'}
                       onClick={() => { setNovoItemEscolherPessoa(true); if (novoItemResponsavelId === '' || novoItemResponsavelId === '__livre__') setNovoItemResponsavelId(responsaveisChecklist[0]?.id || '') }}
                     >
-                      <strong>🎯 Pessoa específica</strong>
+                      <strong>🎯 Outra pessoa</strong>
                       <span>Escolher um membro do time</span>
                     </button>
                   </div>
@@ -2820,10 +2820,10 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
 
             {!isPersonal && <div className="task-points-box">
               <div className="form-group">
-                <label className="form-label">Onde a pontuação será contabilizada?</label>
+                <label className="form-label">Como contar os pontos?</label>
                 <select className="form-input" value={editPontuacaoEscopo} onChange={e => setEditPontuacaoEscopo(e.target.value as PontuacaoEscopo)}>
-                  <option value="tarefa">Pontuação pela lista completa</option>
-                  <option value="subtarefas">Pontuação individual por tarefa</option>
+                  <option value="tarefa">Pontos pela lista toda</option>
+                  <option value="subtarefas">Pontos por cada tarefa</option>
                 </select>
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
@@ -2867,7 +2867,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 />
               </div>
               {!isPersonal && (
-                <div className="form-group">
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                   <label className="form-label">Executor <span>(opcional)</span></label>
                   <div
                     className="task-type-selector"
@@ -2881,7 +2881,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                         className={!newSubtaskEscolherPessoa && newSubtaskResp === '' ? 'task-type-option active' : 'task-type-option'}
                         onClick={() => { setNewSubtaskResp(''); setNewSubtaskEscolherPessoa(false) }}
                       >
-                        <strong>👤 Herdar</strong>
+                        <strong>👤 Padrão</strong>
                         <span>{principalExecutorNome} · responsável da lista</span>
                       </button>
                     )}
@@ -2898,7 +2898,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                       className={newSubtaskEscolherPessoa ? 'task-type-option active' : 'task-type-option'}
                       onClick={() => { setNewSubtaskEscolherPessoa(true); if (newSubtaskResp === '' || newSubtaskResp === '__livre__') setNewSubtaskResp(responsaveisChecklist[0]?.id || '') }}
                     >
-                      <strong>🎯 Pessoa específica</strong>
+                      <strong>🎯 Outra pessoa</strong>
                       <span>Escolher um membro do time</span>
                     </button>
                   </div>
