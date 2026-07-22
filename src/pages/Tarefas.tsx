@@ -692,6 +692,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
+  const [novoItemEscolherPessoa, setNovoItemEscolherPessoa] = useState(false)
   const [novoItemPontuacao, setNovoItemPontuacao] = useState('3')
   const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('nivel_3')
   const [novoItemSurpresa, setNovoItemSurpresa] = useState(false)
@@ -904,6 +905,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     setNovoItemDescricao('')
     setNovoItemData('')
     setNovoItemResponsavelId('')
+    setNovoItemEscolherPessoa(false)
     setNovoItemDificuldade('nivel_3')
     setNovoItemPontuacao('3')
     setNovoItemSurpresa(false)
@@ -1309,15 +1311,49 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               {tipoTarefa === 'equipe' && (
                 <div className="form-group">
                   <label className="form-label">Executor desta tarefa</label>
-                  <select
-                    className="form-input"
-                    value={novoItemResponsavelId}
-                    onChange={e => setNovoItemResponsavelId(e.target.value)}
+                  <div
+                    className="task-type-selector"
+                    role="radiogroup"
+                    aria-label="Executor desta tarefa"
+                    style={{ gridTemplateColumns: `repeat(${principalExecutorNome ? 3 : 2}, minmax(0, 1fr))` }}
                   >
-                    <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / usar responsável principal'}</option>
-                    {principalExecutorNome && <option value="__livre__">🔓 Livre — qualquer um da equipe pode assumir esta tarefa</option>}
-                    {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
-                  </select>
+                    {principalExecutorNome && (
+                      <button
+                        type="button"
+                        className={!novoItemEscolherPessoa && novoItemResponsavelId === '' ? 'task-type-option active' : 'task-type-option'}
+                        onClick={() => { setNovoItemResponsavelId(''); setNovoItemEscolherPessoa(false) }}
+                      >
+                        <strong>👤 Herdar</strong>
+                        <span>{principalExecutorNome} · responsável da lista</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={!novoItemEscolherPessoa && (novoItemResponsavelId === '__livre__' || (!principalExecutorNome && novoItemResponsavelId === '')) ? 'task-type-option active' : 'task-type-option'}
+                      onClick={() => { setNovoItemResponsavelId(principalExecutorNome ? '__livre__' : ''); setNovoItemEscolherPessoa(false) }}
+                    >
+                      <strong>🔓 Livre</strong>
+                      <span>Qualquer um da equipe pode assumir</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={novoItemEscolherPessoa ? 'task-type-option active' : 'task-type-option'}
+                      onClick={() => { setNovoItemEscolherPessoa(true); if (novoItemResponsavelId === '' || novoItemResponsavelId === '__livre__') setNovoItemResponsavelId(responsaveisChecklist[0]?.id || '') }}
+                    >
+                      <strong>🎯 Pessoa específica</strong>
+                      <span>Escolher um membro do time</span>
+                    </button>
+                  </div>
+                  {novoItemEscolherPessoa && (
+                    <select
+                      className="form-input"
+                      style={{ marginTop: 8 }}
+                      value={novoItemResponsavelId}
+                      onChange={e => setNovoItemResponsavelId(e.target.value)}
+                    >
+                      {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
+                    </select>
+                  )}
                 </div>
               )}
               {tipoTarefa === 'equipe' && pontuacaoIncluiSubtarefas(pontuacaoEscopo) && (
@@ -2149,6 +2185,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
   const [newSubtaskDate, setNewSubtaskDate] = useState('')
   const [newSubtaskResp, setNewSubtaskResp] = useState('')
+  const [newSubtaskEscolherPessoa, setNewSubtaskEscolherPessoa] = useState(false)
   const [newSubtaskPoints, setNewSubtaskPoints] = useState('3')
   const [newSubtaskDifficulty, setNewSubtaskDifficulty] = useState<ChecklistDifficulty>('nivel_3')
   const [newSubtaskSurprise, setNewSubtaskSurprise] = useState(false)
@@ -2381,6 +2418,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     setNewSubtaskDesc('')
     setNewSubtaskDate('')
     setNewSubtaskResp('')
+    setNewSubtaskEscolherPessoa(false)
     setNewSubtaskDifficulty('nivel_3')
     setNewSubtaskPoints('3')
     setNewSubtaskSurprise(false)
@@ -2831,14 +2869,43 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               {!isPersonal && (
                 <div className="form-group">
                   <label className="form-label">Executor <span>(opcional)</span></label>
-                  <select className="form-input" value={newSubtaskResp} onChange={e => setNewSubtaskResp(e.target.value)}>
-                    <option value="">{principalExecutorNome ? `${principalExecutorNome} · responsável da lista` : 'Livre / responsável principal'}</option>
-                    {principalExecutorNome && <option value="__livre__">🔓 Livre — qualquer um da equipe pode assumir esta tarefa</option>}
-                    {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>
-                  {principalExecutorNome && (
-                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
-                      Deixando em branco, esta tarefa herda {principalExecutorNome} como executor. Escolha "Livre" pra deixar disponível pra qualquer um da equipe assumir, mesmo a lista sendo direcionada.
-                    </div>
+                  <div
+                    className="task-type-selector"
+                    role="radiogroup"
+                    aria-label="Executor desta tarefa"
+                    style={{ gridTemplateColumns: `repeat(${principalExecutorNome ? 3 : 2}, minmax(0, 1fr))` }}
+                  >
+                    {principalExecutorNome && (
+                      <button
+                        type="button"
+                        className={!newSubtaskEscolherPessoa && newSubtaskResp === '' ? 'task-type-option active' : 'task-type-option'}
+                        onClick={() => { setNewSubtaskResp(''); setNewSubtaskEscolherPessoa(false) }}
+                      >
+                        <strong>👤 Herdar</strong>
+                        <span>{principalExecutorNome} · responsável da lista</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={!newSubtaskEscolherPessoa && (newSubtaskResp === '__livre__' || (!principalExecutorNome && newSubtaskResp === '')) ? 'task-type-option active' : 'task-type-option'}
+                      onClick={() => { setNewSubtaskResp(principalExecutorNome ? '__livre__' : ''); setNewSubtaskEscolherPessoa(false) }}
+                    >
+                      <strong>🔓 Livre</strong>
+                      <span>Qualquer um da equipe pode assumir</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={newSubtaskEscolherPessoa ? 'task-type-option active' : 'task-type-option'}
+                      onClick={() => { setNewSubtaskEscolherPessoa(true); if (newSubtaskResp === '' || newSubtaskResp === '__livre__') setNewSubtaskResp(responsaveisChecklist[0]?.id || '') }}
+                    >
+                      <strong>🎯 Pessoa específica</strong>
+                      <span>Escolher um membro do time</span>
+                    </button>
+                  </div>
+                  {newSubtaskEscolherPessoa && (
+                    <select className="form-input" style={{ marginTop: 8 }} value={newSubtaskResp} onChange={e => setNewSubtaskResp(e.target.value)}>
+                      {responsaveisChecklist.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                    </select>
                   )}
                 </div>
               )}
