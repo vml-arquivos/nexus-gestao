@@ -4209,6 +4209,89 @@ router.get("/:id", async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── EDITAR TAREFA ────────────────────────────────────────────────────────────
+// PATCH /:id/remover-executor — remove um membro específico da lista (limpa
+// atribuição dele nos itens que são dele e, se ele for o responsável
+// principal, libera a lista). Sempre parte do checklist ATUAL do banco,
+// nunca do array que o navegador mandar — protege contra o navegador do
+// gestor estar com uma versão desatualizada da lista na memória (ex.: aba
+// aberta há tempo, ou uma sincronização em atraso) e sobrescrever/apagar
+// itens reais ao salvar.
+router.patch(
+  "/:id/remover-executor",
+  async (req: Request, res: Response): Promise<void> => {
+    const client = await pool.connect();
+    try {
+      const { orgId, role } = req.user!;
+      if (!canDeleteOrgRecords(role)) {
+        res.status(403).json({ error: "Apenas o gestor pode remover um executor da lista." });
+        return;
+      }
+      const memberId = String(req.body?.member_id || "").trim();
+      if (!memberId) {
+        res.status(400).json({ error: "Informe o membro a remover." });
+        return;
+      }
+
+      await client.query("BEGIN");
+      const locked = await client.query(
+        `SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE`,
+        [req.params.id, orgId],
+      );
+      const existing = locked.rows[0];
+      if (!existing) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Tarefa não encontrada." });
+        return;
+      }
+
+      // Parte sempre do checklist atual e completo do banco (linha travada
+      // acima), não de nada que o cliente tenha enviado.
+      const itemsAtuais = parseChecklistItems(existing.checklist);
+      const novoChecklist = itemsAtuais.map((item: any) =>
+        checklistItemAssignmentId(item) === memberId ||
+        item?.concluido_por === memberId ||
+        item?.feito_por === memberId
+          ? {
+              ...item,
+              responsavel_id: undefined,
+              responsavel_nome: undefined,
+              assumido_por: undefined,
+              executor_id: undefined,
+              aceita_por: undefined,
+              feito: false,
+              concluido_por: undefined,
+              feito_por: undefined,
+            }
+          : item,
+      );
+
+      const eraResponsavelPrincipal = existing.responsavel_id === memberId || existing.aceita_por === memberId;
+
+      const tarefa = await client.query<any>(
+        `UPDATE tarefas SET
+           checklist = $1,
+           modo_distribuicao = CASE WHEN $3 THEN 'livre_equipe' ELSE modo_distribuicao END,
+           responsavel_id = CASE WHEN $3 THEN NULL ELSE responsavel_id END,
+           responsavel_nome = CASE WHEN $3 THEN NULL ELSE responsavel_nome END,
+           escopo = 'equipe',
+           updated_at = NOW()
+         WHERE id = $2 AND org_id = $4
+         RETURNING *`,
+        [JSON.stringify(novoChecklist), req.params.id, eraResponsavelPrincipal, orgId],
+      );
+      await client.query("COMMIT");
+      res.json({ tarefa: sanitizeTaskForUser(tarefa.rows[0], req.user!) });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("[TAREFAS] Erro ao remover executor da lista:", err);
+      res.status(500).json({ error: "Erro ao remover executor da lista." });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+
 router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!;

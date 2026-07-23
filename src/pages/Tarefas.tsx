@@ -2576,18 +2576,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   async function removerExecutorDasTarefas(memberId: string, nome?: string) {
     if (!isGestor) return
     if (!window.confirm(`Remover ${nome || 'este membro'} das tarefas desta lista? As tarefas dele voltarão a ficar livres para correção/delegação pelo gestor.`)) return
-    const next = checklist.map(item => checklistItemBelongsToUser(item, memberId)
-      ? { ...item, responsavel_id: undefined, responsavel_nome: undefined, assumido_por: undefined, executor_id: undefined, aceita_por: undefined, feito: false, concluido_por: undefined, feito_por: undefined }
-      : item)
     setSaving(true)
     try {
-      const payload: Partial<Tarefa> = { checklist: next }
-      if (tarefa.responsavel_id === memberId || tarefa.aceita_por === memberId) {
-        payload.modo_distribuicao = 'livre_equipe'
-        payload.responsavel_id = undefined
-        payload.escopo = 'equipe'
-      }
-      const saved = await tarefasApi.update(tarefa.id, payload)
+      const saved = await tarefasApi.removerExecutor(tarefa.id, memberId)
       setChecklist(normalizeChecklistItems(saved.checklist))
       onSaved(saved)
       toast('Executor removido. O gestor pode delegar novamente ou deixar livre.')

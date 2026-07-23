@@ -765,6 +765,14 @@ export const tarefasApi = {
     return data.tarefa as Tarefa
   },
 
+  // Remove um executor da lista sempre a partir do checklist atual do banco
+  // (nunca do que o navegador tem em memória) — evita apagar itens reais por
+  // causa de um estado desatualizado na tela do gestor.
+  async removerExecutor(id: string, memberId: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/remover-executor`, { method: 'PATCH', body: JSON.stringify({ member_id: memberId }) })
+    return data.tarefa
+  },
+
   async remove(id: string): Promise<void> {
     await apiJson(`/tarefas/${id}`, { method: 'DELETE' })
   },
