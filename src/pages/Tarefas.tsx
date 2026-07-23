@@ -2577,10 +2577,29 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     }
   }
 
-  function toggleCheck(id: string) {
+  async function toggleCheck(id: string) {
     const item = checklist.find(i => i.id === id)
     if (!item || !isChecklistItemExecutor(item, tarefa, userId) || isTaskFinalizada) {
       toast('Apenas o executor desta tarefa pode marcar este item.', 'error')
+      return
+    }
+    const marcandoComoFeito = !item.feito
+    // Prazo do item específico; na falta dele, cai no prazo da lista inteira.
+    const prazoItem = item.data || tarefa.prazo
+    const estaAtrasado = marcandoComoFeito && !!prazoItem && prazoItem < todayIso()
+    if (estaAtrasado) {
+      const justificativa = (window.prompt(`Esta tarefa está atrasada (prazo: ${fmtDate(prazoItem)}). É obrigatório informar o motivo do atraso antes de concluir:`) || '').trim()
+      if (!justificativa) {
+        toast('É obrigatório informar o motivo do atraso para concluir esta tarefa.', 'error')
+        return
+      }
+      await persistChecklistItem(id, true)
+      try {
+        const salvo = await tarefasApi.comentar(tarefa.id, { comentario: `⏱ Justificativa de atraso: ${justificativa}`, checklist_id: id })
+        setComentarios(prev => [...prev, { ...salvo, autor_nome: salvo.autor_nome || 'Você' }])
+      } catch {
+        toast('Item concluído, mas houve erro ao salvar a justificativa. Registre um comentário manualmente.', 'error')
+      }
       return
     }
     void persistChecklistItem(id, !item.feito)
