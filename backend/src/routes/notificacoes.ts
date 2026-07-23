@@ -194,7 +194,8 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
 
     const eventos = await query<any>(
       `SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id,
-              t.titulo AS tarefa_titulo, t.origem_nome AS empresa_nome,
+              t.id AS tarefa_id, t.titulo AS tarefa_titulo, t.origem_nome AS empresa_nome,
+              t.status AS tarefa_status, t.checklist AS tarefa_checklist,
               EXTRACT(EPOCH FROM (NOW() - e.data_inicio))/3600 AS horas_atraso
        FROM agenda e
        LEFT JOIN tarefas t ON (
@@ -208,11 +209,28 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
          AND e.data_inicio >= NOW() - INTERVAL '7 days'
          ${gestorLike ? '' : 'AND e.criado_por = $2'}
        ORDER BY e.data_inicio ASC
-       LIMIT 30`,
+       LIMIT 80`,
       gestorLike ? [orgId] : [orgId, userId]
     )
 
-    const agenda = eventos.map(e => {
+    const TAREFA_FINALIZADA = new Set(['concluida', 'aprovada', 'cancelada']);
+    const agenda = eventos.filter(e => {
+      // Compromisso veio de uma tarefa/subtarefa mas essa tarefa foi apagada:
+      // não existe mais o que cobrar, não faz sentido continuar alertando.
+      if ((e.origem_tipo === 'tarefa' || e.origem_tipo === 'checklist') && !e.tarefa_id) return false
+      // Tarefa inteira já finalizada: o compromisso de lista não é mais pendência.
+      if (e.origem_tipo === 'tarefa' && TAREFA_FINALIZADA.has(String(e.tarefa_status || ''))) return false
+      // Subtarefa específica: só continua como pendência se ELA MESMA ainda
+      // não foi marcada como concluída (mesmo que o resto da lista ainda esteja aberto).
+      if (e.origem_tipo === 'checklist') {
+        if (TAREFA_FINALIZADA.has(String(e.tarefa_status || ''))) return false
+        const itemId = String(e.origem_id || '').split(':')[1]
+        const items = Array.isArray(e.tarefa_checklist) ? e.tarefa_checklist : []
+        const item = items.find((i: any) => String(i?.id) === itemId)
+        if (item?.feito) return false
+      }
+      return true
+    }).slice(0, 30).map(e => {
       // "Tarefa mãe" identifica de qual lista o compromisso saiu; empresa_nome
       // vem direto da tarefa vinculada (origem Destrava), quando existir.
       const contexto = [e.empresa_nome, e.tarefa_titulo && e.origem_tipo === 'checklist' ? e.tarefa_titulo : null]
