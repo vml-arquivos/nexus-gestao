@@ -1702,7 +1702,11 @@ function DevolverModal({ tarefa, onClose, onSaved }: { tarefa: Tarefa; onClose: 
 
 // ── MODAL DE LEMBRETE ─────────────────────────────────────────────────────────
 function LembreteModal({ tarefa, membros, onClose }: { tarefa: Tarefa; membros: MembroEquipe[]; onClose: () => void }) {
-  const mensagemPadrao = `A lista "${tarefa.titulo}" precisa de atenção. Verifique o prazo e execute ou atualize sua parte.`
+  const overdue = !!tarefa.prazo && tarefa.prazo < todayIso() && !['aprovada', 'concluida', 'cancelada'].includes(String(tarefa.status || ''))
+  const itensPendentes = normalizeChecklistItems(tarefa.checklist).filter(i => !i.feito)
+  const mensagemPadrao = overdue
+    ? `A lista "${tarefa.titulo}"${tarefa.origem_nome ? ` (${tarefa.origem_nome})` : ''} está com o prazo vencido (${fmtDate(tarefa.prazo)}). Preciso que você execute ou justifique agora${itensPendentes.length ? `: ${itensPendentes.map(i => checklistDisplayText(i)).join('; ')}` : '.'}`
+    : `A lista "${tarefa.titulo}"${tarefa.origem_nome ? ` (${tarefa.origem_nome})` : ''} precisa de atenção. Verifique o prazo e execute ou atualize sua parte.`
   const [mensagem, setMensagem] = useState(mensagemPadrao)
   const [loading, setLoading] = useState(false)
 
@@ -1732,6 +1736,13 @@ function LembreteModal({ tarefa, membros, onClose }: { tarefa: Tarefa; membros: 
       <div style={{ display: 'grid', gap: 14 }}>
         <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
           <div style={{ fontWeight: 600, fontSize: 13.5 }}>📋 {tarefa.titulo}</div>
+          {tarefa.origem_nome && <div style={{ fontSize: 12, color: 'var(--primary)', marginTop: 2 }}>🏢 {tarefa.origem_nome}</div>}
+          {overdue && <div style={{ fontSize: 12, color: '#EF4444', fontWeight: 600, marginTop: 4 }}>⚠ Prazo vencido em {fmtDate(tarefa.prazo)}</div>}
+          {itensPendentes.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+              Itens pendentes: {itensPendentes.map(i => checklistDisplayText(i)).join(' · ')}
+            </div>
+          )}
           {destinatarios.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
               Destinatários: {destinatarios.join(', ')}
@@ -2340,19 +2351,29 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const executionNotes = useMemo(() => {
     if (!isGestor) return [] as Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }>
     const seen = new Set<string>()
+    const seenConteudo = new Set<string>()
     const notes: Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }> = []
     const pushNote = (note: { id: string; origem: string; autor?: string; data?: string; texto?: unknown; tipo?: string }) => {
       const texto = String(note.texto || '').trim()
       if (!texto) return
+      // O mesmo envio do membro às vezes grava o mesmo texto em mais de um
+      // campo (resposta geral, justificativa, motivo, histórico) — sem isso,
+      // a mesma frase aparecia 3-4 vezes na lista, uma por campo.
+      const conteudoKey = `${note.autor || ''}|${texto}`
+      if (seenConteudo.has(conteudoKey)) return
       const key = `${note.origem}|${note.autor || ''}|${note.data || ''}|${texto}`
       if (seen.has(key)) return
       seen.add(key)
+      seenConteudo.add(conteudoKey)
       notes.push({ ...note, texto })
     }
-    pushNote({ id: 'resposta_membro', origem: 'Resposta do membro', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.resposta_em || tarefa.data_conclusao, texto: tarefa.resposta_membro, tipo: tarefa.resposta_status })
-    pushNote({ id: 'observacao_conclusao', origem: 'Observação de conclusão', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.data_conclusao || tarefa.resposta_em, texto: tarefa.observacao_conclusao, tipo: 'concluida' })
+    // Rótulos mais específicos primeiro: quando o texto se repete em outro
+    // campo mais genérico ("Resposta do membro"), o rótulo específico já
+    // ganhou a vaga e o genérico é descartado como duplicata.
     pushNote({ id: 'resposta_obs', origem: tarefa.resposta_status === 'nao_concluida' ? 'Justificativa de não conclusão' : 'Observação enviada', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.resposta_em, texto: tarefa.resposta_obs, tipo: tarefa.resposta_status })
     pushNote({ id: 'motivo_nao_conclusao', origem: 'Motivo de não conclusão', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.updated_at, texto: tarefa.motivo_nao_conclusao, tipo: 'nao_concluida' })
+    pushNote({ id: 'observacao_conclusao', origem: 'Observação de conclusão', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.data_conclusao || tarefa.resposta_em, texto: tarefa.observacao_conclusao, tipo: 'concluida' })
+    pushNote({ id: 'resposta_membro', origem: 'Resposta do membro', autor: tarefa.responsavel_nome_perfil || tarefa.responsavel_nome || tarefa.aceita_por_nome, data: tarefa.resposta_em || tarefa.data_conclusao, texto: tarefa.resposta_membro, tipo: tarefa.resposta_status })
 
     const executionActions = new Set(['parte_enviada', 'objetivos_completos', 'concluida', 'nao_concluida', 'reenviada'])
     execHistory
@@ -3196,7 +3217,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <div className="task-member-justification-card" key={c.id}>
                 <div className="task-member-justification-head"><strong>{c.autor_nome || 'Usuário'}</strong><span>{c.tipo}</span></div>
                 <p>{c.comentario}</p>
-                <div className="task-member-justification-meta"><span>{c.checklist_id ? `Item ${c.checklist_id}` : 'Lista geral'}</span><span>{fmtDateTime(c.criado_em)}</span></div>
+                <div className="task-member-justification-meta"><span>{c.checklist_id ? `Item: ${checklist.find(i => i.id === c.checklist_id)?.texto || c.checklist_id}` : `Lista geral: ${tarefa.titulo}`}</span><span>{fmtDateTime(c.criado_em)}</span></div>
               </div>
             ))}</div>
           ) : <p className="muted">Nenhum comentário registrado.</p>}
@@ -3206,7 +3227,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           <section className="task-detail-section task-member-justifications">
             <div className="task-detail-section-head">
               <h3>Justificativas e observações dos membros</h3>
-              <span className="muted">Tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui para conferência do gestor.</span>
+              <span className="muted">"{tarefa.titulo}"{tarefa.origem_nome ? ` · ${tarefa.origem_nome}` : ''} — tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui para conferência do gestor.</span>
             </div>
             {execHistoryLoading ? (
               <p className="muted">Carregando justificativas...</p>
