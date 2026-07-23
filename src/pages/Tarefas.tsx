@@ -3061,6 +3061,15 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
               <strong>{isGestor ? `${done}/${total}` : `${displayDone}/${displayTotal}`} feitos · {percent}% geral</strong>
             </div>
           </div>
+          {/* Todo item abaixo pertence a esta mesma tarefa/lista — a empresa é um
+              dado da lista inteira, nunca de um item isolado. Mostrado aqui de
+              forma bem visível para não deixar dúvida quando itens têm
+              executores diferentes dentro da mesma lista. */}
+          {tarefa.origem_sistema === 'destrava' && tarefa.origem_id && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--primary-dim)', border: '1px solid var(--primary-dim)', borderRadius: 10, marginBottom: 10, fontSize: 13, fontWeight: 600, color: 'var(--primary)' }}>
+              <Building2 size={15} /> Todas as tarefas abaixo são da empresa: {tarefa.origem_nome || 'empresa vinculada'}
+            </div>
+          )}
           {canReviewTask && tarefa.status === 'concluida' && (
             <div className="task-approve-banner">
               <span><CheckCircle2 size={16} /> Todas as tarefas da lista foram concluídas. Aprove para liberar a pontuação no ranking, ou devolva se precisar de correção.</span>
