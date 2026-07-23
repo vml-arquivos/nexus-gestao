@@ -136,7 +136,7 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
 
     const tarefasRows = await query<any>(
       `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por, checklist, escopo,
-              COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao,
+              COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao, origem_nome,
               (CURRENT_DATE - prazo::date)::int AS dias_atraso
        FROM tarefas
        WHERE org_id = $1
@@ -159,7 +159,7 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     }).slice(0, 30).map(t => ({
       id: t.id,
       tipo: 'tarefa',
-      titulo: t.titulo,
+      titulo: t.origem_nome ? `${t.origem_nome} — ${t.titulo}` : t.titulo,
       detalhe: `Atrasada há ${Number(t.dias_atraso || 1)} dia(s).`,
       destino: `/tarefas?task=${t.id}`,
       dias_atraso: Number(t.dias_atraso || 1),
@@ -193,26 +193,41 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     }))
 
     const eventos = await query<any>(
-      `SELECT id, titulo, data_inicio,
-              EXTRACT(EPOCH FROM (NOW() - data_inicio))/3600 AS horas_atraso
-       FROM agenda
-       WHERE org_id = $1
-         AND data_inicio < NOW()
-         AND data_inicio >= NOW() - INTERVAL '7 days'
-         ${gestorLike ? '' : 'AND criado_por = $2'}
-       ORDER BY data_inicio ASC
+      `SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id,
+              t.titulo AS tarefa_titulo, t.origem_nome AS empresa_nome,
+              EXTRACT(EPOCH FROM (NOW() - e.data_inicio))/3600 AS horas_atraso
+       FROM agenda e
+       LEFT JOIN tarefas t ON (
+         CASE WHEN e.origem_tipo = 'checklist' THEN split_part(e.origem_id, ':', 1) ELSE e.origem_id END
+       ) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+       AND t.id = (
+         CASE WHEN e.origem_tipo = 'checklist' THEN split_part(e.origem_id, ':', 1) ELSE e.origem_id END
+       )::uuid
+       WHERE e.org_id = $1
+         AND e.data_inicio < NOW()
+         AND e.data_inicio >= NOW() - INTERVAL '7 days'
+         ${gestorLike ? '' : 'AND e.criado_por = $2'}
+       ORDER BY e.data_inicio ASC
        LIMIT 30`,
       gestorLike ? [orgId] : [orgId, userId]
     )
 
-    const agenda = eventos.map(e => ({
-      id: e.id,
-      tipo: 'agenda',
-      titulo: e.titulo,
-      detalhe: `Compromisso passou há ${Math.max(1, Math.round(Number(e.horas_atraso || 1)))} hora(s).`,
-      destino: '/agenda',
-      nivel: Number(e.horas_atraso || 0) >= 24 ? 'alto' : 'medio',
-    }))
+    const agenda = eventos.map(e => {
+      // "Tarefa mãe" identifica de qual lista o compromisso saiu; empresa_nome
+      // vem direto da tarefa vinculada (origem Destrava), quando existir.
+      const contexto = [e.empresa_nome, e.tarefa_titulo && e.origem_tipo === 'checklist' ? e.tarefa_titulo : null]
+        .filter(Boolean).join(' — ')
+      return {
+        id: e.id,
+        tipo: 'agenda',
+        titulo: contexto ? `${contexto}: ${e.titulo}` : e.titulo,
+        detalhe: `Compromisso passou há ${Math.max(1, Math.round(Number(e.horas_atraso || 1)))} hora(s).`,
+        destino: e.origem_tipo === 'checklist' || e.origem_tipo === 'tarefa'
+          ? `/tarefas?task=${e.origem_tipo === 'checklist' ? String(e.origem_id || '').split(':')[0] : e.origem_id}`
+          : '/agenda',
+        nivel: Number(e.horas_atraso || 0) >= 24 ? 'alto' : 'medio',
+      }
+    })
 
     res.json({ total: tarefas.length + financeiro.length + agenda.length, tarefas, financeiro, agenda, gerado_em: new Date().toISOString() })
   } catch (err) {
