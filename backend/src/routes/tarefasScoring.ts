@@ -519,13 +519,16 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
       res.status(409).json({ error: 'Esta lista já foi aprovada e não pode ser aprovada novamente.' })
       return
     }
-    if (!['concluida', 'reenviada'].includes(String(task.status || ''))) {
+    const items = parseChecklist(task.checklist)
+    const totalItens = items.length
+    const itensFeitos = items.filter(i => i.feito).length
+    const checklistCompleto = totalItens > 0 && itensFeitos === totalItens
+    if (!['concluida', 'reenviada'].includes(String(task.status || '')) && !checklistCompleto) {
       await client.query('ROLLBACK')
       res.status(409).json({ error: 'A tarefa só pode ser aprovada depois que o executor enviar a conclusão.' })
       return
     }
 
-    const items = parseChecklist(task.checklist)
     const multi = isMultiExecutor(task)
 
     // Se a lista tem escolha explícita de escopo, ela manda — inclusive
