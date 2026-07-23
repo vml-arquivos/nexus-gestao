@@ -27,6 +27,7 @@ import adminRoutes         from './routes/admin'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
 import { iniciarAgendaAutoSync } from './services/agendaSyncService'
 import { iniciarBackupAutomatico } from './services/backupAutoService'
+import { iniciarRecorrenciaTarefas } from './services/recorrenciaTarefasService'
 import { executarVarreduraOutboxAutomation } from './services/automation/dispatcher'
 import { avaliarAlertasAutomacao } from './services/automation/alertJob'
 
@@ -182,6 +183,7 @@ async function start() {
     iniciarJobsNotificacao()
     iniciarAgendaAutoSync()
     iniciarBackupAutomatico()
+    iniciarRecorrenciaTarefas()
 
     // Automation Engine: varredura de retry do outbox (mesmo padrão setInterval
     // dos jobs de notificação acima -- entrega eventos que o despacho imediato

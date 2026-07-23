@@ -679,6 +679,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [titulo, setTitulo] = useState(tarefa?.titulo || '')
   const [descricao, setDescricao] = useState(tarefa?.descricao || '')
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
+  const [recorrencia, setRecorrencia] = useState<'nenhum' | 'diario' | 'semanal' | 'mensal'>((tarefa as any)?.recorrencia === 'diario' || (tarefa as any)?.recorrencia === 'semanal' || (tarefa as any)?.recorrencia === 'mensal' ? (tarefa as any).recorrencia : 'nenhum')
+  const [recorrenciaDiaSemana, setRecorrenciaDiaSemana] = useState(String((tarefa as any)?.recorrencia_dia_semana ?? new Date().getDay()))
+  const [recorrenciaDiaMes, setRecorrenciaDiaMes] = useState(String((tarefa as any)?.recorrencia_dia_mes ?? new Date().getDate()))
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
@@ -964,6 +967,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         origem_payload: tipoTarefa === 'equipe'
           ? { ...(destravaSelecionado?.metadata || {}), nexus_tarefa_surpresa: Boolean(tarefaSurpresa), nexus_pontuacao_escopo: pontuacaoEscopo }
           : (destravaSelecionado?.metadata || undefined),
+        ...(isGestor && tipoTarefa === 'equipe' && !tarefa?.id ? {
+          recorrencia,
+          recorrencia_dia_semana: recorrencia === 'semanal' ? Number(recorrenciaDiaSemana) : undefined,
+          recorrencia_dia_mes: recorrencia === 'mensal' ? Number(recorrenciaDiaMes) : undefined,
+        } as any : {}),
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
       const foiMescladaEmListaExistente = !tarefa?.id && saved.titulo !== tituloFinal
@@ -1167,6 +1175,34 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <span>Controle do gestor, com ações do tarefas para membros.</span>
               </button>
             </div>
+          </div>
+        )}
+        {isGestor && !tarefa?.id && tipoTarefa === 'equipe' && (
+          <div className="form-group">
+            <label className="form-label">Repetir esta lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+            <div className="task-type-selector" role="radiogroup" aria-label="Recorrência da lista" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+              {([['nenhum', 'Não repetir', 'Só esta vez'], ['diario', 'Todo dia', 'Gera uma nova todo dia'], ['semanal', 'Toda semana', 'Mesmo dia, toda semana'], ['mensal', 'Todo mês', 'Mesmo dia, todo mês']] as const).map(([value, label, desc]) => (
+                <button key={value} type="button" className={recorrencia === value ? 'task-type-option active' : 'task-type-option'} onClick={() => setRecorrencia(value)}>
+                  <strong>{label}</strong>
+                  <span>{desc}</span>
+                </button>
+              ))}
+            </div>
+            {recorrencia === 'semanal' && (
+              <select className="form-input" style={{ marginTop: 8 }} value={recorrenciaDiaSemana} onChange={e => setRecorrenciaDiaSemana(e.target.value)}>
+                {['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map((dia, i) => <option key={i} value={i}>Toda {dia}</option>)}
+              </select>
+            )}
+            {recorrencia === 'mensal' && (
+              <select className="form-input" style={{ marginTop: 8 }} value={recorrenciaDiaMes} onChange={e => setRecorrenciaDiaMes(e.target.value)}>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Todo dia {d} do mês</option>)}
+              </select>
+            )}
+            {recorrencia !== 'nenhum' && (
+              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                O Nexus cria a próxima lista sozinho, com o mesmo checklist e configuração — você não precisa recriar manualmente.
+              </div>
+            )}
           </div>
         )}
         {!isGestor && (

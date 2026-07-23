@@ -2468,6 +2468,15 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       origem_url,
       origem_payload,
     } = req.body;
+    const recorrenciaRaw = String((req.body as any).recorrencia || "nenhum");
+    const recorrencia = ["nenhum", "diario", "semanal", "mensal"].includes(recorrenciaRaw) ? recorrenciaRaw : "nenhum";
+    const recorrenciaDiaSemana = recorrencia === "semanal" && (req.body as any).recorrencia_dia_semana !== undefined
+      ? Math.max(0, Math.min(6, Number((req.body as any).recorrencia_dia_semana)))
+      : null;
+    const recorrenciaDiaMes = recorrencia === "mensal" && (req.body as any).recorrencia_dia_mes !== undefined
+      ? Math.max(1, Math.min(31, Number((req.body as any).recorrencia_dia_mes)))
+      : null;
+    const recorrenciaFim = (req.body as any).recorrencia_fim || null;
     const tarefaSurpresa = Boolean(
       (req.body as any).tarefa_surpresa || (req.body as any).surpresa_tarefa,
     );
@@ -2738,8 +2747,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,'pendente','aguardando',$16,$17,$18,$19,$20,$21)
+         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload, recorrencia, recorrencia_dia_semana, recorrencia_dia_mes, recorrencia_fim)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,'pendente','aguardando',$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING *`,
       [
         orgId,
@@ -2763,6 +2772,10 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         origem_nome || null,
         origem_url || null,
         JSON.stringify(origemPayloadFinal),
+        recorrencia,
+        recorrenciaDiaSemana,
+        recorrenciaDiaMes,
+        recorrenciaFim,
       ],
     );
 

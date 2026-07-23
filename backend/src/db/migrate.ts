@@ -902,7 +902,7 @@ CREATE INDEX IF NOT EXISTS idx_automation_audit_log_executado_em ON automation_a
 -- semanais de um acompanhamento sem inventar uma tabela nova.
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia TEXT NOT NULL DEFAULT 'nenhum';
 ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_recorrencia_check;
-ALTER TABLE tarefas ADD CONSTRAINT tarefas_recorrencia_check CHECK (recorrencia IN ('nenhum', 'semanal', 'mensal'));
+ALTER TABLE tarefas ADD CONSTRAINT tarefas_recorrencia_check CHECK (recorrencia IN ('nenhum', 'diario', 'semanal', 'mensal'));
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_dia_mes INT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_dia_semana INT;
 ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS recorrencia_fim DATE;
