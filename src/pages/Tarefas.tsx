@@ -2215,6 +2215,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [files, setFiles] = useState<File[]>([])
   const [saving, setSaving] = useState(false)
   const [expandirChecklistAprovado, setExpandirChecklistAprovado] = useState(false)
+  const [expandirJustificativas, setExpandirJustificativas] = useState(false)
   const [execHistory, setExecHistory] = useState<any[]>([])
   const [execHistoryLoading, setExecHistoryLoading] = useState(false)
   const [comentarios, setComentarios] = useState<any[]>([])
@@ -2250,10 +2251,6 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const hasHelpPending = Boolean((tarefa as any).pedido_ajuda_pendente)
 
   useEffect(() => {
-    if (!isGestor) {
-      setExecHistory([])
-      return
-    }
     let ativo = true
     setExecHistoryLoading(true)
     tarefasApi.historico(tarefa.id)
@@ -2268,7 +2265,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
         if (ativo) setExecHistoryLoading(false)
       })
     return () => { ativo = false }
-  }, [isGestor, tarefa.id, tarefa.updated_at, tarefa.status])
+  }, [tarefa.id, tarefa.updated_at, tarefa.status])
 
   useEffect(() => {
     let ativo = true
@@ -2346,10 +2343,24 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     try {
       const r = await tarefasApi.relatorio(tarefa.id)
       const esc = (v: unknown) => String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] || c))
-      const itens = (r.tarefa.checklist || []).map((i:any) => `<tr><td>${esc(i.texto)}</td><td>${esc(i.responsavel_nome || i.concluido_por || 'Não definido')}</td><td>${i.feito ? 'Executado' : 'Pendente'}</td><td>${esc(i.aprovacao_status || 'Aguardando')}</td><td>${Number(i.pontuacao || 0)}</td></tr>`).join('')
+      const nomePorId = new Map(membros.map(m => [m.id, m.nome]))
+      const resolverExecutorNome = (i: any) => {
+        if (i.responsavel_nome) return i.responsavel_nome
+        const idCandidato = i.concluido_por || i.feito_por
+        if (idCandidato && nomePorId.has(idCandidato)) return nomePorId.get(idCandidato)
+        return 'Executor não identificado'
+      }
+      const itens = (r.tarefa.checklist || []).map((i:any) => `<tr><td>${esc(i.texto)}</td><td>${esc(resolverExecutorNome(i))}</td><td>${i.feito ? 'Executado' : 'Pendente'}${i.data ? ` (${esc(fmtDate(i.data))})` : ''}</td><td>${esc(i.aprovacao_status || 'Aguardando')}</td><td>${Number(i.pontuacao || 0)}</td></tr>`).join('')
       const comentariosHtml = (r.comentarios || []).map((c:any) => `<li><strong>${esc(c.autor_nome || 'Usuário')}</strong> — ${new Date(c.criado_em).toLocaleString('pt-BR')}<br>${esc(c.comentario)}</li>`).join('') || '<li>Nenhum comentário.</li>'
-      const pontos = (r.pontuacoes || []).reduce((a:number,p:any)=>a+Number(p.pontos||0),0)
-      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relatório - ${esc(r.tarefa.titulo)}</title><style>body{font-family:Arial,sans-serif;color:#172033;padding:28px}h1{margin-bottom:4px}.meta{color:#667085;margin-bottom:24px}.box{border:1px solid #d0d5dd;border-radius:8px;padding:14px;margin:14px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left;font-size:12px}th{background:#f2f4f7}li{margin:10px 0}@media print{button{display:none}}</style></head><body><h1>${esc(r.tarefa.titulo)}</h1><div class="meta">Empresa: ${esc(r.tarefa.origem_nome || 'Não vinculada')} · Criada por: ${esc(r.tarefa.criado_por_nome || '')} · Gerado em ${new Date(r.gerado_em).toLocaleString('pt-BR')}</div><div class="box"><strong>Status:</strong> ${esc(r.tarefa.status)} &nbsp; <strong>Prioridade:</strong> ${esc(r.tarefa.prioridade)} &nbsp; <strong>Pontos aprovados:</strong> ${pontos}<p>${esc(r.tarefa.descricao || '')}</p></div><h2>Execução por item</h2><table><thead><tr><th>Item</th><th>Executor</th><th>Execução</th><th>Aval do gestor</th><th>Pontos</th></tr></thead><tbody>${itens}</tbody></table><h2>Comentários e relatos</h2><ul>${comentariosHtml}</ul><p class="meta">Relatório auditável gerado pelo Nexus Gestão.</p><script>window.onload=()=>window.print()<\/script></body></html>`
+      const anexosHtml = (r.anexos || []).map((a:any) => `<li><strong>${esc(a.titulo || a.nome_original || 'Arquivo')}</strong> — enviado por ${esc(a.enviado_por_nome || 'Usuário')} em ${new Date(a.created_at).toLocaleString('pt-BR')}${a.descricao ? `<br>${esc(a.descricao)}` : ''}</li>`).join('') || '<li>Nenhum anexo enviado.</li>'
+      // Somado direto dos mesmos itens exibidos na tabela acima (aprovacao_status
+      // === 'aprovada'), não de uma consulta separada — garante que o resumo
+      // nunca contradiz a tabela "Execução por item" logo abaixo dele.
+      const itensAprovados = (r.tarefa.checklist || []).filter((i:any) => i.aprovacao_status === 'aprovada')
+      const pontos = itensAprovados.reduce((a:number, i:any) => a + Number(i.pontuacao || 0), 0)
+      const pontosListaCompleta = r.tarefa.pontuacao_escopo !== 'subtarefas' && r.tarefa.status === 'aprovada' ? Number(r.tarefa.pontuacao || 0) : 0
+      const pontosTotais = pontos + pontosListaCompleta
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relatório - ${esc(r.tarefa.titulo)}</title><style>body{font-family:Arial,sans-serif;color:#172033;padding:28px}h1{margin-bottom:4px}.meta{color:#667085;margin-bottom:24px}.box{border:1px solid #d0d5dd;border-radius:8px;padding:14px;margin:14px 0}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d0d5dd;padding:8px;text-align:left;font-size:12px}th{background:#f2f4f7}li{margin:10px 0}@media print{button{display:none}}</style></head><body><h1>${esc(r.tarefa.titulo)}</h1><div class="meta">Empresa: ${esc(r.tarefa.origem_nome || 'Não vinculada')} · Criada por: ${esc(r.tarefa.criado_por_nome || '')} · Gerado em ${new Date(r.gerado_em).toLocaleString('pt-BR')}</div><div class="box"><strong>Status:</strong> ${esc(r.tarefa.status)} &nbsp; <strong>Prioridade:</strong> ${esc(r.tarefa.prioridade)} &nbsp; <strong>Pontos aprovados:</strong> ${pontosTotais}<p>${esc(r.tarefa.descricao || '')}</p></div><h2>Execução por item</h2><table><thead><tr><th>Item</th><th>Executor</th><th>Execução</th><th>Aval do gestor</th><th>Pontos</th></tr></thead><tbody>${itens}</tbody></table><h2>Comentários e relatos</h2><ul>${comentariosHtml}</ul><h2>Anexos e evidências enviadas</h2><ul>${anexosHtml}</ul><p class="meta">Relatório auditável gerado pelo Nexus Gestão.</p><script>window.onload=()=>window.print()<\/script></body></html>`
       const w = window.open('', '_blank')
       if (!w) throw new Error('Permita pop-ups para imprimir o relatório.')
       w.document.open(); w.document.write(html); w.document.close()
@@ -2385,7 +2396,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const executorSummary = checklistExecutorSummary({ ...tarefa, checklist })
   const responsaveisChecklist = assigneeOptions(membros, undefined)
   const executionNotes = useMemo(() => {
-    if (!isGestor) return [] as Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }>
+    // Visível para gestor e membro — cada um vendo o que já foi enviado como
+    // justificativa/observação de execução (o membro também deve poder
+    // conferir o que ele mesmo escreveu, não só o gestor).
     const seen = new Set<string>()
     const seenConteudo = new Set<string>()
     const notes: Array<{ id: string; origem: string; autor?: string; data?: string; texto: string; tipo?: string }> = []
@@ -3278,27 +3291,34 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           ) : <p className="muted">Nenhum comentário registrado.</p>}
         </section>
 
-        {isGestor && !execHistoryLoading && executionNotes.length > 0 && (
+        {!execHistoryLoading && executionNotes.length > 0 && (
           <section className="task-detail-section task-member-justifications">
             <div className="task-detail-section-head">
-              <h3>Justificativas e observações dos membros</h3>
-              <span className="muted">"{tarefa.titulo}"{tarefa.origem_nome ? ` · ${tarefa.origem_nome}` : ''} — tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui para conferência do gestor.</span>
+              <h3>Justificativas e observações {isGestor ? 'dos membros' : ''}</h3>
+              <button className="btn btn-secondary btn-sm" type="button" onClick={() => setExpandirJustificativas(v => !v)}>
+                {expandirJustificativas ? 'Ocultar' : `Ver ${executionNotes.length} justificativa(s)`}
+              </button>
             </div>
-            <div className="task-member-justification-list">
-              {executionNotes.map(note => (
-                <div key={note.id} className="task-member-justification-card">
-                  <div className="task-member-justification-head">
-                    <strong>{note.origem}</strong>
-                    {note.tipo && <span>{note.tipo}</span>}
-                  </div>
-                  <p>{note.texto}</p>
-                  <div className="task-member-justification-meta">
-                    {note.autor && <span>Por: {note.autor}</span>}
-                    {note.data && <span>{fmtDateTime(note.data)}</span>}
-                  </div>
+            {expandirJustificativas && (
+              <>
+                <span className="muted">"{tarefa.titulo}"{tarefa.origem_nome ? ` · ${tarefa.origem_nome}` : ''} — tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui{isGestor ? ' para conferência do gestor' : ''}.</span>
+                <div className="task-member-justification-list">
+                  {executionNotes.map(note => (
+                    <div key={note.id} className="task-member-justification-card">
+                      <div className="task-member-justification-head">
+                        <strong>{note.origem}</strong>
+                        {note.tipo && <span>{note.tipo}</span>}
+                      </div>
+                      <p>{note.texto}</p>
+                      <div className="task-member-justification-meta">
+                        {note.autor && <span>Por: {note.autor}</span>}
+                        {note.data && <span>{fmtDateTime(note.data)}</span>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </section>
         )}
 
