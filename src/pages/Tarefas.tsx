@@ -3251,35 +3251,30 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
           ) : <p className="muted">Nenhum comentário registrado.</p>}
         </section>
 
-        {isGestor && (
+        {isGestor && !execHistoryLoading && executionNotes.length > 0 && (
           <section className="task-detail-section task-member-justifications">
             <div className="task-detail-section-head">
               <h3>Justificativas e observações dos membros</h3>
               <span className="muted">"{tarefa.titulo}"{tarefa.origem_nome ? ` · ${tarefa.origem_nome}` : ''} — tudo que o executor escreveu ao enviar, reenviar ou justificar aparece aqui para conferência do gestor.</span>
             </div>
-            {execHistoryLoading ? (
-              <p className="muted">Carregando justificativas...</p>
-            ) : executionNotes.length > 0 ? (
-              <div className="task-member-justification-list">
-                {executionNotes.map(note => (
-                  <div key={note.id} className="task-member-justification-card">
-                    <div className="task-member-justification-head">
-                      <strong>{note.origem}</strong>
-                      {note.tipo && <span>{note.tipo}</span>}
-                    </div>
-                    <p>{note.texto}</p>
-                    <div className="task-member-justification-meta">
-                      {note.autor && <span>Por: {note.autor}</span>}
-                      {note.data && <span>{fmtDateTime(note.data)}</span>}
-                    </div>
+            <div className="task-member-justification-list">
+              {executionNotes.map(note => (
+                <div key={note.id} className="task-member-justification-card">
+                  <div className="task-member-justification-head">
+                    <strong>{note.origem}</strong>
+                    {note.tipo && <span>{note.tipo}</span>}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">Nenhuma justificativa ou observação de execução enviada ainda.</p>
-            )}
+                  <p>{note.texto}</p>
+                  <div className="task-member-justification-meta">
+                    {note.autor && <span>Por: {note.autor}</span>}
+                    {note.data && <span>{fmtDateTime(note.data)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </section>
         )}
+
 
         {tarefa.ressalva_gestor && (
           <section className="task-detail-section warning-box">
