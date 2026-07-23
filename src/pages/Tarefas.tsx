@@ -2758,7 +2758,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   <button className="btn btn-secondary btn-sm" type="button" disabled={saving} onClick={() => colocarListaComoLivre()}>Colocar lista como livre</button>
                 </div>
               )}
-              {executorSummary.length > 0 ? executorSummary.map(exec => (
+              {executorSummary.filter(exec => exec.id !== tarefa.aceita_por).length > 0 ? executorSummary.filter(exec => exec.id !== tarefa.aceita_por).map(exec => (
                 <div key={exec.id} className="task-executor-card">
                   <strong>{exec.nome}</strong>
                   <span>{exec.feitos}/{exec.total} tarefa(s) concluída(s)</span>
@@ -2766,7 +2766,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     <button className="btn btn-ghost danger btn-sm" type="button" disabled={saving} onClick={() => removerExecutorDasTarefas(exec.id, exec.nome)}>Remover das tarefas</button>
                   )}
                 </div>
-              )) : <p className="muted">Nenhum membro assumiu ou recebeu tarefa nesta lista.</p>}
+              )) : !tarefa.aceita_por && <p className="muted">Nenhum membro assumiu ou recebeu tarefa nesta lista.</p>}
             </div>
             <div className="task-delegation-controls">
               <select className="form-input" value={gestorDelegarId} onChange={e => setGestorDelegarId(e.target.value)}>
