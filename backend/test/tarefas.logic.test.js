@@ -267,3 +267,42 @@ test('item marcado como livre numa lista direcionada não é executado automatic
   assert.equal(utils.isChecklistItemExecutor(task, itemAssumido, USER_B), false)
 })
 
+test('responsável principal da lista continua vendo os próprios itens sem dono explícito, mesmo quando outro item da mesma lista foi delegado individualmente a outra pessoa', () => {
+  // Reproduz exatamente o cenário relatado: lista com 9 itens, Joanne (USER_B)
+  // é a responsável principal, 8 itens são dela mas só alguns têm
+  // responsavel_id gravado no próprio item (os concluídos), e 1 item foi
+  // delegado individualmente à Raíssa (USER_A). Antes da correção, os itens
+  // de Joanne sem responsavel_id próprio sumiam da visão DELA MESMA assim
+  // que a lista entrava em "modo por item" por causa do item da Raíssa.
+  const task = {
+    escopo: 'equipe',
+    aceita_por: USER_B,
+    responsavel_id: USER_B,
+    criado_por: USER_B,
+  }
+  const itensConcluidosDeJoanne = [
+    { id: 'i1', texto: 'Já feito 1', feito: true, concluido_por: USER_B },
+    { id: 'i2', texto: 'Já feito 2', feito: true, concluido_por: USER_B },
+    { id: 'i3', texto: 'Já feito 3', feito: true, concluido_por: USER_B },
+  ]
+  const itensPendentesDeJoanneSemDonoExplicito = [
+    { id: 'i4', texto: 'Pendente 1', feito: false },
+    { id: 'i5', texto: 'Pendente 2', feito: false },
+    { id: 'i6', texto: 'Pendente 3', feito: false },
+    { id: 'i7', texto: 'Pendente 4', feito: false },
+  ]
+  const itemDaRaissa = { id: 'i8', texto: 'Item da Raíssa', feito: false, responsavel_id: USER_A }
+  const task9itens = {
+    ...task,
+    checklist: [...itensConcluidosDeJoanne, ...itensPendentesDeJoanneSemDonoExplicito, itemDaRaissa],
+  }
+
+  const visivelParaJoanne = utils.filterChecklistForUser(task9itens, { userId: USER_B, orgId: 'org', role: 'membro' })
+  assert.equal(visivelParaJoanne.length, 7, 'Joanne deve ver seus 7 itens (3 concluídos + 4 pendentes sem dono explícito), não só os 3 concluídos')
+  assert.ok(!visivelParaJoanne.some(i => i.id === 'i8'), 'Item exclusivo da Raíssa não pode aparecer para Joanne')
+
+  const visivelParaRaissa = utils.filterChecklistForUser(task9itens, { userId: USER_A, orgId: 'org', role: 'membro' })
+  assert.equal(visivelParaRaissa.length, 1, 'Raíssa deve ver só o item dela')
+  assert.equal(visivelParaRaissa[0].id, 'i8')
+})
+

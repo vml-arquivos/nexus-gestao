@@ -1238,8 +1238,14 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
     return items.map((item) => maskSurpriseChecklistItem(item, userId, task));
   }
 
+  const souPrincipalDaLista = task?.aceita_por === userId || task?.responsavel_id === userId;
   const assignedToMe = items.filter(
-    (item) => checklistItemBelongsToUser(item, userId),
+    (item) =>
+      checklistItemBelongsToUser(item, userId) ||
+      // Item sem dono explícito: pertence ao responsável principal da lista,
+      // não deve sumir da visão dele só porque OUTRO item da mesma lista tem
+      // atribuição individual (o que ativa o "modo por item" acima).
+      (souPrincipalDaLista && !checklistItemAssignmentId(item)),
   );
   // Depois que o membro assume/recebe uma subtarefa, ele enxerga somente a parte dele.
   if (assignedToMe.length)
