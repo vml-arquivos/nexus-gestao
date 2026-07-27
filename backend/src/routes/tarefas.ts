@@ -1019,6 +1019,43 @@ function hasChecklistAssignedTo(task: any, userId: string) {
   );
 }
 
+/** Verifica se o usuário tem, em qualquer lista aberta da organização, algum
+ * item atrasado (prazo do item ou, na falta dele, da lista, já vencido) e
+ * ainda pendente, sem a atualização de status de HOJE registrada. Usada para
+ * impedir que alguém acumule tarefas novas enquanto ignora atraso já
+ * existente sem explicar — evita disputa de pontos e confusão na equipe. */
+async function possuiAtrasoSemJustificativaHoje(
+  orgId: string,
+  userId: string,
+): Promise<{ bloqueado: boolean; tituloTarefa?: string; itemTexto?: string }> {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const rows = await query<any>(
+    `SELECT id, titulo, prazo, aceita_por, responsavel_id, checklist
+     FROM tarefas
+     WHERE org_id = $1
+       AND escopo = 'equipe'
+       AND status NOT IN ('aprovada', 'cancelada')`,
+    [orgId],
+  );
+  for (const task of rows) {
+    const items = parseChecklistItems(task.checklist);
+    for (const item of items) {
+      if (item.feito) continue;
+      if (!isChecklistItemExecutor(task, item, userId)) continue;
+      const prazoItem = String(item.data || task.prazo || "");
+      if (!prazoItem || prazoItem.slice(0, 10) >= hoje) continue; // não está atrasado
+      const historico = Array.isArray((item as any).atualizacoes_atraso)
+        ? (item as any).atualizacoes_atraso
+        : [];
+      const jaAtualizouHoje = historico.some((h: any) => String(h?.data) === hoje);
+      if (!jaAtualizouHoje) {
+        return { bloqueado: true, tituloTarefa: task.titulo, itemTexto: item.texto };
+      }
+    }
+  }
+  return { bloqueado: false };
+}
+
 function hasChecklistAssignedToOther(task: any, userId: string) {
   return parseChecklistItems(task?.checklist).some((item) => {
     const owner = checklistExecutorId(item, task);
@@ -2055,6 +2092,13 @@ router.post(
           .json({ error: "Esta tarefa não está disponível para pegar." });
         return;
       }
+      const atrasoCheck = await possuiAtrasoSemJustificativaHoje(orgId, userId);
+      if (atrasoCheck.bloqueado) {
+        res.status(409).json({
+          error: `Você tem uma tarefa atrasada ("${atrasoCheck.itemTexto}") sem a atualização de hoje. Registre o motivo do atraso antes de assumir tarefas novas.`,
+        });
+        return;
+      }
       if (existing.aceita_por) {
         res
           .status(409)
@@ -2217,6 +2261,13 @@ router.post(
         res
           .status(400)
           .json({ error: "Tarefa finalizada não permite assumir objetivo." });
+        return;
+      }
+      const atrasoCheckItem = await possuiAtrasoSemJustificativaHoje(orgId, userId);
+      if (atrasoCheckItem.bloqueado) {
+        res.status(409).json({
+          error: `Você tem uma tarefa atrasada ("${atrasoCheckItem.itemTexto}") sem a atualização de hoje. Registre o motivo do atraso antes de assumir tarefas novas.`,
+        });
         return;
       }
 
