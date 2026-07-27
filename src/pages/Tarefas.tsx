@@ -2658,6 +2658,23 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
     void persistChecklistItem(id, !item.feito)
   }
 
+  async function atualizarStatusAtraso(item: ChecklistItem) {
+    const nota = (window.prompt('Explique rapidamente por que esta tarefa continua atrasada hoje:') || '').trim()
+    if (!nota) {
+      toast('É necessário informar o motivo para registrar a atualização de hoje.', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      const saved = await tarefasApi.atualizarAtraso(tarefa.id, item.id, nota)
+      setChecklist(normalizeChecklistItems(saved.checklist))
+      onSaved(saved)
+      toast('Atualização de hoje registrada.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Erro ao registrar atualização.', 'error')
+    } finally { setSaving(false) }
+  }
+
   async function copiarChecklist() {
     if (!checklist.length) {
       toast('Esta lista não possui tarefas para copiar.', 'error')
@@ -3235,6 +3252,30 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             )}
                           </div>
                         </div>
+                        {(() => {
+                          if (item.feito) return null
+                          const prazoItemAtraso = item.data || tarefa.prazo
+                          if (!prazoItemAtraso || prazoItemAtraso >= todayIso()) return null
+                          const historicoAtraso = Array.isArray((item as any).atualizacoes_atraso) ? (item as any).atualizacoes_atraso : []
+                          const notaHoje = historicoAtraso.find((h: any) => h.data === todayIso())
+                          const souExecutorDoItem = isChecklistItemExecutor(item, tarefa, userId)
+                          return (
+                            <div style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 10, background: notaHoje ? 'var(--bg2)' : 'var(--warning-dim)', border: '1px solid ' + (notaHoje ? 'var(--border)' : 'var(--warning)') }}>
+                              {notaHoje ? (
+                                <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                                  <strong>Atualização de hoje ({fmtDate(notaHoje.data)}):</strong> {notaHoje.nota}
+                                </div>
+                              ) : souExecutorDoItem ? (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600 }}>⚠ Tarefa atrasada — atualização de hoje obrigatória</span>
+                                  <button className="btn btn-secondary btn-sm" type="button" disabled={saving} onClick={() => atualizarStatusAtraso(item)}>Atualizar status de hoje</button>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: 12, color: 'var(--warning)', fontWeight: 600 }}>⚠ Atrasada — aguardando atualização do executor hoje</span>
+                              )}
+                            </div>
+                          )
+                        })()}
                         {isGestor && item.feito && (item as any).aprovacao_status !== 'aprovada' && (
                           <div style={{ position: 'static', display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' }}>
                             <button className="btn btn-primary btn-sm" type="button" onClick={() => revisarItem(item, 'aprovar')} disabled={saving} style={{ position: 'static' }}>Aprovar parte</button>

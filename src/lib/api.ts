@@ -73,8 +73,19 @@ export interface ChecklistItem {
   criado_em?: string
   /** Id de outro item da MESMA lista que precisa estar concluído antes deste
    * poder ser marcado como feito. Opcional — sem isso, o item funciona como
-   * sempre funcionou, sem nenhuma trava de sequência. */
+   * sempre funcionou, sem nenhuma trava de sequência. Mantido por
+   * compatibilidade; para depender de VÁRIOS itens, use depende_de_todos. */
   depende_de?: string
+  /** Lista de ids de outros itens da MESMA lista — este item só libera
+   * quando TODOS os itens desta lista estiverem concluídos. Como "passar de
+   * fase": uma tarefa final (ex.: "abrir conta no banco") só aparece
+   * disponível depois que todas as tarefas anteriores da sequência
+   * estiverem prontas. */
+  depende_de_todos?: string[]
+  /** Registro diário obrigatório de status enquanto o item está atrasado e
+   * ainda não concluído — uma entrada por dia, sempre com o motivo do
+   * atraso daquele dia. Não afeta itens dentro do prazo. */
+  atualizacoes_atraso?: Array<{ data: string; nota: string; autor?: string }>
   /** Quando verdadeiro, este item específico fica livre para qualquer membro
    * da equipe assumir — mesmo que a lista tenha um responsável principal
    * definido (modelo "Direcionar"). O responsável principal da lista NÃO
@@ -777,6 +788,13 @@ export const tarefasApi = {
   // causa de um estado desatualizado na tela do gestor.
   async removerExecutor(id: string, memberId: string): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/remover-executor`, { method: 'PATCH', body: JSON.stringify({ member_id: memberId }) })
+    return data.tarefa
+  },
+
+  // Registro diário obrigatório de status enquanto um item está atrasado e
+  // ainda pendente — uma chamada por dia, sempre com o motivo daquele dia.
+  async atualizarAtraso(id: string, itemId: string, nota: string): Promise<Tarefa> {
+    const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/checklist/${itemId}/atualizar-atraso`, { method: 'POST', body: JSON.stringify({ nota }) })
     return data.tarefa
   },
 

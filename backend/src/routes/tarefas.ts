@@ -2360,15 +2360,22 @@ router.patch(
         res.status(403).json({ error: "Apenas o executor pode alterar esta tarefa da lista." });
         return;
       }
-      // Trava de sequência: item configurado com "depende_de" só pode ser
-      // concluído depois que o item referenciado já estiver concluído. Itens
-      // sem essa configuração continuam funcionando exatamente como sempre.
-      if (nextDone && (current as any).depende_de) {
-        const itemAnterior = items.find((i) => String(i.id) === String((current as any).depende_de));
-        if (itemAnterior && !itemAnterior.feito) {
+      // Trava de sequência: item configurado com "depende_de" (um item) ou
+      // "depende_de_todos" (vários) só pode ser concluído depois que TODOS
+      // os itens referenciados já estiverem concluídos. Itens sem essa
+      // configuração continuam funcionando exatamente como sempre.
+      if (nextDone) {
+        const idsRequisitos = [
+          ...((current as any).depende_de ? [String((current as any).depende_de)] : []),
+          ...(Array.isArray((current as any).depende_de_todos) ? (current as any).depende_de_todos.map(String) : []),
+        ];
+        const pendente = idsRequisitos
+          .map((reqId) => items.find((i) => String(i.id) === reqId))
+          .find((i) => i && !i.feito);
+        if (pendente) {
           await client.query("ROLLBACK");
           res.status(409).json({
-            error: `Esta tarefa só pode ser concluída depois de "${itemAnterior.texto}".`,
+            error: `Esta tarefa só pode ser concluída depois de "${pendente.texto}".`,
           });
           return;
         }
@@ -4222,8 +4229,93 @@ router.get("/:id", async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── EDITAR TAREFA ────────────────────────────────────────────────────────────
-// PATCH /:id/remover-executor — remove um membro específico da lista (limpa
+// POST /:id/checklist/:itemId/atualizar-atraso — registro diário obrigatório
+// de status para item atrasado e ainda pendente. Uma entrada por dia (se já
+// existe a de hoje, atualiza em vez de duplicar). Não altera feito/aprovacao,
+// só documenta o motivo do atraso naquele dia específico.
+router.post(
+  "/:id/checklist/:itemId/atualizar-atraso",
+  async (req: Request, res: Response): Promise<void> => {
+    const client = await pool.connect();
+    try {
+      const { orgId, userId } = req.user!;
+      const nota = String(req.body?.nota || "").trim();
+      if (!nota) {
+        client.release();
+        res.status(400).json({ error: "Informe o motivo do atraso de hoje." });
+        return;
+      }
+
+      await client.query("BEGIN");
+      const locked = await client.query(
+        `SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE`,
+        [req.params.id, orgId],
+      );
+      const existing = locked.rows[0];
+      if (!existing) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Tarefa não encontrada." });
+        return;
+      }
+      if (!(await userCanAccessTask(existing, req.user!))) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Acesso negado." });
+        return;
+      }
+
+      const items = parseChecklistItems(existing.checklist);
+      const index = items.findIndex((item) => String(item.id || "") === String(req.params.itemId || ""));
+      if (index < 0) {
+        await client.query("ROLLBACK");
+        res.status(404).json({ error: "Tarefa da lista não encontrada." });
+        return;
+      }
+      const current = items[index];
+      if (!isChecklistItemExecutor(existing, current, userId)) {
+        await client.query("ROLLBACK");
+        res.status(403).json({ error: "Apenas o executor pode atualizar esta tarefa." });
+        return;
+      }
+      if (current.feito) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Este item já foi concluído." });
+        return;
+      }
+      const prazoItem = current.data || existing.prazo;
+      const hoje = new Date().toISOString().slice(0, 10);
+      if (!prazoItem || String(prazoItem).slice(0, 10) >= hoje) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Este item não está atrasado — a atualização diária só se aplica a itens vencidos." });
+        return;
+      }
+
+      const historico = Array.isArray((current as any).atualizacoes_atraso) ? [...(current as any).atualizacoes_atraso] : [];
+      const idxHoje = historico.findIndex((h: any) => String(h.data) === hoje);
+      const profile = await queryOne<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
+      const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
+      if (idxHoje >= 0) historico[idxHoje] = entrada;
+      else historico.push(entrada);
+
+      (items[index] as any) = { ...current, atualizacoes_atraso: historico };
+      const tarefa = await client.query<any>(
+        `UPDATE tarefas SET checklist = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING *`,
+        [JSON.stringify(items), req.params.id, orgId],
+      );
+      await client.query("COMMIT");
+      res.json({ tarefa: sanitizeTaskForUser(tarefa.rows[0], req.user!) });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("[TAREFAS] Erro ao registrar atualização de atraso:", err);
+      res.status(500).json({ error: "Erro ao registrar atualização de atraso." });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+
 // atribuição dele nos itens que são dele e, se ele for o responsável
+// PATCH /:id/remover-executor — remove um membro específico da lista (limpa
 // principal, libera a lista). Sempre parte do checklist ATUAL do banco,
 // nunca do array que o navegador mandar — protege contra o navegador do
 // gestor estar com uma versão desatualizada da lista na memória (ex.: aba
