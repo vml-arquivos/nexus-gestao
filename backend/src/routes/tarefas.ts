@@ -2360,6 +2360,19 @@ router.patch(
         res.status(403).json({ error: "Apenas o executor pode alterar esta tarefa da lista." });
         return;
       }
+      // Trava de sequência: item configurado com "depende_de" só pode ser
+      // concluído depois que o item referenciado já estiver concluído. Itens
+      // sem essa configuração continuam funcionando exatamente como sempre.
+      if (nextDone && (current as any).depende_de) {
+        const itemAnterior = items.find((i) => String(i.id) === String((current as any).depende_de));
+        if (itemAnterior && !itemAnterior.feito) {
+          await client.query("ROLLBACK");
+          res.status(409).json({
+            error: `Esta tarefa só pode ser concluída depois de "${itemAnterior.texto}".`,
+          });
+          return;
+        }
+      }
 
       if (nextDone) {
         items[index] = {

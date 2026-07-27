@@ -68,6 +68,13 @@ export interface ChecklistItem {
   subtarefas?: ObjectiveSubtask[]
   /** Quando verdadeiro, o objetivo aparece para a equipe só com pontuação; título e instruções são revelados apenas para quem assumir. */
   revelar_apos_assumir?: boolean
+  /** Registro de quando este item foi criado (dia e hora), independente da
+   * data de execução (que é quando deve ser feito). Preenchido automaticamente. */
+  criado_em?: string
+  /** Id de outro item da MESMA lista que precisa estar concluído antes deste
+   * poder ser marcado como feito. Opcional — sem isso, o item funciona como
+   * sempre funcionou, sem nenhuma trava de sequência. */
+  depende_de?: string
   /** Quando verdadeiro, este item específico fica livre para qualquer membro
    * da equipe assumir — mesmo que a lista tenha um responsável principal
    * definido (modelo "Direcionar"). O responsável principal da lista NÃO

@@ -871,6 +871,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
       subtarefas: [],
       revelar_apos_assumir: tipoTarefa === 'pessoal' ? false : Boolean(tarefaSurpresa || novoItemSurpresa),
+      criado_em: new Date().toISOString(),
       feito: false,
     }))
 
@@ -902,6 +903,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || 0))),
       subtarefas: [],
       revelar_apos_assumir: tipoTarefa === 'pessoal' ? false : Boolean(tarefaSurpresa || novoItemSurpresa),
+      criado_em: new Date().toISOString(),
       feito: false,
     }])
     setNovoItem('')
@@ -2231,6 +2233,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [editPontuacaoEscopo, setEditPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
+  const [newSubtaskDependeDe, setNewSubtaskDependeDe] = useState('')
   const [newSubtaskDate, setNewSubtaskDate] = useState('')
   const [newSubtaskResp, setNewSubtaskResp] = useState('')
   const [newSubtaskEscolherPessoa, setNewSubtaskEscolherPessoa] = useState(false)
@@ -2482,10 +2485,13 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       pontuacao: isPersonal ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(newSubtaskPoints || 0))),
       subtarefas: [],
       revelar_apos_assumir: isPersonal ? false : Boolean(listSurprise || newSubtaskSurprise),
+      criado_em: new Date().toISOString(),
+      depende_de: newSubtaskDependeDe || undefined,
       feito: false,
     }])
     setNewSubtask('')
     setNewSubtaskDesc('')
+    setNewSubtaskDependeDe('')
     setNewSubtaskDate('')
     setNewSubtaskResp('')
     setNewSubtaskEscolherPessoa(false)
@@ -2624,6 +2630,13 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
       return
     }
     const marcandoComoFeito = !item.feito
+    if (marcandoComoFeito && item.depende_de) {
+      const itemAnterior = checklist.find(i => i.id === item.depende_de)
+      if (itemAnterior && !itemAnterior.feito) {
+        toast(`Esta tarefa só pode ser concluída depois de "${itemAnterior.texto}".`, 'error')
+        return
+      }
+    }
     // Prazo do item específico; na falta dele, cai no prazo da lista inteira.
     const prazoItem = item.data || tarefa.prazo
     const estaAtrasado = marcandoComoFeito && !!prazoItem && prazoItem < todayIso()
@@ -2989,6 +3002,16 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   )}
                 </div>
               )}
+              {checklist.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Só liberar após concluir <span>(opcional)</span></label>
+                  <select className="form-input" value={newSubtaskDependeDe} onChange={e => setNewSubtaskDependeDe(e.target.value)}>
+                    <option value="">Sem trava — fica disponível imediatamente</option>
+                    {checklist.map(i => <option key={i.id} value={i.id}>{checklistDisplayText(i)}</option>)}
+                  </select>
+                  <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>Escolhendo um item, esta tarefa nova fica bloqueada até aquele ser concluído — útil pra sequências onde a ordem importa.</div>
+                </div>
+              )}
               <div className="form-group task-inline-desc">
                 <label className="form-label">Descrição da lista/instrução <span>(opcional)</span></label>
                 <textarea className="form-input" rows={2} value={newSubtaskDesc} onChange={e => setNewSubtaskDesc(e.target.value)} placeholder="Explique como executar, se necessário." />
@@ -3156,7 +3179,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   </div>
                   {checklistByDate[dateKey].map(item => {
                     const canAssumeThisItem = !isGestor && !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
-                    const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving
+                    const itemDependencia = item.depende_de ? checklist.find(i => i.id === item.depende_de) : undefined
+                    const bloqueadoPorSequencia = !item.feito && !!itemDependencia && !itemDependencia.feito
+                    const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving && !bloqueadoPorSequencia
                     return (
                       <div
                         key={item.id}
@@ -3197,7 +3222,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
                           <div style={{ position: 'static', minWidth: 0, maxWidth: '100%', flex: '1 1 0%', display: 'flex', flexDirection: 'column', gap: 3, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', boxSizing: 'border-box' }}>
-                            <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>}</span>
+                            <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>} {bloqueadoPorSequencia && <em className="task-surprise-badge" style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}>🔒 Bloqueado até: {itemDependencia?.texto}</em>}</span>
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
