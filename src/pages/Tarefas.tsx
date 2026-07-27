@@ -3196,6 +3196,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                   </div>
                   {checklistByDate[dateKey].map(item => {
                     const canAssumeThisItem = !isGestor && !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
+                    const itemEhLivre = !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
                     const itemDependencia = item.depende_de ? checklist.find(i => i.id === item.depende_de) : undefined
                     const bloqueadoPorSequencia = !item.feito && !!itemDependencia && !itemDependencia.feito
                     const canToggleThisItem = canToggleChecklist && isChecklistItemExecutor(item, tarefa, userId) && !saving && !bloqueadoPorSequencia
@@ -3239,7 +3240,14 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
                           <div style={{ position: 'static', minWidth: 0, maxWidth: '100%', flex: '1 1 0%', display: 'flex', flexDirection: 'column', gap: 3, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', boxSizing: 'border-box' }}>
-                            <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)} {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">Surpresa</em>} {bloqueadoPorSequencia && <em className="task-surprise-badge" style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}>🔒 Bloqueado até: {itemDependencia?.texto}</em>}</span>
+                            <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)}</span>
+                            {(isSurpriseChecklistItem(item) || bloqueadoPorSequencia || itemEhLivre) && (
+                              <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                {itemEhLivre && <em className="task-surprise-badge" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>🔓 Livre — qualquer um pode assumir</em>}
+                                {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">🎁 Surpresa</em>}
+                                {bloqueadoPorSequencia && <em className="task-surprise-badge" style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}>🔒 Bloqueado até: {itemDependencia?.texto}</em>}
+                              </span>
+                            )}
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
