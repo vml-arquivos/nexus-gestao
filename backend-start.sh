@@ -1,14 +1,8 @@
 #!/bin/sh
 set -eu
 
-mkdir -p /app/uploads
+cd /app/backend
 
-if [ -z "${DATABASE_URL:-}" ]; then
-  echo "[STARTUP] ERRO: DATABASE_URL não foi configurada no ambiente." >&2
-  exit 1
-fi
-
-echo "[STARTUP] Aplicando migrations no PostgreSQL..."
 MIGRATION_MAX_ATTEMPTS="${MIGRATION_MAX_ATTEMPTS:-12}"
 MIGRATION_RETRY_DELAY_SECONDS="${MIGRATION_RETRY_DELAY_SECONDS:-5}"
 
@@ -25,18 +19,19 @@ fi
 
 attempt=1
 while [ "$attempt" -le "$MIGRATION_MAX_ATTEMPTS" ]; do
-  echo "[STARTUP] Migration: tentativa ${attempt}/${MIGRATION_MAX_ATTEMPTS}..."
+  echo "[BACKEND] Migration: tentativa ${attempt}/${MIGRATION_MAX_ATTEMPTS}..."
   if node dist/db/migrate.js; then
-    echo "[STARTUP] Migrations concluídas. Iniciando Nexus API..."
+    echo "[BACKEND] Migration concluída."
+    echo "[BACKEND] Iniciando Nexus API na porta ${PORT:-3001}..."
     exec node dist/index.js
   fi
 
   if [ "$attempt" -ge "$MIGRATION_MAX_ATTEMPTS" ]; then
-    echo "[STARTUP] ERRO: migration não concluída após ${MIGRATION_MAX_ATTEMPTS} tentativa(s)." >&2
+    echo "[BACKEND] ERRO: migration não concluída após ${MIGRATION_MAX_ATTEMPTS} tentativa(s)." >&2
     exit 1
   fi
 
-  echo "[STARTUP] Banco ainda indisponível. Nova tentativa em ${MIGRATION_RETRY_DELAY_SECONDS}s." >&2
+  echo "[BACKEND] Banco ainda indisponível. Nova tentativa em ${MIGRATION_RETRY_DELAY_SECONDS}s." >&2
   sleep "$MIGRATION_RETRY_DELAY_SECONDS"
   attempt=$((attempt + 1))
 done

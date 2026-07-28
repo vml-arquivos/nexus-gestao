@@ -26,9 +26,43 @@ router.use(authMiddleware);
 // coluna nova ainda não foi aplicada no PostgreSQL nativo.
 let taskRuntimeSchemaPromise: Promise<void> | null = null;
 
+async function taskRuntimeSchemaReady() {
+  const row = await queryOne<{ ready: boolean }>(`
+    SELECT (
+      to_regclass('public.tarefas_pontuacao') IS NOT NULL
+      AND to_regclass('public.tarefas_ajuda') IS NOT NULL
+      AND to_regclass('public.tarefas_comentarios') IS NOT NULL
+      AND to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM (
+            VALUES
+              ('status_gestor'),
+              ('modo_distribuicao'),
+              ('external_key'),
+              ('pedido_ajuda_pendente')
+          ) AS required(column_name)
+         WHERE NOT EXISTS (
+           SELECT 1
+             FROM information_schema.columns c
+            WHERE c.table_schema = 'public'
+              AND c.table_name = 'tarefas'
+              AND c.column_name = required.column_name
+         )
+      )
+    ) AS ready
+  `);
+  return Boolean(row?.ready);
+}
+
 async function ensureTaskRuntimeSchema() {
   if (!taskRuntimeSchemaPromise) {
     taskRuntimeSchemaPromise = (async () => {
+      // Caminho comum: somente leitura. Evita centenas de ALTER TABLE no
+      // primeiro acesso após cada deploy e elimina disputa com o contêiner
+      // anterior durante rolling update.
+      if (await taskRuntimeSchemaReady()) return;
+
       await query(`
         CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 

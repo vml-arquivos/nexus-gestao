@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import pool from './pool'
+import type { Pool, PoolClient } from 'pg'
 
 const SCHEMA = `
 -- ============================================================
@@ -945,6 +946,59 @@ function positiveNumber(value: string | undefined, fallback: number, minimum: nu
   return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback
 }
 
+async function coreSchemaExists(client: Pool | PoolClient): Promise<boolean> {
+  const result = await client.query<{ ready: boolean }>(`
+    SELECT (
+      to_regclass('public.organizacoes') IS NOT NULL
+      AND to_regclass('public.profiles') IS NOT NULL
+      AND to_regclass('public.tarefas') IS NOT NULL
+      AND to_regclass('public.pagamentos') IS NOT NULL
+      AND to_regclass('public.agenda') IS NOT NULL
+    ) AS ready
+  `)
+  return Boolean(result.rows[0]?.ready)
+}
+
+async function currentSchemaExists(client: PoolClient): Promise<boolean> {
+  const result = await client.query<{ ready: boolean }>(`
+    SELECT (
+      to_regclass('public.tarefas_pontuacao') IS NOT NULL
+      AND to_regclass('public.tarefas_ajuda') IS NOT NULL
+      AND to_regclass('public.tarefas_comentarios') IS NOT NULL
+      AND to_regclass('public.destrava_empresas_cache') IS NOT NULL
+      AND to_regclass('public.automation_events') IS NOT NULL
+      AND to_regclass('public.automation_audit_log') IS NOT NULL
+      AND to_regclass('public.automation_processed_keys') IS NOT NULL
+      AND to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
+      AND to_regclass('public.ux_tarefas_org_external_key') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM (
+            VALUES
+              ('tarefas', 'status_gestor'),
+              ('tarefas', 'modo_distribuicao'),
+              ('tarefas', 'external_key'),
+              ('tarefas', 'pedido_ajuda_pendente'),
+              ('tarefas', 'recorrencia'),
+              ('tarefas', 'projeto_grupo_id'),
+              ('tarefas', 'workflow_tipo'),
+              ('tarefas_pontuacao', 'checklist_id'),
+              ('tarefas_pontuacao', 'tarefa_titulo_snapshot'),
+              ('destrava_empresas_cache', 'external_key')
+          ) AS required(table_name, column_name)
+         WHERE NOT EXISTS (
+           SELECT 1
+             FROM information_schema.columns c
+            WHERE c.table_schema = 'public'
+              AND c.table_name = required.table_name
+              AND c.column_name = required.column_name
+         )
+      )
+    ) AS ready
+  `)
+  return Boolean(result.rows[0]?.ready)
+}
+
 async function migrate() {
   if (!String(process.env.DATABASE_URL || '').trim()) {
     throw new Error('DATABASE_URL não foi configurada no ambiente de produção.')
@@ -953,13 +1007,43 @@ async function migrate() {
   console.log('[MIGRATE] Conectando ao PostgreSQL…')
   const client = await pool.connect()
   try {
+    const forceFullMigration = process.env.DB_MIGRATION_MODE === 'full'
+    if (!forceFullMigration && await currentSchemaExists(client)) {
+      console.log('[MIGRATE] ✅ Schema atual já está instalado; nenhuma DDL bloqueante foi executada.')
+      return
+    }
+
     const lockTimeoutMs = positiveNumber(process.env.DB_MIGRATION_LOCK_TIMEOUT_MS, 15000, 1000)
     const statementTimeoutMs = positiveNumber(process.env.DB_MIGRATION_TIMEOUT_MS, 180000, 30000)
     await client.query(`SET lock_timeout = '${Math.round(lockTimeoutMs)}ms'`)
     await client.query(`SET statement_timeout = '${Math.round(statementTimeoutMs)}ms'`)
 
     console.log('[MIGRATE] Executando schema…')
-    await client.query(SCHEMA)
+    try {
+      await client.query(SCHEMA)
+    } catch (err) {
+      const error = err as { code?: string }
+      const strictMigration = process.env.DB_MIGRATION_STRICT === 'true'
+      const existingCore = await coreSchemaExists(pool).catch(() => false)
+
+      // Em rolling deploy o contêiner antigo ainda pode manter uma transação
+      // sobre tarefas/profiles. Reaplicar DROP/ADD de constraints exige
+      // ACCESS EXCLUSIVE e retornava 55P03, derrubando o novo contêiner em
+      // loop. Se o banco principal já existe, preservamos o serviço atual,
+      // iniciamos a API e deixamos a DDL pendente claramente registrada.
+      // Banco novo ou modo estrito continuam falhando para não ocultar schema
+      // realmente ausente.
+      if (error?.code === '55P03' && existingCore && !strictMigration) {
+        console.warn(
+          '[MIGRATE] ⚠️ Banco existente ocupado por outra sessão. DDL adiada com segurança; a API será iniciada.',
+        )
+        console.warn(
+          '[MIGRATE] Para manutenção exclusiva, execute com DB_MIGRATION_MODE=full e DB_MIGRATION_STRICT=true.',
+        )
+        return
+      }
+      throw err
+    }
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
   } finally {
     client.release()

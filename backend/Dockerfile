@@ -43,7 +43,7 @@ USER node
 EXPOSE 3001
 STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3001/health >/dev/null || exit 1
+HEALTHCHECK --interval=15s --timeout=8s --start-period=60s --retries=10 \
+  CMD wget -T 5 -O /dev/null http://127.0.0.1:3001/health || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]

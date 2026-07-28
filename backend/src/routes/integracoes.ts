@@ -138,7 +138,23 @@ function destravaSecret(): string {
 
 let destravaCacheSchemaPromise: Promise<void> | null = null
 async function ensureDestravaCacheSchema() {
-  if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = query(`
+  if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = (async () => {
+    const ready = await queryOne<{ ready: boolean }>(`
+      SELECT (
+        to_regclass('public.destrava_empresas_cache') IS NOT NULL
+        AND to_regclass('public.ux_destrava_cache_org_external_key') IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'destrava_empresas_cache'
+             AND column_name = 'external_key'
+             AND is_nullable = 'NO'
+        )
+      ) AS ready
+    `)
+    if (ready?.ready) return
+
+    await query(`
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
     CREATE EXTENSION IF NOT EXISTS "pg_trgm";
     CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
@@ -193,7 +209,8 @@ async function ensureDestravaCacheSchema() {
       ON destrava_empresas_cache USING GIN (
         lower(COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')) gin_trgm_ops
       );
-  `).then(() => undefined).catch(err => { destravaCacheSchemaPromise = null; throw err })
+    `)
+  })().catch(err => { destravaCacheSchemaPromise = null; throw err })
   return destravaCacheSchemaPromise
 }
 

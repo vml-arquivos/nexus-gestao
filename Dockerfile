@@ -32,11 +32,13 @@ RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
 # ── STAGE 2: Build do Frontend ─────────────────────────────
 FROM node:20-alpine AS frontend-builder
 
+ARG VITE_API_URL=/api
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
-    NPM_CONFIG_CACHE=/root/.npm
+    NPM_CONFIG_CACHE=/root/.npm \
+    VITE_API_URL=${VITE_API_URL}
 
 RUN apk add --no-cache python3
 
@@ -82,16 +84,18 @@ RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf
 
-# Entrypoint versionado: valida o ambiente, executa a migração com timeout e
-# só inicia os processos quando o banco estiver pronto.
+# O entrypoint inicia o Supervisor imediatamente. O Nginx fica disponível
+# enquanto o backend executa a migração com tentativas controladas.
 COPY docker-entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY backend-start.sh /app/backend-start.sh
+COPY healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/entrypoint.sh /app/backend-start.sh /app/healthcheck.sh
 
 VOLUME ["/app/uploads"]
 EXPOSE 80
 STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=240s --retries=5 \
-  CMD wget -qO- http://127.0.0.1/health >/dev/null || exit 1
+HEALTHCHECK --interval=15s --timeout=8s --start-period=60s --retries=10 \
+  CMD /bin/sh /app/healthcheck.sh
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]

@@ -8,10 +8,5 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
-echo "[STARTUP] Aplicando migrations no PostgreSQL..."
-cd /app/backend
-node dist/db/migrate.js
-echo "[STARTUP] Migrations concluídas."
-
-echo "[STARTUP] Iniciando Nginx e Nexus API..."
+echo "[STARTUP] Configuração validada. Iniciando Supervisor..."
 exec /usr/bin/supervisord -c /etc/supervisord.conf

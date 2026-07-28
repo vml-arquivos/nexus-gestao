@@ -32,6 +32,10 @@ DB_QUERY_TIMEOUT_MS=60000
 DB_STATEMENT_TIMEOUT_MS=60000
 DB_MIGRATION_LOCK_TIMEOUT_MS=15000
 DB_MIGRATION_TIMEOUT_MS=180000
+DB_MIGRATION_MODE=safe
+DB_MIGRATION_STRICT=false
+MIGRATION_MAX_ATTEMPTS=12
+MIGRATION_RETRY_DELAY_SECONDS=5
 JWT_SECRET=GERE_UMA_NOVA_CHAVE_COM_OPENSSL
 JWT_REFRESH_SECRET=GERE_OUTRA_NOVA_CHAVE_COM_OPENSSL
 JWT_EXPIRES_IN=15m
@@ -61,14 +65,18 @@ arguments nem os registre em arquivos versionados.
 
 ### 5. Deploy
 - Clique em **Deploy**
+- Em **Health Check Path**, use `/health` (ou `/api/health`)
+- A porta de destino do serviço deve ser `80`
 
 ### 6. Verificar logs esperados
 ```
-[STARTUP] Executando migrations no PostgreSQL...
+[STARTUP] Configuração validada. Iniciando Supervisor...
+[BACKEND] Migration: tentativa 1/12...
 [MIGRATE] Conectando ao PostgreSQL...
 [MIGRATE] Executando schema...
 [MIGRATE] Schema aplicado com sucesso!
-[STARTUP] Migrations concluídas. Iniciando Nginx e Nexus API...
+[BACKEND] Migration concluída.
+[BACKEND] Iniciando Nexus API na porta 3001...
 [SERVER] Nexus API rodando na porta 3001
 ```
 
@@ -76,6 +84,23 @@ Se aparecer `DATABASE_URL não foi configurada`, confira a variável no serviço
 da aplicação. Se aparecer `ENOTFOUND`, `ECONNREFUSED` ou timeout, confirme o
 hostname interno do PostgreSQL e se aplicação e banco estão na mesma rede do
 Coolify.
+
+O endpoint `/health` é encaminhado pelo Nginx à API. Ele só responde `200`
+quando o backend consegue executar `SELECT 1` no PostgreSQL; durante migration
+ou indisponibilidade real do banco responde `503`.
+
+Em banco já existente, a migration primeiro verifica tabelas, colunas e índices
+atuais. Se tudo já estiver instalado, nenhuma operação `ALTER TABLE` é
+executada. Se o PostgreSQL estiver bloqueado pelo contêiner anterior durante o
+rolling deploy (`55P03`), o modo `safe` registra o adiamento e inicia a API sem
+entrar em ciclo de reinicialização. Use `DB_MIGRATION_MODE=full` e
+`DB_MIGRATION_STRICT=true` somente em uma janela de manutenção exclusiva.
+
+### Opção Docker Compose
+
+O `docker-compose.yml` também usa um único serviço `nexus`, porque o
+`Dockerfile` raiz já contém frontend, backend e Nginx. Não recrie serviços
+separados de frontend/backend usando esse mesmo Dockerfile.
 
 ---
 

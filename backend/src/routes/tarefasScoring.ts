@@ -171,6 +171,19 @@ let compatibilityPromise: Promise<void> | null = null
 async function ensureCompatibilitySchema() {
   if (!compatibilityPromise) {
     compatibilityPromise = (async () => {
+      const ready = await queryOne<{ ready: boolean }>(`
+        SELECT (
+          to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'tarefas_ajuda'
+               AND column_name = 'updated_at'
+          )
+        ) AS ready
+      `)
+      if (ready?.ready) return
+
       await query(`ALTER TABLE tarefas_ajuda ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`)
       // Nota: em produção este índice já é criado de forma definitiva (com
       // deduplicação prévia) pela migration em backend/src/db/migrate.ts.
