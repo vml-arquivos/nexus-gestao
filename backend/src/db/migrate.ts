@@ -918,6 +918,14 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_projeto_competencia
   ON tarefas(org_id, projeto_grupo_id, competencia, workflow_tipo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_grupo_recorrencia ON tarefas(grupo_recorrencia_id);
 
+CREATE TABLE IF NOT EXISTS automation_processed_keys (
+  org_id UUID NOT NULL,
+  external_key TEXT NOT NULL,
+  tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (org_id, external_key)
+);
+
 -- Corrige a não-idempotência de external_key: routes/integracoes.ts incluía
 -- Date.now() na chave, então uma reentrega do Destrava (mesmo external_id)
 -- nunca batia com a chave já gravada e gerava tarefa duplicada. A rota foi
