@@ -4141,6 +4141,7 @@ export default function Tarefas() {
   const [lembreteTarget, setLembreteTarget] = useState<Tarefa | null>(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('todos')
+  const [mostrarCanceladas, setMostrarCanceladas] = useState(false)
   const [prioridade, setPrioridade] = useState('todos')
   const [membroFiltro, setMembroFiltro] = useState('todos')
   const [mesFiltro, setMesFiltro] = useState('todos')
@@ -4306,14 +4307,17 @@ export default function Tarefas() {
       .map(t => t.id)
   ), [tarefasVisiveis])
 
+  const canceladasCount = useMemo(() => tarefasVisiveis.filter(t => t.status === 'cancelada').length, [tarefasVisiveis])
+
   const scoped = useMemo(() => tarefasVisiveis.filter(t => {
+    if (!mostrarCanceladas && t.status === 'cancelada') return false
     if (escopo === 'pessoais') return isPersonalTask(t) || isAssignedToMeInTeam(t)
     if (escopo === 'equipe') return isTeamAssignedTask(t) || isAvailableFreeTask(t)
     if (escopo === 'disponiveis') return isAvailableFreeTask(t)
     if (escopo === 'ranking') return true
     if (escopo === 'recentes') return recentesIds.has(t.id)
     return true
-  }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds])
+  }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds, mostrarCanceladas])
 
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
@@ -4723,6 +4727,16 @@ export default function Tarefas() {
               Quadro
             </button>
           </div>
+          {canceladasCount > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setMostrarCanceladas(v => !v)}
+              title={mostrarCanceladas ? 'Esconder tarefas canceladas da listagem' : 'Tarefas canceladas ficam escondidas por padrão para não poluir a lista — nada foi apagado'}
+            >
+              {mostrarCanceladas ? 'Ocultar canceladas' : `Mostrar canceladas (${canceladasCount})`}
+            </button>
+          )}
           {isGestor && (
             <FilterPanel
               membroFiltro={membroFiltro} setMembroFiltro={setMembroFiltro}

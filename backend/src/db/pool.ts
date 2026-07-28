@@ -66,23 +66,7 @@ async function ensureTaskScoreCompatibility(): Promise<void> {
 
       await client.query('BEGIN')
       transactionStarted = true
-      // Segurança: esta preparação NUNCA pode travar o startup do backend.
-      // Antes usava pg_advisory_xact_lock (bloqueante, sem timeout) — se uma
-      // tentativa de deploy anterior deixasse uma sessão presa segurando
-      // esse mesmo lock (ex.: container morto no rollback sem fechar a
-      // conexão), toda nova conexão ficava esperando para sempre aqui,
-      // travando inclusive a migration no boot. Agora: timeouts como rede
-      // de segurança, e pg_try_advisory_xact_lock (não bloqueante) — se o
-      // lock já estiver em uso, pula por enquanto e tenta de novo na
-      // próxima conexão. É seguro pular: a limpeza é idempotente.
-      await client.query("SET LOCAL lock_timeout = '3s'")
-      await client.query("SET LOCAL statement_timeout = '15s'")
-      const lockResult = await client.query('SELECT pg_try_advisory_xact_lock(732145987) AS locked')
-      if (!lockResult.rows[0]?.locked) {
-        await client.query('ROLLBACK')
-        transactionStarted = false
-        return
-      }
+      await client.query('SELECT pg_advisory_xact_lock(732145987)')
       await client.query(`
         DELETE FROM tarefas_pontuacao atual
         USING (
