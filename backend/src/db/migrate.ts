@@ -940,21 +940,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
 -- ============================================================
 `
 
+function positiveNumber(value: string | undefined, fallback: number, minimum: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback
+}
+
 async function migrate() {
+  if (!String(process.env.DATABASE_URL || '').trim()) {
+    throw new Error('DATABASE_URL não foi configurada no ambiente de produção.')
+  }
+
   console.log('[MIGRATE] Conectando ao PostgreSQL…')
   const client = await pool.connect()
   try {
+    const lockTimeoutMs = positiveNumber(process.env.DB_MIGRATION_LOCK_TIMEOUT_MS, 15000, 1000)
+    const statementTimeoutMs = positiveNumber(process.env.DB_MIGRATION_TIMEOUT_MS, 180000, 30000)
+    await client.query(`SET lock_timeout = '${Math.round(lockTimeoutMs)}ms'`)
+    await client.query(`SET statement_timeout = '${Math.round(statementTimeoutMs)}ms'`)
+
     console.log('[MIGRATE] Executando schema…')
     await client.query(SCHEMA)
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
-  } catch (err) {
-    console.error('[MIGRATE] ❌ Erro ao aplicar schema:', err)
-    process.exit(1)
   } finally {
     client.release()
     await pool.end()
   }
 }
 
-migrate()
-
+void migrate().catch((err: unknown) => {
+  const error = err as { message?: string; code?: string }
+  console.error(
+    '[MIGRATE] ❌ Falha:',
+    [error?.code, error?.message].filter(Boolean).join(' — ') || 'erro desconhecido',
+  )
+  console.error(
+    '[MIGRATE] Verifique DATABASE_URL, rede do banco e locks ativos. Nenhum segredo foi exibido.',
+  )
+  process.exitCode = 1
+})
