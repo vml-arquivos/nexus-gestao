@@ -18,8 +18,8 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
-# Os patches são determinísticos, versionados e falham imediatamente se o código-base
-# esperado tiver mudado. Assim backend e frontend recebem exatamente a mesma regra.
+# Validações idempotentes: confirmam que as correções versionadas continuam
+# presentes, sem reescrever o código-fonte durante o build.
 WORKDIR /app
 COPY . .
 RUN python3 scripts/apply_tarefas_client_select_patch.py \
@@ -82,13 +82,16 @@ RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf
 
-# Entrypoint
-RUN printf '#!/bin/sh\nset -e\nmkdir -p /app/uploads\necho "[STARTUP] Rodando migration..."\ncd /app/backend && node dist/db/migrate.js && echo "[STARTUP] Migration OK"\necho "[STARTUP] Iniciando Nexus..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Entrypoint versionado: valida o ambiente, executa a migração com timeout e
+# só inicia os processos quando o banco estiver pronto.
+COPY docker-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 VOLUME ["/app/uploads"]
 EXPOSE 80
+STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
-  CMD wget -qO- http://localhost/health || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=240s --retries=5 \
+  CMD wget -qO- http://127.0.0.1/health >/dev/null || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]

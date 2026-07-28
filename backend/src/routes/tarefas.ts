@@ -4292,7 +4292,6 @@ router.post(
       const { orgId, userId } = req.user!;
       const nota = String(req.body?.nota || "").trim();
       if (!nota) {
-        client.release();
         res.status(400).json({ error: "Informe o motivo do atraso de hoje." });
         return;
       }
@@ -4342,8 +4341,11 @@ router.post(
 
       const historico = Array.isArray((current as any).atualizacoes_atraso) ? [...(current as any).atualizacoes_atraso] : [];
       const idxHoje = historico.findIndex((h: any) => String(h.data) === hoje);
-      const profile = await queryOne<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
-      const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
+      const profileResult = await client.query<{ nome: string }>(
+        `SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE`,
+        [userId, orgId],
+      );
+      const entrada = { data: hoje, nota, autor: profileResult.rows[0]?.nome || "Membro" };
       if (idxHoje >= 0) historico[idxHoje] = entrada;
       else historico.push(entrada);
 

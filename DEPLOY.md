@@ -25,9 +25,15 @@ O Traefik do Coolify gerencia SSL e dominio externamente.
 Cole as variaveis abaixo no painel **Environment Variables** do Coolify:
 
 ```
-DATABASE_URL=postgres://postgres:WVsAhbLWNxhc0lLyjuNykCnAbYn4eO6bmJtAhycEdrfmPmQVsjb5IFHRXx7Tp5I8@q9s0fac7m9bnjnacuwymxlit:5432/postgres
-JWT_SECRET=hltgydBOrqes47fIHGNGlBNHVezdufJzt69tT3Y+dyBJfrkWZIETzuMJ/3sT8FXb86wTq1WthCTv9Beqzc/Ahw==
-JWT_REFRESH_SECRET=HSEuz4cnK9GucbFoWoskGpP6N5EIbLFrTrQx6AHTZFKAMtPSuuVXAmvkh2QSRQvU1ECU0ik7o+z/OEXTod6rGg==
+DATABASE_URL=postgres://USUARIO:SENHA@HOST_INTERNO_DO_POSTGRES:5432/postgres
+DATABASE_SSL=false
+DB_CONNECT_TIMEOUT_MS=10000
+DB_QUERY_TIMEOUT_MS=60000
+DB_STATEMENT_TIMEOUT_MS=60000
+DB_MIGRATION_LOCK_TIMEOUT_MS=15000
+DB_MIGRATION_TIMEOUT_MS=180000
+JWT_SECRET=GERE_UMA_NOVA_CHAVE_COM_OPENSSL
+JWT_REFRESH_SECRET=GERE_OUTRA_NOVA_CHAVE_COM_OPENSSL
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=30d
 FRONTEND_URL=https://nexus.permupay.com.br
@@ -36,6 +42,13 @@ PORT=3001
 UPLOADS_DIR=/app/uploads
 VITE_API_URL=/api
 ```
+
+Marque `DATABASE_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET` e as chaves de
+integração somente como variáveis de runtime. Não exponha segredos como build
+arguments nem os registre em arquivos versionados.
+
+> Segurança: se um log ou arquivo antigo já mostrou esses valores, troque a
+> senha do PostgreSQL e as duas chaves JWT antes do próximo deploy.
 
 ### 3. Configurar dominio
 - Em **Domains**: adicione `nexus.permupay.com.br`
@@ -55,9 +68,14 @@ VITE_API_URL=/api
 [MIGRATE] Conectando ao PostgreSQL...
 [MIGRATE] Executando schema...
 [MIGRATE] Schema aplicado com sucesso!
-[STARTUP] Migrations OK. Iniciando nginx + node...
+[STARTUP] Migrations concluídas. Iniciando Nginx e Nexus API...
 [SERVER] Nexus API rodando na porta 3001
 ```
+
+Se aparecer `DATABASE_URL não foi configurada`, confira a variável no serviço
+da aplicação. Se aparecer `ENOTFOUND`, `ECONNREFUSED` ou timeout, confirme o
+hostname interno do PostgreSQL e se aplicação e banco estão na mesma rede do
+Coolify.
 
 ---
 
