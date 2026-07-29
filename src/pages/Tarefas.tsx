@@ -4345,7 +4345,7 @@ export default function Tarefas() {
   useEffect(() => { load() }, [load])
   useEffect(() => {
     const refreshIfVisible = () => { if (document.visibilityState === 'visible') load() }
-    const interval = window.setInterval(refreshIfVisible, 25000)
+    const interval = window.setInterval(refreshIfVisible, 60000)
     window.addEventListener('visibilitychange', refreshIfVisible)
     window.addEventListener('focus', refreshIfVisible)
     return () => {

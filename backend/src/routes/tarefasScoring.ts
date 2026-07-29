@@ -6,6 +6,15 @@ import { criarNotificacao } from '../lib/notifHelper'
 const router = Router()
 const SCORE_MAX = 20
 
+// ── Cache curtíssimo do ranking por organização + período ────────────────────
+// O cálculo do ranking faz parse de JSON e itera todo o checklist de todas as
+// tarefas de escopo "equipe" em JavaScript a cada chamada. Com várias abas e
+// usuários fazendo polling quase no mesmo instante, isso repetia o mesmo
+// trabalho de CPU várias vezes seguidas. TTL de 6s: imperceptível ao usuário,
+// suficiente para absorver a rajada de chamadas simultâneas.
+const RANKING_CACHE_TTL_MS = 6000
+const rankingCache = new Map<string, { payload: unknown; expiresAt: number }>()
+
 function parseChecklist(value: unknown): any[] {
   if (Array.isArray(value)) return value
   if (typeof value === 'string') {
@@ -626,6 +635,15 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
     await ensureCompatibilitySchema()
     const { orgId } = req.user!
     const range = periodRange(String(req.query.periodo || 'todos').trim().toLowerCase())
+
+    const cacheKey = `${orgId}:${range.label}`
+    const cached = rankingCache.get(cacheKey)
+    const now = Date.now()
+    if (cached && cached.expiresAt > now) {
+      res.json(cached.payload)
+      return
+    }
+
     const members = await query<any>(
       `SELECT id, nome, email, role FROM profiles
        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'
@@ -718,7 +736,7 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
        FROM tarefas WHERE org_id = $1`,
       [orgId],
     )
-    res.json({
+    const payload = {
       periodo: range.label,
       ranking: ordered,
       resumo: {
@@ -730,7 +748,9 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
         subtarefas_executadas: ordered.reduce((sum, item) => sum + Number(item.subtarefas_executadas || 0), 0),
         tarefas_executadas: ordered.reduce((sum, item) => sum + Number(item.tarefas_executadas || 0), 0),
       },
-    })
+    }
+    rankingCache.set(cacheKey, { payload, expiresAt: Date.now() + RANKING_CACHE_TTL_MS })
+    res.json(payload)
   } catch (err) {
     console.error('[TAREFAS-SCORING] Erro ao buscar ranking:', err)
     res.status(500).json({ error: 'Erro ao buscar ranking de tarefas.' })
