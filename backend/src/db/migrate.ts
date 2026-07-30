@@ -684,11 +684,17 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
 -- para o ON CONFLICT DO NOTHING em routes/integracoes.ts funcionar -- sem
 -- ela, duas chamadas concorrentes de POST /destrava/tarefas podiam inserir
 -- dois links para o mesmo par (external_id, nexus_id).
-DELETE FROM nexus_external_links a USING nexus_external_links b
- WHERE a.id < b.id
-   AND a.org_id = b.org_id AND a.source_system = b.source_system
-   AND a.external_type = b.external_type AND a.external_id = b.external_id
-   AND a.nexus_type = b.nexus_type;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='nexus_external_links') THEN
+    SET LOCAL lock_timeout = '5s';
+    DELETE FROM nexus_external_links a USING nexus_external_links b
+     WHERE a.id < b.id
+       AND a.org_id = b.org_id AND a.source_system = b.source_system
+       AND a.external_type = b.external_type AND a.external_id = b.external_id
+       AND a.nexus_type = b.nexus_type;
+  END IF;
+END $$;
 ALTER TABLE nexus_external_links DROP CONSTRAINT IF EXISTS ux_nexus_external_links_source;
 ALTER TABLE nexus_external_links ADD CONSTRAINT ux_nexus_external_links_source
   UNIQUE (org_id, source_system, external_type, external_id, nexus_type);
@@ -837,6 +843,7 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_checklist ON tarefas_comentar
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tarefas_pontuacao') THEN
+    PERFORM set_config('lock_timeout', '8000', true);
     DELETE FROM tarefas_pontuacao tp
      WHERE tp.tarefa_id IS NOT NULL
        AND tp.motivo IS NOT NULL
@@ -847,10 +854,23 @@ BEGIN
           ORDER BY tarefa_id, usuario_id, motivo, aprovado_em DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
        );
   END IF;
+EXCEPTION WHEN lock_not_available THEN
+  RAISE WARNING '[MIGRATE] Dedup tarefas_pontuacao pulado (lock timeout) — não bloqueia startup.';
 END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo
-  ON tarefas_pontuacao (tarefa_id, usuario_id, motivo);
+DO $$
+BEGIN
+  PERFORM set_config('lock_timeout', '8000', true);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'tarefas_pontuacao'
+      AND indexname = 'ux_tarefas_pontuacao_tarefa_usuario_motivo'
+  ) THEN
+    EXECUTE 'CREATE UNIQUE INDEX ux_tarefas_pontuacao_tarefa_usuario_motivo ON tarefas_pontuacao (tarefa_id, usuario_id, motivo)';
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[MIGRATE] ux_tarefas_pontuacao: % (não bloqueia startup)', SQLERRM;
+END $$;
 
 -- ── AUTOMATION ENGINE (outbox de eventos Destrava <-> Nexus) ──
 -- Espelha automation_events/automation_audit_log do lado Destrava. Todo
@@ -964,4 +984,3 @@ async function migrate() {
 }
 
 migrate()
-
