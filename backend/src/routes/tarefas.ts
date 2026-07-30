@@ -15,6 +15,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { publicarTarefaConcluidaSeAutomacao } from "./automationHandlers/publish";
+import { SingleFlightTtlCache } from "../lib/singleFlightTtlCache";
 
 const router = Router();
 router.use(authMiddleware);
@@ -26,9 +27,43 @@ router.use(authMiddleware);
 // coluna nova ainda não foi aplicada no PostgreSQL nativo.
 let taskRuntimeSchemaPromise: Promise<void> | null = null;
 
+async function taskRuntimeSchemaReady() {
+  const row = await queryOne<{ ready: boolean }>(`
+    SELECT (
+      to_regclass('public.tarefas_pontuacao') IS NOT NULL
+      AND to_regclass('public.tarefas_ajuda') IS NOT NULL
+      AND to_regclass('public.tarefas_comentarios') IS NOT NULL
+      AND to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM (
+            VALUES
+              ('status_gestor'),
+              ('modo_distribuicao'),
+              ('external_key'),
+              ('pedido_ajuda_pendente')
+          ) AS required(column_name)
+         WHERE NOT EXISTS (
+           SELECT 1
+             FROM information_schema.columns c
+            WHERE c.table_schema = 'public'
+              AND c.table_name = 'tarefas'
+              AND c.column_name = required.column_name
+         )
+      )
+    ) AS ready
+  `);
+  return Boolean(row?.ready);
+}
+
 async function ensureTaskRuntimeSchema() {
   if (!taskRuntimeSchemaPromise) {
     taskRuntimeSchemaPromise = (async () => {
+      // Caminho comum: somente leitura. Evita centenas de ALTER TABLE no
+      // primeiro acesso após cada deploy e elimina disputa com o contêiner
+      // anterior durante rolling update.
+      if (await taskRuntimeSchemaReady()) return;
+
       await query(`
         CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -1574,24 +1609,54 @@ async function getTaskForAccess(id: string, orgId: string) {
 // Bancos antigos podem ter tarefas.checklist como JSON, JSONB, texto ou até nulo.
 // Por isso a filtragem por executor de checklist é feita em TypeScript, depois de
 // buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
+
+// ── Cache curtíssimo da query bruta por organização ──────────────────────────
+// /stats, /dashboard e / (list) chamam listTasksForUser de forma independente
+// na mesma requisição de página, e várias abas/usuários da mesma organização
+// fazem polling a cada ~60s quase no mesmo instante. Sem isso, cada uma dessas
+// chamadas repete a mesma query pesada (2 subqueries por linha) do zero.
+// TTL de 4s: tempo curto o bastante para não ser perceptível ao usuário, longo
+// o bastante para absorver essas rajadas de chamadas simultâneas. Não requer
+// invalidação manual em cada rota de escrita — a própria expiração garante que
+// qualquer mudança apareça em, no máximo, 4 segundos.
+const RAW_TASKS_CACHE_TTL_MS = 4000;
+const rawTasksCache = new SingleFlightTtlCache<string, any[]>(
+  RAW_TASKS_CACHE_TTL_MS,
+  24,
+);
+
+async function fetchRawTasksForOrg(orgId: string): Promise<any[]> {
+  return rawTasksCache.get(orgId, () =>
+    query<any>(
+      `SELECT t.*,
+              p.nome  AS responsavel_nome_perfil,
+              p.cargo AS responsavel_cargo,
+              c.nome  AS criado_por_nome,
+              ap.nome AS aceita_por_nome,
+              COALESCE(anexos.anexos_count, 0) AS anexos_count,
+              anexos.ultima_evidencia_em
+       FROM tarefas t
+       LEFT JOIN profiles p ON p.id = t.responsavel_id
+       LEFT JOIN profiles c ON c.id = t.criado_por
+       LEFT JOIN profiles ap ON ap.id = t.aceita_por
+       LEFT JOIN (
+         SELECT a.org_id, a.tarefa_id, COUNT(*)::int AS anexos_count,
+                MAX(a.created_at) AS ultima_evidencia_em
+         FROM tarefa_anexos a
+         WHERE a.org_id = $1
+         GROUP BY a.org_id, a.tarefa_id
+       ) anexos ON anexos.tarefa_id = t.id AND anexos.org_id = t.org_id
+       WHERE t.org_id = $1
+       ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC,
+                t.created_at DESC`,
+      [orgId],
+    ),
+  );
+}
+
 async function listTasksForUser(user: NonNullable<Request["user"]>) {
   const { orgId, userId, role } = user;
-  const rows = await query<any>(
-    `SELECT t.*,
-            p.nome  AS responsavel_nome_perfil,
-            p.cargo AS responsavel_cargo,
-            c.nome  AS criado_por_nome,
-            ap.nome AS aceita_por_nome,
-            COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
-            (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
-     FROM tarefas t
-     LEFT JOIN profiles p ON p.id = t.responsavel_id
-     LEFT JOIN profiles c ON c.id = t.criado_por
-     LEFT JOIN profiles ap ON ap.id = t.aceita_por
-     WHERE t.org_id = $1
-     ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
-    [orgId],
-  );
+  const rows = await fetchRawTasksForOrg(orgId);
 
   let comandados = new Set<string>();
   if (role === "sub_gestor") {
@@ -4292,7 +4357,6 @@ router.post(
       const { orgId, userId } = req.user!;
       const nota = String(req.body?.nota || "").trim();
       if (!nota) {
-        client.release();
         res.status(400).json({ error: "Informe o motivo do atraso de hoje." });
         return;
       }
@@ -4342,8 +4406,11 @@ router.post(
 
       const historico = Array.isArray((current as any).atualizacoes_atraso) ? [...(current as any).atualizacoes_atraso] : [];
       const idxHoje = historico.findIndex((h: any) => String(h.data) === hoje);
-      const profile = await queryOne<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
-      const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
+      const profileResult = await client.query<{ nome: string }>(
+        `SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE`,
+        [userId, orgId],
+      );
+      const entrada = { data: hoje, nota, autor: profileResult.rows[0]?.nome || "Membro" };
       if (idxHoje >= 0) historico[idxHoje] = entrada;
       else historico.push(entrada);
 

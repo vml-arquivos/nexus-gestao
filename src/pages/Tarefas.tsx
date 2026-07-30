@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode, DragEvent, CSSProperties } from 'react'
 import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle, ChevronRight,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
-  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2,
+  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
@@ -116,16 +116,6 @@ function pontuacaoIncluiTarefa(scope: PontuacaoEscopo) {
 
 function pontuacaoIncluiSubtarefas(scope: PontuacaoEscopo) {
   return scope === 'subtarefas' || scope === 'ambos'
-}
-
-// A interface só oferece 2 opções (lista completa / por item) — "ambos" foi
-// removido do <select>. Isso protege contra o estado interno ficar em
-// "ambos" enquanto a caixa mostra outra coisa (dessincronia visual real que
-// já aconteceu): qualquer valor "ambos" salvo em tarefas antigas vira
-// "tarefa" só para exibição/edição — o dado salvo no banco não é alterado
-// até o gestor efetivamente salvar de novo.
-function clampPontuacaoEscopoParaSelecao(scope: PontuacaoEscopo): 'tarefa' | 'subtarefas' {
-  return scope === 'subtarefas' ? 'subtarefas' : 'tarefa'
 }
 
 function taskIsSurprise(tarefa?: Tarefa | null) {
@@ -571,6 +561,39 @@ function assigneeOptions(membros: MembroEquipe[], user?: { id?: string; nome?: s
   return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
+function normalizeDestravaSearch(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/[^a-z0-9@.+-]+/g, ' ')
+    .trim()
+}
+
+function destravaItemMatches(item: DestravaCatalogoItem, rawSearch: string) {
+  const search = normalizeDestravaSearch(rawSearch)
+  if (!search) return true
+
+  const normalizedName = normalizeDestravaSearch(item.nome)
+  const initials = normalizedName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => part[0])
+    .join('')
+  const searchable = normalizeDestravaSearch([
+    item.nome,
+    item.documento,
+    item.email,
+    item.telefone,
+    item.status,
+  ].filter(Boolean).join(' '))
+
+  return search
+    .split(/\s+/)
+    .filter(Boolean)
+    .every(term => searchable.includes(term) || initials.includes(term))
+}
+
 function checklistMatchesMonthYear(items: ChecklistItem[] | undefined, mes: string, ano: string) {
   const list = Array.isArray(items) ? items : []
   return list.some(item => {
@@ -686,7 +709,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
   const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao ?? 3))
-  const [pontuacaoEscopo, setPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
+  const [pontuacaoEscopo, setPontuacaoEscopo] = useState<PontuacaoEscopo>(() => taskPontuacaoEscopo(tarefa))
   const [tarefaSurpresa, setTarefaSurpresa] = useState(Boolean(taskIsSurprise(tarefa)))
   const [contaRanking, setContaRanking] = useState(tarefa?.conta_ranking !== false)
   const [responsavelId, setResponsavelId] = useState(tarefa?.id ? (tarefa?.responsavel_id || '') : (user?.id || ''))
@@ -711,6 +734,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [destravaPesquisaExecutada, setDestravaPesquisaExecutada] = useState(false)
   const [destravaTotalResultados, setDestravaTotalResultados] = useState(0)
   const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)
+  const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)
+  const destravaSelectRef = useRef<HTMLDivElement | null>(null)
+  const destravaBuscaRef = useRef<HTMLInputElement | null>(null)
+  const destravaAutoSyncRef = useRef(false)
   const [destravaSelecionado, setDestravaSelecionado] = useState<DestravaCatalogoItem | null>(() => {
     if (tarefa?.origem_sistema === 'destrava' && tarefa?.origem_id) {
       return {
@@ -731,49 +758,99 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const gestoresParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id && ['admin','dev','gestor','sub_gestor'].includes(String(m.role || '')))
   const isMemberRequest = !isGestor && tipoTarefa === 'equipe' && !!responsavelId && responsavelId !== user?.id
 
-  async function buscarCadastroDestrava() {
-    const termo = destravaBusca.trim()
-    if (termo.length < 2) {
-      toast('Digite pelo menos 2 caracteres para pesquisar por nome, CPF/CNPJ, e-mail ou telefone.', 'error')
-      return
-    }
-
+  async function carregarCadastrosDestrava(tipo: 'empresa' | 'pessoa_fisica' = destravaTipo) {
     setDestravaLoading(true)
     setDestravaPesquisaExecutada(true)
     try {
-      const data = await destravaApi.empresasSincronizadas({
-        tipo: destravaTipo,
-        q: termo,
-        limit: 50,
-      })
-      setDestravaItens(Array.isArray(data.items) ? data.items : [])
-      setDestravaTotalResultados(Number(data.total || 0))
-      setDestravaTotalCatalogo(Number(data.total_catalogo || 0))
+      const pageSize = 250
+      const itens: DestravaCatalogoItem[] = []
+      let page = 1
+      let total = 0
+      let totalCatalogo = 0
+
+      do {
+        const data = await destravaApi.empresasSincronizadas({
+          tipo,
+          q: '',
+          limit: pageSize,
+          page,
+        })
+        const batch = Array.isArray(data.items) ? data.items : []
+        itens.push(...batch)
+        total = Number(data.total || itens.length)
+        totalCatalogo = Number(data.total_catalogo || totalCatalogo || total)
+        page += 1
+        if (!batch.length) break
+      } while (itens.length < total && page <= 200)
+
+      const unicos = new Map<string, DestravaCatalogoItem>()
+      itens.forEach(item => unicos.set(`${item.tipo}-${item.id}`, item))
+      setDestravaItens(Array.from(unicos.values()))
+      setDestravaTotalResultados(total)
+      setDestravaTotalCatalogo(totalCatalogo)
     } catch (e) {
       setDestravaItens([])
       setDestravaTotalResultados(0)
-      toast(e instanceof Error ? e.message : 'Erro ao pesquisar cadastros da Destrava.', 'error')
+      toast(e instanceof Error ? e.message : 'Erro ao carregar cadastros da Destrava.', 'error')
     } finally {
       setDestravaLoading(false)
     }
   }
 
+  async function abrirSeletorDestrava() {
+    setDestravaSelectOpen(true)
+    if (!destravaPesquisaExecutada) {
+      if (!destravaAutoSyncRef.current) {
+        destravaAutoSyncRef.current = true
+        setDestravaLoading(true)
+        try {
+          await destravaApi.sincronizarEmpresas()
+        } catch (e) {
+          destravaAutoSyncRef.current = false
+          toast(
+            e instanceof Error
+              ? `${e.message} Exibindo o cache local disponível.`
+              : 'Não foi possível atualizar o catálogo. Exibindo o cache local disponível.',
+            'error',
+          )
+        }
+      }
+      await carregarCadastrosDestrava(destravaTipo)
+    }
+    window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
+  }
+
   function selecionarTipoDestrava(tipo: 'empresa' | 'pessoa_fisica') {
     setDestravaTipo(tipo)
+    setDestravaBusca('')
     setDestravaItens([])
     setDestravaPesquisaExecutada(false)
     setDestravaTotalResultados(0)
     if (destravaSelecionado && destravaSelecionado.tipo !== tipo) {
       setDestravaSelecionado(null)
     }
+    setDestravaSelectOpen(true)
+    void carregarCadastrosDestrava(tipo)
+    window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
   }
 
   function limparPesquisaDestrava() {
     setDestravaBusca('')
-    setDestravaItens([])
-    setDestravaPesquisaExecutada(false)
-    setDestravaTotalResultados(0)
+    window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
   }
+
+  useEffect(() => {
+    if (!destravaSelectOpen) return
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!destravaSelectRef.current?.contains(event.target as Node)) {
+        setDestravaSelectOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [destravaSelectOpen])
 
   function changeTipoTarefa(next: 'pessoal' | 'equipe') {
     setTipoTarefa(next)
@@ -923,6 +1000,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     return Array.from(map.values()).sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
   }, [destravaItens, destravaSelecionado])
 
+  const destravaFilteredOptions = useMemo(
+    () => destravaSelectOptions.filter(item => item.tipo === destravaTipo && destravaItemMatches(item, destravaBusca)),
+    [destravaBusca, destravaSelectOptions, destravaTipo],
+  )
+
   async function salvar() {
     if (loading) return
     const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
@@ -1015,117 +1097,168 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <div className="form-group">
             <label className="form-label">Cliente da Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
 
-            <div className="task-type-selector" role="radiogroup" aria-label="Tipo de cliente da Destrava" style={{ marginBottom: 10 }}>
-              <button
-                type="button"
-                className={destravaTipo === 'empresa' ? 'active' : ''}
-                aria-pressed={destravaTipo === 'empresa'}
-                onClick={() => selecionarTipoDestrava('empresa')}
-              >
-                Clientes PJ
-              </button>
-              <button
-                type="button"
-                className={destravaTipo === 'pessoa_fisica' ? 'active' : ''}
-                aria-pressed={destravaTipo === 'pessoa_fisica'}
-                onClick={() => selecionarTipoDestrava('pessoa_fisica')}
-              >
-                Clientes PF
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8, alignItems: 'center' }}>
-              <input
-                className="form-input"
-                value={destravaBusca}
-                onChange={e => {
-                  setDestravaBusca(e.target.value)
-                  setDestravaPesquisaExecutada(false)
-                }}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    void buscarCadastroDestrava()
-                  }
-                }}
-                placeholder={destravaTipo === 'pessoa_fisica'
-                  ? 'Digite nome, CPF, e-mail ou telefone'
-                  : 'Digite razão social, nome fantasia, CNPJ, e-mail ou telefone'}
-                autoComplete="off"
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                disabled={destravaLoading || destravaBusca.trim().length < 2}
-                onClick={() => void buscarCadastroDestrava()}
-              >
-                {destravaLoading ? <Loader size={14} /> : <Search size={14} />} Pesquisar
-              </button>
-            </div>
-
-            <div className="muted" style={{ marginTop: 6 }}>
-              A pesquisa inicia somente após 2 caracteres e retorna até 50 resultados, mantendo o formulário rápido mesmo com milhares de cadastros.
-            </div>
-
-            {(destravaPesquisaExecutada || destravaSelecionado) && (
-              <select
-                className="form-input"
-                style={{ marginTop: 10 }}
-                value={destravaSelecionado ? `${destravaSelecionado.tipo}-${destravaSelecionado.id}` : ''}
-                onChange={e => {
-                  const value = e.target.value
-                  if (!value) { setDestravaSelecionado(null); return }
-                  const item = destravaSelectOptions.find(i => `${i.tipo}-${i.id}` === value) || null
-                  setDestravaSelecionado(item)
-                  if (item) setDestravaTipo(item.tipo === 'pessoa_fisica' ? 'pessoa_fisica' : 'empresa')
-                }}
-              >
-                <option value="">
-                  {destravaLoading
-                    ? 'Pesquisando cadastros...'
-                    : destravaItens.length
-                      ? `Selecione um cliente ${destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}`
-                      : 'Nenhum cadastro selecionado'}
-                </option>
-                {destravaSelectOptions.map(item => (
-                  <option key={`${item.tipo}-${item.id}`} value={`${item.tipo}-${item.id}`}>
-                    {item.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'} · {item.nome}{item.documento ? ` · ${item.documento}` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {destravaPesquisaExecutada && !destravaLoading && (
-              <div className="muted" style={{ marginTop: 7 }}>
-                {destravaTotalResultados > 0
-                  ? `${destravaTotalResultados} resultado(s) encontrado(s). ${destravaItens.length < destravaTotalResultados ? `Exibindo os primeiros ${destravaItens.length}. Refine a busca para localizar mais rápido.` : ''}`
-                  : destravaTotalCatalogo === 0
-                    ? 'O catálogo local ainda está vazio. Sincronize PJ e PF antes da primeira pesquisa.'
-                    : 'Nenhum cadastro encontrado para os filtros informados.'}
+            <div className="destrava-client-select-grid">
+              <div className="form-group destrava-client-type">
+                <label className="form-label" htmlFor="destrava-client-type">Tipo de cliente</label>
+                <select
+                  id="destrava-client-type"
+                  className="form-input"
+                  value={destravaTipo}
+                  onChange={e => selecionarTipoDestrava(e.target.value as 'empresa' | 'pessoa_fisica')}
+                >
+                  <option value="empresa">Clientes PJ</option>
+                  <option value="pessoa_fisica">Clientes PF</option>
+                </select>
               </div>
-            )}
 
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+              <div className="form-group destrava-client-picker">
+                <label className="form-label">Empresa ou pessoa</label>
+                <div className="destrava-search-select" ref={destravaSelectRef}>
+                  <button
+                    type="button"
+                    className="form-input destrava-search-select__trigger"
+                    aria-haspopup="listbox"
+                    aria-expanded={destravaSelectOpen}
+                    onClick={() => {
+                      if (destravaSelectOpen) setDestravaSelectOpen(false)
+                      else void abrirSeletorDestrava()
+                    }}
+                  >
+                    {destravaSelecionado ? (
+                      <>
+                        <span className="destrava-search-select__badge">{destravaSelecionado.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'}</span>
+                        <span className="destrava-search-select__value">
+                          {destravaSelecionado.nome}{destravaSelecionado.documento ? ` · ${destravaSelecionado.documento}` : ''}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="destrava-search-select__placeholder">
+                        Selecione um cliente {destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}
+                      </span>
+                    )}
+                    {destravaLoading ? <Loader className="spin" size={17} /> : <ChevronDown size={17} />}
+                  </button>
+
+                  {destravaSelectOpen && (
+                    <div className="destrava-search-select__panel">
+                      <div className="destrava-search-select__search">
+                        <Search size={16} />
+                        <input
+                          ref={destravaBuscaRef}
+                          value={destravaBusca}
+                          onChange={e => setDestravaBusca(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Escape') {
+                              e.preventDefault()
+                              setDestravaSelectOpen(false)
+                            }
+                            if (e.key === 'Enter' && destravaFilteredOptions[0]) {
+                              e.preventDefault()
+                              setDestravaSelecionado(destravaFilteredOptions[0])
+                              setDestravaBusca('')
+                              setDestravaSelectOpen(false)
+                            }
+                          }}
+                          placeholder={destravaTipo === 'pessoa_fisica'
+                            ? 'Digite nome, iniciais, CPF, e-mail ou telefone'
+                            : 'Digite razão social, nome, iniciais, CNPJ, e-mail ou telefone'}
+                          autoComplete="off"
+                          aria-label={`Pesquisar cliente ${destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}`}
+                        />
+                        {destravaBusca && (
+                          <button type="button" className="destrava-search-select__clear" onClick={limparPesquisaDestrava} aria-label="Limpar pesquisa">
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="destrava-search-select__options" role="listbox" aria-label={`Clientes ${destravaTipo === 'pessoa_fisica' ? 'PF' : 'PJ'}`}>
+                        {destravaLoading ? (
+                          <div className="destrava-search-select__empty"><Loader className="spin" size={18} /> Carregando todos os cadastros...</div>
+                        ) : destravaFilteredOptions.length ? (
+                          destravaFilteredOptions.map(item => {
+                            const isSelected = destravaSelecionado?.id === item.id && destravaSelecionado?.tipo === item.tipo
+                            return (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={isSelected}
+                                className={isSelected ? 'destrava-search-select__option is-selected' : 'destrava-search-select__option'}
+                                key={`${item.tipo}-${item.id}`}
+                                onClick={() => {
+                                  setDestravaSelecionado(item)
+                                  setDestravaBusca('')
+                                  setDestravaSelectOpen(false)
+                                }}
+                              >
+                                <span className="destrava-search-select__badge">{item.tipo === 'pessoa_fisica' ? 'PF' : 'PJ'}</span>
+                                <span className="destrava-search-select__option-copy">
+                                  <strong>{item.nome}</strong>
+                                  <small>{[item.documento, item.email, item.telefone].filter(Boolean).join(' · ') || 'Cadastro sem documento ou contato informado'}</small>
+                                </span>
+                                {isSelected && <Check size={17} />}
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <div className="destrava-search-select__empty">
+                            {destravaTotalCatalogo === 0
+                              ? 'Nenhum cliente sincronizado. Use o botão Sincronizar PJ e PF.'
+                              : 'Nenhum cliente corresponde ao texto digitado.'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="destrava-search-select__footer">
+                        <span>
+                          {destravaBusca
+                            ? `${destravaFilteredOptions.length} resultado(s) filtrado(s)`
+                            : `${destravaTotalResultados || destravaFilteredOptions.length} cliente(s) disponível(is)`}
+                        </span>
+                        {destravaSelecionado && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDestravaSelecionado(null)
+                              setDestravaBusca('')
+                            }}
+                          >
+                            Remover seleção
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="muted destrava-client-select-help">
+              Escolha PJ ou PF e abra o campo de cliente. Todos os cadastros desse tipo são carregados; digite parte do nome ou apenas as iniciais para filtrar dentro do próprio select.
+            </div>
+
+            <div className="destrava-client-select-actions">
               <button className="btn btn-secondary btn-sm" type="button" disabled={destravaLoading} onClick={async () => {
                 setDestravaLoading(true)
                 try {
                   const sync = await destravaApi.sincronizarEmpresas()
-                  toast(`${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`)
-                  if (destravaBusca.trim().length >= 2) {
-                    const data = await destravaApi.empresasSincronizadas({ tipo: destravaTipo, q: destravaBusca.trim(), limit: 50 })
-                    setDestravaItens(data.items || [])
-                    setDestravaTotalResultados(Number(data.total || 0))
-                    setDestravaTotalCatalogo(Number(data.total_catalogo || sync.sincronizadas || 0))
-                    setDestravaPesquisaExecutada(true)
-                  } else {
-                    setDestravaTotalCatalogo(Number(sync.sincronizadas || 0))
-                  }
+                  destravaAutoSyncRef.current = true
+                  toast(
+                    sync.total_reportado_destrava != null && sync.total_reportado_destrava !== sync.sincronizadas
+                      ? `${sync.sincronizadas} cadastro(s) sincronizado(s), mas a Destrava reportou ${sync.total_reportado_destrava} no total. Tente sincronizar de novo.`
+                      : `${sync.sincronizadas} cadastro(s) de PJ e PF sincronizado(s) com a Destrava.`,
+                    sync.total_reportado_destrava != null && sync.total_reportado_destrava !== sync.sincronizadas ? 'error' : 'success',
+                  )
+                  setDestravaPesquisaExecutada(false)
+                  await carregarCadastrosDestrava(destravaTipo)
+                  setDestravaSelectOpen(true)
+                  window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
                 } catch (e) { toast(e instanceof Error ? e.message : 'Erro ao sincronizar clientes da Destrava.', 'error') }
                 finally { setDestravaLoading(false) }
-              }}>{destravaLoading ? <Loader size={13} /> : <RotateCcw size={13} />} Sincronizar PJ e PF</button>
-              {(destravaBusca || destravaPesquisaExecutada) && (
-                <button className="btn btn-ghost btn-sm" type="button" disabled={destravaLoading} onClick={limparPesquisaDestrava}>
-                  <X size={13} /> Limpar busca
+              }}>{destravaLoading ? <Loader className="spin" size={13} /> : <RotateCcw size={13} />} Sincronizar PJ e PF</button>
+              {destravaSelecionado && (
+                <button className="btn btn-ghost btn-sm" type="button" disabled={destravaLoading} onClick={() => setDestravaSelecionado(null)}>
+                  <X size={13} /> Limpar cliente
                 </button>
               )}
             </div>
@@ -1281,6 +1414,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               >
                 <option value="tarefa">Pontos pela lista toda</option>
                 <option value="subtarefas">Pontos por cada tarefa</option>
+                <option value="ambos">Pontos pela lista e por cada tarefa</option>
               </select>
             </div>
             {pontuacaoIncluiTarefa(pontuacaoEscopo) && (
@@ -2230,7 +2364,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const [editPrazo, setEditPrazo] = useState(tarefa.prazo?.slice(0, 10) || '')
   const [editPrioridade, setEditPrioridade] = useState<Priority>(tarefa.prioridade || 'media')
   const [editPontuacao, setEditPontuacao] = useState(String(tarefa.pontuacao ?? 3))
-  const [editPontuacaoEscopo, setEditPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
+  const [editPontuacaoEscopo, setEditPontuacaoEscopo] = useState<PontuacaoEscopo>(() => taskPontuacaoEscopo(tarefa))
   const [newSubtask, setNewSubtask] = useState('')
   const [newSubtaskDesc, setNewSubtaskDesc] = useState('')
   const [newSubtaskDependeDe, setNewSubtaskDependeDe] = useState('')
@@ -2934,6 +3068,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 <select className="form-input" value={editPontuacaoEscopo} onChange={e => setEditPontuacaoEscopo(e.target.value as PontuacaoEscopo)}>
                   <option value="tarefa">Pontos pela lista toda</option>
                   <option value="subtarefas">Pontos por cada tarefa</option>
+                  <option value="ambos">Pontos pela lista e por cada tarefa</option>
                 </select>
               </div>
               {pontuacaoIncluiTarefa(editPontuacaoEscopo) && (
@@ -4125,6 +4260,8 @@ export default function Tarefas() {
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [membros, setMembros] = useState<MembroEquipe[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [edit, setEdit] = useState<Tarefa | null>(null)
   const [responder, setResponder] = useState<Tarefa | null>(null)
@@ -4149,6 +4286,8 @@ export default function Tarefas() {
   const [escopo, setEscopo] = useState<'pessoais' | 'equipe' | 'disponiveis' | 'ranking' | 'todas' | 'recentes'>('todas')
   const [statusTab, setStatusTab] = useState<'todos' | 'pendentes' | 'execucao' | 'concluidas' | 'atrasadas' | 'ultimas'>('todos')
   const [ranking, setRanking] = useState<{ periodo: string; ranking: any[]; resumo: any } | null>(null)
+  const [rankingLoading, setRankingLoading] = useState(false)
+  const [rankingError, setRankingError] = useState<string | null>(null)
   const [periodoRanking, setPeriodoRanking] = useState(() =>
     localStorage.getItem('nexus:ranking-periodo') || 'todos'
   )
@@ -4164,6 +4303,10 @@ export default function Tarefas() {
   const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('nexus:tarefas-quadro-colapsadas') || '[]') } catch { return [] }
   })
+  const tarefasRef = useRef<Tarefa[]>([])
+  const loadInFlightRef = useRef<Promise<void> | null>(null)
+  const lastLoadSuccessAtRef = useRef(0)
+  const rankingRequestIdRef = useRef(0)
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -4175,42 +4318,96 @@ export default function Tarefas() {
   }, [location.search])
 
   const loadRanking = useCallback(async (periodo: string) => {
+    const requestId = ++rankingRequestIdRef.current
+    setRankingLoading(true)
+    setRankingError(null)
     try {
-      const rk = await tarefasApi.ranking(periodo).catch(() => null)
-      setRanking(rk)
-    } catch {}
+      const rk = await tarefasApi.ranking(periodo)
+      if (requestId === rankingRequestIdRef.current) setRanking(rk)
+    } catch (error) {
+      if (requestId === rankingRequestIdRef.current) {
+        setRankingError(error instanceof Error ? error.message : 'Erro ao carregar o ranking.')
+      }
+    } finally {
+      if (requestId === rankingRequestIdRef.current) setRankingLoading(false)
+    }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [ts, ms, rk, aj, minhasAj] = await Promise.all([
-        tarefasApi.list(),
-        // Membros também precisam da equipe para o fluxo de "Pedir ajuda".
-        // Antes carregava apenas para gestor, deixando o select vazio para membro.
-        equipeApi.membros().catch(() => []),
-        tarefasApi.ranking(periodoRanking).catch(() => null),
-        tarefasApi.ajudaPendentes()
-          .then(a => helpForCurrentUser(Array.isArray(a) ? a : [], user?.id))
-          .catch(() => []),
-        tarefasApi.minhasAjudas()
-          .then(a => helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id))
-          .catch(() => []),
-      ])
-      setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
-      setMembros(Array.isArray(ms) ? ms : [])
-      setRanking(rk)
-      setAjudasPendentes(Array.isArray(aj) ? aj : [])
-      setMinhasAjudas(Array.isArray(minhasAj) ? minhasAj : [])
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
-    } finally { setLoading(false) }
-  }, [periodoRanking, user?.id])
+  const loadAuxiliary = useCallback(async () => {
+    // Dados auxiliares não podem impedir a lista principal de aparecer.
+    const [membersResult, pendingHelpResult, requestedHelpResult] = await Promise.allSettled([
+      equipeApi.membros(),
+      tarefasApi.ajudaPendentes(),
+      tarefasApi.minhasAjudas(),
+    ])
+    if (membersResult.status === 'fulfilled') {
+      setMembros(Array.isArray(membersResult.value) ? membersResult.value : [])
+    }
+    if (pendingHelpResult.status === 'fulfilled') {
+      const rows = Array.isArray(pendingHelpResult.value) ? pendingHelpResult.value : []
+      setAjudasPendentes(helpForCurrentUser(rows, user?.id))
+    }
+    if (requestedHelpResult.status === 'fulfilled') {
+      const rows = Array.isArray(requestedHelpResult.value) ? requestedHelpResult.value : []
+      setMinhasAjudas(helpRequestedByCurrentUser(rows, user?.id))
+    }
+  }, [user?.id])
 
-  useEffect(() => { load() }, [load])
+  const load = useCallback((options: { background?: boolean; force?: boolean } = {}) => {
+    if (loadInFlightRef.current) return loadInFlightRef.current
+    if (
+      options.background &&
+      !options.force &&
+      Date.now() - lastLoadSuccessAtRef.current < 30_000
+    ) {
+      return Promise.resolve()
+    }
+
+    const isInitialLoad = lastLoadSuccessAtRef.current === 0 && tarefasRef.current.length === 0
+    if (isInitialLoad) setLoading(true)
+    else setRefreshing(true)
+
+    const request = (async () => {
+      try {
+        const ts = await tarefasApi.list()
+        const next = Array.isArray(ts) ? uniqueById(ts) : []
+        tarefasRef.current = next
+        setTarefas(next)
+        setLoadError(null)
+        lastLoadSuccessAtRef.current = Date.now()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Erro ao carregar tarefas.'
+        setLoadError(message)
+        if (!options.background && tarefasRef.current.length === 0) toast(message, 'error')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    })()
+
+    loadInFlightRef.current = request
+    void request.then(
+      () => { if (loadInFlightRef.current === request) loadInFlightRef.current = null },
+      () => { if (loadInFlightRef.current === request) loadInFlightRef.current = null },
+    )
+    return request
+  }, [])
+
   useEffect(() => {
-    const refreshIfVisible = () => { if (document.visibilityState === 'visible') load() }
-    const interval = window.setInterval(refreshIfVisible, 25000)
+    // A consulta de tarefas tem prioridade; auxiliares entram logo depois e
+    // não concorrem com ela no primeiro acesso.
+    void load().finally(loadAuxiliary)
+  }, [load, loadAuxiliary])
+  useEffect(() => {
+    if (escopo === 'ranking' && (!ranking || ranking.periodo !== periodoRanking)) {
+      void loadRanking(periodoRanking)
+    }
+  }, [escopo, loadRanking, periodoRanking, ranking])
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') void load({ background: true })
+    }
+    const interval = window.setInterval(refreshIfVisible, 60000)
     window.addEventListener('visibilitychange', refreshIfVisible)
     window.addEventListener('focus', refreshIfVisible)
     return () => {
@@ -4257,7 +4454,7 @@ export default function Tarefas() {
     const refresh = () => {
       setOnline(navigator.onLine)
       setOfflineQueueCount(Number(localStorage.getItem('nexus:offline-queue-count') || '0'))
-      if (navigator.onLine) setTimeout(() => load(), 900)
+      if (navigator.onLine) setTimeout(() => { void load({ background: true, force: true }) }, 900)
     }
     window.addEventListener('online', refresh)
     window.addEventListener('offline', refresh)
@@ -4596,6 +4793,7 @@ export default function Tarefas() {
               : escopo === 'disponiveis' ? 'Disponíveis para assumir'
               : escopo === 'ranking' ? 'Pontuação e reconhecimento'
               : 'Todas as listas de tarefas'}
+            {refreshing && <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Loader size={12} className="spin-icon" /> Atualizando</span>}
           </p>
         </div>
         <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
@@ -4618,6 +4816,16 @@ export default function Tarefas() {
         <div className="offline-sync-banner">
           <strong>{online ? 'Sincronização pendente' : 'Modo offline ativo'}</strong>
           <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus sincroniza automaticamente.'}</span>
+        </div>
+      )}
+
+      {loadError && (
+        <div
+          role="alert"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 12px', marginBottom: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,.28)', background: 'rgba(239,68,68,.08)' }}
+        >
+          <span><strong>Não foi possível atualizar as tarefas.</strong> {loadError}{tarefas.length > 0 ? ' Exibindo os últimos dados disponíveis.' : ''}</span>
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => { void load({ force: true }) }}>Tentar novamente</button>
         </div>
       )}
 
@@ -4753,10 +4961,20 @@ export default function Tarefas() {
       )}
 
       {/* ── LISTA / RANKING / VAZIO ───────────────────────── */}
-      {loading ? (
+      {loading && tarefas.length === 0 ? (
         <div className="tarefas-loading"><Loader size={26} className="spin-icon" /></div>
       ) : escopo === 'ranking' ? (
-        <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} />
+        rankingLoading && !ranking ? (
+          <div className="tarefas-loading"><Loader size={26} className="spin-icon" /></div>
+        ) : rankingError && !ranking ? (
+          <div className="tarefas-empty">
+            <strong>Não foi possível carregar o ranking</strong>
+            <span>{rankingError}</span>
+            <button className="btn btn-secondary" type="button" onClick={() => { void loadRanking(periodoRanking) }}>Tentar novamente</button>
+          </div>
+        ) : (
+          <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); void loadRanking(p) }} />
+        )
       ) : filtered.length === 0 ? (
         <div className="tarefas-empty">
           <div className="tarefas-empty-icon">📋</div>

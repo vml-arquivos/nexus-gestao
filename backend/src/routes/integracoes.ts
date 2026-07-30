@@ -138,7 +138,23 @@ function destravaSecret(): string {
 
 let destravaCacheSchemaPromise: Promise<void> | null = null
 async function ensureDestravaCacheSchema() {
-  if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = query(`
+  if (!destravaCacheSchemaPromise) destravaCacheSchemaPromise = (async () => {
+    const ready = await queryOne<{ ready: boolean }>(`
+      SELECT (
+        to_regclass('public.destrava_empresas_cache') IS NOT NULL
+        AND to_regclass('public.ux_destrava_cache_org_external_key') IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'destrava_empresas_cache'
+             AND column_name = 'external_key'
+             AND is_nullable = 'NO'
+        )
+      ) AS ready
+    `)
+    if (ready?.ready) return
+
+    await query(`
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
     CREATE EXTENSION IF NOT EXISTS "pg_trgm";
     CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
@@ -193,7 +209,8 @@ async function ensureDestravaCacheSchema() {
       ON destrava_empresas_cache USING GIN (
         lower(COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')) gin_trgm_ops
       );
-  `).then(() => undefined).catch(err => { destravaCacheSchemaPromise = null; throw err })
+    `)
+  })().catch(err => { destravaCacheSchemaPromise = null; throw err })
   return destravaCacheSchemaPromise
 }
 
@@ -237,6 +254,25 @@ router.post('/destrava/empresas/sincronizar', authMiddleware, async (req: Reques
   try {
     await ensureDestravaCacheSchema()
     const orgId = req.user!.orgId
+    const forcar = String(req.query.force || '').toLowerCase() === 'true'
+    const janelaMinutos = Number(process.env.DESTRAVA_SYNC_CACHE_MINUTES || 30)
+
+    if (!forcar) {
+      // Evita repetir uma sincronização completa (pode ser centenas de
+      // chamadas à API externa + upserts individuais) toda vez que o gestor
+      // simplesmente abre o seletor de empresa. Se o cache já foi
+      // sincronizado recentemente, responde na hora com o que já existe.
+      const ultima = await queryOne<any>(
+        `SELECT MAX(sincronizado_em) AS ultima_sincronizacao FROM destrava_empresas_cache WHERE org_id = $1`,
+        [orgId],
+      )
+      const ultimaData = ultima?.ultima_sincronizacao ? new Date(ultima.ultima_sincronizacao) : null
+      if (ultimaData && Date.now() - ultimaData.getTime() < janelaMinutos * 60_000) {
+        res.json({ pulou_sincronizacao: true, motivo: 'cache_recente', ultima_sincronizacao: ultimaData.toISOString() })
+        return
+      }
+    }
+
     const pageSize = 500
     let page = 1
     let hasMore = true
@@ -323,8 +359,10 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       : tipoParam === 'empresa' || tipoParam === 'pj'
         ? 'empresa'
         : ''
-    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)))
-    const params = [orgId, tipo, q, limit]
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 50)))
+    const page = Math.max(1, Math.floor(Number(req.query.page || 1)))
+    const offset = (page - 1) * limit
+    const params = [orgId, tipo, q, limit, offset]
     const filtro = `org_id=$1 AND ativo=TRUE
       AND ($2='' OR tipo=$2)
       AND ($3='' OR lower(
@@ -334,7 +372,7 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       FROM destrava_empresas_cache
       WHERE ${filtro}
       ORDER BY lower(nome), external_id
-      LIMIT $4`, params)
+      LIMIT $4 OFFSET $5`, params)
     const info = await queryOne<any>(`SELECT
         COUNT(*) FILTER (WHERE ($2='' OR tipo=$2) AND ($3='' OR lower(
           COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')
@@ -343,7 +381,17 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
         MAX(sincronizado_em) AS ultima_sincronizacao
       FROM destrava_empresas_cache
       WHERE org_id=$1 AND ativo=TRUE`, [orgId, tipo, q])
-    res.json({ items:empresas.map(e=>({...e,tipo:e.tipo || 'empresa'})), ...info })
+    const total = Number(info?.total || 0)
+    const totalCatalogo = Number(info?.total_catalogo || 0)
+    res.json({
+      items: empresas.map(e => ({ ...e, tipo: e.tipo || 'empresa' })),
+      total,
+      total_catalogo: totalCatalogo,
+      ultima_sincronizacao: info?.ultima_sincronizacao || null,
+      page,
+      limit,
+      has_more: offset + empresas.length < total,
+    })
   } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao pesquisar clientes sincronizados da Destrava.'}) }
 })
 

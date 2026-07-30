@@ -483,8 +483,93 @@ export interface DestravaCatalogoItem {
 }
 
 // ── FETCH COM AUTH ────────────────────────────────────────────────────────────
-let isRefreshing = false
-let refreshQueue: Array<(token: string) => void> = []
+// Uma única renovação atende todas as requisições que receberem 401 ao mesmo
+// tempo. A implementação anterior mantinha callbacks numa fila que podia nunca
+// ser resolvida quando o refresh falhava, deixando a tela carregando para sempre.
+let refreshPromise: Promise<string> | null = null
+
+function positiveTimeout(value: unknown, fallback: number, minimum: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : Math.max(fallback, minimum)
+}
+
+const API_READ_TIMEOUT_MS = positiveTimeout(import.meta.env.VITE_API_TIMEOUT_MS, 20_000, 5_000)
+const API_WRITE_TIMEOUT_MS = positiveTimeout(
+  import.meta.env.VITE_API_WRITE_TIMEOUT_MS,
+  35_000,
+  API_READ_TIMEOUT_MS,
+)
+const API_UPLOAD_TIMEOUT_MS = positiveTimeout(
+  import.meta.env.VITE_API_UPLOAD_TIMEOUT_MS,
+  120_000,
+  API_WRITE_TIMEOUT_MS,
+)
+const API_REFRESH_TIMEOUT_MS = 12_000
+
+function requestTimeout(options: RequestInit): number {
+  if (options.body instanceof FormData) return API_UPLOAD_TIMEOUT_MS
+  return String(options.method || 'GET').toUpperCase() === 'GET'
+    ? API_READ_TIMEOUT_MS
+    : API_WRITE_TIMEOUT_MS
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  options: RequestInit = {},
+  timeoutMs = requestTimeout(options),
+): Promise<Response> {
+  const controller = new AbortController()
+  const callerSignal = options.signal
+  const abortFromCaller = () => controller.abort(callerSignal?.reason)
+
+  if (callerSignal?.aborted) abortFromCaller()
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  const timeout = window.setTimeout(
+    () => controller.abort(new DOMException('Tempo limite da requisição excedido.', 'TimeoutError')),
+    timeoutMs,
+  )
+
+  try {
+    return await fetch(input, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted && !callerSignal?.aborted) {
+      throw new Error('O servidor demorou mais que o esperado. Tente novamente.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+async function refreshAccessToken(): Promise<string> {
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    const currentRefreshToken = getRefreshToken()
+    if (!currentRefreshToken) throw new Error('Sessão expirada.')
+
+    const refreshRes = await fetchWithTimeout(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: currentRefreshToken }),
+    }, API_REFRESH_TIMEOUT_MS)
+
+    if (!refreshRes.ok) throw new Error('Sessão expirada.')
+    const payload = await refreshRes.json()
+    if (!payload?.accessToken) throw new Error('Resposta de renovação de sessão inválida.')
+
+    setTokens(payload.accessToken, payload.refreshToken)
+    return payload.accessToken as string
+  })()
+
+  try {
+    return await refreshPromise
+  } finally {
+    refreshPromise = null
+  }
+}
 
 type OfflineQueueItem = { id: string; path: string; method: string; body?: string; createdAt: string }
 const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'
@@ -569,45 +654,19 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
     }
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  const res = await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers })
 
   if (res.status === 401) {
-    const refreshToken = getRefreshToken()
-    if (!refreshToken) {
-      clearTokens()
-      window.location.href = '/login'
-      return res
-    }
-
-    if (isRefreshing) {
-      return new Promise((resolve) => {
-        refreshQueue.push(async (newToken: string) => {
-          headers['Authorization'] = `Bearer ${newToken}`
-          resolve(await fetch(`${BASE_URL}${path}`, { ...options, headers }))
-        })
-      })
-    }
-
-    isRefreshing = true
     try {
-      const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      })
-      if (!refreshRes.ok) {
-        clearTokens()
-        window.location.href = '/login'
-        return res
+      const newToken = await refreshAccessToken()
+      headers['Authorization'] = `Bearer ${newToken}`
+      return await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers })
+    } catch (error) {
+      clearTokens()
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.assign('/login')
       }
-      const { accessToken, refreshToken: newRefresh } = await refreshRes.json()
-      setTokens(accessToken, newRefresh)
-      refreshQueue.forEach(cb => cb(accessToken))
-      refreshQueue = []
-      headers['Authorization'] = `Bearer ${accessToken}`
-      return fetch(`${BASE_URL}${path}`, { ...options, headers })
-    } finally {
-      isRefreshing = false
+      throw error
     }
   }
 
@@ -676,11 +735,12 @@ export const destravaApi = {
   async empresaResumo(id: string): Promise<any> {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
-  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string }> {
+  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number; page?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string; page?: number; limit?: number; has_more?: boolean }> {
     const qs = '?' + new URLSearchParams({
       tipo: params?.tipo || '',
       q: params?.q || '',
       limit: String(params?.limit || 50),
+      page: String(params?.page || 1),
     }).toString()
     return apiJson(`/integracoes/destrava/empresas${qs}`)
   },
@@ -1065,8 +1125,12 @@ export const produtosApi = {
 // ── AGENDA ────────────────────────────────────────────────────────────────────
 export const agendaApi = {
   async list(mes?: number, ano?: number): Promise<Evento[]> {
-    const qs = mes && ano ? `?mes=${mes}&ano=${ano}` : ''
-    const data = await apiJson<{ eventos: Evento[] }>(`/agenda${qs}`)
+    const qs = new URLSearchParams({ sync: 'false' })
+    if (mes && ano) {
+      qs.set('mes', String(mes))
+      qs.set('ano', String(ano))
+    }
+    const data = await apiJson<{ eventos: Evento[] }>(`/agenda?${qs.toString()}`)
     return data.eventos
   },
 

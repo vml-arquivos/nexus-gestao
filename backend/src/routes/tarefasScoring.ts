@@ -2,9 +2,22 @@ import { Router, Request, Response } from 'express'
 import pool, { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { criarNotificacao } from '../lib/notifHelper'
+import { SingleFlightTtlCache } from '../lib/singleFlightTtlCache'
 
 const router = Router()
 const SCORE_MAX = 20
+
+// ── Cache curtíssimo do ranking por organização + período ────────────────────
+// O cálculo do ranking faz parse de JSON e itera todo o checklist de todas as
+// tarefas de escopo "equipe" em JavaScript a cada chamada. Com várias abas e
+// usuários fazendo polling quase no mesmo instante, isso repetia o mesmo
+// trabalho de CPU várias vezes seguidas. TTL de 6s: imperceptível ao usuário,
+// suficiente para absorver a rajada de chamadas simultâneas.
+const RANKING_CACHE_TTL_MS = 6000
+const rankingCache = new SingleFlightTtlCache<string, unknown>(
+  RANKING_CACHE_TTL_MS,
+  48,
+)
 
 function parseChecklist(value: unknown): any[] {
   if (Array.isArray(value)) return value
@@ -171,6 +184,19 @@ let compatibilityPromise: Promise<void> | null = null
 async function ensureCompatibilitySchema() {
   if (!compatibilityPromise) {
     compatibilityPromise = (async () => {
+      const ready = await queryOne<{ ready: boolean }>(`
+        SELECT (
+          to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'tarefas_ajuda'
+               AND column_name = 'updated_at'
+          )
+        ) AS ready
+      `)
+      if (ready?.ready) return
+
       await query(`ALTER TABLE tarefas_ajuda ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`)
       // Nota: em produção este índice já é criado de forma definitiva (com
       // deduplicação prévia) pela migration em backend/src/db/migrate.ts.
@@ -613,6 +639,10 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
     await ensureCompatibilitySchema()
     const { orgId } = req.user!
     const range = periodRange(String(req.query.periodo || 'todos').trim().toLowerCase())
+
+    const cacheKey = `${orgId}:${range.label}`
+    const payload = await rankingCache.get(cacheKey, async () => {
+
     const members = await query<any>(
       `SELECT id, nome, email, role FROM profiles
        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'
@@ -620,7 +650,9 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
       [orgId],
     )
     const tasks = await query<any>(
-      `SELECT * FROM tarefas
+      `SELECT id, titulo, checklist, status, aceita_por, responsavel_id,
+              pontuacao, aprovada_em, updated_at, aprovada_por, origem_payload
+       FROM tarefas
        WHERE org_id = $1
          AND COALESCE(escopo, 'pessoal') = 'equipe'
          AND COALESCE(conta_ranking, TRUE) = TRUE`,
@@ -705,7 +737,7 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
        FROM tarefas WHERE org_id = $1`,
       [orgId],
     )
-    res.json({
+    return {
       periodo: range.label,
       ranking: ordered,
       resumo: {
@@ -717,7 +749,9 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
         subtarefas_executadas: ordered.reduce((sum, item) => sum + Number(item.subtarefas_executadas || 0), 0),
         tarefas_executadas: ordered.reduce((sum, item) => sum + Number(item.tarefas_executadas || 0), 0),
       },
+    }
     })
+    res.json(payload)
   } catch (err) {
     console.error('[TAREFAS-SCORING] Erro ao buscar ranking:', err)
     res.status(500).json({ error: 'Erro ao buscar ranking de tarefas.' })

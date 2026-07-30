@@ -1,65 +1,63 @@
-version: '3.9'
-
-# ============================================================
-# NEXUS GESTÃO — Docker Compose para Coolify/VPS
-# Serviços: frontend (nginx+react) + backend (node+express)
-# Banco: PostgreSQL 17 externo na VPS (via DATABASE_URL)
-# SSL/HTTPS: gerenciado pelo Coolify (Traefik integrado)
-# ============================================================
+# NEXUS GESTÃO — serviço unificado para Docker Compose/Coolify.
+# O Dockerfile raiz já contém Nginx, frontend e backend. Manter dois serviços
+# fazia o antigo "frontend" executar o backend sem DATABASE_URL e falhar no
+# healthcheck.
 
 services:
-
-  # ── BACKEND — Node.js + Express + JWT ──────────────────────
-  nexus-backend:
+  nexus:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
-    container_name: nexus-backend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-20000}
+        VITE_API_WRITE_TIMEOUT_MS: ${VITE_API_WRITE_TIMEOUT_MS:-35000}
+        VITE_API_UPLOAD_TIMEOUT_MS: ${VITE_API_UPLOAD_TIMEOUT_MS:-120000}
+    container_name: nexus
     restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3002}:80"
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: ${DATABASE_URL}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL obrigatória}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_CONNECT_TIMEOUT_MS: ${DB_CONNECT_TIMEOUT_MS:-10000}
+      DB_QUERY_TIMEOUT_MS: ${DB_QUERY_TIMEOUT_MS:-60000}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-60000}
+      DB_MIGRATION_LOCK_TIMEOUT_MS: ${DB_MIGRATION_LOCK_TIMEOUT_MS:-15000}
+      DB_MIGRATION_TIMEOUT_MS: ${DB_MIGRATION_TIMEOUT_MS:-180000}
+      DB_MIGRATION_MODE: ${DB_MIGRATION_MODE:-safe}
+      DB_MIGRATION_STRICT: ${DB_MIGRATION_STRICT:-false}
+      MIGRATION_MAX_ATTEMPTS: ${MIGRATION_MAX_ATTEMPTS:-12}
+      MIGRATION_RETRY_DELAY_SECONDS: ${MIGRATION_RETRY_DELAY_SECONDS:-5}
+      NEXUS_NODE_HEAP_MB: ${NEXUS_NODE_HEAP_MB:-}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET obrigatória}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET obrigatória}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-30d}
       FRONTEND_URL: ${FRONTEND_URL:-https://nexus.permupay.com.br}
       UPLOADS_DIR: /app/uploads
       MAX_FILE_SIZE: ${MAX_FILE_SIZE:-52428800}
+      NEXUS_DESTRAVA_INTEGRATION_SECRET: ${NEXUS_DESTRAVA_INTEGRATION_SECRET:-}
+      NEXUS_DESTRAVA_ORG_ID: ${NEXUS_DESTRAVA_ORG_ID:-}
+      NEXUS_DESTRAVA_DEFAULT_USER_EMAIL: ${NEXUS_DESTRAVA_DEFAULT_USER_EMAIL:-}
+      DESTRAVA_API_URL: ${DESTRAVA_API_URL:-https://destravacredito.com}
+      AGENDA_AUTO_SYNC_ENABLED: ${AGENDA_AUTO_SYNC_ENABLED:-true}
+      AGENDA_AUTO_SYNC_INTERVAL_MINUTES: ${AGENDA_AUTO_SYNC_INTERVAL_MINUTES:-10}
+      AGENDA_AUTO_SYNC_INITIAL_DELAY_SECONDS: ${AGENDA_AUTO_SYNC_INITIAL_DELAY_SECONDS:-120}
+      AGENDA_SYNC_BATCH_SIZE: ${AGENDA_SYNC_BATCH_SIZE:-200}
     volumes:
       - nexus-uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "/bin/sh", "/app/healthcheck.sh"]
+      interval: 15s
+      timeout: 8s
+      retries: 10
+      start_period: 60s
     networks:
       - nexus-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-  # ── FRONTEND — React + Vite + Nginx ────────────────────────
-  nexus-frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: /api
-    container_name: nexus-frontend
-    restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-3002}:80"
-    depends_on:
-      nexus-backend:
-        condition: service_healthy
-    networks:
-      - nexus-net
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
 
 volumes:
   nexus-uploads:

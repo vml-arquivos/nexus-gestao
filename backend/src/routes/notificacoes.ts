@@ -13,10 +13,12 @@ router.get('/stream', authMiddleware, (req: Request, res: Response): void => {
 
   // Cabeçalhos SSE
   res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Cache-Control', 'no-cache, no-transform')
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no') // Desativa buffering no nginx
   res.flushHeaders()
+  res.write('retry: 10000\n')
+  res.write(': nexus-sse-connected\n\n')
 
   // Heartbeat a cada 25s para manter a conexão viva
   const hb = setInterval(() => {
