@@ -942,14 +942,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
 
 async function migrate() {
   console.log('[MIGRATE] Conectando ao PostgreSQL…')
-  const client = await pool.connect()
+  let client
+  try {
+    client = await pool.connect()
+  } catch (err) {
+    // Banco inacessível no momento do deploy (rede/VPS/Postgres reiniciando).
+    // NÃO derruba o container: deixa o backend subir e o /health reportar
+    // "db: disconnected" até o Postgres voltar, em vez de travar o boot
+    // inteiro (nginx incluso) e gerar 503 sem nenhum log explicativo.
+    console.error('[MIGRATE] ❌ Não foi possível conectar ao PostgreSQL para migrar:', err)
+    console.error('[MIGRATE] ⚠️  Prosseguindo sem aplicar o schema. O servidor vai subir mesmo assim;')
+    console.error('[MIGRATE] ⚠️  verifique DATABASE_URL / disponibilidade do Postgres e rode o deploy novamente.')
+    return
+  }
+
   try {
     console.log('[MIGRATE] Executando schema…')
     await client.query(SCHEMA)
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
   } catch (err) {
+    // Erro em alguma instrução do schema (ex: ALTER TABLE ... ADD CONSTRAINT
+    // que colide com dado já existente, ou CREATE UNIQUE INDEX com
+    // duplicidade). Antes isso chamava process.exit(1), o que — combinado
+    // com o `set -e` do entrypoint — matava o container inteiro ANTES do
+    // nginx/backend subirem, causando 503 em cascata em todas as rotas
+    // (tarefas, membros, ranking, pendentes, minhas) sem sinalizar a causa
+    // real em lugar nenhum visível no Coolify além do log de deploy.
+    //
+    // Agora: loga bem alto, mas deixa o processo seguir. O servidor sobe
+    // mesmo com o schema possivelmente incompleto — funcionalidades que
+    // dependem da coluna/constraint que falhou vão dar erro 500 pontual
+    // (visível e diagnosticável), em vez da aplicação inteira cair.
+    console.error('════════════════════════════════════════════════════════')
     console.error('[MIGRATE] ❌ Erro ao aplicar schema:', err)
-    process.exit(1)
+    console.error('[MIGRATE] ⚠️  O servidor vai subir MESMO ASSIM (schema pode estar incompleto).')
+    console.error('[MIGRATE] ⚠️  Corrija a instrução SQL indicada acima e rode o deploy novamente.')
+    console.error('════════════════════════════════════════════════════════')
   } finally {
     client.release()
     await pool.end()
@@ -957,4 +985,3 @@ async function migrate() {
 }
 
 migrate()
-
