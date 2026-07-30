@@ -684,17 +684,11 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
 -- para o ON CONFLICT DO NOTHING em routes/integracoes.ts funcionar -- sem
 -- ela, duas chamadas concorrentes de POST /destrava/tarefas podiam inserir
 -- dois links para o mesmo par (external_id, nexus_id).
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='nexus_external_links') THEN
-    SET LOCAL lock_timeout = '5s';
-    DELETE FROM nexus_external_links a USING nexus_external_links b
-     WHERE a.id < b.id
-       AND a.org_id = b.org_id AND a.source_system = b.source_system
-       AND a.external_type = b.external_type AND a.external_id = b.external_id
-       AND a.nexus_type = b.nexus_type;
-  END IF;
-END $$;
+DELETE FROM nexus_external_links a USING nexus_external_links b
+ WHERE a.id < b.id
+   AND a.org_id = b.org_id AND a.source_system = b.source_system
+   AND a.external_type = b.external_type AND a.external_id = b.external_id
+   AND a.nexus_type = b.nexus_type;
 ALTER TABLE nexus_external_links DROP CONSTRAINT IF EXISTS ux_nexus_external_links_source;
 ALTER TABLE nexus_external_links ADD CONSTRAINT ux_nexus_external_links_source
   UNIQUE (org_id, source_system, external_type, external_id, nexus_type);
@@ -843,7 +837,6 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_checklist ON tarefas_comentar
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tarefas_pontuacao') THEN
-    PERFORM set_config('lock_timeout', '8000', true);
     DELETE FROM tarefas_pontuacao tp
      WHERE tp.tarefa_id IS NOT NULL
        AND tp.motivo IS NOT NULL
@@ -854,23 +847,10 @@ BEGIN
           ORDER BY tarefa_id, usuario_id, motivo, aprovado_em DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
        );
   END IF;
-EXCEPTION WHEN lock_not_available THEN
-  RAISE WARNING '[MIGRATE] Dedup tarefas_pontuacao pulado (lock timeout) — não bloqueia startup.';
 END $$;
 
-DO $$
-BEGIN
-  PERFORM set_config('lock_timeout', '8000', true);
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE tablename = 'tarefas_pontuacao'
-      AND indexname = 'ux_tarefas_pontuacao_tarefa_usuario_motivo'
-  ) THEN
-    EXECUTE 'CREATE UNIQUE INDEX ux_tarefas_pontuacao_tarefa_usuario_motivo ON tarefas_pontuacao (tarefa_id, usuario_id, motivo)';
-  END IF;
-EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING '[MIGRATE] ux_tarefas_pontuacao: % (não bloqueia startup)', SQLERRM;
-END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo
+  ON tarefas_pontuacao (tarefa_id, usuario_id, motivo);
 
 -- ── AUTOMATION ENGINE (outbox de eventos Destrava <-> Nexus) ──
 -- Espelha automation_events/automation_audit_log do lado Destrava. Todo
@@ -952,18 +932,71 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
 -- ============================================================
 `
 
-async function migrate() {
+function positiveIntEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback
+}
+
+const MIGRATION_MAX_ATTEMPTS = positiveIntEnv(process.env.MIGRATION_MAX_ATTEMPTS, 12)
+const MIGRATION_RETRY_DELAY_SECONDS = positiveIntEnv(process.env.MIGRATION_RETRY_DELAY_SECONDS, 5)
+const MIGRATION_LOCK_TIMEOUT_MS = positiveIntEnv(process.env.DB_MIGRATION_LOCK_TIMEOUT_MS, 8_000)
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Erros que indicam disputa de lock com outra sessão (o container antigo
+// ainda rodando durante um deploy sem downtime) -- vale tentar de novo,
+// dando tempo para a outra transação terminar. Qualquer outro erro (SQL
+// inválido, coluna que não existe, etc.) é um erro real e não deve ser
+// tentado de novo às cegas.
+function isLockContentionError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code
+  return code === '55P03' || code === '40P01' || code === '57014'
+}
+
+async function runSchemaOnce(): Promise<void> {
   console.log('[MIGRATE] Conectando ao PostgreSQL…')
   const client = await pool.connect()
   try {
+    // Sem isso, uma instrução de ALTER/CREATE INDEX que precise de lock numa
+    // tabela em uso pelo container antigo (ainda servindo tráfego normalmente
+    // durante o deploy) espera indefinidamente -- nunca dá erro, nunca
+    // termina. Com o timeout, ela falha rápido e o `runSchemaOnce` é
+    // chamado de novo pelo laço de tentativas abaixo.
+    await client.query(`SET lock_timeout = '${MIGRATION_LOCK_TIMEOUT_MS}ms'`)
     console.log('[MIGRATE] Executando schema…')
     await client.query(SCHEMA)
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
-  } catch (err) {
-    console.error('[MIGRATE] ❌ Erro ao aplicar schema:', err)
-    process.exit(1)
   } finally {
     client.release()
+  }
+}
+
+async function migrate() {
+  let ultimoErro: unknown = null
+  for (let tentativa = 1; tentativa <= MIGRATION_MAX_ATTEMPTS; tentativa++) {
+    try {
+      await runSchemaOnce()
+      ultimoErro = null
+      break
+    } catch (err) {
+      ultimoErro = err
+      const porLock = isLockContentionError(err)
+      console.error(
+        `[MIGRATE] ❌ Tentativa ${tentativa}/${MIGRATION_MAX_ATTEMPTS} falhou` +
+          (porLock ? ' (disputa de lock com outra sessão -- tentando de novo)' : '') +
+          ':',
+        err instanceof Error ? err.message : err,
+      )
+      if (tentativa >= MIGRATION_MAX_ATTEMPTS) break
+      await sleep(MIGRATION_RETRY_DELAY_SECONDS * 1000)
+    }
+  }
+
+  if (ultimoErro) {
+    console.error('[MIGRATE] ❌ Erro ao aplicar schema após todas as tentativas:', ultimoErro)
+    process.exit(1)
   }
 
   // Chamada única e explícita, com um limite de segurança: mesmo que algo
@@ -984,3 +1017,4 @@ async function migrate() {
 }
 
 migrate()
+
