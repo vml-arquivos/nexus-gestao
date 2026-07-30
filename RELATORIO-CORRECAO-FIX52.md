@@ -71,6 +71,35 @@ num PostgreSQL 16 real: todas as 25.000 arquivadas corretamente, 0
 perdidas, em 51 lotes de ~70-100ms cada — nenhum lote chega perto do
 `statement_timeout` de 15s configurado em produção.
 
+## Terceiro achado: 1,18 milhão de linhas sintéticas em `agenda`
+
+Durante a migração de servidor, o volume de dados revelou algo que nenhum
+log anterior tinha mostrado: a tabela `agenda` tinha **1.186.326 linhas**
+para apenas **65 tarefas** reais. Causa: em
+`backend/src/services/agendaSyncService.ts`, a sincronização de subtarefas
+de checklist usava `item?.id || item?.texto` como identidade -- para itens
+sem `id` persistido, a "chave de sincronização" mudava a cada execução do
+job (rodando a cada poucos minutos, por meses antes de
+`AGENDA_AUTO_SYNC_ENABLED` ser desligado), e cada rodada tratava tudo como
+inédito. Confirmado por diagnóstico: as 1.186.325 chaves com `sync_key` são
+**todas distintas entre si** -- não é duplicata por colisão, é geração
+descontrolada de chaves novas.
+
+Correção:
+- `agendaSyncService.ts`: item de checklist sem `id` estável agora é
+  pulado (não sincroniza) em vez de usar um substituto instável.
+- Nova migração: `ux_agenda_org_sync_key`, índice **único** de verdade em
+  `agenda(org_id, sync_key)` -- antes só existia um índice de busca, que
+  acelerava a consulta mas não impedia duplicata nenhuma. Agora nenhum
+  bug futuro consegue repetir esse estrago silenciosamente.
+- Validado com 200.000 linhas sintéticas (todas com `sync_key` únicas,
+  reproduzindo a forma exata do dado real): migração aplica em ~10s, sem
+  erro, índice único criado corretamente.
+
+As linhas antigas em si (100% `auto_sync = TRUE`, dado derivado e
+regenerável, não fonte de verdade) devem ser limpas manualmente uma vez
+durante a migração de servidor -- ver instruções à parte.
+
 ## Correções
 
 ### Carregamento acoplado (dashboard/relatórios)

@@ -996,6 +996,20 @@ CREATE INDEX IF NOT EXISTS idx_notif_arquivamento
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por_responsavel_status
   ON tarefas(criado_por, responsavel_id, status) WHERE responsavel_id IS NOT NULL;
 
+-- A sincronização automática de agenda (agendaSyncService.ts) tinha um
+-- fallback instável para identificar itens de checklist sem id próprio,
+-- e o índice de sync_key nunca foi único de verdade -- só acelerava a
+-- busca, não impedia duplicata. Isso gerou 1,18 milhão de linhas
+-- sintéticas em produção a partir de 65 tarefas reais. O fallback já foi
+-- corrigido no código; esta trava impede qualquer futuro bug de repetir
+-- o mesmo estrago, não importa a causa.
+-- sync_key normalmente só é criada em tempo de execução por
+-- ensureAgendaSyncSchema() (na primeira sincronização) -- garante aqui
+-- também, senão o CREATE UNIQUE INDEX falha num banco que nunca sincronizou.
+ALTER TABLE agenda ADD COLUMN IF NOT EXISTS sync_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_agenda_org_sync_key
+  ON agenda(org_id, sync_key) WHERE sync_key IS NOT NULL;
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================

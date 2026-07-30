@@ -247,7 +247,14 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
 
       const checklist = safeJsonArray(t.checklist)
       for (const item of checklist) {
-        const itemId = String(item?.id || item?.texto || '').slice(0, 120)
+        // Antes caía para item?.texto quando faltava um id estável. Isso
+        // fez a chave de sincronização mudar a cada execução para itens
+        // sem id persistido, e o job (rodando a cada poucos minutos, por
+        // meses) tratou cada rodada como "inédita" -- gerou 1,18 milhão de
+        // linhas em agenda a partir de só 65 tarefas. Agora, sem id
+        // estável, o item é pulado (não sincroniza) em vez de usar um
+        // substituto instável.
+        const itemId = String(item?.id || '').slice(0, 120)
         const itemDate = agendaDate(item?.data || item?.prazo || item?.date, '09:30:00')
         if (!itemId || !itemDate) continue
         const itemOwner = item?.responsavel_id || t.responsavel_id || t.aceita_por || t.criado_por || input?.userId
