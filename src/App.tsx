@@ -1,33 +1,26 @@
-import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Zap } from 'lucide-react'
 import { useAuth } from './lib/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import Inteligencia from './pages/Inteligencia'
+import Pessoas from './pages/Pessoas'
+import Equipe from './pages/Equipe'
+import Equipes from './pages/Equipes'
+import Tarefas from './pages/Tarefas'
 import TaskWorkflowEffects from './components/TaskWorkflowEffects'
-
-// ── Code splitting por rota ───────────────────────────────────────────────────
-// Login e Layout continuam com import estático (necessários imediatamente no
-// primeiro carregamento). As demais páginas são carregadas sob demanda: o
-// navegador só baixa o código de uma página quando o usuário navega até ela,
-// em vez de baixar o app inteiro (20 páginas) de uma vez só.
-const Dashboard      = lazy(() => import('./pages/Dashboard'))
-const Inteligencia   = lazy(() => import('./pages/Inteligencia'))
-const Pessoas        = lazy(() => import('./pages/Pessoas'))
-const Equipe         = lazy(() => import('./pages/Equipe'))
-const Equipes        = lazy(() => import('./pages/Equipes'))
-const Tarefas        = lazy(() => import('./pages/Tarefas'))
-const MinhasTarefas  = lazy(() => import('./pages/MinhasTarefas'))
-const Agenda         = lazy(() => import('./pages/Agenda'))
-const Financeiro     = lazy(() => import('./pages/Financeiro'))
-const Documentos     = lazy(() => import('./pages/Documentos'))
-const Compartilhar   = lazy(() => import('./pages/Compartilhar'))
-const Relatorios     = lazy(() => import('./pages/Relatorios'))
-const Configuracoes  = lazy(() => import('./pages/Configuracoes'))
-const PessoaDetalhe  = lazy(() => import('./pages/PessoaDetalhe'))
-const Usuarios       = lazy(() => import('./pages/Usuarios'))
-const AceitarConvite = lazy(() => import('./pages/AceitarConvite'))
-const DesignEditor   = lazy(() => import('./pages/DesignEditor'))
+import MinhasTarefas from './pages/MinhasTarefas'
+import Agenda from './pages/Agenda'
+import Financeiro from './pages/Financeiro'
+import Documentos from './pages/Documentos'
+import Compartilhar from './pages/Compartilhar'
+import Relatorios from './pages/Relatorios'
+import Configuracoes from './pages/Configuracoes'
+import PessoaDetalhe from './pages/PessoaDetalhe'
+import Usuarios from './pages/Usuarios'
+import AceitarConvite from './pages/AceitarConvite'
+import DesignEditor from './pages/DesignEditor'
 
 function FullScreenLoader() {
   return (
@@ -53,7 +46,6 @@ export default function App() {
   if (loading) return <FullScreenLoader />
 
   return (
-    <Suspense fallback={<FullScreenLoader />}>
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -131,6 +123,5 @@ export default function App() {
       {/* Fallback: redireciona para home */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    </Suspense>
   )
 }

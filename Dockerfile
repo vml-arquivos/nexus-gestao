@@ -18,8 +18,8 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 
-# Validações idempotentes: confirmam que as correções versionadas continuam
-# presentes, sem reescrever o código-fonte durante o build.
+# Os patches são determinísticos, versionados e falham imediatamente se o código-base
+# esperado tiver mudado. Assim backend e frontend recebem exatamente a mesma regra.
 WORKDIR /app
 COPY . .
 RUN python3 scripts/apply_tarefas_client_select_patch.py \
@@ -32,13 +32,11 @@ RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
 # ── STAGE 2: Build do Frontend ─────────────────────────────
 FROM node:20-alpine AS frontend-builder
 
-ARG VITE_API_URL=/api
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
     NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
-    NPM_CONFIG_CACHE=/root/.npm \
-    VITE_API_URL=${VITE_API_URL}
+    NPM_CONFIG_CACHE=/root/.npm
 
 RUN apk add --no-cache python3
 
@@ -84,18 +82,13 @@ RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf
 
-# O entrypoint inicia o Supervisor imediatamente. O Nginx fica disponível
-# enquanto o backend executa a migração com tentativas controladas.
-COPY docker-entrypoint.sh /app/entrypoint.sh
-COPY backend-start.sh /app/backend-start.sh
-COPY healthcheck.sh /app/healthcheck.sh
-RUN chmod +x /app/entrypoint.sh /app/backend-start.sh /app/healthcheck.sh
+# Entrypoint
+RUN printf '#!/bin/sh\nset -e\nmkdir -p /app/uploads\necho "[STARTUP] Rodando migration..."\ncd /app/backend && node dist/db/migrate.js && echo "[STARTUP] Migration OK"\necho "[STARTUP] Iniciando Nexus..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 VOLUME ["/app/uploads"]
 EXPOSE 80
-STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=15s --timeout=8s --start-period=60s --retries=10 \
-  CMD /bin/sh /app/healthcheck.sh
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
+  CMD wget -qO- http://localhost/health || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]
