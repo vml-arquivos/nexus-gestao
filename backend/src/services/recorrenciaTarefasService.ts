@@ -113,7 +113,7 @@ async function gerarProximaOcorrencia(t: TarefaRecorrenteRow, hoje: Date): Promi
   const periodo = periodoAtual(t.recorrencia, hoje);
   const externalKey = `recorrencia-nexus:${raizId}:${periodo}`;
   const novoPrazo = calcularNovoPrazo(t, hoje);
-  const novoChecklist = resetarChecklist(t.checklist);
+  const novoChecklist = JSON.stringify(resetarChecklist(t.checklist));
 
   const client = await pool.connect();
   try {
@@ -121,40 +121,6 @@ async function gerarProximaOcorrencia(t: TarefaRecorrenteRow, hoje: Date): Promi
     // Trava por raiz+período: evita duas varreduras concorrentes gerarem a
     // mesma ocorrência simultaneamente antes do índice único intervir.
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [externalKey]);
-
-    // Mesma regra que a criação manual já respeita: tarefa vinculada a uma
-    // empresa (origem_id) nunca duplica lista — se já existe uma aberta para
-    // a mesma empresa, os itens da nova ocorrência entram nela, em vez de
-    // criar uma lista separada. Sem isso, uma tarefa recorrente vinculada a
-    // empresa gerava uma lista nova a cada período, ignorando a mesclagem.
-    if (t.origem_id) {
-      const abertaResult = await client.query<any>(
-        `SELECT * FROM tarefas
-         WHERE org_id = $1 AND origem_id = $2
-           AND COALESCE(escopo, 'pessoal') = 'equipe'
-           AND status <> 'cancelada'
-         ORDER BY created_at DESC
-         LIMIT 1
-         FOR UPDATE`,
-        [t.org_id, t.origem_id],
-      );
-      const aberta = abertaResult.rows[0];
-      if (aberta) {
-        const jaGerado = String(aberta.external_key || "") === externalKey;
-        if (!jaGerado) {
-          const itensExistentes = Array.isArray(aberta.checklist) ? aberta.checklist : [];
-          const checklistMesclado = JSON.stringify([...itensExistentes, ...novoChecklist]);
-          await client.query(
-            `UPDATE tarefas SET checklist = $1, external_key = COALESCE(external_key, $2), updated_at = NOW()
-             WHERE id = $3 AND org_id = $4`,
-            [checklistMesclado, externalKey, aberta.id, t.org_id],
-          );
-        }
-        await client.query("COMMIT");
-        return;
-      }
-    }
-
     await client.query(
       `INSERT INTO tarefas (
          org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
@@ -169,7 +135,7 @@ async function gerarProximaOcorrencia(t: TarefaRecorrenteRow, hoje: Date): Promi
          recorrencia, recorrencia_dia_mes, recorrencia_dia_semana, recorrencia_fim, $4, $5
        FROM tarefas WHERE id = $1
        ON CONFLICT (org_id, external_key) WHERE external_key IS NOT NULL DO NOTHING`,
-      [t.id, novoPrazo, JSON.stringify(novoChecklist), raizId, externalKey],
+      [t.id, novoPrazo, novoChecklist, raizId, externalKey],
     );
     await client.query("COMMIT");
   } catch (err) {

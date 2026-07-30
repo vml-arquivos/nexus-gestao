@@ -2,7 +2,6 @@ import { query, queryOne } from '../db/pool'
 import { upsertGoogleCalendarEvent } from './googleWorkspaceService'
 
 let schemaReady = false
-let schemaPromise: Promise<void> | null = null
 let syncRunning = false
 let lastResult: AgendaSyncResult | null = null
 
@@ -30,13 +29,6 @@ function dinheiro(v: unknown): string {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number.isFinite(n) ? n : 0)
 }
 
-function boundedNumber(value: unknown, fallback: number, minimum: number, maximum: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed)
-    ? Math.max(minimum, Math.min(maximum, parsed))
-    : fallback
-}
-
 function isFinalTask(status: unknown) {
   return ['concluida', 'aprovada', 'cancelada'].includes(String(status || ''))
 }
@@ -55,57 +47,21 @@ function safeJsonArray(value: unknown): any[] {
 
 export async function ensureAgendaSyncSchema() {
   if (schemaReady) return
-  if (!schemaPromise) {
-    schemaPromise = (async () => {
-      const ready = await queryOne<{
-        sync_key: boolean
-        auto_sync: boolean
-        sync_index: boolean
-        auto_sync_index: boolean
-      }>(`
-        SELECT
-          EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'agenda' AND column_name = 'sync_key'
-          ) AS sync_key,
-          EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'agenda' AND column_name = 'auto_sync'
-          ) AS auto_sync,
-          to_regclass('public.idx_agenda_sync_key') IS NOT NULL AS sync_index,
-          to_regclass('public.idx_agenda_auto_sync') IS NOT NULL AS auto_sync_index
-      `)
-
-      if (!ready?.sync_key || !ready?.auto_sync) {
-        await query(`
-          ALTER TABLE agenda
-            ADD COLUMN IF NOT EXISTS origem_sistema TEXT,
-            ADD COLUMN IF NOT EXISTS origem_tipo TEXT,
-            ADD COLUMN IF NOT EXISTS origem_id TEXT,
-            ADD COLUMN IF NOT EXISTS sync_key TEXT,
-            ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN DEFAULT FALSE,
-            ADD COLUMN IF NOT EXISTS google_event_id TEXT,
-            ADD COLUMN IF NOT EXISTS google_calendar_sync_at TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS google_calendar_status TEXT,
-            ADD COLUMN IF NOT EXISTS google_calendar_error TEXT;
-        `)
-      }
-      if (!ready?.sync_index) {
-        await query(`CREATE INDEX IF NOT EXISTS idx_agenda_sync_key ON agenda(org_id, sync_key) WHERE sync_key IS NOT NULL;`)
-      }
-      if (!ready?.auto_sync_index) {
-        await query(`CREATE INDEX IF NOT EXISTS idx_agenda_auto_sync ON agenda(org_id, auto_sync, data_inicio);`)
-      }
-      schemaReady = true
-    })()
-  }
-
-  try {
-    await schemaPromise
-  } catch (error) {
-    schemaPromise = null
-    throw error
-  }
+  await query(`
+    ALTER TABLE agenda
+      ADD COLUMN IF NOT EXISTS origem_sistema TEXT,
+      ADD COLUMN IF NOT EXISTS origem_tipo TEXT,
+      ADD COLUMN IF NOT EXISTS origem_id TEXT,
+      ADD COLUMN IF NOT EXISTS sync_key TEXT,
+      ADD COLUMN IF NOT EXISTS auto_sync BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS google_event_id TEXT,
+      ADD COLUMN IF NOT EXISTS google_calendar_sync_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS google_calendar_status TEXT,
+      ADD COLUMN IF NOT EXISTS google_calendar_error TEXT;
+  `)
+  await query(`CREATE INDEX IF NOT EXISTS idx_agenda_sync_key ON agenda(org_id, sync_key) WHERE sync_key IS NOT NULL;`)
+  await query(`CREATE INDEX IF NOT EXISTS idx_agenda_auto_sync ON agenda(org_id, auto_sync, data_inicio);`)
+  schemaReady = true
 }
 
 async function upsertAgendaLocal(input: {
@@ -248,13 +204,10 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
 
   try {
     await ensureAgendaSyncSchema()
-    const syncBatchSize = boundedNumber(process.env.AGENDA_SYNC_BATCH_SIZE, 200, 50, 1000)
     const params: unknown[] = []
     let orgFilter = ''
     if (input?.orgId) { params.push(input.orgId); orgFilter = `AND t.org_id = $${params.length}` }
 
-    let taskOffset = 0
-    while (taskOffset < 3000) {
     const tarefas = await query<any>(
       `SELECT t.id, t.org_id, t.criado_por, t.responsavel_id, t.aceita_por, t.modo_distribuicao,
               t.titulo, t.descricao, t.prazo, t.data, t.prioridade, t.status, t.responsavel_nome, t.checklist,
@@ -264,9 +217,9 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
        WHERE t.status <> 'cancelada'
          AND (COALESCE(t.prazo, t.data) IS NOT NULL OR t.checklist IS NOT NULL)
          ${orgFilter}
-       ORDER BY COALESCE(t.updated_at, t.created_at) DESC, t.id
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, syncBatchSize, taskOffset]
+       ORDER BY COALESCE(t.updated_at, t.created_at) DESC
+       LIMIT 3000`,
+      params
     ).catch((err) => { result.erros.push(`Tarefas: ${(err as Error).message}`); return [] })
 
     for (const t of tarefas) {
@@ -316,15 +269,10 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
         if (row.evento) await syncGoogle(row.evento, result)
       }
     }
-    taskOffset += tarefas.length
-    if (tarefas.length < syncBatchSize) break
-    }
 
     const pParams: unknown[] = []
     let pOrgFilter = ''
     if (input?.orgId) { pParams.push(input.orgId); pOrgFilter = `AND p.org_id = $${pParams.length}` }
-    let financialOffset = 0
-    while (financialOffset < 3000) {
     const financeiros = await query<any>(
       `SELECT p.id, p.org_id, p.criado_por, p.titulo, p.descricao, p.tipo, p.valor, p.vencimento, p.status,
               COALESCE(pe.nome, p.pessoa_nome, '') AS pessoa_nome_atual
@@ -333,9 +281,9 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
        WHERE p.status <> 'cancelado'
          AND p.vencimento IS NOT NULL
          ${pOrgFilter}
-       ORDER BY p.vencimento ASC, p.id
-       LIMIT $${pParams.length + 1} OFFSET $${pParams.length + 2}`,
-      [...pParams, syncBatchSize, financialOffset]
+       ORDER BY p.vencimento ASC
+       LIMIT 3000`,
+      pParams
     ).catch((err) => { result.erros.push(`Financeiro: ${(err as Error).message}`); return [] })
 
     for (const f of financeiros) {
@@ -356,9 +304,6 @@ export async function sincronizarAgendaOperacional(input?: { orgId?: string; use
       })
       await applyLocalCount(result, row)
       if (row.evento) await syncGoogle(row.evento, result)
-    }
-    financialOffset += financeiros.length
-    if (financeiros.length < syncBatchSize) break
     }
 
     await syncManualAgendaToGoogle(input?.orgId || null, result)
@@ -384,9 +329,8 @@ export function iniciarAgendaAutoSync() {
     console.log('[AGENDA_SYNC] Sincronização automática desativada por AGENDA_AUTO_SYNC_ENABLED=false.')
     return
   }
-  const intervalMinutes = boundedNumber(process.env.AGENDA_AUTO_SYNC_INTERVAL_MINUTES, 10, 1, 1440)
-  const initialDelaySeconds = boundedNumber(process.env.AGENDA_AUTO_SYNC_INITIAL_DELAY_SECONDS, 120, 30, 3600)
+  const intervalMinutes = Math.max(1, Math.min(1440, Number(process.env.AGENDA_AUTO_SYNC_INTERVAL_MINUTES || 10)))
   setInterval(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no job:', err)), intervalMinutes * 60 * 1000)
-  setTimeout(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no primeiro job:', err)), initialDelaySeconds * 1000)
-  console.log(`[AGENDA_SYNC] Sincronização automática iniciada a cada ${intervalMinutes} minuto(s), após ${initialDelaySeconds}s.`)
+  setTimeout(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no primeiro job:', err)), 10_000)
+  console.log(`[AGENDA_SYNC] Sincronização automática iniciada a cada ${intervalMinutes} minuto(s).`)
 }

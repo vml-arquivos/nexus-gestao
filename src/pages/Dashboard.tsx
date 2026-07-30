@@ -285,31 +285,25 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       try {
-        // O painel abre com os módulos disponíveis. Uma falha isolada não
-        // apaga os demais dados nem mantém a página presa no carregamento.
-        const [t, a, p, m] = await Promise.allSettled([
+        const [t, a, p, m, r] = await Promise.all([
           tarefasApi.list(),
           agendaApi.list(),
           pagamentosApi.list(),
           isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
+          tarefasApi.ranking('todos').catch(() => null),
         ])
-        if (t.status === 'fulfilled') setTarefas(t.value)
-        if (a.status === 'fulfilled') setAgenda(a.value)
-        if (p.status === 'fulfilled') setPagamentos(p.value)
-        if (m.status === 'fulfilled') setMembros(m.value)
+        setTarefas(t)
+        setAgenda(a)
+        setPagamentos(p)
+        setMembros(m)
+        setRanking(r)
       } catch (e) {
         console.warn('Dashboard load error:', e)
       } finally {
         setLoading(false)
       }
     }
-    void load().finally(() => {
-      // Ranking é complementar e só consulta o banco depois do painel
-      // operacional, evitando a antiga rajada de cinco queries simultâneas.
-      void tarefasApi.ranking('todos').then(setRanking).catch(error => {
-        console.warn('Dashboard ranking load error:', error)
-      })
-    })
+    load()
   }, [user])
 
   const focoDoDia = useMemo(() => calcularFocoDoDia(tarefas, user?.id, hoje), [tarefas, user?.id, hoje])

@@ -17,52 +17,17 @@ function proximoId(): string {
   return `evt-${contador}`;
 }
 
-// Simula o bloqueio real de pg_advisory_xact_lock: uma transação que pede a
-// mesma chave de outra ainda em andamento espera até ela liberar (COMMIT ou
-// ROLLBACK). Sem isso, chamadas "concorrentes" no fake nunca serializam de
-// verdade -- só o Postgres real bloqueia nesse ponto.
-class MutexPorChave {
-  private travas = new Map<string, Promise<void>>();
-
-  async adquirir(chave: string): Promise<() => void> {
-    while (this.travas.has(chave)) {
-      await this.travas.get(chave);
-    }
-    let liberar!: () => void;
-    const promessa = new Promise<void>((resolve) => { liberar = resolve; });
-    this.travas.set(chave, promessa);
-    return () => {
-      this.travas.delete(chave);
-      liberar();
-    };
-  }
-}
-
 export class FakePool {
   events: any[] = [];
   auditLog: any[] = [];
   tarefas: any[] = [];
   externalLinks: any[] = [];
-  processedKeys: any[] = [];
   profiles: any[] = [{ id: "user-1", org_id: "org-1", nome: "Usuário Teste", email: "user@teste.local", role: "gestor", ativo: true }];
-  private mutex = new MutexPorChave();
 
-  async query(text: string, params: any[] = [], liberacoesPendentes: Array<() => void> = []): Promise<{ rows: any[] }> {
+  async query(text: string, params: any[] = []): Promise<{ rows: any[] }> {
     const sql = text.trim();
 
-    if (sql === "BEGIN") {
-      return { rows: [] };
-    }
-    if (sql === "COMMIT" || sql === "ROLLBACK") {
-      while (liberacoesPendentes.length) {
-        const liberar = liberacoesPendentes.pop()!;
-        liberar();
-      }
-      return { rows: [] };
-    }
-    if (sql.startsWith("SELECT pg_advisory_xact_lock")) {
-      const liberar = await this.mutex.adquirir(String(params[0]));
-      liberacoesPendentes.push(liberar);
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK" || sql.startsWith("SELECT pg_advisory_xact_lock")) {
       return { rows: [] };
     }
 
@@ -131,40 +96,6 @@ export class FakePool {
       return { rows: this.profiles.filter((p) => p.id === params[0] && p.ativo) };
     }
 
-    // ── automation_processed_keys (idempotência por ocorrência, agora
-    // desacoplada de "criar linha nova", pra permitir mesclar em lista
-    // já aberta da mesma empresa) ────────────────────────────────────────
-    if (sql.startsWith("SELECT t.* FROM automation_processed_keys")) {
-      const [orgId, externalKey] = params;
-      const chave = this.processedKeys.find((k) => k.org_id === orgId && k.external_key === externalKey);
-      if (!chave) return { rows: [] };
-      return { rows: this.tarefas.filter((t) => t.id === chave.tarefa_id) };
-    }
-    if (sql.startsWith("INSERT INTO automation_processed_keys")) {
-      const [orgId, externalKey, tarefaId] = params;
-      const existente = this.processedKeys.find((k) => k.org_id === orgId && k.external_key === externalKey);
-      if (existente) return { rows: [] }; // ON CONFLICT DO NOTHING
-      this.processedKeys.push({ org_id: orgId, external_key: externalKey, tarefa_id: tarefaId });
-      return { rows: [] };
-    }
-
-    // ── busca de lista já aberta da mesma empresa (mesclagem) ───────────
-    if (sql.startsWith("SELECT * FROM tarefas") && sql.includes("origem_id = $2") && sql.includes("FOR UPDATE")) {
-      const [orgId, origemId] = params;
-      const abertas = this.tarefas
-        .filter((t) => t.org_id === orgId && t.origem_id === origemId && (t.escopo || "equipe") === "equipe" && t.status !== "cancelada")
-        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-      return { rows: abertas.slice(0, 1) };
-    }
-    if (sql.startsWith("UPDATE tarefas SET") && sql.includes("checklist = $1") && sql.includes("aprovada_por")) {
-      const [checklistJson, tarefaId, orgId, finalizada] = params;
-      const t = this.tarefas.find((x) => x.id === tarefaId && x.org_id === orgId);
-      if (!t) return { rows: [] };
-      t.checklist = JSON.parse(checklistJson || "[]");
-      if (finalizada) { t.status = "pendente"; t.status_gestor = "aguardando"; t.aprovada_em = null; t.aprovada_por = null; }
-      return { rows: [t] };
-    }
-
     // ── tarefas (criarTarefaAutomacao) ──────────────────────────────────
     // Cuidado: "INSERT INTO tarefas" também é prefixo de "INSERT INTO
     // tarefas_historico"/"tarefas_pontuacao" -- o \s*\( exige um parêntese
@@ -199,8 +130,6 @@ export class FakePool {
         competencia,
         recorrencia,
         projeto_grupo_id: projetoGrupoId,
-        created_at: new Date(Date.now() + contador).toISOString(),
-        escopo: "equipe",
       };
       this.tarefas.push(row);
       return { rows: [row] };
@@ -224,7 +153,6 @@ export class FakePool {
   }
 
   async connect() {
-    const liberacoesPendentes: Array<() => void> = [];
-    return { query: (text: string, params?: any[]) => this.query(text, params, liberacoesPendentes), release: () => {} };
+    return { query: (text: string, params?: any[]) => this.query(text, params), release: () => {} };
   }
 }

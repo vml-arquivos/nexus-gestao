@@ -6,10 +6,8 @@ import { sincronizarAgendaOperacional } from '../services/agendaSyncService'
 const router = Router()
 router.use(authMiddleware)
 
-export function shouldAutoSyncAgenda(value: unknown) {
-  // Uma listagem nunca deve executar um job global por padrão. O modo legado
-  // continua disponível apenas quando solicitado explicitamente com sync=true.
-  return value === 'true'
+function shouldAutoSync(req: Request) {
+  return req.query.sync !== 'false'
 }
 
 function canSeeOrgAgenda(role: string | undefined): boolean {
@@ -17,7 +15,7 @@ function canSeeOrgAgenda(role: string | undefined): boolean {
 }
 
 async function trySyncForUser(req: Request) {
-  if (!shouldAutoSyncAgenda(req.query.sync)) return null
+  if (!shouldAutoSync(req)) return null
   try {
     return await sincronizarAgendaOperacional({ orgId: req.user!.orgId, userId: req.user!.userId, forceGoogle: true })
   } catch (err) {

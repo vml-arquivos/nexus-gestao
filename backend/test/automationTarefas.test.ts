@@ -49,7 +49,6 @@ describe("criarTarefaAutomacao", () => {
   beforeEach(() => {
     fakePoolInstance.tarefas = [];
     fakePoolInstance.externalLinks = [];
-    fakePoolInstance.processedKeys = [];
   });
 
   it("cria a tarefa na primeira chamada", async () => {
@@ -93,37 +92,5 @@ describe("criarTarefaAutomacao", () => {
     expect(fakePoolInstance.tarefas.length).toBe(2);
     // Mesmo projeto_grupo_id -- é o que agrupa as semanas na UI.
     expect(semana1.tarefa.projeto_grupo_id).toBe(semana2.tarefa.projeto_grupo_id);
-  });
-
-  it("rotina CND de dias diferentes para a MESMA empresa mescla na lista já aberta, em vez de criar tarefas separadas", async () => {
-    // Reproduz o cenário real relatado: empresa com rotina de CND disparando
-    // em dias seguidos acumulava 3 tarefas quase-duplicadas em vez de 1 só.
-    const ROTINA_BASE = {
-      origemTipo: "empresa",
-      origemId: "empresa-ana-amelia",
-      origemNome: "ANA AMELIA DA SILVA FREITAS 04621784129",
-      titulo: "Lista de tarefas da equipe",
-      responsavelEmail: "user@teste.local",
-      workflowTipo: "rotina_cnd" as const,
-      recorrencia: "mensal" as const,
-      checklist: ["consultar o cartão CNPJ na receita federal e atualizar no sistdc e destrava crédito"],
-      metadata: {},
-    };
-
-    const dia1 = await criarTarefaAutomacao({ ...ROTINA_BASE, externalKey: "rotina:cnd:empresa-ana-amelia:2026-07-24" });
-    const dia2 = await criarTarefaAutomacao({ ...ROTINA_BASE, externalKey: "rotina:cnd:empresa-ana-amelia:2026-07-26" });
-    const dia3 = await criarTarefaAutomacao({ ...ROTINA_BASE, externalKey: "rotina:cnd:empresa-ana-amelia:2026-07-27" });
-
-    // As 3 ocorrências caem na MESMA tarefa -- não 3 tarefas separadas.
-    expect(dia1.tarefa.id).toBe(dia2.tarefa.id);
-    expect(dia2.tarefa.id).toBe(dia3.tarefa.id);
-    expect(fakePoolInstance.tarefas.length).toBe(1);
-    // Os 3 itens foram todos somados na mesma lista, nenhum foi perdido.
-    expect(dia3.tarefa.checklist.length).toBe(3);
-
-    // Idempotência preservada: reprocessar a MESMA ocorrência não soma de novo.
-    const dia1Repetido = await criarTarefaAutomacao({ ...ROTINA_BASE, externalKey: "rotina:cnd:empresa-ana-amelia:2026-07-24" });
-    expect(dia1Repetido.criada).toBe(false);
-    expect(dia1Repetido.tarefa.checklist.length).toBe(3);
   });
 });

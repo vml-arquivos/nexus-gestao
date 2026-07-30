@@ -1,18 +1,70 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATH = ROOT / "src/pages/Tarefas.tsx"
+PATH = ROOT / 'src/pages/Tarefas.tsx'
 
 
-def main() -> None:
-    text = PATH.read_text(encoding="utf-8")
-    option = '<option value="ambos">Pontos pela lista e por cada tarefa</option>'
-    if text.count(option) < 2:
-        raise RuntimeError(
-            'A opção de pontuação "ambos" precisa existir na criação e na edição.'
-        )
-    print('Pontuação preservada: lista, tarefas ou ambos.')
+def replace_once(text: str, before: str, after: str, label: str) -> str:
+    if after in text:
+        # Já aplicado (build re-executado sobre código-fonte que já recebeu a
+        # migração, ex.: rebuild sem checkout novo). Não é erro, só um no-op.
+        return text
+    count = text.count(before)
+    if count != 1:
+        raise RuntimeError(f'{label}: esperado 1 trecho, encontrado {count}')
+    return text.replace(before, after, 1)
 
 
-if __name__ == "__main__":
-    main()
+text = PATH.read_text(encoding='utf-8')
+
+# ── Regra de pontuação: lista completa OU individual por item — nunca as
+# duas juntas. A escolha continua manual (o gestor decide na criação da
+# lista) e pode ser alterada depois, na edição — por exemplo ao reabrir uma
+# lista já concluída para incluir novas tarefas com pontuação individual.
+#
+# Histórico: esta etapa do build já chegou a substituir o seletor manual
+# por uma regra 100% automática (baseada em quantos executores a lista
+# tinha). Essa versão foi revertida a pedido — a escolha manual é mais
+# clara para o gestor e evita confusão sobre quem está pontuando o quê.
+
+text = replace_once(
+    text,
+    '''                <option value="tarefa">Pontos pela lista toda</option>
+                <option value="subtarefas">Pontos por cada tarefa</option>
+                <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
+              </select>
+            </div>''',
+    '''                <option value="tarefa">Pontos pela lista toda</option>
+                <option value="subtarefas">Pontos por cada tarefa</option>
+              </select>
+            </div>''',
+    'remove opção "ambos" (criação de lista)',
+)
+
+text = replace_once(
+    text,
+    '''            <div className="team-ranking-note">
+              O ranking respeita a escolha acima: pode pontuar só a lista, só as tarefas da lista ou os dois, sempre somente após aprovação do gestor.
+            </div>''',
+    '''            <div className="team-ranking-note">
+              O ranking respeita a escolha acima: pontua a lista completa ou cada tarefa individualmente, nunca os dois ao mesmo tempo — sempre somente após aprovação do gestor. Dá para mudar essa escolha depois, na edição da lista.
+            </div>''',
+    'nota do ranking (criação de lista)',
+)
+
+text = replace_once(
+    text,
+    '''                  <option value="tarefa">Pontos pela lista toda</option>
+                  <option value="subtarefas">Pontos por cada tarefa</option>
+                  <option value="ambos">Pontuação dupla: lista completa e tarefas</option>
+                </select>
+              </div>''',
+    '''                  <option value="tarefa">Pontos pela lista toda</option>
+                  <option value="subtarefas">Pontos por cada tarefa</option>
+                </select>
+              </div>''',
+    'remove opção "ambos" (edição de lista)',
+)
+
+PATH.write_text(text, encoding='utf-8')
+print('Seletor de pontuação simplificado para 2 opções manuais (lista completa / individual por item), sem "ambos".')

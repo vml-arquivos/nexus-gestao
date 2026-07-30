@@ -136,8 +136,6 @@ export function useNotificacoes() {
   const [ativandoPush, setAtivandoPush] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
   const reconectarRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const reconnectAttemptRef = useRef(0)
-  const disposedRef = useRef(false)
 
   // Desbloqueia áudio no primeiro toque/clique. Em mobile/PWA o navegador só
   // permite som depois de uma interação real do usuário.
@@ -193,12 +191,6 @@ export function useNotificacoes() {
 
   // Conecta SSE
   const conectarSse = useCallback(() => {
-    if (disposedRef.current || !navigator.onLine || document.visibilityState === 'hidden') return
-    if (
-      sseRef.current?.readyState === EventSource.OPEN ||
-      sseRef.current?.readyState === EventSource.CONNECTING
-    ) return
-
     const token = getAccessToken()
     if (!token) return
 
@@ -208,10 +200,6 @@ export function useNotificacoes() {
      */
     const url = `/api/notificacoes/stream?_t=${encodeURIComponent(token)}`
     const es = new EventSource(url, { withCredentials: false })
-
-    es.onopen = () => {
-      reconnectAttemptRef.current = 0
-    }
 
     es.addEventListener('notificacao', (e: MessageEvent) => {
       try {
@@ -226,50 +214,21 @@ export function useNotificacoes() {
       es.close()
       sseRef.current = null
 
-      if (disposedRef.current) return
-      // Backoff exponencial impede uma tempestade de conexões quando proxy,
-      // rede móvel ou backend estão reiniciando.
-      const attempt = Math.min(reconnectAttemptRef.current++, 5)
-      const delay = Math.min(60_000, 5_000 * (2 ** attempt)) + Math.round(Math.random() * 1_000)
+      // Tenta reconectar após 5s
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
-      reconectarRef.current = setTimeout(() => {
-        // A chamada autenticada renova o JWT antes de recriar o EventSource.
-        void carregar().finally(conectarSse)
-      }, delay)
+      reconectarRef.current = setTimeout(conectarSse, 5000)
     }
 
     sseRef.current = es
-  }, [adicionarNotificacao, carregar])
+  }, [adicionarNotificacao])
 
   useEffect(() => {
-    disposedRef.current = false
-    void carregar().finally(conectarSse)
-
-    const resume = () => {
-      if (!navigator.onLine || document.visibilityState === 'hidden') return
-      if (reconectarRef.current) clearTimeout(reconectarRef.current)
-      reconnectAttemptRef.current = 0
-      void carregar().finally(conectarSse)
-    }
-    const pause = () => {
-      if (document.visibilityState !== 'hidden') return
-      sseRef.current?.close()
-      sseRef.current = null
-      if (reconectarRef.current) clearTimeout(reconectarRef.current)
-    }
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') pause()
-      else resume()
-    }
-    window.addEventListener('online', resume)
-    document.addEventListener('visibilitychange', handleVisibility)
+    carregar()
+    conectarSse()
 
     return () => {
-      disposedRef.current = true
       sseRef.current?.close()
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
-      window.removeEventListener('online', resume)
-      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [carregar, conectarSse])
 

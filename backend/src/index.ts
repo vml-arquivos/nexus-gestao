@@ -5,7 +5,7 @@ import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import path from 'path'
 import fs from 'fs'
-import pool, { checkDatabaseHealth } from './db/pool'
+import pool from './db/pool'
 
 // Rotas
 import authRoutes       from './routes/auth'
@@ -98,27 +98,6 @@ app.use(express.json({
 }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// Registra somente respostas lentas e nunca inclui query string (o token do
-// SSE é enviado nela). Ajuda a localizar regressões sem poluir os logs.
-app.use((req, res, next) => {
-  const startedAt = Date.now()
-  res.once('finish', () => {
-    const durationMs = Date.now() - startedAt
-    if (
-      durationMs >= 2_000 &&
-      req.path !== '/health' &&
-      req.path !== '/health/live' &&
-      req.path !== '/api/notificacoes/stream'
-    ) {
-      const heapMb = Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
-      console.warn(
-        `[HTTP_SLOW] ${req.method} ${req.path} status=${res.statusCode} duration_ms=${durationMs} heap_mb=${heapMb} pool_total=${pool.totalCount} pool_idle=${pool.idleCount} pool_waiting=${pool.waitingCount}`,
-      )
-    }
-  })
-  next()
-})
-
 // ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
 // Servir arquivos de upload publicamente via /uploads/:filename
 app.use('/uploads', express.static(UPLOADS_DIR, {
@@ -134,16 +113,12 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 }))
 
 // ── HEALTH CHECK ──────────────────────────────────────────────────────────────
-app.get('/health/live', (_req, res) => {
-  res.json({ status: 'ok', service: 'nexus-api', timestamp: new Date().toISOString() })
-})
-
 app.get('/health', async (_req, res) => {
   try {
-    await checkDatabaseHealth()
+    await pool.query('SELECT 1')
     res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() })
   } catch {
-    res.status(503).json({ status: 'degraded', db: 'unavailable' })
+    res.status(503).json({ status: 'error', db: 'disconnected' })
   }
 })
 
