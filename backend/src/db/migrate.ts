@@ -953,6 +953,31 @@ ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS atualizada_em TIMESTAMPTZ NOT 
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada_em TIMESTAMPTZ;
 
+-- Produção já tinha várias notificações não lidas duplicadas para a mesma
+-- org/usuário/referência/tipo -- exatamente o bug que este FIX52 corrige.
+-- CREATE UNIQUE INDEX abaixo falha se dados existentes já violam a
+-- unicidade, então este passo roda antes e resolve isso sem apagar nada:
+-- por grupo duplicado, a linha mais recente continua não lida (somando as
+-- ocorrências do grupo) e as demais são arquivadas como já lidas. Todo o
+-- histórico permanece no banco, só sai da contagem de "não lidas".
+CREATE TEMP TABLE IF NOT EXISTS notif_dedup_fix52 AS
+SELECT id, ocorrencias,
+       ROW_NUMBER() OVER (
+         PARTITION BY org_id, user_id, referencia_id, tipo
+         ORDER BY atualizada_em DESC, created_at DESC, id DESC
+       ) AS rn,
+       SUM(ocorrencias) OVER (PARTITION BY org_id, user_id, referencia_id, tipo) AS total_ocorrencias
+FROM notificacoes
+WHERE lida = FALSE AND referencia_id IS NOT NULL;
+
+UPDATE notificacoes n SET ocorrencias = d.total_ocorrencias, atualizada_em = NOW()
+FROM notif_dedup_fix52 d WHERE n.id = d.id AND d.rn = 1 AND d.total_ocorrencias <> n.ocorrencias;
+
+UPDATE notificacoes n SET lida = TRUE, arquivada = TRUE, arquivada_em = NOW()
+FROM notif_dedup_fix52 d WHERE n.id = d.id AND d.rn > 1;
+
+DROP TABLE IF EXISTS notif_dedup_fix52;
+
 -- Uma única notificação "ativa" (não lida) por org/usuário/referência/tipo.
 -- É o alvo do ON CONFLICT usado pela função de upsert dos jobs recorrentes.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_notif_ativa_por_referencia

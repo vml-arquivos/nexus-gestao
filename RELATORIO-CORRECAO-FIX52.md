@@ -20,6 +20,35 @@ independentes:
 Este FIX52 resolve o item 2. O item 1 depende do redeploy em si: publicar
 esta release (com cache limpo) e confirmar via `/version`.
 
+## Incidente no primeiro deploy desta release (corrigido)
+
+Na primeira tentativa de publicar o FIX52, o deploy falhou no Coolify: a
+migração tentou criar `uq_notif_ativa_por_referencia` (índice único) numa
+tabela que **já tinha duplicatas reais** de notificação não lida — o
+próprio dado que este FIX52 existe para corrigir. `CREATE UNIQUE INDEX`
+não se cria sobre dados que já violam a unicidade, a migração falhou 12/12
+tentativas, o backend nunca chegou a subir (`/health/live` recusando
+conexão), e o Coolify fez rollback automático para o container anterior.
+**Produção não ficou no ar com o build quebrado** — o rollback do Coolify
+funcionou como deveria.
+
+Correção: antes de criar o índice, a migração agora consolida os grupos
+duplicados numa tabela temporária — mantém a notificação mais recente de
+cada grupo como não lida (somando `ocorrencias`) e arquiva as demais como
+já lidas, sem apagar nada. Só depois cria o índice.
+
+Esta correção foi validada com um PostgreSQL 16 real (não simulado):
+reproduzi o exato conflito do log de produção (mesmos `org_id`/`user_id`/
+`referencia_id`/`tipo`, 5 linhas duplicadas), rodei o `migrate.js`
+compilado de verdade (mesmo caminho que roda dentro do container) contra
+esse banco, e confirmei:
+- migração termina com sucesso (`Schema aplicado com sucesso!`);
+- nenhuma linha é perdida (total de linhas antes = depois);
+- exatamente 1 notificação ativa por grupo duplicado, com `ocorrencias`
+  somado corretamente;
+- rodar a migração de novo (redeploy seguinte) é idempotente, não
+  reprocessa o que já foi consolidado.
+
 ## Correções
 
 ### Carregamento acoplado (dashboard/relatórios)
