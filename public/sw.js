@@ -1,8 +1,11 @@
 // Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
 // Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
-// VERSÃO: 2026-06-11-v10 — incrementar este número a cada deploy para invalidar cache CSS/JS.
+// VERSÃO: 2026-07-30-v12 — incrementar este número a cada deploy para invalidar cache CSS/JS.
+// v12: corrige o SW cacheando respostas 503 de /api/ (ver handler de fetch abaixo).
+// Bump de versão aqui força a limpeza de qualquer 503 antigo salvo por engano
+// pela v11 assim que este SW ativar (ver listener 'activate').
 
-const CACHE_NAME = 'nexus-shell-v11-2026-06-18'
+const CACHE_NAME = 'nexus-shell-v12-2026-07-30'
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -75,8 +78,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req)
-        const cache = await caches.open(CACHE_NAME)
-        cache.put(req, fresh.clone()).catch(() => undefined)
+        // Só guarda no cache respostas realmente boas (2xx). Um 503 (backend fora
+        // do ar / deploy em andamento) NUNCA deve ser salvo: se salvarmos, uma
+        // eventual falha de rede mais tarde faria o SW devolver esse 503 antigo
+        // do cache em vez de tentar de novo — dando a impressão de que o app
+        // "não carrega mais" mesmo depois do backend já ter voltado ao normal.
+        if (fresh.ok) {
+          const cache = await caches.open(CACHE_NAME)
+          cache.put(req, fresh.clone()).catch(() => undefined)
+        }
         return fresh
       } catch {
         const cached = await caches.match(req)
