@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { BarChart3, Download, Loader, Users, Search, ChevronDown, ChevronUp, MessageSquare } from 'lucide-react'
+import { BarChart3, Download, Loader, Users, Search, ChevronDown, ChevronUp, MessageSquare, AlertTriangle } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { tarefasApi, pagamentosApi, equipeApi, type Tarefa, type Pagamento, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -15,6 +15,8 @@ export default function Relatorios() {
   const [pessoas, setPessoas]       = useState<Pessoa[]>([])
   const [membros, setMembros]       = useState<MembroEquipe[]>([])
   const [loading, setLoading]       = useState(true)
+  const [erros, setErros] = useState<{ tarefas?: boolean; pagamentos?: boolean; pessoas?: boolean; membros?: boolean }>({})
+  const [reloadKey, setReloadKey] = useState(0)
 
   // ── Painel de execução por membro ──────────────────────────────────────
   const [membroSelecionado, setMembroSelecionado] = useState<string>('todos')
@@ -23,11 +25,33 @@ export default function Relatorios() {
   const [linhaExpandida, setLinhaExpandida] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([tarefasApi.list(), pagamentosApi.list(), equipeApi.pessoas(), equipeApi.membros()])
-      .then(([t, p, ps, mb]) => { setTarefas(t); setPagamentos(p); setPessoas(ps); setMembros(mb) })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+    let cancelado = false
+    setLoading(true)
+    // Promise.allSettled: uma API lenta (ex.: pessoas) não pode mais travar
+    // o relatório inteiro. Cada bloco carrega e falha de forma independente.
+    Promise.allSettled([tarefasApi.list(), pagamentosApi.list(), equipeApi.pessoas(), equipeApi.membros()])
+      .then(([t, p, ps, mb]) => {
+        if (cancelado) return
+        if (t.status === 'fulfilled') setTarefas(t.value)
+        if (p.status === 'fulfilled') setPagamentos(p.value)
+        if (ps.status === 'fulfilled') setPessoas(ps.value)
+        if (mb.status === 'fulfilled') setMembros(mb.value)
+        setErros({
+          tarefas: t.status === 'rejected',
+          pagamentos: p.status === 'rejected',
+          pessoas: ps.status === 'rejected',
+          membros: mb.status === 'rejected',
+        })
+        for (const [nome, r] of [['tarefas', t], ['pagamentos', p], ['pessoas', ps], ['membros', mb]] as const) {
+          if (r.status === 'rejected') console.warn(`Relatorios: falha ao carregar ${nome}:`, r.reason)
+        }
+      })
+      .finally(() => { if (!cancelado) setLoading(false) })
+    return () => { cancelado = true }
+  }, [reloadKey])
+
+  const tentarNovamente = () => setReloadKey(k => k + 1)
+  const algumErro = erros.tarefas || erros.pagamentos || erros.pessoas || erros.membros
 
   const stats = useMemo(() => {
     const tarefasPorStatus = [
@@ -239,6 +263,27 @@ export default function Relatorios() {
 
   return (
     <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 760, margin: '0 auto', boxSizing: 'border-box' as const }}>
+      {algumErro && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+          borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          color: '#B91C1C', fontSize: 13, marginBottom: 16,
+        }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>
+            {[
+              erros.tarefas && 'tarefas',
+              erros.pagamentos && 'financeiro',
+              erros.pessoas && 'pessoas',
+              erros.membros && 'equipe',
+            ].filter(Boolean).join(', ')} não carregaram agora. Os dados abaixo podem estar incompletos.
+          </span>
+          <button onClick={tentarNovamente} style={{
+            background: 'transparent', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8,
+            padding: '4px 10px', fontSize: 12, fontWeight: 600, color: '#B91C1C', cursor: 'pointer', flexShrink: 0,
+          }}>Tentar novamente</button>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 22 }}>{t('reports.pageTitle')}</h1>

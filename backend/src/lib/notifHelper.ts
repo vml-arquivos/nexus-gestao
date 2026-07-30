@@ -86,14 +86,76 @@ export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
 
 
 
+// ── Criar/atualizar notificação RECORRENTE (vencimentos, financeiro, agenda) ──
+// Diferente de criarNotificacao (usada para eventos únicos como "tarefa
+// concluída"), esta função é para alertas que os jobs reemitem periodicamente
+// enquanto a pendência persistir. Em vez de inserir uma linha nova a cada
+// execução -- o que fez a contagem de não lidas passar de 18 mil em produção
+// -- ela atualiza a notificação ainda não lida da mesma referência/tipo,
+// incrementando "ocorrencias" e atualizando o texto para o estado atual
+// (ex.: "atrasada há 3 dias" -> "atrasada há 4 dias"). Nenhum histórico é
+// perdido: a notificação anterior já lida permanece intacta, e uma nova só
+// é criada quando a pendência atual ainda não tem alerta em aberto.
+export async function criarOuAtualizarNotificacaoRecorrente(opts: CriarNotifOpts): Promise<void> {
+  if (!opts.referenciaId) {
+    // Sem referência não há como agrupar ocorrências; cai para o INSERT simples.
+    await criarNotificacao(opts)
+    return
+  }
+  try {
+    const row = await query(
+      `INSERT INTO notificacoes
+         (org_id, user_id, tipo, titulo, body, referencia_id, referencia_tipo, ocorrencias, atualizada_em)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,1,NOW())
+       ON CONFLICT (org_id, user_id, referencia_id, tipo) WHERE lida = FALSE AND referencia_id IS NOT NULL
+       DO UPDATE SET
+         titulo = EXCLUDED.titulo,
+         body = EXCLUDED.body,
+         ocorrencias = notificacoes.ocorrencias + 1,
+         atualizada_em = NOW()
+       RETURNING id, tipo, titulo, body, referencia_id, referencia_tipo, created_at, ocorrencias`,
+      [opts.orgId, opts.userId, opts.tipo, opts.titulo, opts.body || null,
+       opts.referenciaId, opts.referenciaTipo || null]
+    )
+    const notif = Array.isArray(row) ? row[0] : row
+    // Só soa/empurra push quando é de fato uma ocorrência nova (ocorrencias
+    // volta a 1 no INSERT); numa atualização de contador, evita repetir som
+    // e Web Push a cada execução do job -- o intervalo de notificacaoRecente
+    // já decide a cadência de reemissão.
+    const ehNova = Number((notif as { ocorrencias?: number })?.ocorrencias) === 1
+    if (ehNova) {
+      pushSse(opts.userId, 'notificacao', notif)
+      sendPushToUser({
+        orgId: opts.orgId,
+        userId: opts.userId,
+        title: opts.titulo,
+        body: opts.body,
+        tipo: opts.tipo,
+        referenciaId: opts.referenciaId,
+        referenciaTipo: opts.referenciaTipo,
+      }).catch((err) => console.warn('[PUSH] Falha no push da notificação:', (err as Error)?.message || err))
+    } else {
+      // Atualiza o sino em tempo real mesmo sem tocar som/push novamente.
+      pushSse(opts.userId, 'notificacao_atualizada', notif)
+    }
+  } catch (err) {
+    console.error('[NOTIF] Erro ao criar/atualizar notificação recorrente:', err)
+  }
+}
+
 async function notificacaoRecente(input: { orgId: string; userId: string; referenciaId: string; tipo: string; minutos: number }) {
+  // Usa atualizada_em (não created_at) porque a notificação recorrente é
+  // atualizada no lugar em vez de recriada: created_at fica fixo na primeira
+  // ocorrência, então checar created_at faria esta função "esquecer" o
+  // alerta após o primeiro intervalo e disparar a cada execução do job.
   const row = await query<{ id: string }>(
     `SELECT id FROM notificacoes
      WHERE org_id = $1
        AND user_id = $2
        AND referencia_id = $3
        AND tipo = $4
-       AND created_at >= NOW() - ($5::text || ' minutes')::interval
+       AND lida = FALSE
+       AND atualizada_em >= NOW() - ($5::text || ' minutes')::interval
      LIMIT 1`,
     [input.orgId, input.userId, input.referenciaId, input.tipo, input.minutos]
   ).catch(() => [])
@@ -154,7 +216,7 @@ async function jobVencimentos() {
 
       for (const userId of recipients) {
         if (await notificacaoRecente({ orgId: t.org_id, userId, referenciaId: t.id, tipo, minutos: intervaloMinutos })) continue
-        await criarNotificacao({
+        await criarOuAtualizarNotificacaoRecorrente({
           orgId: t.org_id,
           userId,
           tipo,
@@ -305,7 +367,7 @@ async function jobFinanceiroVencimento() {
         : (vencido
             ? `${pessoa}${valor} está vencido há ${Math.abs(dias)} dia(s). Regularize ou registre a decisão.`
             : `${pessoa}${valor} para pagar ${venceHoje ? 'vence hoje' : 'vence amanhã'}.`)
-      await criarNotificacao({
+      await criarOuAtualizarNotificacaoRecorrente({
         orgId: p.org_id,
         userId: p.criado_por,
         tipo,
@@ -365,6 +427,30 @@ async function jobAgendaLembrete() {
   }
 }
 
+// ── Job: arquivar notificações antigas (preserva os dados) ───────────────────
+// Substitui a limpeza manual por exclusão: por padrão nenhuma notificação é
+// apagada. Notificações lidas com mais de 30 dias são marcadas como
+// arquivadas (arquivada = TRUE) e somem da lista/contagem padrão, mas
+// continuam no banco para auditoria/histórico.
+async function jobArquivarNotificacoesAntigas() {
+  try {
+    const resultado = await query<{ id: string }>(
+      `UPDATE notificacoes
+          SET arquivada = TRUE, arquivada_em = NOW()
+        WHERE arquivada = FALSE
+          AND lida = TRUE
+          AND created_at < NOW() - INTERVAL '30 days'
+        RETURNING id`,
+      []
+    )
+    if (Array.isArray(resultado) && resultado.length > 0) {
+      console.log(`[NOTIF] ${resultado.length} notificação(ões) arquivada(s) automaticamente (dados preservados).`)
+    }
+  } catch (err) {
+    console.error('[NOTIF] Erro no job de arquivamento:', err)
+  }
+}
+
 // ── Inicializar jobs ──────────────────────────────────────────────────────────
 export function iniciarJobsNotificacao() {
   const run = (name: string, job: () => Promise<void>) =>
@@ -394,10 +480,14 @@ export function iniciarJobsNotificacao() {
   // Lembretes de agenda: verifica a cada 5 minutos
   setInterval(() => { void run('agenda', jobAgendaLembrete) }, 5 * 60 * 1000)
 
+  // Arquivamento automático: uma vez por dia basta (não é uma rota urgente).
+  setInterval(() => { void run('arquivamento', jobArquivarNotificacoesAntigas) }, 24 * 60 * 60 * 1000)
+
   // Dá prioridade ao tráfego de login/tarefas após deploy.
   setTimeout(() => { void run('vencimentos', jobVencimentos) }, 180_000)
   setTimeout(() => { void run('lembretes', jobLembretes) }, 210_000)
   setTimeout(() => { void run('financeiro', jobFinanceiroVencimento) }, 240_000)
   setTimeout(() => { void run('agenda', jobAgendaLembrete) }, 270_000)
-  console.log('[NOTIF] Jobs de notificação iniciados (tarefas, lembretes, financeiro, agenda).')
+  setTimeout(() => { void run('arquivamento', jobArquivarNotificacoesAntigas) }, 300_000)
+  console.log('[NOTIF] Jobs de notificação iniciados (tarefas, lembretes, financeiro, agenda, arquivamento).')
 }

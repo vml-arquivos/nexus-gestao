@@ -4308,6 +4308,7 @@ export default function Tarefas() {
   })
   const loadInFlightRef = useRef<Promise<void> | null>(null)
   const lastLoadedAtRef = useRef(0)
+  const [erroCarregamento, setErroCarregamento] = useState(false)
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -4335,6 +4336,7 @@ export default function Tarefas() {
         // complementares e não podem manter a página inteira bloqueada.
         const ts = await tarefasApi.list()
         setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
+        setErroCarregamento(false)
         lastLoadedAtRef.current = Date.now()
 
         void Promise.allSettled([
@@ -4361,6 +4363,7 @@ export default function Tarefas() {
           }
         })
       } catch (e) {
+        setErroCarregamento(true)
         toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
       } finally {
         setLoading(false)
@@ -4794,6 +4797,26 @@ export default function Tarefas() {
         <div className="offline-sync-banner">
           <strong>{online ? 'Sincronização pendente' : 'Modo offline ativo'}</strong>
           <span>{online ? `${offlineQueueCount} atualização(ões) aguardando envio.` : 'Você pode consultar dados salvos e registrar alterações simples. Ao voltar a internet, o Nexus sincroniza automaticamente.'}</span>
+        </div>
+      )}
+
+      {/* ── ERRO DE CARREGAMENTO ──────────────────────────────
+          Antes, uma falha na API de tarefas deixava a lista vazia sem
+          nenhuma explicação -- o usuário via "0 tarefas" e não sabia se
+          era isso mesmo ou se algo tinha quebrado. Agora mostramos que a
+          API falhou de verdade, com um botão para tentar de novo. */}
+      {erroCarregamento && tarefas.length === 0 && (
+        <div className="offline-sync-banner" style={{ borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)' }}>
+          <strong style={{ color: '#B91C1C' }}>Não foi possível carregar as tarefas</strong>
+          <span>A lista abaixo pode estar vazia por falha na conexão com o servidor, não porque não há tarefas.</span>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => { void load() }}
+            style={{ marginTop: 8, alignSelf: 'flex-start' }}
+          >
+            Tentar novamente
+          </button>
         </div>
       )}
 

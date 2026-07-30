@@ -61,6 +61,44 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 }
 
+// ── TICKET DE CONEXÃO SSE ─────────────────────────────────────────────────────
+// EventSource não manda header Authorization, então a conexão precisa de
+// autenticação via query string. Antes isso era o access token completo
+// (15 min, válido em qualquer rota) direto na URL -- exposto em logs de
+// proxy/CDN, histórico do navegador e header Referer. Em vez disso, emitimos
+// um ticket de vida curtíssima (60s) e com escopo único (só serve para abrir
+// o /stream), que reduz drasticamente a janela e o raio de exposição, sem
+// precisar de um store compartilhado entre réplicas (verificação é stateless,
+// com o mesmo JWT_SECRET já usado pelos outros tokens).
+const SSE_TICKET_TTL_SECONDS = 60
+
+export function generateSseTicket(payload: { userId: string; orgId: string; role: UserRole }): string {
+  return jwt.sign({ ...payload, scope: 'sse' }, JWT_SECRET, { expiresIn: SSE_TICKET_TTL_SECONDS })
+}
+
+export function sseTicketMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const ticket = typeof req.query.ticket === 'string' ? req.query.ticket : null
+  if (!ticket) {
+    res.status(401).json({ error: 'Ticket de conexão não fornecido.' })
+    return
+  }
+  try {
+    const decoded = jwt.verify(ticket, JWT_SECRET) as JwtPayload & { scope?: string }
+    if (!decoded?.userId || !decoded?.orgId || !decoded?.role || decoded.scope !== 'sse') {
+      res.status(401).json({ error: 'Ticket inválido.' })
+      return
+    }
+    req.user = decoded
+    next()
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      res.status(401).json({ error: 'Ticket expirado. Solicite um novo antes de reconectar.' })
+    } else {
+      res.status(401).json({ error: 'Ticket inválido.' })
+    }
+  }
+}
+
 function requireRoles(roles: UserRole[], message: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {

@@ -34,7 +34,7 @@ describe('proteções de runtime FIX51', () => {
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix51-sequential-build-20260730')
+    expect(dockerfile).toContain('fix52-loading-notificacoes-20260730')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })

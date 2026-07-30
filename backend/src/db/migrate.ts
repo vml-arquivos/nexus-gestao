@@ -942,6 +942,29 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_grupo_recorrencia ON tarefas(grupo_recorr
 CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
   ON tarefas(org_id, external_key) WHERE external_key IS NOT NULL;
 
+-- ── NOTIFICAÇÕES — agregação e arquivamento (FIX52) ──────────────────────────
+-- Antes, cada tique do job de vencimento/financeiro/agenda inserida uma nova
+-- linha para a mesma referência. Em produção isso já havia acumulado 18k+
+-- notificações não lidas. Agora um mesmo alerta ainda não lido é atualizado
+-- (ocorrencias incrementa, titulo/body refletem o estado atual) em vez de
+-- duplicado. Nenhuma linha existente é apagada por esta migração.
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS ocorrencias INT NOT NULL DEFAULT 1;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS atualizada_em TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada_em TIMESTAMPTZ;
+
+-- Uma única notificação "ativa" (não lida) por org/usuário/referência/tipo.
+-- É o alvo do ON CONFLICT usado pela função de upsert dos jobs recorrentes.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notif_ativa_por_referencia
+  ON notificacoes(org_id, user_id, referencia_id, tipo)
+  WHERE lida = FALSE AND referencia_id IS NOT NULL;
+
+-- Consulta padrão da lista (exclui arquivadas) e do job de arquivamento.
+CREATE INDEX IF NOT EXISTS idx_notif_user_ativas
+  ON notificacoes(user_id, org_id, arquivada, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_arquivamento
+  ON notificacoes(lida, arquivada, created_at) WHERE arquivada = FALSE;
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================

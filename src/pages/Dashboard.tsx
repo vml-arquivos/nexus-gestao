@@ -277,34 +277,53 @@ export default function Dashboard() {
   const [membros, setMembros] = useState<MembroEquipe[]>([])
   const [ranking, setRanking] = useState<RankingPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [erros, setErros] = useState<{ tarefas?: boolean; agenda?: boolean; pagamentos?: boolean; membros?: boolean }>({})
+  const [reloadKey, setReloadKey] = useState(0)
   const [mesFiltro, setMesFiltro] = useState(monthKeyFromDate(now))
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | PainelTipo>('todos')
   const [statusFiltro, setStatusFiltro] = useState<'todos' | 'abertos' | 'concluidos' | 'vencidos'>('abertos')
   const [busca, setBusca] = useState('')
 
   useEffect(() => {
+    let cancelado = false
     async function load() {
-      try {
-        const [t, a, p, m, r] = await Promise.all([
-          tarefasApi.list(),
-          agendaApi.list(),
-          pagamentosApi.list(),
-          isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
-          tarefasApi.ranking('todos').catch(() => null),
-        ])
-        setTarefas(t)
-        setAgenda(a)
-        setPagamentos(p)
-        setMembros(m)
-        setRanking(r)
-      } catch (e) {
-        console.warn('Dashboard load error:', e)
-      } finally {
-        setLoading(false)
+      setLoading(true)
+      // Promise.allSettled: uma API lenta/fora do ar (ex.: agenda) não pode
+      // mais derrubar tarefas, financeiro e equipe junto. Cada seção carrega
+      // e falha de forma independente, e o usuário vê o que deu certo em vez
+      // de uma tela zerada sem explicação.
+      const [t, a, p, m, r] = await Promise.allSettled([
+        tarefasApi.list(),
+        agendaApi.list(),
+        pagamentosApi.list(),
+        isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
+        tarefasApi.ranking('todos'),
+      ])
+      if (cancelado) return
+
+      if (t.status === 'fulfilled') setTarefas(t.value)
+      if (a.status === 'fulfilled') setAgenda(a.value)
+      if (p.status === 'fulfilled') setPagamentos(p.value)
+      if (m.status === 'fulfilled') setMembros(m.value)
+      setRanking(r.status === 'fulfilled' ? r.value : null)
+
+      setErros({
+        tarefas: t.status === 'rejected',
+        agenda: a.status === 'rejected',
+        pagamentos: p.status === 'rejected',
+        membros: m.status === 'rejected',
+      })
+      for (const [nome, resultado] of [['tarefas', t], ['agenda', a], ['pagamentos', p], ['membros', m], ['ranking', r]] as const) {
+        if (resultado.status === 'rejected') console.warn(`Dashboard: falha ao carregar ${nome}:`, resultado.reason)
       }
+      setLoading(false)
     }
     load()
-  }, [user])
+    return () => { cancelado = true }
+  }, [user, reloadKey])
+
+  const tentarNovamente = () => setReloadKey(k => k + 1)
+  const algumErro = erros.tarefas || erros.agenda || erros.pagamentos || erros.membros
 
   const focoDoDia = useMemo(() => calcularFocoDoDia(tarefas, user?.id, hoje), [tarefas, user?.id, hoje])
 
@@ -491,6 +510,27 @@ export default function Dashboard() {
 
   return (
     <div className="dash-board-page">
+      {algumErro && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+          borderRadius: 10, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
+          color: '#B91C1C', fontSize: 13, marginBottom: 16,
+        }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>
+            {[
+              erros.tarefas && 'tarefas',
+              erros.agenda && 'agenda',
+              erros.pagamentos && 'financeiro',
+              erros.membros && 'equipe',
+            ].filter(Boolean).join(', ')} não {[erros.tarefas, erros.agenda, erros.pagamentos, erros.membros].filter(Boolean).length > 1 ? 'carregaram' : 'carregou'} agora. O restante do painel abaixo está atualizado normalmente.
+          </span>
+          <button onClick={tentarNovamente} style={{
+            background: 'transparent', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 8,
+            padding: '4px 10px', fontSize: 12, fontWeight: 600, color: '#B91C1C', cursor: 'pointer', flexShrink: 0,
+          }}>Tentar novamente</button>
+        </div>
+      )}
       <div className="dash-hero">
         <div>
           <p className="dash-eyebrow">{roleLabel(user?.role)} · {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</p>

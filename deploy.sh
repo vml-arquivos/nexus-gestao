@@ -37,9 +37,13 @@ fi
 echo "⏹️  Parando containers existentes (se houver)..."
 docker compose down --remove-orphans 2>/dev/null || true
 
-# ── 4. Build e sobe ──────────────────────────────────────────
-echo "🔨 Fazendo build e subindo containers..."
-docker compose up -d --build
+# ── 4. Build sem cache e sobe ─────────────────────────────────
+# --no-cache evita reaproveitar uma camada de uma imagem anterior
+# quebrada/incompleta -- foi exatamente isso que manteve o domínio servindo
+# a versão antiga depois de um build interrompido em 30/07/2026.
+echo "🔨 Fazendo build sem cache e subindo containers..."
+docker compose build --no-cache
+docker compose up -d
 
 # ── 5. Aguarda e verifica ────────────────────────────────────
 echo "⏳ Aguardando containers iniciarem..."
@@ -47,9 +51,27 @@ sleep 5
 
 if docker compose ps | grep -q "Up"; then
   echo ""
-  echo "✅ Deploy concluído com sucesso!"
+  echo "✅ Containers no ar. Validando release publicada..."
   echo ""
   DOMAIN=$(grep DOMAIN .env | cut -d '=' -f2)
+
+  # Gate obrigatório: só considera o deploy concluído se /version bater com
+  # a release do código-fonte. Container "Up" não significa release certa.
+  if [ -f "scripts/verify-release.sh" ] && [ -n "$DOMAIN" ]; then
+    if ./scripts/verify-release.sh "https://$DOMAIN"; then
+      echo ""
+      echo "✅ Deploy concluído e validado com sucesso!"
+    else
+      echo ""
+      echo "❌ Containers subiram, mas a release publicada não confere."
+      echo "   NÃO trate este deploy como concluído. Veja os logs:"
+      docker compose logs --tail=80
+      exit 1
+    fi
+  else
+    echo "⚠️  scripts/verify-release.sh ou DOMAIN ausente -- validação manual necessária."
+  fi
+  echo ""
   echo "🌐 Acesse: https://$DOMAIN"
   echo ""
   echo "📱 Para instalar como app no iPhone:"

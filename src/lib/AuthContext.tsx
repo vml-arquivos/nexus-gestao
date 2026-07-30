@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { auth, getAccessToken, clearTokens, type UserProfile } from './api'
+import { auth, getAccessToken, clearTokens, decodeOptimisticUser, type UserProfile } from './api'
 
 interface AuthContextValue {
   user: UserProfile | null
@@ -26,6 +26,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadUser = useCallback(async () => {
     const token = getAccessToken()
     if (!token) { setLoading(false); return }
+
+    // Preenche com o que já dá para saber localmente (sem rede) e libera a
+    // tela na hora. O /me continua rodando por baixo para confirmar o
+    // perfil completo (avatar, org_nome etc.) e para expulsar a sessão se
+    // o token não for mais válido no servidor (revogado, org desativada...).
+    const optimista = decodeOptimisticUser(token)
+    if (optimista) {
+      setUser(optimista)
+      setLoading(false)
+    }
+
     try {
       const { user: u } = await auth.me()
       setUser(u)

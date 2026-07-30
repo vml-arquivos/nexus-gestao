@@ -192,15 +192,32 @@ export function useNotificacoes() {
   }, [])
 
   // Conecta SSE
-  const conectarSse = useCallback(() => {
+  const conectarSse = useCallback(async () => {
     const token = getAccessToken()
     if (!token || !mountedRef.current || !navigator.onLine || sseRef.current) return
 
     /**
-     * EventSource não aceita header Authorization.
-     * Por isso mantemos a URL real do backend com /api uma única vez.
+     * EventSource não aceita header Authorization, então antes o access
+     * token completo (válido em qualquer rota, 15 min) ia direto na URL.
+     * Agora pedimos um ticket de 60s com escopo único (só abre o /stream)
+     * numa chamada autenticada normal via Bearer, e usamos só o ticket na URL.
      */
-    const url = `/api/notificacoes/stream?_t=${encodeURIComponent(token)}`
+    let ticket: string
+    try {
+      const data = await apiJson<{ ticket: string }>('/notificacoes/stream/ticket', { method: 'POST' })
+      ticket = data.ticket
+    } catch {
+      // Sem ticket agora (rede/API fora do ar) -- tenta de novo com backoff normal.
+      if (!mountedRef.current) return
+      sseFailuresRef.current += 1
+      const baseDelay = Math.min(60_000, 5_000 * (2 ** Math.min(4, sseFailuresRef.current - 1)))
+      if (reconectarRef.current) clearTimeout(reconectarRef.current)
+      reconectarRef.current = setTimeout(conectarSse, baseDelay + Math.round(Math.random() * 2_000))
+      return
+    }
+    if (!mountedRef.current || sseRef.current) return
+
+    const url = `/api/notificacoes/stream?ticket=${encodeURIComponent(ticket)}`
     const es = new EventSource(url, { withCredentials: false })
     es.onopen = () => {
       sseFailuresRef.current = 0
@@ -215,12 +232,24 @@ export function useNotificacoes() {
       }
     })
 
+    // Atualização silenciosa de uma notificação recorrente já existente
+    // (ex.: contador de "atrasada há N dias" mudou, mas não é um alerta novo).
+    es.addEventListener('notificacao_atualizada', (e: MessageEvent) => {
+      try {
+        const notif: Notificacao = JSON.parse(e.data)
+        setNotificacoes(prev => prev.map(n => (n.id === notif.id ? { ...n, ...notif } : n)))
+      } catch {
+        // ignora payload inválido
+      }
+    })
+
     es.onerror = () => {
       es.close()
       sseRef.current = null
 
       if (!mountedRef.current) return
-      // Backoff evita tempestade de conexões quando Cloudflare/HTTP3 oscila.
+      // Backoff evita tempestade de conexões quando Cloudflare/HTTP3 oscila,
+      // e também dá tempo do ticket anterior expirar antes de pedir outro.
       sseFailuresRef.current += 1
       const baseDelay = Math.min(60_000, 5_000 * (2 ** Math.min(4, sseFailuresRef.current - 1)))
       const delay = baseDelay + Math.round(Math.random() * 2_000)

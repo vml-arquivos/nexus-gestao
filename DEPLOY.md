@@ -76,12 +76,38 @@ Preserve o volume existente durante todos os redeploys.
 5. Não execute `docker system prune`, não remova volumes e não reinicie o
    PostgreSQL.
 
+## Cache do build (obrigatório)
+
+Em 30/07/2026 um build foi interrompido (`exit 255`) e o domínio continuou
+servindo, sem aviso, a imagem anterior -- ninguém percebeu porque a checagem
+de `/version` abaixo era manual. Para não repetir isso:
+
+- No Coolify, antes de cada deploy desta release, use a opção
+  **"Force rebuild without cache"** (ou equivalente na versão instalada).
+  Isso garante que nenhuma camada de um build quebrado seja reaproveitada.
+- Configure o comando de **pós-deploy** do recurso no Coolify para rodar:
+
+  ```bash
+  bash scripts/verify-release.sh https://nexus.permupay.com.br
+  ```
+
+  Esse script sai com código de erro se `/version` não bater com a release
+  do código-fonte, ou se `/health/live`/`/health` não responderem certo --
+  o Coolify deve marcar o deploy como falho nesse caso, em vez de liberar o
+  domínio silenciosamente para uma imagem errada.
+
 ## Aceite
 
 ```bash
 curl -fsS https://nexus.permupay.com.br/version
 curl -fsS https://nexus.permupay.com.br/health/live
 curl -fsS https://nexus.permupay.com.br/health
+```
+
+Ou, de forma automatizada (o mesmo que roda no passo de pós-deploy):
+
+```bash
+bash scripts/verify-release.sh https://nexus.permupay.com.br
 ```
 
 O primeiro comando deve conter:

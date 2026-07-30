@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, generateSseTicket, sseTicketMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { addSseClient, removeSseClient } from '../lib/notifHelper'
 import { deactivatePushSubscription, ensurePushSchema, getVapidPublicKey, pushConfigured, upsertPushSubscription } from '../services/pushService'
@@ -7,9 +7,19 @@ import { respondRouteError } from '../lib/httpErrors'
 
 const router = Router()
 
-// ── SSE: conexão em tempo real (sem authMiddleware pois usa token na query) ───
-// GET /api/notificacoes/stream?token=<jwt>
-router.get('/stream', authMiddleware, (req: Request, res: Response): void => {
+// POST /api/notificacoes/stream/ticket
+// Emite um ticket de vida curta (60s, escopo único) para abrir o SSE.
+// Chamada normal, autenticada via header Authorization -- não expõe o
+// access token de verdade em lugar nenhum.
+router.post('/stream/ticket', authMiddleware, (req: Request, res: Response): void => {
+  const { userId, orgId, role } = req.user!
+  const ticket = generateSseTicket({ userId, orgId, role })
+  res.json({ ticket, expiresIn: 60 })
+})
+
+// ── SSE: conexão em tempo real (autenticada via ticket de curta duração) ─────
+// GET /api/notificacoes/stream?ticket=<ticket-de-60s>
+router.get('/stream', sseTicketMiddleware, (req: Request, res: Response): void => {
   const { userId } = req.user!
 
   // Cabeçalhos SSE
@@ -121,15 +131,17 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, orgId } = req.user!
     const apenasNaoLidas = req.query.apenas_nao_lidas === 'true'
+    const incluirArquivadas = req.query.incluir_arquivadas === 'true'
 
     let sql = `SELECT * FROM notificacoes WHERE user_id = $1 AND org_id = $2`
     const params: unknown[] = [userId, orgId]
+    if (!incluirArquivadas) sql += ` AND arquivada = false`
     if (apenasNaoLidas) sql += ` AND lida = false`
-    sql += ` ORDER BY created_at DESC LIMIT 50`
+    sql += ` ORDER BY atualizada_em DESC LIMIT 50`
 
     const notificacoes = await query(sql, params)
     const contagem = await queryOne<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM notificacoes WHERE user_id=$1 AND org_id=$2 AND lida=false`,
+      `SELECT COUNT(*) AS count FROM notificacoes WHERE user_id=$1 AND org_id=$2 AND lida=false AND arquivada=false`,
       [userId, orgId]
     )
 
@@ -300,17 +312,21 @@ router.patch('/:id/ler', async (req: Request, res: Response): Promise<void> => {
 })
 
 // DELETE /api/notificacoes/antigas
+// Nome da rota mantido por compatibilidade, mas o comportamento agora é
+// arquivar (preservando os dados), nunca apagar linhas do histórico.
 router.delete('/antigas', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, orgId } = req.user!
-    await query(
-      `DELETE FROM notificacoes WHERE user_id=$1 AND org_id=$2 AND lida=true
-       AND created_at < NOW() - INTERVAL '30 days'`,
+    const resultado = await query<{ id: string }>(
+      `UPDATE notificacoes SET arquivada = true, arquivada_em = NOW()
+       WHERE user_id=$1 AND org_id=$2 AND lida=true AND arquivada=false
+       AND created_at < NOW() - INTERVAL '30 days'
+       RETURNING id`,
       [userId, orgId]
     )
-    res.json({ ok: true })
+    res.json({ ok: true, arquivadas: Array.isArray(resultado) ? resultado.length : 0 })
   } catch (err) {
-    console.error('[NOTIF] Erro ao limpar:', err)
+    console.error('[NOTIF] Erro ao arquivar:', err)
     res.status(500).json({ error: 'Erro.' })
   }
 })

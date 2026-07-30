@@ -23,6 +23,37 @@ function tokenOwner(token: string | null): string {
   }
 }
 
+// Decodifica o access token localmente (sem chamada de rede) para preencher
+// um usuário "otimista" no primeiro render. Antes, a tela cheia de
+// carregamento ficava presa esperando /api/auth/me responder -- em
+// aberturas diretas isso chegou a ~17s (pool frio, deploy recente, etc.),
+// bloqueando a aplicação inteira mesmo com um token local válido. Só os
+// campos já presentes no JWT (ver JwtPayload no backend) ficam disponíveis
+// até o /me real confirmar o perfil completo em segundo plano.
+export function decodeOptimisticUser(token: string | null): UserProfile | null {
+  try {
+    if (!token) return null
+    const part = token.split('.')[1] || ''
+    const normalized = part.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='))) as {
+      userId?: string; orgId?: string; role?: UserProfile['role']; nome?: string; email?: string; exp?: number
+    }
+    if (!payload.userId || !payload.orgId || !payload.role) return null
+    // Token já expirado localmente: não vale a pena otimizar, deixa o
+    // fluxo normal (bloqueante) tratar o refresh/expulsão.
+    if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) return null
+    return {
+      id: payload.userId,
+      orgId: payload.orgId,
+      role: payload.role,
+      nome: payload.nome || '',
+      email: payload.email || '',
+    }
+  } catch {
+    return null
+  }
+}
+
 function clearApiCaches() {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
