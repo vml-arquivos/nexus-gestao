@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import pool from "../db/pool";
+import { runClusterSingletonJob } from "../lib/clusterJob";
 
 type TarefaRecorrenteRow = {
   id: string;
@@ -178,10 +179,8 @@ export async function avaliarRecorrenciaTarefas(): Promise<void> {
 export function iniciarRecorrenciaTarefas(): void {
   const intervaloMs = Number(process.env.RECORRENCIA_TAREFAS_INTERVAL_MS || 60 * 60_000); // 1h
   const rodar = () => {
-    avaliarRecorrenciaTarefas().catch((err) => {
-      console.error("[RECORRENCIA] Erro na varredura de tarefas recorrentes:", err);
-    });
+    void runClusterSingletonJob("tarefas-recorrentes", avaliarRecorrenciaTarefas);
   };
   setInterval(rodar, intervaloMs);
-  setTimeout(rodar, 20_000);
+  setTimeout(rodar, 300_000);
 }

@@ -5,7 +5,7 @@ import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 import path from 'path'
 import fs from 'fs'
-import pool from './db/pool'
+import pool, { getPoolStatus } from './db/pool'
 
 // Rotas
 import authRoutes       from './routes/auth'
@@ -30,6 +30,8 @@ import { iniciarBackupAutomatico } from './services/backupAutoService'
 import { iniciarRecorrenciaTarefas } from './services/recorrenciaTarefasService'
 import { executarVarreduraOutboxAutomation } from './services/automation/dispatcher'
 import { avaliarAlertasAutomacao } from './services/automation/alertJob'
+import { runClusterSingletonJob } from './lib/clusterJob'
+import { NEXUS_RELEASE, NEXUS_RELEASE_DATE } from './release'
 
 const app = express()
 // Necessário em produção atrás do Coolify/Traefik para o express-rate-limit interpretar X-Forwarded-For corretamente.
@@ -40,6 +42,11 @@ const DESTRAVA_FRONTEND_URL = process.env.DESTRAVA_FRONTEND_URL || 'https://dest
 const CORS_EXTRA_ORIGINS = (process.env.CORS_EXTRA_ORIGINS || '').split(',').map(v => v.trim()).filter(Boolean)
 const FRAME_ANCESTORS = process.env.NEXUS_ALLOWED_FRAME_ANCESTORS || `'self' ${DESTRAVA_FRONTEND_URL} https://destravacredito.com.br`
 const UPLOADS_DIR  = process.env.UPLOADS_DIR  || path.join(process.cwd(), 'uploads')
+
+app.use((_req, res, next) => {
+  res.setHeader('X-Nexus-Release', NEXUS_RELEASE)
+  next()
+})
 
 // Garante que o diretório de uploads existe
 if (!fs.existsSync(UPLOADS_DIR)) {
@@ -112,13 +119,54 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   },
 }))
 
-// ── HEALTH CHECK ──────────────────────────────────────────────────────────────
+// ── VERSÃO / HEALTH CHECK ─────────────────────────────────────────────────────
+const versionPayload = () => ({
+  name: 'nexus-gestao',
+  release: NEXUS_RELEASE,
+  release_date: NEXUS_RELEASE_DATE,
+  node: process.version,
+})
+
+const livePayload = () => ({
+  status: 'ok',
+  service: 'nexus-api',
+  release: NEXUS_RELEASE,
+  uptime_seconds: Math.round(process.uptime()),
+})
+
+app.get('/version', (_req, res) => res.json(versionPayload()))
+app.get('/api/version', (_req, res) => res.json(versionPayload()))
+app.get('/health/live', (_req, res) => res.json(livePayload()))
+app.get('/api/health/live', (_req, res) => res.json(livePayload()))
+
 app.get('/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1')
-    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() })
+    res.json({
+      status: 'ok',
+      db: 'connected',
+      release: NEXUS_RELEASE,
+      pool: getPoolStatus(),
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error) {
+    res.setHeader('Retry-After', '3')
+    res.status(503).json({
+      status: 'error',
+      db: 'disconnected',
+      release: NEXUS_RELEASE,
+      pool: getPoolStatus(),
+      error: error instanceof Error ? error.message : 'database unavailable',
+    })
+  }
+})
+app.get('/api/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1')
+    res.json({ status: 'ok', db: 'connected', release: NEXUS_RELEASE, pool: getPoolStatus() })
   } catch {
-    res.status(503).json({ status: 'error', db: 'disconnected' })
+    res.setHeader('Retry-After', '3')
+    res.status(503).json({ status: 'error', db: 'disconnected', release: NEXUS_RELEASE, pool: getPoolStatus() })
   }
 })
 
@@ -154,7 +202,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 })
 
 // ── STARTUP ───────────────────────────────────────────────────────────────────
-async function waitForDb(retries = 30, delay = 3000): Promise<void> {
+async function waitForDb(retries = 3, delay = 2000): Promise<void> {
   for (let i = 1; i <= retries; i++) {
     try {
       await pool.query('SELECT 1')
@@ -189,19 +237,20 @@ async function start() {
     // dos jobs de notificação acima -- entrega eventos que o despacho imediato
     // não conseguiu concluir).
     const intervaloRetryMs = Number(process.env.AUTOMATION_RETRY_INTERVAL_MS || 60_000)
-    setInterval(() => {
-      executarVarreduraOutboxAutomation().catch((err) => {
-        console.error('[AUTOMATION] Erro na varredura do outbox:', err)
-      })
-    }, intervaloRetryMs)
+    const runOutbox = () => runClusterSingletonJob(
+      'automation-outbox',
+      () => executarVarreduraOutboxAutomation().then(() => undefined),
+    )
+    setInterval(() => { void runOutbox() }, intervaloRetryMs)
+    setTimeout(() => { void runOutbox() }, 180_000)
 
     // Ladder de alertas 7d/3d/1d/hoje/atrasado das rotinas e acompanhamentos.
-    setInterval(() => {
-      avaliarAlertasAutomacao().catch((err) => {
-        console.error('[AUTOMATION] Erro ao avaliar alertas:', err)
-      })
-    }, 30 * 60_000)
-    setTimeout(() => avaliarAlertasAutomacao().catch(() => {}), 30_000)
+    const runAlerts = () => runClusterSingletonJob(
+      'automation-alerts',
+      () => avaliarAlertasAutomacao().then(() => undefined),
+    )
+    setInterval(() => { void runAlerts() }, 30 * 60_000)
+    setTimeout(() => { void runAlerts() }, 330_000)
   })
 }
 

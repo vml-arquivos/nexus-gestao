@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldAutoSyncAgenda } from '../src/routes/agenda'
+import { shouldAutoSyncAgenda } from '../src/routes/agendaPolicy'
 
 describe('política de sincronização da agenda', () => {
   it('não executa sincronização pesada numa listagem comum', () => {

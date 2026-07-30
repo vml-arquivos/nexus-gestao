@@ -10,7 +10,7 @@
     "start": "node dist/index.js",
     "migrate": "node -e \"require('./dist/db/migrate')\" ",
     "test:logic": "npm run build && node --test test/tarefas.logic.test.js",
-    "test": "vitest run"
+    "test": "NODE_OPTIONS=--require=./test/memoryUsageShim.cjs vitest run"
   },
   "dependencies": {
     "@types/multer": "^2.1.0",

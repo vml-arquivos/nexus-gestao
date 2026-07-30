@@ -5,31 +5,44 @@
 import { Response } from 'express'
 import { query } from '../db/pool'
 import { sendPushToUser } from '../services/pushService'
+import { runClusterSingletonJob } from './clusterJob'
 
 // ── SSE: mapa de conexões ativas ─────────────────────────────────────────────
 // Chave: userId  →  lista de respostas SSE abertas (multi-tab)
-const sseClients = new Map<string, Response[]>()
+const sseClients = new Map<string, Set<Response>>()
+const MAX_SSE_CONNECTIONS_PER_USER = 3
 
 export function addSseClient(userId: string, res: Response) {
-  const list = sseClients.get(userId) || []
-  list.push(res)
+  const list = sseClients.get(userId) || new Set<Response>()
+  while (list.size >= MAX_SSE_CONNECTIONS_PER_USER) {
+    const oldest = list.values().next().value as Response | undefined
+    if (!oldest) break
+    list.delete(oldest)
+    try { oldest.end() } catch { /* conexão já encerrada */ }
+  }
+  list.add(res)
   sseClients.set(userId, list)
 }
 
 export function removeSseClient(userId: string, res: Response) {
-  const list = sseClients.get(userId) || []
-  const filtered = list.filter(r => r !== res)
-  if (filtered.length === 0) sseClients.delete(userId)
-  else sseClients.set(userId, filtered)
+  const list = sseClients.get(userId)
+  if (!list) return
+  list.delete(res)
+  if (list.size === 0) sseClients.delete(userId)
 }
 
 function pushSse(userId: string, event: string, data: unknown) {
   const list = sseClients.get(userId)
-  if (!list || list.length === 0) return
+  if (!list || list.size === 0) return
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
   for (const res of list) {
-    try { res.write(payload) } catch { /* cliente desconectado */ }
+    if (res.writableEnded || res.destroyed) {
+      list.delete(res)
+      continue
+    }
+    try { res.write(payload) } catch { list.delete(res) }
   }
+  if (list.size === 0) sseClients.delete(userId)
 }
 
 // ── Criar notificação no banco e disparar SSE ─────────────────────────────────
@@ -125,7 +138,9 @@ async function jobVencimentos() {
        LEFT JOIN profiles p ON p.id = t.responsavel_id
        WHERE t.status IN ('pendente','em_progresso','devolvida','reenviada')
          AND t.prazo IS NOT NULL
-         AND t.prazo::date <= CURRENT_DATE`,
+         AND t.prazo::date <= CURRENT_DATE
+       ORDER BY t.prazo ASC, t.id ASC
+       LIMIT 300`,
       []
     )
 
@@ -214,7 +229,9 @@ async function jobLembretes() {
        FROM lembretes l
        WHERE l.ativo = TRUE
          AND l.enviado = FALSE
-         AND l.data_lembrete <= $1`,
+         AND l.data_lembrete <= $1
+       ORDER BY l.data_lembrete ASC
+       LIMIT 300`,
       [agora]
     )
     for (const l of pendentes) {
@@ -260,7 +277,9 @@ async function jobFinanceiroVencimento() {
        LEFT JOIN pessoas pe ON pe.id = p.pessoa_id AND pe.org_id = p.org_id
        WHERE p.status = 'pendente'
          AND p.vencimento IS NOT NULL
-         AND p.vencimento::date <= CURRENT_DATE + INTERVAL '1 day'`,
+         AND p.vencimento::date <= CURRENT_DATE + INTERVAL '1 day'
+       ORDER BY p.vencimento ASC, p.id ASC
+       LIMIT 300`,
       []
     )
     let enviados = 0
@@ -308,8 +327,6 @@ async function jobFinanceiroVencimento() {
 // ── Job: lembretes de agenda ──────────────────────────────────────────────────
 async function jobAgendaLembrete() {
   try {
-    const agora = new Date()
-    const em15min = new Date(agora.getTime() + 16 * 60 * 1000).toISOString()
     const eventos = await query<{
       id: string; org_id: string; criado_por: string; titulo: string
       data_inicio: string; lembrete_minutos: number
@@ -323,7 +340,9 @@ async function jobAgendaLembrete() {
            SELECT 1 FROM notificacoes n
            WHERE n.referencia_id = a.id
              AND n.tipo = 'agenda_lembrete'
-         )`,
+         )
+       ORDER BY a.data_inicio ASC
+       LIMIT 300`,
       []
     )
     for (const e of eventos) {
@@ -348,8 +367,11 @@ async function jobAgendaLembrete() {
 
 // ── Inicializar jobs ──────────────────────────────────────────────────────────
 export function iniciarJobsNotificacao() {
+  const run = (name: string, job: () => Promise<void>) =>
+    runClusterSingletonJob(`notificacoes:${name}`, job)
+
   // Verifica tarefas vencendo/atrasadas a cada 30 minutos
-  setInterval(jobVencimentos, 30 * 60 * 1000)
+  setInterval(() => { void run('vencimentos', jobVencimentos) }, 30 * 60 * 1000)
 
   // Lembrete diário: verifica a cada 5 minutos se já passou das 08:00
   let lembreteEnviadoHoje = ''
@@ -359,23 +381,23 @@ export function iniciarJobsNotificacao() {
     const hora = agora.getHours()
     if (hora >= 8 && lembreteEnviadoHoje !== hoje) {
       lembreteEnviadoHoje = hoje
-      await jobLembreteDiario()
+      await run('lembrete-diario', jobLembreteDiario)
     }
   }, 5 * 60 * 1000)
 
   // Lembretes personalizados: verifica a cada 2 minutos
-  setInterval(jobLembretes, 2 * 60 * 1000)
+  setInterval(() => { void run('lembretes', jobLembretes) }, 2 * 60 * 1000)
 
   // Vencimentos financeiros: verifica a cada 30 minutos
-  setInterval(jobFinanceiroVencimento, 30 * 60 * 1000)
+  setInterval(() => { void run('financeiro', jobFinanceiroVencimento) }, 30 * 60 * 1000)
 
   // Lembretes de agenda: verifica a cada 5 minutos
-  setInterval(jobAgendaLembrete, 5 * 60 * 1000)
+  setInterval(() => { void run('agenda', jobAgendaLembrete) }, 5 * 60 * 1000)
 
-  // Executa imediatamente ao iniciar (para pegar vencimentos do dia)
-  setTimeout(jobVencimentos, 10_000)
-  setTimeout(jobLembretes, 15_000)
-  setTimeout(jobFinanceiroVencimento, 20_000)
-  setTimeout(jobAgendaLembrete, 25_000)
+  // Dá prioridade ao tráfego de login/tarefas após deploy.
+  setTimeout(() => { void run('vencimentos', jobVencimentos) }, 180_000)
+  setTimeout(() => { void run('lembretes', jobLembretes) }, 210_000)
+  setTimeout(() => { void run('financeiro', jobFinanceiroVencimento) }, 240_000)
+  setTimeout(() => { void run('agenda', jobAgendaLembrete) }, 270_000)
   console.log('[NOTIF] Jobs de notificação iniciados (tarefas, lembretes, financeiro, agenda).')
 }

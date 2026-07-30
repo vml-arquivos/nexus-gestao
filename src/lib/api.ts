@@ -11,7 +11,31 @@ const REFRESH_KEY = 'nx_refresh_token'
 export function getAccessToken(): string | null  { return localStorage.getItem(TOKEN_KEY) }
 export function getRefreshToken(): string | null { return localStorage.getItem(REFRESH_KEY) }
 
+function tokenOwner(token: string | null): string {
+  try {
+    if (!token) return 'anonymous'
+    const part = token.split('.')[1] || ''
+    const normalized = part.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')))
+    return String(payload.userId || payload.sub || 'anonymous')
+  } catch {
+    return 'anonymous'
+  }
+}
+
+function clearApiCaches() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('nexus:cache:')) localStorage.removeItem(key)
+    }
+  } catch {}
+}
+
 export function setTokens(access: string, refresh: string) {
+  const previousOwner = tokenOwner(getAccessToken())
+  const nextOwner = tokenOwner(access)
+  if (previousOwner !== 'anonymous' && previousOwner !== nextOwner) clearApiCaches()
   localStorage.setItem(TOKEN_KEY, access)
   localStorage.setItem(REFRESH_KEY, refresh)
 }
@@ -19,6 +43,7 @@ export function setTokens(access: string, refresh: string) {
 export function clearTokens() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(REFRESH_KEY)
+  clearApiCaches()
 }
 
 // ── TIPOS ─────────────────────────────────────────────────────────────────────
@@ -483,8 +508,7 @@ export interface DestravaCatalogoItem {
 }
 
 // ── FETCH COM AUTH ────────────────────────────────────────────────────────────
-let isRefreshing = false
-let refreshQueue: Array<(token: string) => void> = []
+let refreshPromise: Promise<string | null> | null = null
 
 type OfflineQueueItem = { id: string; path: string; method: string; body?: string; createdAt: string }
 const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'
@@ -517,12 +541,16 @@ function enqueueOffline(path: string, options: RequestInit = {}) {
 }
 
 function cacheGetResponse(path: string, data: unknown) {
-  try { localStorage.setItem(`nexus:cache:${path}`, JSON.stringify({ data, cachedAt: new Date().toISOString() })) } catch {}
+  try {
+    const owner = tokenOwner(getAccessToken())
+    localStorage.setItem(`nexus:cache:${owner}:${path}`, JSON.stringify({ data, cachedAt: new Date().toISOString() }))
+  } catch {}
 }
 
 function readCachedGet<T>(path: string): T | null {
   try {
-    const raw = localStorage.getItem(`nexus:cache:${path}`)
+    const owner = tokenOwner(getAccessToken())
+    const raw = localStorage.getItem(`nexus:cache:${owner}:${path}`)
     if (!raw) return null
     return (JSON.parse(raw) || {}).data ?? null
   } catch { return null }
@@ -551,6 +579,51 @@ if (typeof window !== 'undefined') {
   setTimeout(() => { if (isBrowserOnline()) syncOfflineQueue().catch(() => undefined) }, 1200)
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const externalSignal = init.signal
+  let timedOut = false
+  const abortFromCaller = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) abortFromCaller()
+  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true })
+  const timer = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (timedOut) throw new Error('O servidor demorou para responder. Tente novamente em instantes.')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise
+  refreshPromise = (async () => {
+    const currentRefresh = getRefreshToken()
+    if (!currentRefresh) return null
+    const refreshRes = await fetchWithTimeout(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: currentRefresh }),
+    }, 12_000)
+    if (!refreshRes.ok) return null
+    const payload = await refreshRes.json()
+    const accessToken = String(payload?.accessToken || '')
+    if (!accessToken) return null
+    // O backend mantém o refresh estável; ainda aceitamos resposta de versões
+    // anteriores para uma transição de deploy sem quebrar a sessão.
+    setTokens(accessToken, String(payload?.refreshToken || currentRefresh))
+    return accessToken
+  })().catch(() => null).finally(() => {
+    refreshPromise = null
+  })
+  return refreshPromise
+}
 
 async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getAccessToken()
@@ -569,46 +642,20 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
     }
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  const method = String(options.method || 'GET').toUpperCase()
+  const timeoutMs = method === 'GET' ? 20_000 : 30_000
+  const res = await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers }, timeoutMs)
 
   if (res.status === 401) {
-    const refreshToken = getRefreshToken()
-    if (!refreshToken) {
+    const newToken = await refreshAccessToken()
+    if (!newToken) {
       clearTokens()
-      window.location.href = '/login'
+      if (window.location.pathname !== '/login') window.location.replace('/login')
       return res
     }
 
-    if (isRefreshing) {
-      return new Promise((resolve) => {
-        refreshQueue.push(async (newToken: string) => {
-          headers['Authorization'] = `Bearer ${newToken}`
-          resolve(await fetch(`${BASE_URL}${path}`, { ...options, headers }))
-        })
-      })
-    }
-
-    isRefreshing = true
-    try {
-      const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      })
-      if (!refreshRes.ok) {
-        clearTokens()
-        window.location.href = '/login'
-        return res
-      }
-      const { accessToken, refreshToken: newRefresh } = await refreshRes.json()
-      setTokens(accessToken, newRefresh)
-      refreshQueue.forEach(cb => cb(accessToken))
-      refreshQueue = []
-      headers['Authorization'] = `Bearer ${accessToken}`
-      return fetch(`${BASE_URL}${path}`, { ...options, headers })
-    } finally {
-      isRefreshing = false
-    }
+    headers['Authorization'] = `Bearer ${newToken}`
+    return fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers }, timeoutMs)
   }
 
   return res

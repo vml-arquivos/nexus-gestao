@@ -26,46 +26,47 @@ const needsSsl =
   dbUrl.includes('sslmode=require') ||
   dbUrl.includes('ssl=true')
 
-// ── TIMEOUTS DO POOL (antes configurados no Coolify mas nunca lidos pelo código) ─
-// DB_POOL_MAX, DB_CONNECT_TIMEOUT_MS, DB_QUERY_TIMEOUT_MS e DB_STATEMENT_TIMEOUT_MS
-// já estavam definidas como variáveis de ambiente em produção desde relatórios de
-// correção anteriores, mas o pool.ts nunca as lia -- eram no-op. Implementadas de
-// verdade aqui, com os valores hardcoded anteriores como fallback caso a env não
-// esteja definida ou seja inválida.
-//
-// idle_in_transaction_session_timeout é NOVO (não existia antes): funciona como
-// rede de segurança para o cenário provado contra Postgres real em produção --
-// uma conexão que abre transação (BEGIN), roda um UPDATE e por bug de aplicação
-// nunca chama COMMIT/ROLLBACK fica "idle in transaction" segurando lock para
-// sempre, vazando uma conexão do pool a cada ocorrência até esgotar o pool
-// inteiro e derrubar rotas completamente não relacionadas. Esse timeout garante
-// que o próprio Postgres mate a conexão travada, mesmo que uma causa futura e
-// ainda não descoberta produza o mesmo padrão.
-function envInt(name: string, fallback: number): number {
-  const raw = Number(process.env[name])
-  return Number.isFinite(raw) && raw > 0 ? raw : fallback
+function boundedInteger(raw: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, Math.trunc(parsed)))
 }
 
-const poolMax = envInt('DB_POOL_MAX', 20)
-const connectTimeoutMs = envInt('DB_CONNECT_TIMEOUT_MS', 5000)
-const queryTimeoutMs = envInt('DB_QUERY_TIMEOUT_MS', 60000)
-const statementTimeoutMs = envInt('DB_STATEMENT_TIMEOUT_MS', 60000)
-const idleInTransactionTimeoutMs = envInt('DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', 60000)
+const poolMax = boundedInteger(process.env.DB_POOL_MAX, 12, 2, 50)
+// DB_CONNECT_TIMEOUT_MS existia nas releases 47/49. Mantemos o alias para que
+// o redeploy não dependa de renomear a variável já cadastrada no Coolify.
+const connectionTimeoutMs = boundedInteger(
+  process.env.DB_CONNECTION_TIMEOUT_MS ?? process.env.DB_CONNECT_TIMEOUT_MS,
+  4_000,
+  1_000,
+  30_000,
+)
+const statementTimeoutMs = boundedInteger(process.env.DB_STATEMENT_TIMEOUT_MS, 15_000, 1_000, 120_000)
+const queryTimeoutMs = boundedInteger(process.env.DB_QUERY_TIMEOUT_MS, 18_000, statementTimeoutMs, 130_000)
+const lockTimeoutMs = boundedInteger(process.env.DB_LOCK_TIMEOUT_MS, 5_000, 500, 30_000)
+const idleInTransactionTimeoutMs = boundedInteger(
+  process.env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+  15_000,
+  5_000,
+  120_000,
+)
 
 const pool = new Pool({
   connectionString: dbUrl,
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
   max: poolMax,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: connectTimeoutMs,
-  query_timeout: queryTimeoutMs,
+  connectionTimeoutMillis: connectionTimeoutMs,
   statement_timeout: statementTimeoutMs,
+  query_timeout: queryTimeoutMs,
+  lock_timeout: lockTimeoutMs,
   idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+  application_name: 'nexus-api',
 })
 
 console.log(
-  `[DB] Pool configurado: max=${poolMax} connectTimeout=${connectTimeoutMs}ms queryTimeout=${queryTimeoutMs}ms ` +
-  `statementTimeout=${statementTimeoutMs}ms idleInTransactionTimeout=${idleInTransactionTimeoutMs}ms`
+  `[DB] Pool max=${poolMax}; connect=${connectionTimeoutMs}ms; query=${queryTimeoutMs}ms; ` +
+  `statement=${statementTimeoutMs}ms; lock=${lockTimeoutMs}ms; idle_tx=${idleInTransactionTimeoutMs}ms`,
 )
 
 pool.on('error', (err) => {
@@ -89,6 +90,35 @@ pool.on('error', (err) => {
 // principal, com lock não bloqueante -- nunca mais no caminho de toda conexão.
 
 export default pool
+
+export function getPoolStatus() {
+  return {
+    max: poolMax,
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+    timeouts_ms: {
+      connection: connectionTimeoutMs,
+      statement: statementTimeoutMs,
+      query: queryTimeoutMs,
+      lock: lockTimeoutMs,
+      idle_transaction: idleInTransactionTimeoutMs,
+    },
+  }
+}
+
+export function isTransientDatabaseError(error: unknown): boolean {
+  const err = error as { code?: string; message?: string }
+  const code = String(err?.code || '')
+  const message = String(err?.message || '').toLowerCase()
+  return ['53300', '53400', '55P03', '57014', '57P01', '57P02', '57P03', '08000', '08001', '08003', '08004', '08006', '08007', '08P01']
+    .includes(code)
+    || message.includes('timeout')
+    || message.includes('connection terminated')
+    || message.includes('connection refused')
+    || message.includes('cannot connect')
+    || message.includes('remaining connection slots')
+}
 
 export async function query<T = Record<string, unknown>>(
   text: string,

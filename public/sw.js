@@ -1,8 +1,8 @@
 // Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
 // Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
-// VERSÃO: 2026-06-11-v10 — incrementar este número a cada deploy para invalidar cache CSS/JS.
+// VERSÃO: FIX51 — API/SSE nunca passam pelo Cache Storage.
 
-const CACHE_NAME = 'nexus-shell-v11-2026-06-18'
+const CACHE_NAME = 'nexus-shell-fix51-2026-07-30'
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -70,24 +70,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url)
   if (req.method !== 'GET' || url.origin !== self.location.origin) return
 
-  // Recursos de API: network-first, fallback para cache
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith((async () => {
-      try {
-        const fresh = await fetch(req)
-        const cache = await caches.open(CACHE_NAME)
-        cache.put(req, fresh.clone()).catch(() => undefined)
-        return fresh
-      } catch {
-        const cached = await caches.match(req)
-        return cached || new Response(
-          JSON.stringify({ offline: true, error: 'Sem internet e sem cache local para esta consulta.' }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-    })())
-    return
-  }
+  // Nunca intercepta API, SSE ou uploads autenticados. Cachear a resposta
+  // infinita de /api/notificacoes/stream mantinha um clone aberto para sempre,
+  // acumulava conexões e terminava em ERR_QUIC_PROTOCOL_ERROR. Respostas de
+  // tarefas também não podem ser compartilhadas entre sessões no Cache Storage.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return
 
   // Assets de build (JS/CSS com hash): sempre network-first para garantir versão nova após deploy.
   // Só cai para cache se estiver offline.

@@ -1,99 +1,106 @@
-# Nexus Gestao — Deploy via Coolify (Dockerfile)
+# Nexus Gestão — deploy FIX51 no Coolify
 
-## Arquitetura do Container
+Release: `fix51-sequential-build-20260730`
 
-Um unico container com:
-- **Nginx** (porta 80): serve o frontend React/PWA
-- **Node.js** (porta 3001, interno): API backend Express + JWT
-- **supervisord**: gerencia os dois processos simultaneamente
-- **Migration automatica**: tabelas criadas no startup
+## Arquitetura
 
-O Traefik do Coolify gerencia SSL e dominio externamente.
+Um contêiner unificado com:
 
----
+- Nginx na porta interna 80;
+- API Node.js na porta interna 3001;
+- supervisord gerenciando os dois processos;
+- migrations idempotentes antes da inicialização da API;
+- uploads persistentes em `/app/uploads`.
 
-## Passo a Passo no Coolify
+O Traefik do Coolify gerencia o domínio e o TLS externamente.
 
-### 1. Criar novo servico
-- No Coolify: **New Resource → Application**
-- Repositorio: `https://github.com/vml-arquivos/nexus-gestao`
+## Configuração do recurso
+
+- Repositório: `https://github.com/vml-arquivos/nexus-gestao`
 - Branch: `main`
-- Build Pack: **Dockerfile**
-- Dockerfile Location: `/Dockerfile` (raiz do repositorio)
+- Build Pack: `Dockerfile`
+- Base Directory: raiz do repositório
+- Dockerfile Location: `/Dockerfile`
+- Porta interna: `80`
+- Health Check Path: `/health/live`
+- Health Check Port: `80`
 
-### 2. Configurar variaveis de ambiente
-Cole as variaveis abaixo no painel **Environment Variables** do Coolify:
+## Variáveis
 
-```
-DATABASE_URL=postgres://postgres:WVsAhbLWNxhc0lLyjuNykCnAbYn4eO6bmJtAhycEdrfmPmQVsjb5IFHRXx7Tp5I8@q9s0fac7m9bnjnacuwymxlit:5432/postgres
-JWT_SECRET=hltgydBOrqes47fIHGNGlBNHVezdufJzt69tT3Y+dyBJfrkWZIETzuMJ/3sT8FXb86wTq1WthCTv9Beqzc/Ahw==
-JWT_REFRESH_SECRET=HSEuz4cnK9GucbFoWoskGpP6N5EIbLFrTrQx6AHTZFKAMtPSuuVXAmvkh2QSRQvU1ECU0ik7o+z/OEXTod6rGg==
+Use somente placeholders no repositório. Os valores reais devem existir apenas
+no cofre de variáveis do Coolify:
+
+```env
+DATABASE_URL=<CONFIGURAR_SOMENTE_NO_COOLIFY>
+DATABASE_SSL=false
+JWT_SECRET=<CONFIGURAR_SOMENTE_NO_COOLIFY>
+JWT_REFRESH_SECRET=<CONFIGURAR_SOMENTE_NO_COOLIFY>
 JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=30d
+JWT_REFRESH_EXPIRES_IN=365d
 FRONTEND_URL=https://nexus.permupay.com.br
 NODE_ENV=production
 PORT=3001
 UPLOADS_DIR=/app/uploads
 VITE_API_URL=/api
+
+DB_POOL_MAX=12
+DB_CONNECTION_TIMEOUT_MS=4000
+DB_LOCK_TIMEOUT_MS=5000
+DB_STATEMENT_TIMEOUT_MS=15000
+DB_QUERY_TIMEOUT_MS=18000
+DB_IDLE_IN_TRANSACTION_TIMEOUT_MS=15000
+BACKGROUND_JOBS_ENABLED=true
+AGENDA_AUTO_SYNC_ENABLED=false
 ```
 
-### 3. Configurar dominio
-- Em **Domains**: adicione `nexus.permupay.com.br`
-- Ative **SSL automatico (Let's Encrypt)**
-- Porta: **80** (o container expoe a porta 80)
+Marque como build-time somente variáveis públicas necessárias ao frontend,
+normalmente as iniciadas por `VITE_`. Senhas, banco, JWT, tokens e chaves devem
+ser somente de runtime.
 
-### 4. Configurar volume persistente (uploads)
-- Em **Persistent Storage**: adicione `/app/uploads`
-- Isso garante que os arquivos enviados nao sejam perdidos em redeploys
+## Volume persistente
 
-### 5. Deploy
-- Clique em **Deploy**
+Configure:
 
-### 6. Verificar logs esperados
-```
-[STARTUP] Executando migrations no PostgreSQL...
-[MIGRATE] Conectando ao PostgreSQL...
-[MIGRATE] Executando schema...
-[MIGRATE] Schema aplicado com sucesso!
-[STARTUP] Migrations OK. Iniciando nginx + node...
-[SERVER] Nexus API rodando na porta 3001
+```text
+/app/uploads
 ```
 
----
+Preserve o volume existente durante todos os redeploys.
 
-## Portas na VPS (sem conflito)
+## Redeploy
 
-| Servico | Porta no host | Observacao |
-|---|---|---|
-| Chatwoot (existente) | 3000 | nao conflita |
-| Nexus (este projeto) | 80 (via Traefik) | sem porta exposta diretamente |
+1. Substitua o conteúdo inteiro do repositório pelo pacote FIX51.
+2. Preserve as variáveis e o volume.
+3. Limpe somente o cache de build.
+4. Execute o deploy pelo Dockerfile da raiz.
+5. Não execute `docker system prune`, não remova volumes e não reinicie o
+   PostgreSQL.
 
-O Traefik roteia pelo dominio — nao e necessario expor porta no host.
-
----
-
-## Primeiro Acesso
-
-1. Acesse `https://nexus.permupay.com.br`
-2. Clique em **Criar conta**
-3. Preencha nome, e-mail, senha e selecione **Gestor**
-4. Sua organizacao e criada automaticamente
-5. Para adicionar membros: **Equipe → Convidar Membro**
-
----
-
-## PWA — Instalacao no Celular
-
-**Android (Chrome):** menu tres pontos → Adicionar a tela inicial
-
-**iOS (Safari):** botao Compartilhar → Adicionar a Tela de Inicio
-
----
-
-## Apos o Deploy — Trocar os Tokens JWT
+## Aceite
 
 ```bash
-openssl rand -base64 64  # novo JWT_SECRET
-openssl rand -base64 64  # novo JWT_REFRESH_SECRET
+curl -fsS https://nexus.permupay.com.br/version
+curl -fsS https://nexus.permupay.com.br/health/live
+curl -fsS https://nexus.permupay.com.br/health
 ```
-Atualize no Coolify e faca Redeploy.
+
+O primeiro comando deve conter:
+
+```json
+{"release":"fix51-sequential-build-20260730"}
+```
+
+`/health/live` deve retornar JSON do `nexus-api`, nunca HTML. `/health` deve
+informar `db: connected`.
+
+## Rotação do segredo exposto
+
+O antigo `JWT_REFRESH_SECRET` apareceu em log e em uma versão anterior deste
+arquivo. Gere um novo valor fora do repositório:
+
+```bash
+openssl rand -base64 64
+```
+
+Cadastre-o somente no Coolify. A rotação encerra sessões existentes, mas não
+apaga usuários, tarefas, arquivos, pontuações ou dados do banco.

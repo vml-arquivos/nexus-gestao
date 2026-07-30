@@ -1,102 +1,93 @@
+# syntax=docker/dockerfile:1.7
 # ============================================================
-# NEXUS GESTÃO — Dockerfile Unificado (Coolify)
+# NEXUS GESTÃO — Dockerfile unificado e sequencial (Coolify)
+# Release FIX51
+#
+# Uma única etapa de build executa frontend e backend em sequência. A etapa
+# de produção só começa depois que o builder termina. Isso impede o BuildKit
+# de repetir o cenário comprovado no log: npm ci do frontend, tsc do backend
+# e apk/npm da produção concorrendo por CPU, memória, disco e rede.
 # ============================================================
 
-# ── STAGE 1: Build do Backend ──────────────────────────────
-FROM node:20-alpine AS backend-builder
+FROM node:20-alpine AS builder
 
-# Força registry público — evita timeout no registry corporativo
 ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
     NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
-    NPM_CONFIG_CACHE=/root/.npm
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
 
-RUN apk add --no-cache python3
+WORKDIR /app
 
+# Dependências do frontend. O cache BuildKit reduz downloads em redeploys.
+COPY package.json package-lock.json* ./
+RUN --mount=type=cache,id=nexus-frontend-npm,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund
+
+# Dependências do backend são instaladas depois, nunca em paralelo.
 WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,id=nexus-backend-npm,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund
 
-# Os patches são determinísticos, versionados e falham imediatamente se o código-base
-# esperado tiver mudado. Assim backend e frontend recebem exatamente a mesma regra.
+# Os patches antes executados dentro do Docker já estão incorporados ao fonte
+# desta release. Não instalamos Python e não reescrevemos arquivos no deploy.
 WORKDIR /app
 COPY . .
-RUN python3 scripts/apply_tarefas_client_select_patch.py \
-    && python3 scripts/apply_task_scoring_ui_patch.py \
-    && node scripts/apply_task_visibility_board_patch.mjs
 
+# Backend primeiro.
 WORKDIR /app/backend
-RUN NODE_OPTIONS="--max-old-space-size=384" npx tsc --skipLibCheck
+RUN NODE_OPTIONS="--max-old-space-size=384" ./node_modules/.bin/tsc --skipLibCheck
 
-# ── STAGE 2: Build do Frontend ─────────────────────────────
-FROM node:20-alpine AS frontend-builder
+# Frontend depois. O typecheck completo foi validado antes do empacotamento;
+# na VPS usamos Vite diretamente para reduzir o pico de memória.
+WORKDIR /app
+RUN NODE_OPTIONS="--max-old-space-size=384" ./node_modules/.bin/vite build
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
-    NPM_CONFIG_FETCH_RETRIES=5 \
-    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=10000 \
-    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000 \
-    NPM_CONFIG_CACHE=/root/.npm
+# Reaproveita as dependências já baixadas. Evita um terceiro npm ci na imagem
+# final e mantém somente dependências de produção do backend.
+WORKDIR /app/backend
+RUN --mount=type=cache,id=nexus-backend-npm,target=/root/.npm \
+    npm prune --omit=dev --no-audit --no-fund
 
-RUN apk add --no-cache python3
-
-WORKDIR /app/frontend
-
-# Sincroniza com o fim do backend-builder ANTES de qualquer passo do frontend-builder --
-# não só antes do vite build (onde estava antes). Achado com log real de deploy (fix50):
-# o COPY --from ficava lá embaixo, logo antes do vite build, e isso NÃO impedia o BuildKit
-# de rodar o `npm ci` do frontend em paralelo com o `tsc` do backend -- que é o passo mais
-# pesado dos dois. Log real mostrou os dois rodando ao mesmo tempo por ~90s (13:15:25 a
-# 13:17:00) e o build inteiro morrendo com "exit code 255" genérico, sem NENHUM erro de
-# TypeScript impresso -- assinatura de OOM kill, não de erro de compilação, num host
-# historicamente apertado de RAM (ver relatórios de correção anteriores: 94% CPU, OOM em
-# outros serviços, coolify-realtime em restart loop por falta de memória). Com o COPY --from
-# aqui em cima, o BuildKit é obrigado a esperar o backend-builder terminar por completo
-# (tsc incluso) antes de iniciar QUALQUER passo do frontend-builder, inclusive o npm ci --
-# serializa os dois estágios de verdade, ao custo de build total mais lento.
-COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
-
-COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund
-COPY . .
-RUN python3 scripts/apply_tarefas_client_select_patch.py \
-    && python3 scripts/apply_task_scoring_ui_patch.py \
-    && node scripts/apply_task_visibility_board_patch.mjs \
-    && rm -rf backend /tmp/backend-build-check
-
-RUN NODE_OPTIONS="--max-old-space-size=384" npx vite build
-
-# ── STAGE 3: Produção ──────────────────────────────────────
+# ── PRODUÇÃO ──────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 
-ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
-    NPM_CONFIG_FETCH_RETRIES=5 \
-    NPM_CONFIG_CACHE=/root/.npm
+ENV NODE_ENV=production \
+    NEXUS_RELEASE=fix51-sequential-build-20260730
+
+LABEL org.opencontainers.image.title="Nexus Gestão" \
+      org.opencontainers.image.version="fix51-sequential-build-20260730"
+
+# Barreira de serialização: esta cópia depende do builder completo. Portanto
+# nem apk nem qualquer trabalho da produção inicia junto com npm/tsc/vite.
+COPY --from=builder /app/backend/dist /tmp/nexus-backend-dist
 
 RUN apk add --no-cache nginx supervisor wget postgresql-client tar gzip
 
-# Backend
 WORKDIR /app/backend
-COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --omit=dev --no-audit --no-fund
-COPY --from=backend-builder /app/backend/dist ./dist
+COPY --from=builder /app/backend/package.json ./package.json
+COPY --from=builder /app/backend/package-lock.json ./package-lock.json
+COPY --from=builder /app/backend/node_modules ./node_modules
+RUN mv /tmp/nexus-backend-dist ./dist
 
-# Frontend
 RUN mkdir -p /usr/share/nginx/html
-COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Configurações
 RUN rm -f /etc/nginx/http.d/default.conf
 COPY nginx.unified.conf /etc/nginx/http.d/app.conf
 COPY supervisord.conf /etc/supervisord.conf
+COPY backend-start.sh /app/backend-start.sh
+COPY healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/backend-start.sh /app/healthcheck.sh
 
-# Entrypoint
-RUN printf '#!/bin/sh\nset -e\nmkdir -p /app/uploads\necho "[STARTUP] Rodando migration..."\ncd /app/backend && node dist/db/migrate.js && echo "[STARTUP] Migration OK"\necho "[STARTUP] Iniciando Nexus..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/sh\nset -e\nmkdir -p /app/uploads /app/backups\necho "[STARTUP] Nexus ${NEXUS_RELEASE} iniciando..."\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' \
+    > /app/entrypoint.sh \
+    && chmod +x /app/entrypoint.sh
 
 VOLUME ["/app/uploads"]
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=5 \
-  CMD wget -qO- http://localhost/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+  CMD ["/app/healthcheck.sh"]
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]

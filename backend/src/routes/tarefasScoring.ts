@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import pool, { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { criarNotificacao } from '../lib/notifHelper'
+import { respondRouteError } from '../lib/httpErrors'
 
 const router = Router()
 const SCORE_MAX = 20
@@ -167,28 +168,6 @@ function inPeriod(value: unknown, range: ReturnType<typeof periodRange>): boolea
   return Boolean(date && range.start && range.end && date >= range.start && date < range.end)
 }
 
-let compatibilityPromise: Promise<void> | null = null
-async function ensureCompatibilitySchema() {
-  if (!compatibilityPromise) {
-    compatibilityPromise = (async () => {
-      await query(`ALTER TABLE tarefas_ajuda ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`)
-      // Nota: em produção este índice já é criado de forma definitiva (com
-      // deduplicação prévia) pela migration em backend/src/db/migrate.ts.
-      // Esta chamada permanece apenas como reforço best-effort para bancos
-      // que ainda não rodaram a migration mais recente; se falhar, o erro é
-      // logado (não mais engolido silenciosamente) para ficar visível em
-      // observabilidade, já que a ausência desse índice quebra o
-      // ON CONFLICT usado pela aprovação de tarefas.
-      await query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_pontuacao_tarefa_usuario_motivo ON tarefas_pontuacao (tarefa_id, usuario_id, motivo)`)
-    })().catch(err => {
-      compatibilityPromise = null
-      console.error('[TAREFAS-SCORING] Falha ao garantir schema de compatibilidade (rode a migration mais recente em backend/src/db/migrate.ts):', err)
-      throw err
-    })
-  }
-  return compatibilityPromise
-}
-
 async function canManageTask(task: any, req: Request): Promise<boolean> {
   const user = req.user!
   if (canDeleteOrgRecords(user.role) || user.role === 'gestor') return true
@@ -261,7 +240,6 @@ async function upsertTaskScore(client: any, task: any, approverId: string) {
 }
 
 router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Request, res: Response): Promise<void> => {
-  await ensureCompatibilitySchema().catch(() => undefined)
   const client = await pool.connect()
   try {
     const { orgId, userId, role } = req.user!
@@ -384,7 +362,6 @@ function isGestorEstrito(role: string): boolean {
 }
 
 router.patch('/:id/checklist/:itemId/corrigir-pontuacao', authMiddleware, async (req: Request, res: Response): Promise<void> => {
-  await ensureCompatibilitySchema().catch(() => undefined)
   const client = await pool.connect()
   try {
     const { orgId, userId, role } = req.user!
@@ -444,7 +421,6 @@ router.patch('/:id/checklist/:itemId/corrigir-pontuacao', authMiddleware, async 
 })
 
 router.patch('/:id/corrigir-pontuacao', authMiddleware, async (req: Request, res: Response): Promise<void> => {
-  await ensureCompatibilitySchema().catch(() => undefined)
   const client = await pool.connect()
   try {
     const { orgId, userId, role } = req.user!
@@ -493,7 +469,6 @@ router.patch('/:id/corrigir-pontuacao', authMiddleware, async (req: Request, res
 })
 
 router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response): Promise<void> => {
-  await ensureCompatibilitySchema().catch(() => undefined)
   const client = await pool.connect()
   try {
     const { orgId, userId, role } = req.user!
@@ -610,7 +585,6 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
 
 router.get('/ranking', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    await ensureCompatibilitySchema()
     const { orgId } = req.user!
     const range = periodRange(String(req.query.periodo || 'todos').trim().toLowerCase())
     const members = await query<any>(
@@ -620,7 +594,10 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
       [orgId],
     )
     const tasks = await query<any>(
-      `SELECT * FROM tarefas
+      `SELECT id, titulo, checklist, responsavel_id, aceita_por, status,
+              aprovada_em, aprovada_por, updated_at, pontuacao,
+              origem_payload
+       FROM tarefas
        WHERE org_id = $1
          AND COALESCE(escopo, 'pessoal') = 'equipe'
          AND COALESCE(conta_ranking, TRUE) = TRUE`,
@@ -720,13 +697,12 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
     })
   } catch (err) {
     console.error('[TAREFAS-SCORING] Erro ao buscar ranking:', err)
-    res.status(500).json({ error: 'Erro ao buscar ranking de tarefas.' })
+    respondRouteError(res, err, 'Erro ao buscar ranking de tarefas.')
   }
 })
 
 router.get('/ajuda/minhas', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
-    await ensureCompatibilitySchema()
     const { orgId, userId } = req.user!
     const ajudas = await query(
       `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo

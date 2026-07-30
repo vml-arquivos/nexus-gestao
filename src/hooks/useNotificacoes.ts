@@ -136,6 +136,8 @@ export function useNotificacoes() {
   const [ativandoPush, setAtivandoPush] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
   const reconectarRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sseFailuresRef = useRef(0)
+  const mountedRef = useRef(true)
 
   // Desbloqueia áudio no primeiro toque/clique. Em mobile/PWA o navegador só
   // permite som depois de uma interação real do usuário.
@@ -192,7 +194,7 @@ export function useNotificacoes() {
   // Conecta SSE
   const conectarSse = useCallback(() => {
     const token = getAccessToken()
-    if (!token) return
+    if (!token || !mountedRef.current || !navigator.onLine || sseRef.current) return
 
     /**
      * EventSource não aceita header Authorization.
@@ -200,6 +202,9 @@ export function useNotificacoes() {
      */
     const url = `/api/notificacoes/stream?_t=${encodeURIComponent(token)}`
     const es = new EventSource(url, { withCredentials: false })
+    es.onopen = () => {
+      sseFailuresRef.current = 0
+    }
 
     es.addEventListener('notificacao', (e: MessageEvent) => {
       try {
@@ -214,21 +219,35 @@ export function useNotificacoes() {
       es.close()
       sseRef.current = null
 
-      // Tenta reconectar após 5s
+      if (!mountedRef.current) return
+      // Backoff evita tempestade de conexões quando Cloudflare/HTTP3 oscila.
+      sseFailuresRef.current += 1
+      const baseDelay = Math.min(60_000, 5_000 * (2 ** Math.min(4, sseFailuresRef.current - 1)))
+      const delay = baseDelay + Math.round(Math.random() * 2_000)
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
-      reconectarRef.current = setTimeout(conectarSse, 5000)
+      reconectarRef.current = setTimeout(conectarSse, delay)
     }
 
     sseRef.current = es
   }, [adicionarNotificacao])
 
   useEffect(() => {
+    mountedRef.current = true
     carregar()
     conectarSse()
+    const reconnectOnline = () => {
+      sseFailuresRef.current = 0
+      conectarSse()
+      void carregar()
+    }
+    window.addEventListener('online', reconnectOnline)
 
     return () => {
+      mountedRef.current = false
       sseRef.current?.close()
+      sseRef.current = null
       if (reconectarRef.current) clearTimeout(reconectarRef.current)
+      window.removeEventListener('online', reconnectOnline)
     }
   }, [carregar, conectarSse])
 

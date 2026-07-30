@@ -675,6 +675,10 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_escopo        ON tarefas(org_id, escopo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_external_key  ON tarefas(external_key);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel   ON tarefas(responsavel_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
+CREATE INDEX IF NOT EXISTS idx_tarefas_org_status_prazo
+  ON tarefas(org_id, status, prazo) WHERE prazo IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tarefas_org_updated
+  ON tarefas(org_id, updated_at DESC, created_at DESC);
 
 -- (Definição de nexus_external_links fica a cargo do bloco original lá em
 -- cima, linha ~204 -- havia uma segunda CREATE TABLE IF NOT EXISTS duplicada
@@ -740,13 +744,24 @@ CREATE TABLE IF NOT EXISTS tarefas_ajuda (
   status          TEXT NOT NULL DEFAULT 'pendente'
                     CHECK (status IN ('pendente','respondida','resolvida')),
   created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   respondida_em   TIMESTAMPTZ,
   resolvida_em    TIMESTAMPTZ
 );
+ALTER TABLE tarefas_ajuda ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_ajuda_tarefa ON tarefas_ajuda(tarefa_id);
 CREATE INDEX IF NOT EXISTS idx_ajuda_org    ON tarefas_ajuda(org_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ajuda_dest   ON tarefas_ajuda(destinatario_id, status);
 CREATE INDEX IF NOT EXISTS idx_ajuda_solic  ON tarefas_ajuda(solicitante_id);
+
+-- Índices das rotas exibidas em todo carregamento do layout. Mantêm as
+-- consultas de atrasos/agenda dentro do timeout mesmo com histórico grande.
+CREATE INDEX IF NOT EXISTS idx_pagamentos_org_status_vencimento
+  ON pagamentos(org_id, status, vencimento) WHERE vencimento IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agenda_org_data_inicio
+  ON agenda(org_id, data_inicio);
+CREATE INDEX IF NOT EXISTS idx_notificacoes_user_org_unread
+  ON notificacoes(user_id, org_id, lida, created_at DESC);
 
 -- ── EMPRESAS/PESSOAS DESTRAVA SINCRONIZADAS E COMENTÁRIOS AUDITÁVEIS ──
 CREATE TABLE IF NOT EXISTS destrava_empresas_cache (
@@ -1017,4 +1032,3 @@ async function migrate() {
 }
 
 migrate()
-

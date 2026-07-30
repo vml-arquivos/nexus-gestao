@@ -4306,6 +4306,8 @@ export default function Tarefas() {
   const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('nexus:tarefas-quadro-colapsadas') || '[]') } catch { return [] }
   })
+  const loadInFlightRef = useRef<Promise<void> | null>(null)
+  const lastLoadedAtRef = useRef(0)
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -4323,42 +4325,77 @@ export default function Tarefas() {
     } catch {}
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [ts, ms, rk, aj, minhasAj] = await Promise.all([
-        tarefasApi.list(),
-        // Membros também precisam da equipe para o fluxo de "Pedir ajuda".
-        // Antes carregava apenas para gestor, deixando o select vazio para membro.
-        equipeApi.membros().catch(() => []),
-        tarefasApi.ranking(periodoRanking).catch(() => null),
-        tarefasApi.ajudaPendentes()
-          .then(a => helpForCurrentUser(Array.isArray(a) ? a : [], user?.id))
-          .catch(() => []),
-        tarefasApi.minhasAjudas()
-          .then(a => helpRequestedByCurrentUser(Array.isArray(a) ? a : [], user?.id))
-          .catch(() => []),
-      ])
-      setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
-      setMembros(Array.isArray(ms) ? ms : [])
-      setRanking(rk)
-      setAjudasPendentes(Array.isArray(aj) ? aj : [])
-      setMinhasAjudas(Array.isArray(minhasAj) ? minhasAj : [])
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
-    } finally { setLoading(false) }
-  }, [periodoRanking, user?.id])
+  const load = useCallback((): Promise<void> => {
+    if (loadInFlightRef.current) return loadInFlightRef.current
+
+    const job = (async () => {
+      setLoading(true)
+      try {
+        // A lista principal controla o spinner. Ranking, membros e ajuda são
+        // complementares e não podem manter a página inteira bloqueada.
+        const ts = await tarefasApi.list()
+        setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
+        lastLoadedAtRef.current = Date.now()
+
+        void Promise.allSettled([
+          equipeApi.membros(),
+          tarefasApi.ajudaPendentes(),
+          tarefasApi.minhasAjudas(),
+        ]).then(([membersResult, pendingHelpResult, myHelpResult]) => {
+          if (membersResult.status === 'fulfilled') {
+            setMembros(Array.isArray(membersResult.value) ? membersResult.value : [])
+          }
+          if (pendingHelpResult.status === 'fulfilled') {
+            const items = helpForCurrentUser(
+              Array.isArray(pendingHelpResult.value) ? pendingHelpResult.value : [],
+              user?.id,
+            )
+            setAjudasPendentes(items)
+          }
+          if (myHelpResult.status === 'fulfilled') {
+            const items = helpRequestedByCurrentUser(
+              Array.isArray(myHelpResult.value) ? myHelpResult.value : [],
+              user?.id,
+            )
+            setMinhasAjudas(items)
+          }
+        })
+      } catch (e) {
+        toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
+      } finally {
+        setLoading(false)
+      }
+    })()
+
+    loadInFlightRef.current = job
+    void job.finally(() => {
+      if (loadInFlightRef.current === job) loadInFlightRef.current = null
+    })
+    return job
+  }, [user?.id])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    const refreshIfVisible = () => { if (document.visibilityState === 'visible') load() }
-    const interval = window.setInterval(refreshIfVisible, 25000)
-    window.addEventListener('visibilitychange', refreshIfVisible)
-    window.addEventListener('focus', refreshIfVisible)
+    if (escopo !== 'ranking') return
+    const timer = window.setTimeout(() => { void loadRanking(periodoRanking) }, 0)
+    return () => window.clearTimeout(timer)
+  }, [escopo, periodoRanking, loadRanking])
+  useEffect(() => {
+    const refreshIfStale = () => {
+      if (
+        document.visibilityState === 'visible'
+        && Date.now() - lastLoadedAtRef.current >= 5 * 60_000
+      ) {
+        void load()
+      }
+    }
+    const interval = window.setInterval(refreshIfStale, 60_000)
+    window.addEventListener('visibilitychange', refreshIfStale)
+    window.addEventListener('focus', refreshIfStale)
     return () => {
       window.clearInterval(interval)
-      window.removeEventListener('visibilitychange', refreshIfVisible)
-      window.removeEventListener('focus', refreshIfVisible)
+      window.removeEventListener('visibilitychange', refreshIfStale)
+      window.removeEventListener('focus', refreshIfStale)
     }
   }, [load])
   useEffect(() => {

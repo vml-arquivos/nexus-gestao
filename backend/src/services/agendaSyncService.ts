@@ -1,5 +1,6 @@
 import { query, queryOne } from '../db/pool'
 import { upsertGoogleCalendarEvent } from './googleWorkspaceService'
+import { runClusterSingletonJob } from '../lib/clusterJob'
 
 let schemaReady = false
 let syncRunning = false
@@ -324,13 +325,19 @@ export function getAgendaSyncStatus() {
 }
 
 export function iniciarAgendaAutoSync() {
-  const enabled = process.env.AGENDA_AUTO_SYNC_ENABLED !== 'false'
+  // Opt-in: sincronização pesada nunca compete com as rotas interativas por
+  // padrão. Para habilitar, configure explicitamente como true.
+  const enabled = process.env.AGENDA_AUTO_SYNC_ENABLED === 'true'
   if (!enabled) {
     console.log('[AGENDA_SYNC] Sincronização automática desativada por AGENDA_AUTO_SYNC_ENABLED=false.')
     return
   }
   const intervalMinutes = Math.max(1, Math.min(1440, Number(process.env.AGENDA_AUTO_SYNC_INTERVAL_MINUTES || 10)))
-  setInterval(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no job:', err)), intervalMinutes * 60 * 1000)
-  setTimeout(() => sincronizarAgendaOperacional().catch(err => console.error('[AGENDA_SYNC] Falha no primeiro job:', err)), 10_000)
+  const run = () => runClusterSingletonJob(
+    'agenda-auto-sync',
+    () => sincronizarAgendaOperacional().then(() => undefined),
+  )
+  setInterval(() => { void run() }, intervalMinutes * 60 * 1000)
+  setTimeout(() => { void run() }, 180_000)
   console.log(`[AGENDA_SYNC] Sincronização automática iniciada a cada ${intervalMinutes} minuto(s).`)
 }

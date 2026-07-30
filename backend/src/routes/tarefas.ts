@@ -15,174 +15,15 @@ import {
 import fs from "fs";
 import path from "path";
 import { publicarTarefaConcluidaSeAutomacao } from "./automationHandlers/publish";
+import { SingleFlightTtlCache } from "../lib/singleFlightTtlCache";
+import { respondRouteError } from "../lib/httpErrors";
 
 const router = Router();
 router.use(authMiddleware);
 
-// ── GARANTIA DE SCHEMA EM TEMPO DE EXECUÇÃO ─────────────────────────────────
-// A migração automática já existe no startup, mas em VPS/Coolify pode haver
-// deploy com banco antigo, migração interrompida ou container antigo atendendo
-// requisição. Esta proteção evita erro 500 em salvar/editar tarefa quando uma
-// coluna nova ainda não foi aplicada no PostgreSQL nativo.
-let taskRuntimeSchemaPromise: Promise<void> | null = null;
-
-async function ensureTaskRuntimeSchema() {
-  if (!taskRuntimeSchemaPromise) {
-    taskRuntimeSchemaPromise = (async () => {
-      await query(`
-        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS status_gestor TEXT NOT NULL DEFAULT 'aguardando';
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS escopo TEXT NOT NULL DEFAULT 'pessoal';
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS modo_distribuicao TEXT NOT NULL DEFAULT 'normal';
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aceita_em TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pontuacao INTEGER NOT NULL DEFAULT 1;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS bloquear_nova_livre_ate_concluir BOOLEAN NOT NULL DEFAULT FALSE;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS obs TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_membro TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS motivo_nao_conclusao TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS observacao_conclusao TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_status TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_obs TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS resposta_em TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS ressalva_gestor TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_em TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS aprovada_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS devolvida_em TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_inicio TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_conclusao TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reenviada_em TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_reabertura TIMESTAMPTZ;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS reaberto_por UUID REFERENCES profiles(id) ON DELETE SET NULL;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_sistema TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_tipo TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_id TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_nome TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_url TEXT;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS origem_payload JSONB DEFAULT '{}'::jsonb;
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS external_key TEXT;
-
-        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_check;
-        ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_check
-          CHECK (status IN ('pendente','em_progresso','concluida','nao_concluida','devolvida','reenviada','aprovada','cancelada'));
-        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_escopo_check;
-        ALTER TABLE tarefas ADD CONSTRAINT tarefas_escopo_check CHECK (escopo IN ('pessoal','equipe'));
-        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_modo_distribuicao_check;
-        ALTER TABLE tarefas ADD CONSTRAINT tarefas_modo_distribuicao_check CHECK (modo_distribuicao IN ('normal','livre_equipe'));
-        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_status_gestor_check;
-        ALTER TABLE tarefas ADD CONSTRAINT tarefas_status_gestor_check CHECK (status_gestor IN ('aguardando','aprovada','devolvida'));
-        ALTER TABLE tarefas DROP CONSTRAINT IF EXISTS tarefas_resposta_status_check;
-        ALTER TABLE tarefas ADD CONSTRAINT tarefas_resposta_status_check CHECK (resposta_status IS NULL OR resposta_status IN ('concluida','nao_concluida'));
-
-        CREATE TABLE IF NOT EXISTS tarefas_pontuacao (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-          tarefa_id UUID REFERENCES tarefas(id) ON DELETE SET NULL,
-          usuario_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-          checklist_id TEXT,
-          pontos INTEGER NOT NULL DEFAULT 1,
-          motivo TEXT,
-          aprovado_por UUID REFERENCES profiles(id) ON DELETE SET NULL,
-          aprovado_em TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-          periodo_mes TEXT NOT NULL,
-          tarefa_titulo_snapshot TEXT,
-          item_titulo_snapshot TEXT,
-          escopo_snapshot TEXT,
-          conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE,
-          tarefa_excluida_em TIMESTAMPTZ,
-          created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-          UNIQUE (tarefa_id, usuario_id, motivo)
-        );
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS checklist_id TEXT;
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_titulo_snapshot TEXT;
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS item_titulo_snapshot TEXT;
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS escopo_snapshot TEXT;
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS conta_ranking_snapshot BOOLEAN NOT NULL DEFAULT TRUE;
-        ALTER TABLE tarefas_pontuacao ADD COLUMN IF NOT EXISTS tarefa_excluida_em TIMESTAMPTZ;
-        ALTER TABLE tarefas_pontuacao ALTER COLUMN tarefa_id DROP NOT NULL;
-        ALTER TABLE tarefas_pontuacao DROP CONSTRAINT IF EXISTS tarefas_pontuacao_tarefa_id_fkey;
-        ALTER TABLE tarefas_pontuacao ADD CONSTRAINT tarefas_pontuacao_tarefa_id_fkey
-          FOREIGN KEY (tarefa_id) REFERENCES tarefas(id) ON DELETE SET NULL;
-        UPDATE tarefas_pontuacao tp
-           SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, t.titulo),
-               escopo_snapshot = COALESCE(tp.escopo_snapshot, t.escopo),
-               conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, t.conta_ranking, TRUE)
-          FROM tarefas t
-         WHERE tp.tarefa_id = t.id
-           AND tp.org_id = t.org_id;
-        CREATE INDEX IF NOT EXISTS idx_tarefas_livre_equipe ON tarefas(org_id, modo_distribuicao, aceita_por, status);
-        CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_org_periodo ON tarefas_pontuacao(org_id, periodo_mes);
-        CREATE INDEX IF NOT EXISTS idx_tarefas_pontuacao_usuario ON tarefas_pontuacao(usuario_id);
-        CREATE INDEX IF NOT EXISTS idx_tarefas_org_origem_status ON tarefas(org_id, origem_id, status) WHERE origem_id IS NOT NULL;
-
-        ALTER TABLE notificacoes DROP CONSTRAINT IF EXISTS notificacoes_tipo_check;
-        ALTER TABLE notificacoes ADD CONSTRAINT notificacoes_tipo_check
-          CHECK (tipo IS NOT NULL AND btrim(tipo) <> '' AND length(tipo) <= 80) NOT VALID;
-
-        -- ── PEDIR AJUDA (idempotente) ─────────────────────────────────────────
-        ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS pedido_ajuda_pendente BOOLEAN DEFAULT FALSE;
-
-        CREATE TABLE IF NOT EXISTS tarefas_ajuda (
-          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          org_id          UUID NOT NULL,
-          tarefa_id       UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
-          checklist_id    TEXT,
-          solicitante_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-          destinatario_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-          mensagem        TEXT NOT NULL,
-          resposta        TEXT,
-          status          TEXT NOT NULL DEFAULT 'pendente'
-                            CHECK (status IN ('pendente','respondida','resolvida')),
-          created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-          respondida_em   TIMESTAMPTZ,
-          resolvida_em    TIMESTAMPTZ
-        );
-        CREATE INDEX IF NOT EXISTS idx_ajuda_tarefa ON tarefas_ajuda(tarefa_id);
-        CREATE INDEX IF NOT EXISTS idx_ajuda_org    ON tarefas_ajuda(org_id, status, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_ajuda_dest   ON tarefas_ajuda(destinatario_id, status);
-        CREATE INDEX IF NOT EXISTS idx_ajuda_solic  ON tarefas_ajuda(solicitante_id);
-
-        CREATE TABLE IF NOT EXISTS tarefas_comentarios (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          org_id UUID NOT NULL REFERENCES organizacoes(id) ON DELETE CASCADE,
-          tarefa_id UUID NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
-          checklist_id TEXT,
-          autor_id UUID NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
-          comentario TEXT NOT NULL,
-          tipo TEXT NOT NULL DEFAULT 'comentario'
-            CHECK (tipo IN ('comentario','execucao','devolucao','aprovacao','sistema')),
-          criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          editado_em TIMESTAMPTZ
-        );
-        CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_tarefa
-          ON tarefas_comentarios(org_id, tarefa_id, criado_em ASC);
-        CREATE INDEX IF NOT EXISTS idx_tarefas_comentarios_checklist
-          ON tarefas_comentarios(org_id, tarefa_id, checklist_id, criado_em ASC);
-      `);
-    })().catch((err) => {
-      taskRuntimeSchemaPromise = null;
-      throw err;
-    });
-  }
-  return taskRuntimeSchemaPromise;
-}
-
-router.use(async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    await ensureTaskRuntimeSchema();
-    next();
-  } catch (err) {
-    console.error("[TAREFAS] Schema de tarefas não pôde ser preparado:", err);
-    res
-      .status(500)
-      .json({
-        error:
-          "Banco de tarefas não preparado para salvar. Execute o deploy novamente ou aplique as migrations.",
-      });
-  }
-});
+// Toda alteração de schema pertence exclusivamente a db/migrate.ts, executada
+// antes do backend subir. DDL no caminho HTTP adquiria locks de tabela e fazia
+// /tarefas e /ranking aguardarem até o proxy/Cloudflare encerrar com 524.
 
 // ── UPLOADS DE EVIDÊNCIAS DA TAREFA ─────────────────────────────────────────
 const evidenceUpload = createSecureMulterUpload();
@@ -1574,37 +1415,47 @@ async function getTaskForAccess(id: string, orgId: string) {
 // Bancos antigos podem ter tarefas.checklist como JSON, JSONB, texto ou até nulo.
 // Por isso a filtragem por executor de checklist é feita em TypeScript, depois de
 // buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
+const taskListCache = new SingleFlightTtlCache<string, any[]>(2_000, 128);
+
 async function listTasksForUser(user: NonNullable<Request["user"]>) {
   const { orgId, userId, role } = user;
-  const rows = await query<any>(
-    `SELECT t.*,
-            p.nome  AS responsavel_nome_perfil,
-            p.cargo AS responsavel_cargo,
-            c.nome  AS criado_por_nome,
-            ap.nome AS aceita_por_nome,
-            COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
-            (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
-     FROM tarefas t
-     LEFT JOIN profiles p ON p.id = t.responsavel_id
-     LEFT JOIN profiles c ON c.id = t.criado_por
-     LEFT JOIN profiles ap ON ap.id = t.aceita_por
-     WHERE t.org_id = $1
-     ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
-    [orgId],
-  );
-
-  let comandados = new Set<string>();
-  if (role === "sub_gestor") {
-    const subs = await query<{ id: string }>(
-      "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
-      [orgId, userId],
+  const cacheKey = `${orgId}:${userId}:${role}`;
+  return taskListCache.get(cacheKey, async () => {
+    const rows = await query<any>(
+      `SELECT t.*,
+              p.nome  AS responsavel_nome_perfil,
+              p.cargo AS responsavel_cargo,
+              c.nome  AS criado_por_nome,
+              ap.nome AS aceita_por_nome,
+              COALESCE(anexos.total, 0)::int AS anexos_count,
+              anexos.ultima_evidencia_em
+       FROM tarefas t
+       LEFT JOIN profiles p ON p.id = t.responsavel_id
+       LEFT JOIN profiles c ON c.id = t.criado_por
+       LEFT JOIN profiles ap ON ap.id = t.aceita_por
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*) AS total, MAX(a.created_at) AS ultima_evidencia_em
+         FROM tarefa_anexos a
+         WHERE a.tarefa_id = t.id AND a.org_id = t.org_id
+       ) anexos ON TRUE
+       WHERE t.org_id = $1
+       ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
+      [orgId],
     );
-    comandados = new Set(subs.map((s) => s.id));
-  }
 
-  return rows
-    .filter((task) => canListTaskForUser(task, user, comandados))
-    .map((task) => sanitizeTaskForUser(task, user));
+    let comandados = new Set<string>();
+    if (role === "sub_gestor") {
+      const subs = await query<{ id: string }>(
+        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
+        [orgId, userId],
+      );
+      comandados = new Set(subs.map((s) => s.id));
+    }
+
+    return rows
+      .filter((task) => canListTaskForUser(task, user, comandados))
+      .map((task) => sanitizeTaskForUser(task, user));
+  });
 }
 
 function taskMatchesMember(task: any, memberId: string) {
@@ -1741,7 +1592,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     res.json({ tarefas });
   } catch (err) {
     console.error("[TAREFAS] Erro ao listar:", err);
-    res.status(500).json({ error: "Erro ao buscar tarefas." });
+    respondRouteError(res, err, "Erro ao buscar tarefas.");
   }
 });
 
@@ -4342,7 +4193,12 @@ router.post(
 
       const historico = Array.isArray((current as any).atualizacoes_atraso) ? [...(current as any).atualizacoes_atraso] : [];
       const idxHoje = historico.findIndex((h: any) => String(h.data) === hoje);
-      const profileResult = await client.query<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
+      // A tarefa está bloqueada nesta transação. Consultar pelo pool abriria uma
+      // segunda conexão e poderia recriar o deadlock corrigido no FIX49.
+      const profileResult = await client.query<any>(
+        `SELECT nome FROM profiles WHERE id = $1`,
+        [userId],
+      );
       const profile = profileResult.rows[0] ?? null;
       const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
       if (idxHoje >= 0) historico[idxHoje] = entrada;

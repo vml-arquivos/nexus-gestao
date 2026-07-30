@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { addSseClient, removeSseClient } from '../lib/notifHelper'
 import { deactivatePushSubscription, ensurePushSchema, getVapidPublicKey, pushConfigured, upsertPushSubscription } from '../services/pushService'
+import { respondRouteError } from '../lib/httpErrors'
 
 const router = Router()
 
@@ -17,18 +18,32 @@ router.get('/stream', authMiddleware, (req: Request, res: Response): void => {
   res.setHeader('Connection', 'keep-alive')
   res.setHeader('X-Accel-Buffering', 'no') // Desativa buffering no nginx
   res.flushHeaders()
+  res.write('retry: 15000\n: connected\n\n')
 
   // Heartbeat a cada 25s para manter a conexão viva
   const hb = setInterval(() => {
-    try { res.write(': heartbeat\n\n') } catch { /* ignore */ }
+    if (res.writableEnded || res.destroyed) {
+      cleanup()
+      return
+    }
+    try { res.write(': heartbeat\n\n') } catch { cleanup() }
   }, 25_000)
 
   addSseClient(userId, res)
 
-  req.on('close', () => {
+  let cleaned = false
+  function cleanup() {
+    if (cleaned) return
+    cleaned = true
     clearInterval(hb)
     removeSseClient(userId, res)
-  })
+  }
+
+  req.once('aborted', cleanup)
+  req.once('close', cleanup)
+  res.once('close', cleanup)
+  res.once('finish', cleanup)
+  res.once('error', cleanup)
 })
 
 router.use(authMiddleware)
@@ -250,7 +265,7 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     res.json({ total: tarefas.length + financeiro.length + agenda.length, tarefas, financeiro, agenda, gerado_em: new Date().toISOString() })
   } catch (err) {
     console.error('[NOTIF] Erro ao buscar atrasos pendentes:', err)
-    res.status(500).json({ error: 'Erro ao buscar atrasos pendentes.' })
+    respondRouteError(res, err, 'Erro ao buscar atrasos pendentes.')
   }
 })
 

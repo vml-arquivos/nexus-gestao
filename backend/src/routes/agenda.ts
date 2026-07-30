@@ -2,6 +2,9 @@ import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { sincronizarAgendaOperacional } from '../services/agendaSyncService'
+import { respondRouteError } from '../lib/httpErrors'
+import { shouldAutoSyncAgenda } from './agendaPolicy'
+export { shouldAutoSyncAgenda } from './agendaPolicy'
 
 const router = Router()
 router.use(authMiddleware)
@@ -12,10 +15,6 @@ router.use(authMiddleware)
 // (?sync=false para desligar), que sincronizava por padrão sempre que o
 // parâmetro não vinha, inclusive de chamadas antigas/cache/clientes que não
 // sabiam desse parâmetro.
-export function shouldAutoSyncAgenda(syncParam: unknown): boolean {
-  return syncParam === 'true'
-}
-
 function canSeeOrgAgenda(role: string | undefined): boolean {
   return canDeleteOrgRecords(role)
 }
@@ -46,8 +45,16 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (mes && ano) {
-      sql += ` AND EXTRACT(MONTH FROM data_inicio) = $${params.length + 1} AND EXTRACT(YEAR FROM data_inicio) = $${params.length + 2}`
-      params.push(mes, ano)
+      const month = Number(mes)
+      const year = Number(ano)
+      if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(year) && year >= 2000 && year <= 2200) {
+        const start = `${year}-${String(month).padStart(2, '0')}-01`
+        const nextMonth = month === 12
+          ? `${year + 1}-01-01`
+          : `${year}-${String(month + 1).padStart(2, '0')}-01`
+        sql += ` AND data_inicio >= $${params.length + 1}::date AND data_inicio < $${params.length + 2}::date`
+        params.push(start, nextMonth)
+      }
     }
 
     sql += ` ORDER BY data_inicio ASC, created_at ASC`
@@ -55,7 +62,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     res.json({ eventos, sync })
   } catch (err) {
     console.error('[AGENDA] Erro ao buscar agenda:', err)
-    res.status(500).json({ error: 'Erro ao buscar agenda.' })
+    respondRouteError(res, err, 'Erro ao buscar agenda.')
   }
 })
 

@@ -21,6 +21,7 @@ RUN npx tsc --skipLibCheck
 # ── Imagem de produção ────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 WORKDIR /app
+ENV NEXUS_RELEASE=fix51-sequential-build-20260730
 
 # Apenas dependências de produção
 COPY package.json package-lock.json* ./
@@ -29,9 +30,8 @@ RUN npm ci --omit=dev --no-audit --no-fund
 # Copia build compilado (inclui dist/db/migrate.js e dist/index.js)
 COPY --from=builder /app/dist ./dist
 
-# Entrypoint: roda migrate ANTES do servidor
-RUN printf '#!/bin/sh\nset -e\necho "[ENTRYPOINT] Aplicando migrations no PostgreSQL..."\nnode dist/db/migrate.js\necho "[ENTRYPOINT] Migrations OK. Iniciando servidor Nexus..."\nexec node dist/index.js\n' \
-    > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+COPY docker-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Volume de uploads
 RUN mkdir -p /app/uploads && chown -R node:node /app
@@ -39,7 +39,7 @@ RUN mkdir -p /app/uploads && chown -R node:node /app
 USER node
 EXPOSE 3001
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD wget -qO- http://localhost:3001/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+  CMD wget -T 5 -qO- http://localhost:3001/health/live || exit 1
 
 CMD ["/bin/sh", "/app/entrypoint.sh"]

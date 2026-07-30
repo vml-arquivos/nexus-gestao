@@ -29,3 +29,7 @@ DEPLOY.md
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Não são necessários dentro do build da imagem
+backend/test
+scripts/

@@ -206,15 +206,10 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     }
     const tokens = generateTokens(payload)
 
-    // Rotaciona o refresh token
-    await query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken])
-    await query(
-      `INSERT INTO refresh_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + INTERVAL '365 days')`,
-      [user.id, tokens.refreshToken]
-    )
-
-    res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken })
+    // O refresh permanece estável até expirar/revogar. Rotacioná-lo a cada
+    // chamada fazia duas abas usarem o mesmo token simultaneamente: a primeira
+    // apagava o registro e a segunda derrubava a sessão inteira.
+    res.json({ accessToken: tokens.accessToken, refreshToken })
   } catch (err) {
     console.error('[AUTH] Erro no refresh:', err)
     res.status(500).json({ error: 'Erro interno do servidor.' })
