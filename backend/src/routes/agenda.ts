@@ -6,8 +6,14 @@ import { sincronizarAgendaOperacional } from '../services/agendaSyncService'
 const router = Router()
 router.use(authMiddleware)
 
-function shouldAutoSync(req: Request) {
-  return req.query.sync !== 'false'
+// Política: NUNCA sincroniza por padrão (evita a operação pesada de milhares
+// de linhas travando toda listagem comum). Só sincroniza quando pedido
+// EXPLICITAMENTE com ?sync=true — o oposto do comportamento anterior
+// (?sync=false para desligar), que sincronizava por padrão sempre que o
+// parâmetro não vinha, inclusive de chamadas antigas/cache/clientes que não
+// sabiam desse parâmetro.
+export function shouldAutoSyncAgenda(syncParam: unknown): boolean {
+  return syncParam === 'true'
 }
 
 function canSeeOrgAgenda(role: string | undefined): boolean {
@@ -15,7 +21,7 @@ function canSeeOrgAgenda(role: string | undefined): boolean {
 }
 
 async function trySyncForUser(req: Request) {
-  if (!shouldAutoSync(req)) return null
+  if (!shouldAutoSyncAgenda(req.query.sync)) return null
   try {
     return await sincronizarAgendaOperacional({ orgId: req.user!.orgId, userId: req.user!.userId, forceGoogle: true })
   } catch (err) {

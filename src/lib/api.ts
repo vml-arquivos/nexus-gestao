@@ -676,11 +676,12 @@ export const destravaApi = {
   async empresaResumo(id: string): Promise<any> {
     return apiJson(`/integracoes/destrava/empresa/${encodeURIComponent(id)}/resumo`)
   },
-  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string }> {
+  async empresasSincronizadas(params?: { tipo?: 'empresa' | 'pessoa_fisica'; q?: string; limit?: number; page?: number }): Promise<{ items: DestravaCatalogoItem[]; total?: number; total_catalogo?: number; ultima_sincronizacao?: string; page?: number; limit?: number; has_more?: boolean }> {
     const qs = '?' + new URLSearchParams({
       tipo: params?.tipo || '',
       q: params?.q || '',
       limit: String(params?.limit || 50),
+      page: String(params?.page || 1),
     }).toString()
     return apiJson(`/integracoes/destrava/empresas${qs}`)
   },
@@ -1065,8 +1066,9 @@ export const produtosApi = {
 // ── AGENDA ────────────────────────────────────────────────────────────────────
 export const agendaApi = {
   async list(mes?: number, ano?: number): Promise<Evento[]> {
-    const qs = mes && ano ? `?mes=${mes}&ano=${ano}` : ''
-    const data = await apiJson<{ eventos: Evento[] }>(`/agenda${qs}`)
+    const params = new URLSearchParams({ sync: 'false' })
+    if (mes && ano) { params.set('mes', String(mes)); params.set('ano', String(ano)) }
+    const data = await apiJson<{ eventos: Evento[] }>(`/agenda?${params.toString()}`)
     return data.eventos
   },
 

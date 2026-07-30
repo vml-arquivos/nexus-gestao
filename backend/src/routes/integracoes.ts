@@ -323,8 +323,10 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       : tipoParam === 'empresa' || tipoParam === 'pj'
         ? 'empresa'
         : ''
-    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)))
-    const params = [orgId, tipo, q, limit]
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 50)))
+    const page = Math.max(1, Math.floor(Number(req.query.page || 1)))
+    const offset = (page - 1) * limit
+    const params = [orgId, tipo, q, limit, offset]
     const filtro = `org_id=$1 AND ativo=TRUE
       AND ($2='' OR tipo=$2)
       AND ($3='' OR lower(
@@ -334,7 +336,7 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
       FROM destrava_empresas_cache
       WHERE ${filtro}
       ORDER BY lower(nome), external_id
-      LIMIT $4`, params)
+      LIMIT $4 OFFSET $5`, params)
     const info = await queryOne<any>(`SELECT
         COUNT(*) FILTER (WHERE ($2='' OR tipo=$2) AND ($3='' OR lower(
           COALESCE(nome,'') || ' ' || COALESCE(documento,'') || ' ' || COALESCE(email,'') || ' ' || COALESCE(telefone,'')
@@ -343,7 +345,17 @@ router.get('/destrava/empresas', authMiddleware, async (req: Request, res: Respo
         MAX(sincronizado_em) AS ultima_sincronizacao
       FROM destrava_empresas_cache
       WHERE org_id=$1 AND ativo=TRUE`, [orgId, tipo, q])
-    res.json({ items:empresas.map(e=>({...e,tipo:e.tipo || 'empresa'})), ...info })
+    const total = Number(info?.total || 0)
+    const totalCatalogo = Number(info?.total_catalogo || 0)
+    res.json({
+      items: empresas.map(e => ({ ...e, tipo: e.tipo || 'empresa' })),
+      total,
+      total_catalogo: totalCatalogo,
+      ultima_sincronizacao: info?.ultima_sincronizacao || null,
+      page,
+      limit,
+      has_more: offset + empresas.length < total,
+    })
   } catch(err) { console.error('[INTEGRACOES] Erro cache empresas:',err); res.status(500).json({error:'Erro ao pesquisar clientes sincronizados da Destrava.'}) }
 })
 
