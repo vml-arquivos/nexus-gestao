@@ -944,8 +944,23 @@ async function migrate() {
     process.exit(1)
   } finally {
     client.release()
-    await pool.end()
   }
+
+  // Chamada única e explícita, com um limite de segurança: mesmo que algo
+  // inesperado prenda essa rotina, o startup do sistema nunca fica refém
+  // dela -- ela é só uma compatibilidade auxiliar, não faz parte do schema
+  // essencial.
+  try {
+    const { ensureTaskScoreCompatibilityOnce } = await import('./taskScoreCompatibility')
+    await Promise.race([
+      ensureTaskScoreCompatibilityOnce(),
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    ])
+  } catch (err) {
+    console.warn('[MIGRATE] Compatibilidade de pontuação pulada (não essencial):', err)
+  }
+
+  await pool.end()
 }
 
 migrate()
