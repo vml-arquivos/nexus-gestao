@@ -1,6 +1,5 @@
 import 'dotenv/config'
 import pool from './pool'
-import type { Pool, PoolClient } from 'pg'
 
 const SCHEMA = `
 -- ============================================================
@@ -178,8 +177,6 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_prazo       ON tarefas(prazo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por  ON tarefas(criado_por);
 CREATE INDEX IF NOT EXISTS idx_tarefas_status_gestor ON tarefas(status_gestor);
 CREATE INDEX IF NOT EXISTS idx_tarefas_escopo ON tarefas(org_id, escopo);
-CREATE INDEX IF NOT EXISTS idx_tarefas_ranking_org_updated
-  ON tarefas(org_id, escopo, conta_ranking, updated_at DESC);
 
 -- Integração externa: permite que o mesmo Nexus receba tarefas vindas do Destrava
 -- sem deixar de funcionar como sistema independente.
@@ -555,8 +552,6 @@ CREATE TABLE IF NOT EXISTS tarefa_anexos (
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa ON tarefa_anexos(tarefa_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org ON tarefa_anexos(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_enviado_por ON tarefa_anexos(enviado_por, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org_tarefa_created
-  ON tarefa_anexos(org_id, tarefa_id, created_at DESC);
 
 
 
@@ -680,8 +675,6 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_escopo        ON tarefas(org_id, escopo);
 CREATE INDEX IF NOT EXISTS idx_tarefas_external_key  ON tarefas(external_key);
 CREATE INDEX IF NOT EXISTS idx_tarefas_responsavel   ON tarefas(responsavel_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por    ON tarefas(criado_por);
-CREATE INDEX IF NOT EXISTS idx_tarefas_org_feed
-  ON tarefas(org_id, (COALESCE(data_reabertura, updated_at, created_at)) DESC, created_at DESC);
 
 -- (Definição de nexus_external_links fica a cargo do bloco original lá em
 -- cima, linha ~204 -- havia uma segunda CREATE TABLE IF NOT EXISTS duplicada
@@ -947,146 +940,48 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
 -- ============================================================
 `
 
-function positiveNumber(value: string | undefined, fallback: number, minimum: number) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback
-}
-
-async function coreSchemaExists(client: Pool | PoolClient): Promise<boolean> {
-  const result = await client.query<{ ready: boolean }>(`
-    SELECT (
-      to_regclass('public.organizacoes') IS NOT NULL
-      AND to_regclass('public.profiles') IS NOT NULL
-      AND to_regclass('public.tarefas') IS NOT NULL
-      AND to_regclass('public.pagamentos') IS NOT NULL
-      AND to_regclass('public.agenda') IS NOT NULL
-    ) AS ready
-  `)
-  return Boolean(result.rows[0]?.ready)
-}
-
-async function currentSchemaExists(client: PoolClient): Promise<boolean> {
-  const result = await client.query<{ ready: boolean }>(`
-    SELECT (
-      to_regclass('public.tarefas_pontuacao') IS NOT NULL
-      AND to_regclass('public.tarefas_ajuda') IS NOT NULL
-      AND to_regclass('public.tarefas_comentarios') IS NOT NULL
-      AND to_regclass('public.destrava_empresas_cache') IS NOT NULL
-      AND to_regclass('public.automation_events') IS NOT NULL
-      AND to_regclass('public.automation_audit_log') IS NOT NULL
-      AND to_regclass('public.automation_processed_keys') IS NOT NULL
-      AND to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo') IS NOT NULL
-      AND to_regclass('public.ux_tarefas_org_external_key') IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-          FROM (
-            VALUES
-              ('tarefas', 'status_gestor'),
-              ('tarefas', 'modo_distribuicao'),
-              ('tarefas', 'external_key'),
-              ('tarefas', 'pedido_ajuda_pendente'),
-              ('tarefas', 'recorrencia'),
-              ('tarefas', 'projeto_grupo_id'),
-              ('tarefas', 'workflow_tipo'),
-              ('tarefas_pontuacao', 'checklist_id'),
-              ('tarefas_pontuacao', 'tarefa_titulo_snapshot'),
-              ('destrava_empresas_cache', 'external_key')
-          ) AS required(table_name, column_name)
-         WHERE NOT EXISTS (
-           SELECT 1
-             FROM information_schema.columns c
-            WHERE c.table_schema = 'public'
-              AND c.table_name = required.table_name
-              AND c.column_name = required.column_name
-         )
-      )
-    ) AS ready
-  `)
-  return Boolean(result.rows[0]?.ready)
-}
-
-async function ensurePerformanceIndexes(client: PoolClient) {
-  const statements = [
-    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tarefas_org_feed
-       ON tarefas(org_id, (COALESCE(data_reabertura, updated_at, created_at)) DESC, created_at DESC)`,
-    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tarefas_ranking_org_updated
-       ON tarefas(org_id, escopo, conta_ranking, updated_at DESC)`,
-    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tarefa_anexos_org_tarefa_created
-       ON tarefa_anexos(org_id, tarefa_id, created_at DESC)`,
-  ]
-
-  for (const statement of statements) {
-    try {
-      await client.query(statement)
-    } catch (error) {
-      // Índice de desempenho não pode impedir o backend de iniciar. O comando
-      // é idempotente e será tentado novamente no próximo deploy.
-      console.warn('[MIGRATE] ⚠️ Índice de desempenho adiado:', (error as Error)?.message || error)
-    }
-  }
-}
-
 async function migrate() {
-  if (!String(process.env.DATABASE_URL || '').trim()) {
-    throw new Error('DATABASE_URL não foi configurada no ambiente de produção.')
+  console.log('[MIGRATE] Conectando ao PostgreSQL…')
+  let client
+  try {
+    client = await pool.connect()
+  } catch (err) {
+    // Banco inacessível no momento do deploy (rede/VPS/Postgres reiniciando).
+    // NÃO derruba o container: deixa o backend subir e o /health reportar
+    // "db: disconnected" até o Postgres voltar, em vez de travar o boot
+    // inteiro (nginx incluso) e gerar 503 sem nenhum log explicativo.
+    console.error('[MIGRATE] ❌ Não foi possível conectar ao PostgreSQL para migrar:', err)
+    console.error('[MIGRATE] ⚠️  Prosseguindo sem aplicar o schema. O servidor vai subir mesmo assim;')
+    console.error('[MIGRATE] ⚠️  verifique DATABASE_URL / disponibilidade do Postgres e rode o deploy novamente.')
+    return
   }
 
-  console.log('[MIGRATE] Conectando ao PostgreSQL…')
-  const client = await pool.connect()
   try {
-    const lockTimeoutMs = positiveNumber(process.env.DB_MIGRATION_LOCK_TIMEOUT_MS, 15000, 1000)
-    const statementTimeoutMs = positiveNumber(process.env.DB_MIGRATION_TIMEOUT_MS, 180000, 30000)
-    await client.query(`SET lock_timeout = '${Math.round(lockTimeoutMs)}ms'`)
-    await client.query(`SET statement_timeout = '${Math.round(statementTimeoutMs)}ms'`)
-
-    const forceFullMigration = process.env.DB_MIGRATION_MODE === 'full'
-    if (!forceFullMigration && await currentSchemaExists(client)) {
-      await ensurePerformanceIndexes(client)
-      console.log('[MIGRATE] ✅ Schema atual já está instalado; nenhuma DDL bloqueante foi executada.')
-      return
-    }
-
     console.log('[MIGRATE] Executando schema…')
-    try {
-      await client.query(SCHEMA)
-    } catch (err) {
-      const error = err as { code?: string }
-      const strictMigration = process.env.DB_MIGRATION_STRICT === 'true'
-      const existingCore = await coreSchemaExists(pool).catch(() => false)
-
-      // Em rolling deploy o contêiner antigo ainda pode manter uma transação
-      // sobre tarefas/profiles. Reaplicar DROP/ADD de constraints exige
-      // ACCESS EXCLUSIVE e retornava 55P03, derrubando o novo contêiner em
-      // loop. Se o banco principal já existe, preservamos o serviço atual,
-      // iniciamos a API e deixamos a DDL pendente claramente registrada.
-      // Banco novo ou modo estrito continuam falhando para não ocultar schema
-      // realmente ausente.
-      if (error?.code === '55P03' && existingCore && !strictMigration) {
-        console.warn(
-          '[MIGRATE] ⚠️ Banco existente ocupado por outra sessão. DDL adiada com segurança; a API será iniciada.',
-        )
-        console.warn(
-          '[MIGRATE] Para manutenção exclusiva, execute com DB_MIGRATION_MODE=full e DB_MIGRATION_STRICT=true.',
-        )
-        return
-      }
-      throw err
-    }
+    await client.query(SCHEMA)
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
+  } catch (err) {
+    // Erro em alguma instrução do schema (ex: ALTER TABLE ... ADD CONSTRAINT
+    // que colide com dado já existente, ou CREATE UNIQUE INDEX com
+    // duplicidade). Antes isso chamava process.exit(1), o que — combinado
+    // com o `set -e` do entrypoint — matava o container inteiro ANTES do
+    // nginx/backend subirem, causando 503 em cascata em todas as rotas
+    // (tarefas, membros, ranking, pendentes, minhas) sem sinalizar a causa
+    // real em lugar nenhum visível no Coolify além do log de deploy.
+    //
+    // Agora: loga bem alto, mas deixa o processo seguir. O servidor sobe
+    // mesmo com o schema possivelmente incompleto — funcionalidades que
+    // dependem da coluna/constraint que falhou vão dar erro 500 pontual
+    // (visível e diagnosticável), em vez da aplicação inteira cair.
+    console.error('════════════════════════════════════════════════════════')
+    console.error('[MIGRATE] ❌ Erro ao aplicar schema:', err)
+    console.error('[MIGRATE] ⚠️  O servidor vai subir MESMO ASSIM (schema pode estar incompleto).')
+    console.error('[MIGRATE] ⚠️  Corrija a instrução SQL indicada acima e rode o deploy novamente.')
+    console.error('════════════════════════════════════════════════════════')
   } finally {
     client.release()
     await pool.end()
   }
 }
 
-void migrate().catch((err: unknown) => {
-  const error = err as { message?: string; code?: string }
-  console.error(
-    '[MIGRATE] ❌ Falha:',
-    [error?.code, error?.message].filter(Boolean).join(' — ') || 'erro desconhecido',
-  )
-  console.error(
-    '[MIGRATE] Verifique DATABASE_URL, rede do banco e locks ativos. Nenhum segredo foi exibido.',
-  )
-  process.exitCode = 1
-})
+migrate()
