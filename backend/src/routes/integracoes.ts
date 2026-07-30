@@ -254,6 +254,25 @@ router.post('/destrava/empresas/sincronizar', authMiddleware, async (req: Reques
   try {
     await ensureDestravaCacheSchema()
     const orgId = req.user!.orgId
+    const forcar = String(req.query.force || '').toLowerCase() === 'true'
+    const janelaMinutos = Number(process.env.DESTRAVA_SYNC_CACHE_MINUTES || 30)
+
+    if (!forcar) {
+      // Evita repetir uma sincronização completa (pode ser centenas de
+      // chamadas à API externa + upserts individuais) toda vez que o gestor
+      // simplesmente abre o seletor de empresa. Se o cache já foi
+      // sincronizado recentemente, responde na hora com o que já existe.
+      const ultima = await queryOne<any>(
+        `SELECT MAX(sincronizado_em) AS ultima_sincronizacao FROM destrava_empresas_cache WHERE org_id = $1`,
+        [orgId],
+      )
+      const ultimaData = ultima?.ultima_sincronizacao ? new Date(ultima.ultima_sincronizacao) : null
+      if (ultimaData && Date.now() - ultimaData.getTime() < janelaMinutos * 60_000) {
+        res.json({ pulou_sincronizacao: true, motivo: 'cache_recente', ultima_sincronizacao: ultimaData.toISOString() })
+        return
+      }
+    }
+
     const pageSize = 500
     let page = 1
     let hasMore = true
