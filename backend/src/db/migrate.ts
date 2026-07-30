@@ -965,6 +965,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_user_ativas
 CREATE INDEX IF NOT EXISTS idx_notif_arquivamento
   ON notificacoes(lida, arquivada, created_at) WHERE arquivada = FALSE;
 
+-- Sustenta a agregação de estatísticas por membro em /equipe/membros
+-- (WHERE criado_por = $2 ... GROUP BY responsavel_id), que antes rodava
+-- como 4 subconsultas correlacionadas por membro só para gestor/sub_gestor.
+CREATE INDEX IF NOT EXISTS idx_tarefas_criado_por_responsavel_status
+  ON tarefas(criado_por, responsavel_id, status) WHERE responsavel_id IS NOT NULL;
+
 -- ============================================================
 -- SCHEMA PRONTO
 -- ============================================================

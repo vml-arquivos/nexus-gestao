@@ -65,6 +65,23 @@ esta release (com cache limpo) e confirmar via `/version`.
   `EventSource`. A URL do SSE agora carrega só um ticket de 60s de escopo
   único, não mais um token de 15 minutos válido em qualquer rota.
 
+### Painel do gestor travando (membro carregava normalmente)
+Reportado depois do teste em produção: os painéis de quem é `membro`
+carregavam, só o de `gestor`/`sub_gestor` travava. Causa encontrada em
+`GET /api/equipe/membros` (`backend/src/routes/equipe.ts`) — só chamada
+pelo dashboard quando o papel é gestor-like:
+- **Antes**: 4 subconsultas correlacionadas por membro da equipe
+  (`SELECT COUNT(*) FROM tarefas WHERE responsavel_id = p.id AND ...`,
+  uma para cada status), sem índice composto que as sustentasse. Com M
+  membros isso virava 4×M varreduras na tabela `tarefas` a cada
+  carregamento — o papel `membro` usa uma consulta simples, sem essas
+  contagens, por isso nunca travava.
+- **Agora**: uma única subconsulta agregada (`GROUP BY responsavel_id`
+  com `COUNT(*) FILTER (...)`) faz uma passada só na tabela e é unida ao
+  `profiles`, em vez de 4×M consultas separadas. Adicionei também o índice
+  `idx_tarefas_criado_por_responsavel_status` para sustentar essa
+  agregação.
+
 ### Bloqueio de ~17s na abertura direta
 - `src/lib/api.ts`: novo `decodeOptimisticUser`, decodifica o access token
   localmente (sem chamada de rede).

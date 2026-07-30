@@ -18,12 +18,30 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
       SELECT
         p.id, p.nome, p.email, p.role, p.cargo, p.avatar_url, p.criado_por,
         c.nome AS criado_por_nome,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status NOT IN ('concluida','cancelada')) AS tarefas_pendentes,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'concluida') AS tarefas_concluidas,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'nao_concluida') AS tarefas_nao_concluidas,
-        (SELECT COUNT(*) FROM tarefas t WHERE t.responsavel_id = p.id AND t.criado_por = $2 AND t.status = 'devolvida') AS tarefas_devolvidas
+        COALESCE(stats.tarefas_pendentes, 0)::int AS tarefas_pendentes,
+        COALESCE(stats.tarefas_concluidas, 0)::int AS tarefas_concluidas,
+        COALESCE(stats.tarefas_nao_concluidas, 0)::int AS tarefas_nao_concluidas,
+        COALESCE(stats.tarefas_devolvidas, 0)::int AS tarefas_devolvidas
       FROM profiles p
       LEFT JOIN profiles c ON c.id = p.criado_por
+      LEFT JOIN (
+        -- Antes eram 4 subconsultas correlacionadas por linha (uma
+        -- COUNT(*) por membro para cada status). Com M membros isso virava
+        -- 4×M varreduras em tarefas a cada carregamento do painel do
+        -- gestor -- só esse papel disparava essa consulta, por isso o
+        -- painel do gestor travava e o do membro (que usa uma consulta
+        -- simples, sem essas contagens) sempre carregava normalmente.
+        -- Uma única passada agregada substitui as 4×M subconsultas.
+        SELECT
+          responsavel_id,
+          COUNT(*) FILTER (WHERE status NOT IN ('concluida','cancelada')) AS tarefas_pendentes,
+          COUNT(*) FILTER (WHERE status = 'concluida')      AS tarefas_concluidas,
+          COUNT(*) FILTER (WHERE status = 'nao_concluida')  AS tarefas_nao_concluidas,
+          COUNT(*) FILTER (WHERE status = 'devolvida')      AS tarefas_devolvidas
+        FROM tarefas
+        WHERE criado_por = $2 AND responsavel_id IS NOT NULL
+        GROUP BY responsavel_id
+      ) stats ON stats.responsavel_id = p.id
       WHERE p.org_id = $1 AND p.ativo = TRUE
     `
     const params: unknown[] = [orgId, userId]
