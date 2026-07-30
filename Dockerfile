@@ -41,22 +41,30 @@ ENV NPM_CONFIG_REGISTRY=https://registry.npmjs.org \
 RUN apk add --no-cache python3
 
 WORKDIR /app/frontend
+
+# Sincroniza com o fim do backend-builder ANTES de qualquer passo do frontend-builder --
+# não só antes do vite build (onde estava antes). Achado com log real de deploy (fix50):
+# o COPY --from ficava lá embaixo, logo antes do vite build, e isso NÃO impedia o BuildKit
+# de rodar o `npm ci` do frontend em paralelo com o `tsc` do backend -- que é o passo mais
+# pesado dos dois. Log real mostrou os dois rodando ao mesmo tempo por ~90s (13:15:25 a
+# 13:17:00) e o build inteiro morrendo com "exit code 255" genérico, sem NENHUM erro de
+# TypeScript impresso -- assinatura de OOM kill, não de erro de compilação, num host
+# historicamente apertado de RAM (ver relatórios de correção anteriores: 94% CPU, OOM em
+# outros serviços, coolify-realtime em restart loop por falta de memória). Com o COPY --from
+# aqui em cima, o BuildKit é obrigado a esperar o backend-builder terminar por completo
+# (tsc incluso) antes de iniciar QUALQUER passo do frontend-builder, inclusive o npm ci --
+# serializa os dois estágios de verdade, ao custo de build total mais lento.
+COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
+
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY . .
 RUN python3 scripts/apply_tarefas_client_select_patch.py \
     && python3 scripts/apply_task_scoring_ui_patch.py \
     && node scripts/apply_task_visibility_board_patch.mjs \
-    && rm -rf backend
+    && rm -rf backend /tmp/backend-build-check
 
-# Força o BuildKit a concluir o build TypeScript do backend antes do build do frontend.
-# Sem esta dependência, Coolify/BuildKit pode executar backend tsc e frontend tsc/vite em paralelo,
-# consumindo muita memória na VPS e derrubando o deploy sem mostrar erro TypeScript claro.
-COPY --from=backend-builder /app/backend/dist /tmp/backend-build-check
-# No deploy do Coolify a VPS pode encerrar o tsc -b por memória antes de mostrar o erro real.
-# O build completo com typecheck continua sendo validado fora do Docker com npm run build.
-# Dentro da imagem usamos o build do Vite para evitar falha falsa de deploy e não alterar runtime.
-RUN rm -rf /tmp/backend-build-check && NODE_OPTIONS="--max-old-space-size=384" npx vite build
+RUN NODE_OPTIONS="--max-old-space-size=384" npx vite build
 
 # ── STAGE 3: Produção ──────────────────────────────────────
 FROM node:20-alpine AS production
