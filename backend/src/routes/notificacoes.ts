@@ -317,10 +317,17 @@ router.patch('/:id/ler', async (req: Request, res: Response): Promise<void> => {
 router.delete('/antigas', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, orgId } = req.user!
+    // LIMIT por segurança: isto roda dentro de uma requisição HTTP síncrona,
+    // não deve tentar processar um backlog gigante de uma vez (o job diário
+    // em segundo plano, que já processa em lotes, cuida do resto).
     const resultado = await query<{ id: string }>(
       `UPDATE notificacoes SET arquivada = true, arquivada_em = NOW()
-       WHERE user_id=$1 AND org_id=$2 AND lida=true AND arquivada=false
-       AND created_at < NOW() - INTERVAL '30 days'
+       WHERE id IN (
+         SELECT id FROM notificacoes
+          WHERE user_id=$1 AND org_id=$2 AND lida=true AND arquivada=false
+            AND created_at < NOW() - INTERVAL '30 days'
+          LIMIT 2000
+       )
        RETURNING id`,
       [userId, orgId]
     )

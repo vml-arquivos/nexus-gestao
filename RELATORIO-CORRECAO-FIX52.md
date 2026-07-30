@@ -49,6 +49,28 @@ esse banco, e confirmei:
 - rodar a migração de novo (redeploy seguinte) é idempotente, não
   reprocessa o que já foi consolidado.
 
+## Segundo incidente: OOM no primeiro job de arquivamento (corrigido)
+
+Depois do redeploy bem-sucedido, o job de arquivamento (`jobArquivarNotificacoesAntigas`)
+encontrou o backlog histórico real (18.072 notificações represadas) e tentou
+arquivar tudo num único `UPDATE` sem lote. Isso segurou lock/conexão,
+competiu com o tráfego normal — causando os `Query read timeout` simultâneos
+em `/tarefas`, `/agenda`, `/notificacoes` e `/ranking` — e contribuiu para o
+processo estourar os 512MB de heap (`FATAL ERROR: Reached heap limit`). O
+`supervisord` reiniciou o processo sozinho e a migração (idempotente) rodou
+de novo sem problema, mas foi um risco evitável.
+
+Correção: `jobArquivarNotificacoesAntigas` agora processa em lotes de 500
+(`FOR UPDATE SKIP LOCKED` + `LIMIT`), com uma pequena pausa entre lotes, até
+esgotar o backlog ou atingir um teto de segurança por execução. A rota
+manual `DELETE /antigas` ganhou o mesmo tipo de limite (2000 por chamada),
+já que ela roda dentro de uma requisição HTTP síncrona.
+
+Validado com um backlog de 25.000 notificações (maior que o de produção)
+num PostgreSQL 16 real: todas as 25.000 arquivadas corretamente, 0
+perdidas, em 51 lotes de ~70-100ms cada — nenhum lote chega perto do
+`statement_timeout` de 15s configurado em produção.
+
 ## Correções
 
 ### Carregamento acoplado (dashboard/relatórios)

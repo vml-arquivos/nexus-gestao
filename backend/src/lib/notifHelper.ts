@@ -432,22 +432,50 @@ async function jobAgendaLembrete() {
 // apagada. Notificações lidas com mais de 30 dias são marcadas como
 // arquivadas (arquivada = TRUE) e somem da lista/contagem padrão, mas
 // continuam no banco para auditoria/histórico.
+//
+// Processa em lotes pequenos. Na primeira execução em produção, o backlog
+// histórico (18k+ notificações represadas) foi arquivado num único UPDATE
+// gigante -- isso segurou lock/conexão, competiu com o tráfego normal
+// (timeouts em /tarefas, /agenda, /notificacoes ao mesmo tempo) e contribuiu
+// para o processo estourar o limite de heap. Em lotes, cada passada é rápida
+// e barata, e o job cede espaço entre lotes em vez de monopolizar o pool.
+const ARQUIVAMENTO_LOTE = 500
+const ARQUIVAMENTO_MAX_LOTES_POR_EXECUCAO = 100 // até 50.000/execução, sem laço infinito
+
 async function jobArquivarNotificacoesAntigas() {
+  let totalArquivadas = 0
   try {
-    const resultado = await query<{ id: string }>(
-      `UPDATE notificacoes
-          SET arquivada = TRUE, arquivada_em = NOW()
-        WHERE arquivada = FALSE
-          AND lida = TRUE
-          AND created_at < NOW() - INTERVAL '30 days'
-        RETURNING id`,
-      []
-    )
-    if (Array.isArray(resultado) && resultado.length > 0) {
-      console.log(`[NOTIF] ${resultado.length} notificação(ões) arquivada(s) automaticamente (dados preservados).`)
+    for (let lote = 0; lote < ARQUIVAMENTO_MAX_LOTES_POR_EXECUCAO; lote++) {
+      const resultado = await query<{ id: string }>(
+        `WITH candidatos AS (
+           SELECT id FROM notificacoes
+            WHERE arquivada = FALSE
+              AND lida = TRUE
+              AND created_at < NOW() - INTERVAL '30 days'
+            ORDER BY created_at ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+         )
+         UPDATE notificacoes n
+            SET arquivada = TRUE, arquivada_em = NOW()
+           FROM candidatos c
+          WHERE n.id = c.id
+         RETURNING n.id`,
+        [ARQUIVAMENTO_LOTE]
+      )
+      const arquivadasNesteLote = Array.isArray(resultado) ? resultado.length : 0
+      totalArquivadas += arquivadasNesteLote
+      if (arquivadasNesteLote < ARQUIVAMENTO_LOTE) break // backlog acabou
+
+      // Cede espaço entre lotes -- não monopoliza o pool de conexões
+      // enquanto o tráfego normal de usuários também precisa dele.
+      await new Promise(resolve => setTimeout(resolve, 250))
+    }
+    if (totalArquivadas > 0) {
+      console.log(`[NOTIF] ${totalArquivadas} notificação(ões) arquivada(s) automaticamente em lotes de ${ARQUIVAMENTO_LOTE} (dados preservados).`)
     }
   } catch (err) {
-    console.error('[NOTIF] Erro no job de arquivamento:', err)
+    console.error(`[NOTIF] Erro no job de arquivamento (${totalArquivadas} arquivadas antes da falha):`, err)
   }
 }
 
