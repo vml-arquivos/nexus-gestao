@@ -46,7 +46,7 @@ async function tentarDespachar(client: import('pg').PoolClient, evento: Automati
       resultado: 'falha',
       tempoMs: Date.now() - inicio,
       erro: 'Integração Destrava não configurada',
-    })
+    }, client)
     return false
   }
 
@@ -61,7 +61,7 @@ async function tentarDespachar(client: import('pg').PoolClient, evento: Automati
       orgId,
       resultado: 'sucesso',
       tempoMs: Date.now() - inicio,
-    })
+    }, client)
     return true
   } catch (err: unknown) {
     const mensagem = err instanceof Error ? err.message : String(err)
@@ -73,7 +73,7 @@ async function tentarDespachar(client: import('pg').PoolClient, evento: Automati
       resultado: 'falha',
       tempoMs: Date.now() - inicio,
       erro: mensagem,
-    })
+    }, client)
     return false
   }
 }

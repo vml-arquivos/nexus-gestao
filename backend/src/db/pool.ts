@@ -26,13 +26,47 @@ const needsSsl =
   dbUrl.includes('sslmode=require') ||
   dbUrl.includes('ssl=true')
 
+// ── TIMEOUTS DO POOL (antes configurados no Coolify mas nunca lidos pelo código) ─
+// DB_POOL_MAX, DB_CONNECT_TIMEOUT_MS, DB_QUERY_TIMEOUT_MS e DB_STATEMENT_TIMEOUT_MS
+// já estavam definidas como variáveis de ambiente em produção desde relatórios de
+// correção anteriores, mas o pool.ts nunca as lia -- eram no-op. Implementadas de
+// verdade aqui, com os valores hardcoded anteriores como fallback caso a env não
+// esteja definida ou seja inválida.
+//
+// idle_in_transaction_session_timeout é NOVO (não existia antes): funciona como
+// rede de segurança para o cenário provado contra Postgres real em produção --
+// uma conexão que abre transação (BEGIN), roda um UPDATE e por bug de aplicação
+// nunca chama COMMIT/ROLLBACK fica "idle in transaction" segurando lock para
+// sempre, vazando uma conexão do pool a cada ocorrência até esgotar o pool
+// inteiro e derrubar rotas completamente não relacionadas. Esse timeout garante
+// que o próprio Postgres mate a conexão travada, mesmo que uma causa futura e
+// ainda não descoberta produza o mesmo padrão.
+function envInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name])
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback
+}
+
+const poolMax = envInt('DB_POOL_MAX', 20)
+const connectTimeoutMs = envInt('DB_CONNECT_TIMEOUT_MS', 5000)
+const queryTimeoutMs = envInt('DB_QUERY_TIMEOUT_MS', 60000)
+const statementTimeoutMs = envInt('DB_STATEMENT_TIMEOUT_MS', 60000)
+const idleInTransactionTimeoutMs = envInt('DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', 60000)
+
 const pool = new Pool({
   connectionString: dbUrl,
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
-  max: 20,
+  max: poolMax,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: connectTimeoutMs,
+  query_timeout: queryTimeoutMs,
+  statement_timeout: statementTimeoutMs,
+  idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
 })
+
+console.log(
+  `[DB] Pool configurado: max=${poolMax} connectTimeout=${connectTimeoutMs}ms queryTimeout=${queryTimeoutMs}ms ` +
+  `statementTimeout=${statementTimeoutMs}ms idleInTransactionTimeout=${idleInTransactionTimeoutMs}ms`
+)
 
 pool.on('error', (err) => {
   console.error('[DB] Erro inesperado no pool:', err.message)

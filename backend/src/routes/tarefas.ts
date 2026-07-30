@@ -4342,7 +4342,8 @@ router.post(
 
       const historico = Array.isArray((current as any).atualizacoes_atraso) ? [...(current as any).atualizacoes_atraso] : [];
       const idxHoje = historico.findIndex((h: any) => String(h.data) === hoje);
-      const profile = await queryOne<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
+      const profileResult = await client.query<any>(`SELECT nome FROM profiles WHERE id = $1`, [userId]);
+      const profile = profileResult.rows[0] ?? null;
       const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
       if (idxHoje >= 0) historico[idxHoje] = entrada;
       else historico.push(entrada);

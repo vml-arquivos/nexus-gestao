@@ -105,8 +105,28 @@ export interface NovoRegistroAuditoria {
   detalhe?: Record<string, unknown> | null
 }
 
-export async function registrarAuditoria(registro: NovoRegistroAuditoria): Promise<void> {
-  await query(
+// ── DEADLOCK CORRIGIDO ────────────────────────────────────────────────────────
+// registrarAuditoria() aceita um `client` transacional opcional. Quando o
+// chamador está no meio de uma transação que já tocou a linha correspondente
+// em automation_events (ex.: marcarDespachado/marcarFalha), automation_audit_log
+// tem uma FK para automation_events(id) -- inserir usando uma conexão NOVA do
+// pool (o antigo comportamento, via query()) faz o INSERT esperar a checagem de
+// FK contra uma linha bloqueada pela transação ainda aberta na OUTRA conexão.
+// Como o código que abriu essa transação é o mesmo que está esperando este
+// INSERT terminar, isso é um deadlock a nível de aplicação que o detector de
+// deadlock do Postgres não enxerga (a conexão dona da transação não está
+// esperando lock nenhum do lado do Postgres, só está com o cliente Node parado).
+// Reproduzido e confirmado contra Postgres real: a conexão travava para sempre
+// (estado "idle in transaction" + "active"/wait_event "transactionid"), vazando
+// uma conexão do pool a cada evento despachado até esgotar o pool inteiro --
+// e como esse pool esgotado é o MESMO usado por toda a aplicação, isso derrubava
+// rotas completamente não relacionadas (equipe/membros, notificacoes) com
+// "Connection terminated due to connection timeout". Passando o mesmo `client`
+// da transação, o INSERT roda na mesma conexão/transação que já tem a linha
+// travada -- sem esperar lock de ninguém.
+export async function registrarAuditoria(registro: NovoRegistroAuditoria, client?: PoolClient): Promise<void> {
+  const runner = client ?? { query: (text: string, params?: unknown[]) => query(text, params) }
+  await runner.query(
     `INSERT INTO automation_audit_log
        (event_id, evento, origem_sistema, org_id, executado_por, tempo_ms, resultado, erro, detalhe)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
