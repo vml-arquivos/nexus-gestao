@@ -32,19 +32,31 @@ def replace_between(content: str, start_marker: str, end_marker: str, replacemen
 tarefas_path = "src/pages/Tarefas.tsx"
 tarefas = read(tarefas_path)
 
-tarefas = replace_once(
-    tarefas,
-    "import { useCallback, useEffect, useMemo, useState } from 'react'",
-    "import { useCallback, useEffect, useMemo, useRef, useState } from 'react'",
-    "import useRef",
-)
+tarefas_import_antigo = "import { useCallback, useEffect, useMemo, useState } from 'react'"
+tarefas_import_novo = "import { useCallback, useEffect, useMemo, useRef, useState } from 'react'"
+if tarefas_import_novo in tarefas:
+    # useRef já está no import (adicionado direto no código-fonte em outra
+    # correção) -- nada a fazer aqui, evita falhar o build por já estar feito.
+    pass
+else:
+    tarefas = replace_once(
+        tarefas,
+        tarefas_import_antigo,
+        tarefas_import_novo,
+        "import useRef",
+    )
 
-tarefas = replace_once(
-    tarefas,
-    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2,\n",
-    "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,\n",
-    "ícones do combobox",
-)
+icones_antigo = "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2,\n"
+icones_novo = "  Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,\n"
+if icones_novo in tarefas:
+    pass
+else:
+    tarefas = replace_once(
+        tarefas,
+        icones_antigo,
+        icones_novo,
+        "ícones do combobox",
+    )
 
 assignee_block = """function assigneeOptions(membros: MembroEquipe[], user?: { id?: string; nome?: string; role?: string }) {
   const map = new Map<string, { id: string; nome: string; role?: string }>()
@@ -89,18 +101,28 @@ function destravaItemMatches(item: DestravaCatalogoItem, rawSearch: string) {
 }
 """
 
-tarefas = replace_once(tarefas, assignee_block, search_helpers, "helpers de busca do cliente")
+if "function normalizeDestravaSearch(value: unknown) {" in tarefas:
+    # Helpers de busca do cliente já existem direto no código-fonte -- nada a
+    # fazer aqui. (Sem essa checagem, assignee_block aparece como substring
+    # DENTRO do bloco já inserido, e o replace_once duplicava tudo de novo.)
+    pass
+else:
+    tarefas = replace_once(tarefas, assignee_block, search_helpers, "helpers de busca do cliente")
 
-tarefas = replace_once(
-    tarefas,
-    "  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)\n",
-    "  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)\n"
-    "  const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)\n"
-    "  const destravaSelectRef = useRef<HTMLDivElement | null>(null)\n"
-    "  const destravaBuscaRef = useRef<HTMLInputElement | null>(null)\n"
-    "  const destravaAutoSyncRef = useRef(false)\n",
-    "estado do combobox",
-)
+if "const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)" in tarefas:
+    # Estado do combobox já existe direto no código-fonte -- nada a fazer aqui.
+    pass
+else:
+    tarefas = replace_once(
+        tarefas,
+        "  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)\n",
+        "  const [destravaTotalCatalogo, setDestravaTotalCatalogo] = useState(0)\n"
+        "  const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)\n"
+        "  const destravaSelectRef = useRef<HTMLDivElement | null>(null)\n"
+        "  const destravaBuscaRef = useRef<HTMLInputElement | null>(null)\n"
+        "  const destravaAutoSyncRef = useRef(false)\n",
+        "estado do combobox",
+    )
 
 new_functions = """  async function carregarCadastrosDestrava(tipo: 'empresa' | 'pessoa_fisica' = destravaTipo) {
     setDestravaLoading(true)
@@ -198,13 +220,18 @@ new_functions = """  async function carregarCadastrosDestrava(tipo: 'empresa' | 
 
 """
 
-tarefas = replace_between(
-    tarefas,
-    "  async function buscarCadastroDestrava() {",
-    "  function changeTipoTarefa(next: 'pessoal' | 'equipe') {",
-    new_functions,
-    "funções do seletor de clientes",
-)
+if "const [destravaSelectOpen, setDestravaSelectOpen] = useState(false)" in tarefas and "function changeTipoTarefa(next: 'pessoal' | 'equipe') {" in tarefas:
+    # As funções do novo seletor de empresa (combobox com busca) já existem
+    # direto no código-fonte -- nada a fazer aqui.
+    pass
+else:
+    tarefas = replace_between(
+        tarefas,
+        "  async function buscarCadastroDestrava() {",
+        "  function changeTipoTarefa(next: 'pessoal' | 'equipe') {",
+        new_functions,
+        "funções do seletor de clientes",
+    )
 
 new_memo = """  const destravaSelectOptions = useMemo(() => {
     const map = new Map<string, DestravaCatalogoItem>()
@@ -396,11 +423,16 @@ new_ui = """            <div className="destrava-client-select-grid">
 
 """
 
-tarefas = replace_between(
-    tarefas,
-    "            <div className=\"task-type-selector\" role=\"radiogroup\" aria-label=\"Tipo de cliente da Destrava\" style={{ marginBottom: 10 }}>",
-    "            {destravaSelecionado && (",
-    new_ui,
+if "Sincronizar PJ e PF" in tarefas and "destravaSelectRef" in tarefas:
+    # A interface nova do seletor de empresa (combobox com busca) já existe
+    # direto no código-fonte -- nada a fazer aqui.
+    pass
+else:
+    tarefas = replace_between(
+        tarefas,
+        "            <div className=\"task-type-selector\" role=\"radiogroup\" aria-label=\"Tipo de cliente da Destrava\" style={{ marginBottom: 10 }}>",
+        "            {destravaSelecionado && (",
+        new_ui,
     "interface do seletor de clientes",
 )
 
