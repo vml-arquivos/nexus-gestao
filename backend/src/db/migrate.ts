@@ -1096,6 +1096,23 @@ async function migrate() {
     console.warn('[MIGRATE] Compatibilidade de pontuação pulada (não essencial):', err)
   }
 
+  // Verificação adicional e idempotente das colunas/tabela que a listagem de
+  // tarefas (GET /api/tarefas) depende (profiles.cargo, tarefas.aceita_por,
+  // tarefas.data_reabertura, tarefa_anexos). Protege contra schema
+  // desatualizado -- por exemplo, um banco restaurado de um backup mais
+  // antigo que o código -- que faria a página de Tarefas parar de carregar
+  // mesmo com o backend e o Postgres saudáveis. Mesmo limite de segurança:
+  // nunca prende o startup, e nunca remove coluna, tabela ou dado.
+  try {
+    const { ensureTarefasListSchemaOnce } = await import('./ensureTarefasListSchema')
+    await Promise.race([
+      ensureTarefasListSchemaOnce(),
+      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    ])
+  } catch (err) {
+    console.warn('[MIGRATE] Verificação de schema de tarefas pulada (não essencial):', err)
+  }
+
   await pool.end()
 }
 

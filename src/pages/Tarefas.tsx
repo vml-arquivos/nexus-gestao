@@ -4309,6 +4309,7 @@ export default function Tarefas() {
   const loadInFlightRef = useRef<Promise<void> | null>(null)
   const lastLoadedAtRef = useRef(0)
   const [erroCarregamento, setErroCarregamento] = useState(false)
+  const [erroCarregamentoDetalhe, setErroCarregamentoDetalhe] = useState('')
 
   // Permite abrir diretamente a aba de ranking via query param (?tab=ranking)
   useEffect(() => {
@@ -4337,6 +4338,7 @@ export default function Tarefas() {
         const ts = await tarefasApi.list()
         setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
         setErroCarregamento(false)
+        setErroCarregamentoDetalhe('')
         lastLoadedAtRef.current = Date.now()
 
         void Promise.allSettled([
@@ -4363,8 +4365,10 @@ export default function Tarefas() {
           }
         })
       } catch (e) {
+        const mensagem = e instanceof Error ? e.message : 'Erro ao carregar tarefas.'
         setErroCarregamento(true)
-        toast(e instanceof Error ? e.message : 'Erro ao carregar tarefas.', 'error')
+        setErroCarregamentoDetalhe(mensagem)
+        toast(mensagem, 'error')
       } finally {
         setLoading(false)
       }
@@ -4809,6 +4813,11 @@ export default function Tarefas() {
         <div className="offline-sync-banner" style={{ borderColor: 'rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)' }}>
           <strong style={{ color: '#B91C1C' }}>Não foi possível carregar as tarefas</strong>
           <span>A lista abaixo pode estar vazia por falha na conexão com o servidor, não porque não há tarefas.</span>
+          {erroCarregamentoDetalhe && (
+            <span style={{ fontFamily: 'monospace', fontSize: 12, opacity: 0.85, wordBreak: 'break-word' }}>
+              Detalhe técnico: {erroCarregamentoDetalhe}
+            </span>
+          )}
           <button
             className="btn btn-secondary btn-sm"
             type="button"
