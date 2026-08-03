@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express'
-import crypto from 'crypto'
 import { authMiddleware } from '../middleware/auth'
 import { requireWebhookSignature } from '../middleware/webhookAuth'
 import { v4 as uuidv4 } from 'uuid'
 import pool, { query, queryOne } from '../db/pool'
+import { buildDestravaTaskExternalKey, normalizeDestravaTaskInput } from '../lib/destravaTaskContract'
 
 const router = Router()
 
@@ -56,27 +56,47 @@ export function normalizeChecklistItems(value: unknown): Array<{ id: string; tex
     .filter(item => item.texto)
 }
 
-export async function findActiveUserByEmail(email?: string | null): Promise<NexusUser | null> {
+export async function findActiveUserByEmail(email?: string | null, orgId?: string | null): Promise<NexusUser | null> {
   if (!email || !email.trim()) return null
+  if (orgId) {
+    return queryOne<NexusUser>(
+      `SELECT id, org_id, nome, email, role
+         FROM profiles
+        WHERE lower(email) = lower($1)
+          AND org_id = $2
+          AND COALESCE(ativo, TRUE) = TRUE
+        LIMIT 1`,
+      [email.trim(), orgId]
+    )
+  }
   return queryOne<NexusUser>(
     `SELECT id, org_id, nome, email, role
        FROM profiles
       WHERE lower(email) = lower($1)
         AND COALESCE(ativo, TRUE) = TRUE
+        AND (
+          SELECT COUNT(DISTINCT p2.org_id)
+            FROM profiles p2
+           WHERE lower(p2.email) = lower($1)
+             AND COALESCE(p2.ativo, TRUE) = TRUE
+        ) = 1
       LIMIT 1`,
     [email.trim()]
   )
 }
 
 export async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
+  const configuredOrgId = String(process.env.NEXUS_DESTRAVA_ORG_ID || '').trim() || null
   const candidates = [
+    payload?.criadoPorEmail,
+    payload?.responsavelEmail,
     payload?.criado_por_email,
     payload?.responsavel_email,
     process.env.NEXUS_DESTRAVA_DEFAULT_USER_EMAIL,
   ].filter(Boolean)
 
   for (const email of candidates) {
-    const user = await findActiveUserByEmail(String(email))
+    const user = await findActiveUserByEmail(String(email), configuredOrgId)
     if (user) return user
   }
 
@@ -84,14 +104,16 @@ export async function resolveIntegrationUser(payload: any): Promise<NexusUser | 
     const user = await queryOne<NexusUser>(
       `SELECT id, org_id, nome, email, role
          FROM profiles
-        WHERE id = $1 AND COALESCE(ativo, TRUE) = TRUE
+        WHERE id = $1
+          AND COALESCE(ativo, TRUE) = TRUE
+          AND ($2::uuid IS NULL OR org_id = $2::uuid)
         LIMIT 1`,
-      [process.env.NEXUS_DESTRAVA_DEFAULT_USER_ID]
+      [process.env.NEXUS_DESTRAVA_DEFAULT_USER_ID, configuredOrgId]
     )
     if (user) return user
   }
 
-  if (process.env.NEXUS_DESTRAVA_ORG_ID) {
+  if (configuredOrgId) {
     const user = await queryOne<NexusUser>(
       `SELECT id, org_id, nome, email, role
          FROM profiles
@@ -99,15 +121,22 @@ export async function resolveIntegrationUser(payload: any): Promise<NexusUser | 
           AND COALESCE(ativo, TRUE) = TRUE
         ORDER BY CASE role WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3 ELSE 4 END, created_at ASC
         LIMIT 1`,
-      [process.env.NEXUS_DESTRAVA_ORG_ID]
+      [configuredOrgId]
     )
     if (user) return user
   }
 
+  // Só existe fallback seguro quando todos os usuários ativos pertencem a uma
+  // única organização. Em ambiente multiempresa, exige mapeamento explícito.
   return queryOne<NexusUser>(
     `SELECT id, org_id, nome, email, role
        FROM profiles
       WHERE COALESCE(ativo, TRUE) = TRUE
+        AND (
+          SELECT COUNT(DISTINCT p2.org_id)
+            FROM profiles p2
+           WHERE COALESCE(p2.ativo, TRUE) = TRUE
+        ) = 1
       ORDER BY CASE role WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3 ELSE 4 END, created_at ASC
       LIMIT 1`
   )
@@ -210,7 +239,11 @@ async function callDestrava(path: string, options: RequestInit = {}) {
     'x-nexus-integration-secret': secret,
     ...(options.headers as Record<string, string> || {}),
   }
-  const res = await fetch(`${base}${path}`, { ...options, headers })
+  const res = await fetch(`${base}${path}`, {
+    ...options,
+    headers,
+    signal: options.signal || AbortSignal.timeout(10_000),
+  })
   const rawBody = await res.text()
   let data: any
   try {
@@ -549,16 +582,16 @@ router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<voi
 
 router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<void> => {
   try {
-    const body = req.body || {}
-    const titulo = String(body.titulo || '').trim()
-    const externalId = String(body.external_id || '').trim()
-    let externalType = String(body.external_type || 'empresa').trim()
+    const body = normalizeDestravaTaskInput(req.body || {})
+    const titulo = body.titulo
+    const externalId = body.externalId
+    let externalType = body.externalType
     const extLower = externalType.toLowerCase()
     // Normalize aliases for Clientes PJ to maintain backwards compatibility.
     if (['cliente_pj', 'clientes_pj', 'cliente-pj', 'clientes-pj'].includes(extLower)) {
       externalType = 'empresa'
     }
-    const externalName = String(body.external_name || '').trim()
+    const externalName = body.externalName
 
     if (!titulo) {
       res.status(400).json({ error: 'Título da tarefa é obrigatório.' })
@@ -571,36 +604,30 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
 
     const creator = await resolveIntegrationUser(body)
     if (!creator) {
-      res.status(400).json({ error: 'Nenhum usuário ativo encontrado no Nexus para receber a integração.' })
+      res.status(400).json({
+        error: 'Não foi possível determinar a organização da integração. Configure NEXUS_DESTRAVA_ORG_ID ou NEXUS_DESTRAVA_DEFAULT_USER_EMAIL no Nexus.',
+      })
       return
     }
 
-    const orgId = process.env.NEXUS_DESTRAVA_ORG_ID || creator.org_id
-    let responsavel = await findActiveUserByEmail(body.responsavel_email)
+    // Usa o UUID retornado pelo perfil já validado. Além de eliminar espaços
+    // acidentais na variável, impede qualquer divergência entre a organização
+    // configurada e a organização real do usuário escolhido.
+    const orgId = creator.org_id
+    let responsavel = await findActiveUserByEmail(body.responsavelEmail, orgId)
     if (!responsavel || responsavel.org_id !== orgId) responsavel = creator
 
     const prioridade = VALID_PRIORIDADES.includes(body.prioridade) ? body.prioridade : 'media'
     const checklist = normalizeChecklistItems(body.checklist)
     const metadata = {
-      ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
-      destrava_colaborador_id: body.destrava_colaborador_id || null,
-      destrava_colaborador_nome: body.destrava_colaborador_nome || null,
-      destrava_colaborador_email: body.criado_por_email || null,
-      cnpj: body.cnpj || null,
+      ...body.metadata,
+      destrava_colaborador_id: body.destravaColaboradorId,
+      destrava_colaborador_nome: body.criadoPorNome,
+      destrava_colaborador_email: body.criadoPorEmail,
+      cnpj: body.cnpj,
     }
-    const sourceUrl = body.source_url ? String(body.source_url) : null
-    // Chave determinística: antes incluía Date.now(), o que tornava toda
-    // reentrega (ex.: retry de rede) uma tarefa nova. Agora é um hash do
-    // conteúdo (titulo+prazo+descricao) combinado ao external_id -- uma
-    // reentrega idêntica cai na mesma chave (idempotente), mas duas tarefas
-    // legitimamente diferentes para a mesma empresa (conteúdo diferente)
-    // continuam gerando chaves distintas.
-    const chaveConteudo = crypto
-      .createHash('sha256')
-      .update(`${titulo}|${body.prazo || ''}|${body.descricao || ''}`)
-      .digest('hex')
-      .slice(0, 16)
-    const externalKey = `destrava:${externalType}:${externalId}:${chaveConteudo}`
+    const sourceUrl = body.sourceUrl
+    const externalKey = buildDestravaTaskExternalKey({ ...body, externalType })
 
     const client = await pool.connect()
     let tarefa: any = null
@@ -615,8 +642,8 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
         `INSERT INTO tarefas
            (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
             checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
-            origem_payload, external_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17)
+            origem_payload, external_key, escopo, modo_distribuicao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal')
          ON CONFLICT (org_id, external_key) DO NOTHING
          RETURNING *`,
         [
@@ -625,12 +652,12 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
           responsavel.id,
           responsavel.nome,
           titulo,
-          body.descricao ? String(body.descricao) : null,
-          body.data || null,
-          body.prazo || null,
+          body.descricao,
+          body.data,
+          body.prazo,
           prioridade,
           JSON.stringify(checklist),
-          body.obs ? String(body.obs) : null,
+          body.observacao,
           externalType,
           externalId,
           externalName || null,

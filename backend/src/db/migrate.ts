@@ -552,6 +552,8 @@ CREATE TABLE IF NOT EXISTS tarefa_anexos (
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_tarefa ON tarefa_anexos(tarefa_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org ON tarefa_anexos(org_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_enviado_por ON tarefa_anexos(enviado_por, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefa_anexos_org_tarefa_created
+  ON tarefa_anexos(org_id, tarefa_id, created_at DESC);
 
 
 
@@ -679,6 +681,8 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_org_status_prazo
   ON tarefas(org_id, status, prazo) WHERE prazo IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tarefas_org_updated
   ON tarefas(org_id, updated_at DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tarefas_org_list_order
+  ON tarefas(org_id, (COALESCE(data_reabertura, updated_at, created_at)) DESC, created_at DESC);
 
 -- (Definição de nexus_external_links fica a cargo do bloco original lá em
 -- cima, linha ~204 -- havia uma segunda CREATE TABLE IF NOT EXISTS duplicada
@@ -941,6 +945,15 @@ CREATE INDEX IF NOT EXISTS idx_tarefas_grupo_recorrencia ON tarefas(grupo_recorr
 -- continuam distintas entre si, então não há conflito com dados históricos).
 CREATE UNIQUE INDEX IF NOT EXISTS ux_tarefas_org_external_key
   ON tarefas(org_id, external_key) WHERE external_key IS NOT NULL;
+
+-- A rota legada da integração não informava escopo e as tarefas Destrava
+-- herdavam o default 'pessoal'. Corrige somente registros identificados pela
+-- origem/chave da integração; nenhuma tarefa pessoal nativa é alterada.
+UPDATE tarefas
+   SET escopo = 'equipe', updated_at = NOW()
+ WHERE origem_sistema = 'destrava'
+   AND external_key LIKE 'destrava:%'
+   AND COALESCE(escopo, 'pessoal') <> 'equipe';
 
 -- ── NOTIFICAÇÕES — agregação e arquivamento (FIX52) ──────────────────────────
 -- Antes, cada tique do job de vencimento/financeiro/agenda inserida uma nova

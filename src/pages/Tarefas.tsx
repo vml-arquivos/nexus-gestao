@@ -4341,6 +4341,16 @@ export default function Tarefas() {
         setErroCarregamentoDetalhe('')
         lastLoadedAtRef.current = Date.now()
 
+        // Evidências são complementares: carregam depois que as tarefas já
+        // estão na tela. Falha/lock em tarefa_anexos não esvazia nem mantém o
+        // painel principal preso no spinner.
+        void tarefasApi.anexosResumo().then((resumo) => {
+          setTarefas((atuais) => atuais.map((task) => ({
+            ...task,
+            ...(resumo[String(task.id)] || {}),
+          })))
+        }).catch(() => undefined)
+
         void Promise.allSettled([
           equipeApi.membros(),
           tarefasApi.ajudaPendentes(),

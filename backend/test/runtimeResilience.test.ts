@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const root = resolve(__dirname, '..', '..')
 const read = (relative: string) => readFileSync(resolve(root, relative), 'utf8')
 
-describe('proteções de runtime FIX51', () => {
+describe('proteções de runtime FIX53', () => {
   it('não executa DDL no caminho HTTP de tarefas ou ranking', () => {
     const tarefas = read('backend/src/routes/tarefas.ts')
     const scoring = read('backend/src/routes/tarefasScoring.ts')
@@ -17,8 +17,36 @@ describe('proteções de runtime FIX51', () => {
   it('não bloqueia a lista com ranking e não usa polling de 25 segundos', () => {
     const tarefasPage = read('src/pages/Tarefas.tsx')
     expect(tarefasPage).toContain('Promise.allSettled')
+    expect(tarefasPage).toContain('tarefasApi.anexosResumo().then')
     expect(tarefasPage).toContain("escopo === 'ranking'")
     expect(tarefasPage).not.toContain('window.setInterval(refreshIfVisible, 25000)')
+  })
+
+  it('não acopla a lista principal à tabela de anexos', () => {
+    const tarefas = read('backend/src/routes/tarefas.ts')
+    const listStart = tarefas.indexOf('async function listTasksForUser')
+    const summaryStart = tarefas.indexOf('router.get("/anexos-resumo"')
+    const listSource = tarefas.slice(listStart, summaryStart)
+    expect(listSource).not.toContain('JOIN LATERAL')
+    expect(listSource).not.toContain('FROM tarefa_anexos')
+    expect(tarefas).toContain('Metadados de anexos indisponíveis; lista principal preservada')
+  })
+
+  it('aceita integração legada sem misturar organizações', () => {
+    const integracoes = read('backend/src/routes/integracoes.ts')
+    const migrate = read('backend/src/db/migrate.ts')
+    expect(integracoes).toContain('normalizeDestravaTaskInput')
+    expect(integracoes).toContain("'equipe','normal'")
+    expect(integracoes).toContain('COUNT(DISTINCT p2.org_id)')
+    expect(integracoes).toContain('findActiveUserByEmail(body.responsavelEmail, orgId)')
+    expect(migrate).toContain("SET escopo = 'equipe'")
+  })
+
+  it('cede o pool ao tráfego durante o arquivamento em lotes', () => {
+    const notificacoes = read('backend/src/lib/notifHelper.ts')
+    expect(notificacoes).toContain('pool.waitingCount > 0')
+    expect(notificacoes).toContain('Arquivamento pausado')
+    expect(notificacoes).toContain('FOR UPDATE SKIP LOCKED')
   })
 
   it('não permite que o Service Worker intercepte API, SSE ou uploads', () => {
@@ -34,7 +62,7 @@ describe('proteções de runtime FIX51', () => {
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix52-loading-notificacoes-20260730')
+    expect(dockerfile).toContain('fix53-integracao-tarefas-20260803')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })

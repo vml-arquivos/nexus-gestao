@@ -3,7 +3,7 @@
  * Helpers para criar notificações no banco e disparar via SSE para usuários conectados.
  */
 import { Response } from 'express'
-import { query } from '../db/pool'
+import pool, { query } from '../db/pool'
 import { sendPushToUser } from '../services/pushService'
 import { runClusterSingletonJob } from './clusterJob'
 
@@ -446,6 +446,16 @@ async function jobArquivarNotificacoesAntigas() {
   let totalArquivadas = 0
   try {
     for (let lote = 0; lote < ARQUIVAMENTO_MAX_LOTES_POR_EXECUCAO; lote++) {
+      // Tráfego interativo tem prioridade. Se já existe requisição esperando
+      // conexão, encerra esta passada sem perder trabalho: o próximo ciclo
+      // retoma o backlog pelo mesmo índice/critério idempotente.
+      if (lote > 0 && pool.waitingCount > 0) {
+        console.warn(
+          `[NOTIF] Arquivamento pausado após ${totalArquivadas} registro(s): ` +
+          `${pool.waitingCount} requisição(ões) aguardando conexão com o banco.`,
+        )
+        break
+      }
       const resultado = await query<{ id: string }>(
         `WITH candidatos AS (
            SELECT id FROM notificacoes

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # ============================================================
 # NEXUS GESTÃO — Dockerfile unificado e sequencial (Coolify)
-# Release FIX51
+# Release FIX53
 #
 # Uma única etapa de build executa frontend e backend em sequência. A etapa
 # de produção só começa depois que o builder termina. Isso impede o BuildKit
@@ -53,10 +53,10 @@ RUN --mount=type=cache,id=nexus-backend-npm,target=/root/.npm \
 FROM node:20-alpine AS production
 
 ENV NODE_ENV=production \
-    NEXUS_RELEASE=fix52-loading-notificacoes-20260730
+    NEXUS_RELEASE=fix53-integracao-tarefas-20260803
 
 LABEL org.opencontainers.image.title="Nexus Gestão" \
-      org.opencontainers.image.version="fix52-loading-notificacoes-20260730"
+      org.opencontainers.image.version="fix53-integracao-tarefas-20260803"
 
 # Barreira de serialização: esta cópia depende do builder completo. Portanto
 # nem apk nem qualquer trabalho da produção inicia junto com npm/tsc/vite.

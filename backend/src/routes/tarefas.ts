@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { createHash } from "crypto";
-import pool, { query, queryOne } from "../db/pool";
+import pool, { getPoolStatus, query, queryOne } from "../db/pool";
 import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";
 import { criarNotificacao } from "../lib/notifHelper";
 import {
@@ -106,6 +106,7 @@ async function enviarEventoDestrava(
         },
         ...payload,
       }),
+      signal: AbortSignal.timeout(5_000),
     }).catch(() => undefined);
   } catch (err) {
     console.warn(
@@ -1421,27 +1422,60 @@ async function listTasksForUser(user: NonNullable<Request["user"]>) {
   const { orgId, userId, role } = user;
   const cacheKey = `${orgId}:${userId}:${role}`;
   return taskListCache.get(cacheKey, async () => {
-    const rows = await query<any>(
-      `SELECT t.*,
-              p.nome  AS responsavel_nome_perfil,
-              p.cargo AS responsavel_cargo,
-              c.nome  AS criado_por_nome,
-              ap.nome AS aceita_por_nome,
-              COALESCE(anexos.total, 0)::int AS anexos_count,
-              anexos.ultima_evidencia_em
-       FROM tarefas t
-       LEFT JOIN profiles p ON p.id = t.responsavel_id
-       LEFT JOIN profiles c ON c.id = t.criado_por
-       LEFT JOIN profiles ap ON ap.id = t.aceita_por
-       LEFT JOIN LATERAL (
-         SELECT COUNT(*) AS total, MAX(a.created_at) AS ultima_evidencia_em
-         FROM tarefa_anexos a
-         WHERE a.tarefa_id = t.id AND a.org_id = t.org_id
-       ) anexos ON TRUE
-       WHERE t.org_id = $1
-       ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
-      [orgId],
-    );
+    const startedAt = Date.now();
+    let rows: any[];
+    try {
+      // A abertura de /tarefas depende somente das tarefas e dos perfis.
+      // Anexos são metadados complementares e são carregados depois por uma
+      // rota isolada; um lock, schema antigo ou volume alto nessa tabela não
+      // pode mais manter a página inteira aguardando até o timeout do browser.
+      rows = await query<any>(
+        `SELECT t.*,
+                p.nome  AS responsavel_nome_perfil,
+                p.cargo AS responsavel_cargo,
+                c.nome  AS criado_por_nome,
+                ap.nome AS aceita_por_nome
+         FROM tarefas t
+         LEFT JOIN profiles p ON p.id = t.responsavel_id
+         LEFT JOIN profiles c ON c.id = t.criado_por
+         LEFT JOIN profiles ap ON ap.id = t.aceita_por
+         WHERE t.org_id = $1
+         ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
+        [orgId],
+      );
+    } catch (err: any) {
+      // Durante um redeploy sobre backup antigo, uma coluna auxiliar pode
+      // ainda não existir. A lista básica preserva o acesso às tarefas sem
+      // esconder falhas reais de conexão/timeout do PostgreSQL.
+      if (!["42703", "42P01"].includes(String(err?.code || ""))) throw err;
+      console.warn("[TAREFAS] Schema auxiliar desatualizado; usando listagem básica:", err?.message || err);
+      rows = await query<any>(
+        `SELECT t.*, p.nome AS responsavel_nome_perfil, c.nome AS criado_por_nome
+           FROM tarefas t
+           LEFT JOIN profiles p ON p.id = t.responsavel_id
+           LEFT JOIN profiles c ON c.id = t.criado_por
+          WHERE t.org_id = $1
+          ORDER BY t.updated_at DESC NULLS LAST, t.created_at DESC`,
+        [orgId],
+      );
+    }
+
+    rows = rows.map((task) => ({
+      ...task,
+      anexos_count: 0,
+      ultima_evidencia_em: null,
+    }));
+
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= 2_000) {
+      console.warn("[TAREFAS] Listagem principal lenta:", {
+        elapsed_ms: elapsedMs,
+        org_id: orgId,
+        role,
+        rows: rows.length,
+        pool: getPoolStatus(),
+      });
+    }
 
     let comandados = new Set<string>();
     if (role === "sub_gestor") {
@@ -1487,6 +1521,32 @@ function buildTaskStats(tasks: any[]) {
     cancelada: String(count(["cancelada"])),
   };
 }
+
+// ── RESUMO DE ANEXOS — complementar, nunca bloqueia a lista principal ────────
+router.get("/anexos-resumo", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId } = req.user!;
+    const tarefasVisiveis = await listTasksForUser(req.user!);
+    const ids = tarefasVisiveis.map((task) => String(task.id || "")).filter(Boolean);
+    if (!ids.length) {
+      res.json({ resumo: [] });
+      return;
+    }
+
+    const resumo = await query<any>(
+      `SELECT tarefa_id, COUNT(*)::int AS anexos_count,
+              MAX(created_at) AS ultima_evidencia_em
+         FROM tarefa_anexos
+        WHERE org_id = $1 AND tarefa_id = ANY($2::uuid[])
+        GROUP BY tarefa_id`,
+      [orgId, ids],
+    );
+    res.json({ resumo });
+  } catch (err) {
+    console.warn("[TAREFAS] Metadados de anexos indisponíveis; lista principal preservada:", err);
+    respondRouteError(res, err, "Erro ao buscar resumo de anexos.");
+  }
+});
 
 // ── STATS precisa vir antes de /:id ──────────────────────────────────────────
 router.get("/stats", async (req: Request, res: Response): Promise<void> => {
@@ -3820,6 +3880,7 @@ async function sincronizarAnexoComDestrava(
       method: "POST",
       headers: { "x-nexus-integration-secret": secret },
       body: form,
+      signal: AbortSignal.timeout(30_000),
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
@@ -3918,6 +3979,7 @@ router.get(
       }
       const resp = await fetch(`${base}/api/nexus/empresas/${task.origem_id}/resumo`, {
         headers: { "x-nexus-integration-secret": secret },
+        signal: AbortSignal.timeout(10_000),
       });
       const data: any = await resp.json().catch(() => null);
       if (!resp.ok) {
@@ -3960,7 +4022,10 @@ async function proxyDocumentoEmpresaDestrava(req: Request, res: Response, inline
     }
     const resp = await fetch(
       `${base}/api/nexus/empresas/${task.origem_id}/documentos/${req.params.docId}/${inline ? "view" : "download"}`,
-      { headers: { "x-nexus-integration-secret": secret } },
+      {
+        headers: { "x-nexus-integration-secret": secret },
+        signal: AbortSignal.timeout(30_000),
+      },
     );
     if (!resp.ok || !resp.body) {
       const data: any = await resp.json().catch(() => null);

@@ -233,7 +233,7 @@ export interface Tarefa {
   data_inicio?: string
   data_conclusao?: string
   anexos_count?: number | string
-  ultima_evidencia_em?: string
+  ultima_evidencia_em?: string | null
   created_at: string
   updated_at?: string
   origem_sistema?: string
@@ -834,6 +834,14 @@ export const tarefasApi = {
     const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : ''
     const data = await apiJson<{ tarefas: Tarefa[] }>(`/tarefas${qs}`)
     return data.tarefas
+  },
+
+  async anexosResumo(): Promise<Record<string, { anexos_count: number; ultima_evidencia_em: string | null }>> {
+    const data = await apiJson<{ resumo: Array<{ tarefa_id: string; anexos_count: number; ultima_evidencia_em: string | null }> }>('/tarefas/anexos-resumo')
+    return Object.fromEntries((data.resumo || []).map(item => [String(item.tarefa_id), {
+      anexos_count: Number(item.anexos_count || 0),
+      ultima_evidencia_em: item.ultima_evidencia_em || null,
+    }]))
   },
 
   async stats() {
