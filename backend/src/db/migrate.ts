@@ -1,5 +1,16 @@
 import 'dotenv/config'
 import pool from './pool'
+import type { PoolClient } from 'pg'
+
+// O schema histórico é extenso e contém correções de dados que só podem rodar
+// uma vez por release de banco. Antes, o bloco inteiro era reexecutado em todo
+// restart/redeploy e ainda herdava o query_timeout de 18s das rotas HTTP. Em
+// bancos com muito histórico de agenda/notificações isso causava cancelamento,
+// retry e disputa de locks justamente enquanto a nova API tentava subir.
+//
+// Ao adicionar uma nova alteração de schema no futuro, crie um novo ID. O
+// registro só é gravado depois que TODO o SCHEMA termina com sucesso.
+const SCHEMA_MIGRATION_ID = '2026-08-03-fix54-startup-db-priority'
 
 const SCHEMA = `
 -- ============================================================
@@ -1002,6 +1013,17 @@ CREATE INDEX IF NOT EXISTS idx_notif_user_ativas
   ON notificacoes(user_id, org_id, arquivada, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_arquivamento
   ON notificacoes(lida, arquivada, created_at) WHERE arquivada = FALSE;
+-- Feed/contagem exibidos em todas as páginas e verificação de lembretes. Esses
+-- índices evitam que o histórico volumoso de notificações/agenda ocupe o pool
+-- enquanto GET /api/tarefas aguarda uma conexão.
+CREATE INDEX IF NOT EXISTS idx_notif_user_feed_atualizada
+  ON notificacoes(user_id, org_id, atualizada_em DESC) WHERE arquivada = FALSE;
+CREATE INDEX IF NOT EXISTS idx_notif_user_unread_active
+  ON notificacoes(user_id, org_id) WHERE lida = FALSE AND arquivada = FALSE;
+CREATE INDEX IF NOT EXISTS idx_notif_referencia_tipo
+  ON notificacoes(referencia_id, tipo) WHERE referencia_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agenda_lembretes_pendentes
+  ON agenda(data_inicio) WHERE lembrete_enviado = FALSE;
 
 -- Sustenta a agregação de estatísticas por membro em /equipe/membros
 -- (WHERE criado_por = $2 ... GROUP BY responsavel_id), que antes rodava
@@ -1036,6 +1058,75 @@ function positiveIntEnv(value: string | undefined, fallback: number): number {
 const MIGRATION_MAX_ATTEMPTS = positiveIntEnv(process.env.MIGRATION_MAX_ATTEMPTS, 12)
 const MIGRATION_RETRY_DELAY_SECONDS = positiveIntEnv(process.env.MIGRATION_RETRY_DELAY_SECONDS, 5)
 const MIGRATION_LOCK_TIMEOUT_MS = positiveIntEnv(process.env.DB_MIGRATION_LOCK_TIMEOUT_MS, 8_000)
+// Timeout exclusivo de migration. Não muda os limites curtos das rotas HTTP.
+// A consulta enviada ao PostgreSQL contém vários comandos; por isso precisa de
+// uma janela maior do que DB_QUERY_TIMEOUT_MS, principalmente no primeiro
+// deploy sobre um banco que já possui histórico volumoso.
+const MIGRATION_STATEMENT_TIMEOUT_MS = positiveIntEnv(
+  process.env.DB_MIGRATION_STATEMENT_TIMEOUT_MS,
+  120_000,
+)
+const MIGRATION_QUERY_TIMEOUT_MS = positiveIntEnv(
+  process.env.DB_MIGRATION_QUERY_TIMEOUT_MS,
+  180_000,
+)
+
+async function hasCurrentSchemaBaseline(client: PoolClient): Promise<boolean> {
+  const result = await client.query(`
+    SELECT
+      to_regclass('public.organizacoes') IS NOT NULL AS organizacoes,
+      to_regclass('public.profiles') IS NOT NULL AS profiles,
+      to_regclass('public.tarefas') IS NOT NULL AS tarefas,
+      to_regclass('public.tarefa_anexos') IS NOT NULL AS tarefa_anexos,
+      to_regclass('public.notificacoes') IS NOT NULL AS notificacoes,
+      to_regclass('public.agenda') IS NOT NULL AS agenda,
+      to_regclass('public.nexus_external_links') IS NOT NULL AS nexus_external_links,
+      to_regclass('public.destrava_empresas_cache') IS NOT NULL AS destrava_empresas_cache,
+      to_regclass('public.automation_events') IS NOT NULL AS automation_events,
+      to_regclass('public.ux_tarefas_org_external_key') IS NOT NULL AS ux_tarefas_external,
+      to_regclass('public.uq_notif_ativa_por_referencia') IS NOT NULL AS uq_notif_ativa,
+      to_regclass('public.ux_agenda_org_sync_key') IS NOT NULL AS ux_agenda_sync,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'data_reabertura'
+      ) AS tarefas_data_reabertura,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'notificacoes' AND column_name = 'atualizada_em'
+      ) AS notificacoes_atualizada_em,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'notificacoes' AND column_name = 'arquivada'
+      ) AS notificacoes_arquivada,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'agenda' AND column_name = 'sync_key'
+      ) AS agenda_sync_key
+  `)
+  const state = result.rows[0] || {}
+  return Object.values(state).every(Boolean)
+}
+
+async function applyFix54PerformanceIndexes(client: PoolClient): Promise<void> {
+  // Banco já atualizado recebe somente índices novos, sem reexecutar o schema
+  // histórico ou suas correções de dados. CONCURRENTLY mantém leitura/escrita
+  // disponíveis durante o primeiro deploy da FIX54.
+  const indexes = [
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notif_user_feed_atualizada
+       ON notificacoes(user_id, org_id, atualizada_em DESC) WHERE arquivada = FALSE`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notif_user_unread_active
+       ON notificacoes(user_id, org_id) WHERE lida = FALSE AND arquivada = FALSE`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notif_referencia_tipo
+       ON notificacoes(referencia_id, tipo) WHERE referencia_id IS NOT NULL`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_agenda_lembretes_pendentes
+       ON agenda(data_inicio) WHERE lembrete_enviado = FALSE`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tarefas_org_list_order
+       ON tarefas(org_id, (COALESCE(data_reabertura, updated_at, created_at)) DESC, created_at DESC)`,
+  ]
+  for (const text of indexes) {
+    await client.query({ text, query_timeout: MIGRATION_QUERY_TIMEOUT_MS } as any)
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -1054,17 +1145,75 @@ function isLockContentionError(err: unknown): boolean {
 async function runSchemaOnce(): Promise<void> {
   console.log('[MIGRATE] Conectando ao PostgreSQL…')
   const client = await pool.connect()
+  let advisoryLockObtido = false
   try {
+    // Serializa migrations de dois containers durante um deploy rolling sem
+    // manter a API antiga presa: se outra instância já estiver migrando, esta
+    // tentativa falha rápido e o laço externo tenta novamente.
+    const lock = await client.query<{ obtido: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtext('nexus:schema:migrate')) AS obtido",
+    )
+    advisoryLockObtido = Boolean(lock.rows[0]?.obtido)
+    if (!advisoryLockObtido) {
+      const err = new Error('Outra instância já está aplicando o schema do Nexus.') as Error & { code?: string }
+      err.code = '55P03'
+      throw err
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS nexus_schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+
+    const aplicado = await client.query<{ aplicado: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
+      [SCHEMA_MIGRATION_ID],
+    )
+    if (aplicado.rows[0]?.aplicado) {
+      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID} já aplicado; nenhuma DDL repetida.`)
+      return
+    }
+
     // Sem isso, uma instrução de ALTER/CREATE INDEX que precise de lock numa
     // tabela em uso pelo container antigo (ainda servindo tráfego normalmente
     // durante o deploy) espera indefinidamente -- nunca dá erro, nunca
     // termina. Com o timeout, ela falha rápido e o `runSchemaOnce` é
     // chamado de novo pelo laço de tentativas abaixo.
     await client.query(`SET lock_timeout = '${MIGRATION_LOCK_TIMEOUT_MS}ms'`)
+    await client.query(`SET statement_timeout = '${MIGRATION_STATEMENT_TIMEOUT_MS}ms'`)
+
+    if (await hasCurrentSchemaBaseline(client)) {
+      console.log('[MIGRATE] Banco atual detectado; aplicando apenas índices FIX54 sem correção histórica de dados…')
+      await applyFix54PerformanceIndexes(client)
+      await client.query(
+        'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+        [SCHEMA_MIGRATION_ID],
+      )
+      console.log('[MIGRATE] ✅ Banco atual registrado e índices FIX54 aplicados.')
+      return
+    }
+
     console.log('[MIGRATE] Executando schema…')
-    await client.query(SCHEMA)
+    // node-postgres aceita query_timeout por consulta em runtime; a versão de
+    // @types/pg usada por este projeto ainda não expõe essa propriedade em
+    // QueryConfig, por isso o cast fica restrito a esta chamada de migration.
+    await client.query({
+      text: SCHEMA,
+      query_timeout: MIGRATION_QUERY_TIMEOUT_MS,
+    } as any)
+    await client.query(
+      'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+      [SCHEMA_MIGRATION_ID],
+    )
     console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
   } finally {
+    if (advisoryLockObtido) {
+      await client
+        .query("SELECT pg_advisory_unlock(hashtext('nexus:schema:migrate'))")
+        .catch(() => undefined)
+    }
     client.release()
   }
 }
@@ -1095,16 +1244,13 @@ async function migrate() {
     process.exit(1)
   }
 
-  // Chamada única e explícita, com um limite de segurança: mesmo que algo
-  // inesperado prenda essa rotina, o startup do sistema nunca fica refém
-  // dela -- ela é só uma compatibilidade auxiliar, não faz parte do schema
-  // essencial.
+  // Chamadas explícitas e idempotentes. Cada rotina possui lock/statement
+  // timeout próprio do pool; Promise.race foi removido porque ele encerrava a
+  // espera em JavaScript sem cancelar a query PostgreSQL, deixando trabalho
+  // oculto continuar durante o startup.
   try {
     const { ensureTaskScoreCompatibilityOnce } = await import('./taskScoreCompatibility')
-    await Promise.race([
-      ensureTaskScoreCompatibilityOnce(),
-      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-    ])
+    await ensureTaskScoreCompatibilityOnce()
   } catch (err) {
     console.warn('[MIGRATE] Compatibilidade de pontuação pulada (não essencial):', err)
   }
@@ -1118,10 +1264,7 @@ async function migrate() {
   // nunca prende o startup, e nunca remove coluna, tabela ou dado.
   try {
     const { ensureTarefasListSchemaOnce } = await import('./ensureTarefasListSchema')
-    await Promise.race([
-      ensureTarefasListSchemaOnce(),
-      new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
-    ])
+    await ensureTarefasListSchemaOnce()
   } catch (err) {
     console.warn('[MIGRATE] Verificação de schema de tarefas pulada (não essencial):', err)
   }

@@ -96,3 +96,17 @@ export function buildDestravaTaskExternalKey(input: DestravaTaskInput): string {
     .slice(0, 16)
   return `destrava:${input.externalType}:${input.externalId}:${hashConteudo}`
 }
+
+/**
+ * Retorna a organização somente quando todas as evidências válidas apontam
+ * para o mesmo destino. É propositalmente conservador: em caso de conflito,
+ * nunca escolhe uma empresa arbitrariamente.
+ */
+export function selectUnambiguousOrgId(values: unknown[]): string | null {
+  const ids = new Set(
+    values
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )
+  return ids.size === 1 ? Array.from(ids)[0] : null
+}

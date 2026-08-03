@@ -3,7 +3,11 @@ import { authMiddleware } from '../middleware/auth'
 import { requireWebhookSignature } from '../middleware/webhookAuth'
 import { v4 as uuidv4 } from 'uuid'
 import pool, { query, queryOne } from '../db/pool'
-import { buildDestravaTaskExternalKey, normalizeDestravaTaskInput } from '../lib/destravaTaskContract'
+import {
+  buildDestravaTaskExternalKey,
+  normalizeDestravaTaskInput,
+  selectUnambiguousOrgId,
+} from '../lib/destravaTaskContract'
 
 const router = Router()
 
@@ -85,6 +89,78 @@ export async function findActiveUserByEmail(email?: string | null, orgId?: strin
   )
 }
 
+async function findPreferredActiveUserByOrg(orgId: string): Promise<NexusUser | null> {
+  return queryOne<NexusUser>(
+    `SELECT id, org_id, nome, email, role
+       FROM profiles
+      WHERE org_id = $1
+        AND COALESCE(ativo, TRUE) = TRUE
+      ORDER BY CASE role WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3 ELSE 4 END, created_at ASC
+      LIMIT 1`,
+    [orgId],
+  )
+}
+
+/**
+ * Ambientes já integrados não devem depender de uma variável nova apenas
+ * porque o banco também contém uma segunda organização. Quando o payload
+ * legado não traz e-mail, inferimos a organização por vínculos que o próprio
+ * Nexus já gravou para o mesmo cliente do Destrava. Se não houver vínculo
+ * direto, aceitamos o histórico global somente quando TODO ele aponta para
+ * uma única organização. Qualquer ambiguidade continua sendo rejeitada.
+ */
+async function inferExistingDestravaOrgId(payload: any): Promise<string | null> {
+  const externalId = String(payload?.externalId || payload?.external_id || '').trim()
+
+  const readOrgIds = async (sql: string, params: unknown[] = []) =>
+    query<{ org_id: string }>(sql, params)
+      .then(rows => rows.map(row => row.org_id).filter(Boolean))
+      .catch(() => [] as string[])
+
+  if (externalId) {
+    const directSources = await Promise.all([
+      readOrgIds(
+        `SELECT DISTINCT org_id FROM nexus_external_links
+          WHERE source_system = 'destrava' AND external_id = $1
+          LIMIT 3`,
+        [externalId],
+      ),
+      readOrgIds(
+        `SELECT DISTINCT org_id FROM tarefas
+          WHERE origem_sistema = 'destrava' AND origem_id = $1
+          LIMIT 3`,
+        [externalId],
+      ),
+      readOrgIds(
+        `SELECT DISTINCT org_id FROM destrava_empresas_cache
+          WHERE external_id = $1
+          LIMIT 3`,
+        [externalId],
+      ),
+    ])
+    const directIds = directSources.flat()
+    if (directIds.length) return selectUnambiguousOrgId(directIds)
+  }
+
+  const historicalSources = await Promise.all([
+    readOrgIds(
+      `SELECT DISTINCT org_id FROM nexus_external_links
+        WHERE source_system = 'destrava'
+        LIMIT 3`,
+    ),
+    readOrgIds(
+      `SELECT DISTINCT org_id FROM tarefas
+        WHERE origem_sistema = 'destrava'
+        LIMIT 3`,
+    ),
+    readOrgIds(
+      `SELECT DISTINCT org_id FROM destrava_empresas_cache
+        LIMIT 3`,
+    ),
+  ])
+  return selectUnambiguousOrgId(historicalSources.flat())
+}
+
 export async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
   const configuredOrgId = String(process.env.NEXUS_DESTRAVA_ORG_ID || '').trim() || null
   const candidates = [
@@ -95,6 +171,9 @@ export async function resolveIntegrationUser(payload: any): Promise<NexusUser | 
     process.env.NEXUS_DESTRAVA_DEFAULT_USER_EMAIL,
   ].filter(Boolean)
 
+  // Configuração explícita continua tendo prioridade. Sem ela, um e-mail que
+  // identifique inequivocamente um perfil ativo mantém a compatibilidade
+  // histórica e já resolve a organização.
   for (const email of candidates) {
     const user = await findActiveUserByEmail(String(email), configuredOrgId)
     if (user) return user
@@ -113,16 +192,15 @@ export async function resolveIntegrationUser(payload: any): Promise<NexusUser | 
     if (user) return user
   }
 
-  if (configuredOrgId) {
-    const user = await queryOne<NexusUser>(
-      `SELECT id, org_id, nome, email, role
-         FROM profiles
-        WHERE org_id = $1
-          AND COALESCE(ativo, TRUE) = TRUE
-        ORDER BY CASE role WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3 ELSE 4 END, created_at ASC
-        LIMIT 1`,
-      [configuredOrgId]
-    )
+  const resolvedOrgId = configuredOrgId || await inferExistingDestravaOrgId(payload)
+  if (resolvedOrgId) {
+    // O e-mail pode existir no payload, mas ter sido considerado ambíguo sem
+    // contexto de organização. Tenta novamente dentro do vínculo já conhecido.
+    for (const email of candidates) {
+      const user = await findActiveUserByEmail(String(email), resolvedOrgId)
+      if (user) return user
+    }
+    const user = await findPreferredActiveUserByOrg(resolvedOrgId)
     if (user) return user
   }
 
@@ -605,7 +683,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     const creator = await resolveIntegrationUser(body)
     if (!creator) {
       res.status(400).json({
-        error: 'Não foi possível determinar a organização da integração. Configure NEXUS_DESTRAVA_ORG_ID ou NEXUS_DESTRAVA_DEFAULT_USER_EMAIL no Nexus.',
+        error: 'Não foi possível determinar com segurança a organização da integração. Envie criado_por_email/responsavel_email ou, somente se houver mais de uma organização vinculada ao Destrava, configure NEXUS_DESTRAVA_ORG_ID.',
       })
       return
     }

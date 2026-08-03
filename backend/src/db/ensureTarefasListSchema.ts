@@ -34,6 +34,45 @@ export async function ensureTarefasListSchemaOnce(): Promise<void> {
   const client = await pool.connect()
   let transactionStarted = false
   try {
+    // Caminho comum após a primeira migration: valida pelo catálogo e sai sem
+    // executar ALTER/CREATE novamente. Isso mantém restart e redeploy livres
+    // de locks quando o schema crítico da listagem já está completo.
+    const estado = await client.query(`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'cargo'
+        ) AS profiles_cargo,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'aceita_por'
+        ) AS tarefas_aceita_por,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'data_reabertura'
+        ) AS tarefas_data_reabertura,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'conta_ranking'
+        ) AS tarefas_conta_ranking,
+        to_regclass('public.tarefa_anexos') IS NOT NULL AS tarefa_anexos,
+        to_regclass('public.idx_tarefa_anexos_tarefa') IS NOT NULL AS idx_tarefa_anexos_tarefa,
+        to_regclass('public.idx_tarefa_anexos_org') IS NOT NULL AS idx_tarefa_anexos_org
+    `)
+    const atual = estado.rows[0] || {}
+    if (
+      atual.profiles_cargo &&
+      atual.tarefas_aceita_por &&
+      atual.tarefas_data_reabertura &&
+      atual.tarefas_conta_ranking &&
+      atual.tarefa_anexos &&
+      atual.idx_tarefa_anexos_tarefa &&
+      atual.idx_tarefa_anexos_org
+    ) {
+      ready = true
+      return
+    }
+
     await client.query('BEGIN')
     transactionStarted = true
 

@@ -440,7 +440,10 @@ async function jobAgendaLembrete() {
 // para o processo estourar o limite de heap. Em lotes, cada passada é rápida
 // e barata, e o job cede espaço entre lotes em vez de monopolizar o pool.
 const ARQUIVAMENTO_LOTE = 500
-const ARQUIVAMENTO_MAX_LOTES_POR_EXECUCAO = 100 // até 50.000/execução, sem laço infinito
+// No máximo 10 mil por execução. O histórico continua preservado e o backlog
+// é retomado no ciclo seguinte, sem criar uma rajada de 50 mil updates capaz
+// de competir com login/tarefas logo após um deploy.
+const ARQUIVAMENTO_MAX_LOTES_POR_EXECUCAO = 20
 
 async function jobArquivarNotificacoesAntigas() {
   let totalArquivadas = 0

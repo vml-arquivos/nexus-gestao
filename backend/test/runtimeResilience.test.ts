@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 const root = resolve(__dirname, '..', '..')
 const read = (relative: string) => readFileSync(resolve(root, relative), 'utf8')
 
-describe('proteções de runtime FIX53', () => {
+describe('proteções de runtime FIX54', () => {
   it('não executa DDL no caminho HTTP de tarefas ou ranking', () => {
     const tarefas = read('backend/src/routes/tarefas.ts')
     const scoring = read('backend/src/routes/tarefasScoring.ts')
@@ -62,7 +62,7 @@ describe('proteções de runtime FIX53', () => {
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix53-integracao-tarefas-20260803')
+    expect(dockerfile).toContain('fix54-startup-integracao-estavel-20260803')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })
@@ -81,5 +81,25 @@ describe('proteções de runtime FIX53', () => {
       dockerfile.indexOf('RUN apk add --no-cache'),
     )
     expect(dockerfile).not.toMatch(/^ARG .*?(SECRET|PASSWORD|TOKEN|DATABASE_URL)/m)
+  })
+
+  it('não repete o schema histórico e usa timeout próprio para migrations', () => {
+    const migrate = read('backend/src/db/migrate.ts')
+    expect(migrate).toContain('nexus_schema_migrations')
+    expect(migrate).toContain('SCHEMA_MIGRATION_ID')
+    expect(migrate).toContain('DB_MIGRATION_QUERY_TIMEOUT_MS')
+    expect(migrate).toContain('query_timeout: MIGRATION_QUERY_TIMEOUT_MS')
+    expect(migrate).toContain('hasCurrentSchemaBaseline')
+    expect(migrate).toContain('CREATE INDEX CONCURRENTLY IF NOT EXISTS')
+    expect(migrate).not.toContain('Promise.race([\n      ensureTaskScoreCompatibilityOnce()')
+    expect(migrate).not.toContain('Promise.race([\n      ensureTarefasListSchemaOnce()')
+  })
+
+  it('reaproveita vínculos existentes do Destrava sem escolher organização ambígua', () => {
+    const integracoes = read('backend/src/routes/integracoes.ts')
+    expect(integracoes).toContain('inferExistingDestravaOrgId')
+    expect(integracoes).toContain("source_system = 'destrava'")
+    expect(integracoes).toContain("origem_sistema = 'destrava'")
+    expect(integracoes).toContain('selectUnambiguousOrgId')
   })
 })

@@ -30,6 +30,16 @@ export async function ensureTaskScoreCompatibilityOnce(): Promise<void> {
       return
     }
 
+    // Caminho comum após a primeira migration: se o índice já existe, não
+    // abre transação, não varre pontuação e não disputa lock em cada restart.
+    const indexResult = await client.query(
+      "SELECT to_regclass('public.ux_tarefas_pontuacao_tarefa_usuario_motivo')::text AS index_name",
+    )
+    if (indexResult.rows[0]?.index_name) {
+      ready = true
+      return
+    }
+
     await client.query('BEGIN')
     transactionStarted = true
 

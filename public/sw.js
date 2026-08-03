@@ -1,8 +1,8 @@
 // Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
 // Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
-// VERSÃO: FIX53 — API/SSE nunca passam pelo Cache Storage.
+// VERSÃO: FIX54 — API/SSE nunca passam pelo Cache Storage.
 
-const CACHE_NAME = 'nexus-shell-fix53-2026-08-03'
+const CACHE_NAME = 'nexus-shell-fix54-2026-08-03'
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {

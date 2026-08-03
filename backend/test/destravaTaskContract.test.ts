@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildDestravaTaskExternalKey, normalizeDestravaTaskInput } from '../src/lib/destravaTaskContract'
+import {
+  buildDestravaTaskExternalKey,
+  normalizeDestravaTaskInput,
+  selectUnambiguousOrgId,
+} from '../src/lib/destravaTaskContract'
 
 describe('contrato de tarefas Destrava/Nexus', () => {
   it('normaliza o contrato plano atual', () => {
@@ -60,5 +64,11 @@ describe('contrato de tarefas Destrava/Nexus', () => {
     expect(buildDestravaTaskExternalKey(input)).not.toBe(
       buildDestravaTaskExternalKey({ ...input, idempotencyKey: 'outro-evento' }),
     )
+  })
+
+  it('reutiliza organização existente somente quando o vínculo é inequívoco', () => {
+    expect(selectUnambiguousOrgId(['org-1', 'org-1', '', null])).toBe('org-1')
+    expect(selectUnambiguousOrgId(['org-1', 'org-2'])).toBeNull()
+    expect(selectUnambiguousOrgId([])).toBeNull()
   })
 })
