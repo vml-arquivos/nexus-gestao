@@ -705,6 +705,18 @@ export default function Layout() {
                       ))
                     )}
                   </div>
+                  <div style={{ borderTop: '1px solid var(--border)', padding: '10px 16px' }}>
+                    <button
+                      type="button"
+                      onClick={() => { setNotifOpen(false); navigate('/notificacoes') }}
+                      style={{
+                        width: '100%', textAlign: 'center', background: 'none', border: 'none',
+                        color: 'var(--primary)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', padding: '2px 0',
+                      }}
+                    >
+                      Ver todas as notificações
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

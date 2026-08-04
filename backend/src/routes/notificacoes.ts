@@ -132,20 +132,44 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const { userId, orgId } = req.user!
     const apenasNaoLidas = req.query.apenas_nao_lidas === 'true'
     const incluirArquivadas = req.query.incluir_arquivadas === 'true'
+    // Paginação real: antes o limite de 50 era fixo, sem jeito de ver notificações
+    // mais antigas -- necessário pra uma página dedicada "todas as notificações"
+    // em vez de só o dropdown com as mais recentes. Mantém compatibilidade: sem
+    // parâmetros, o comportamento é idêntico ao de antes (50 mais recentes).
+    const limite = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 100)
+    const pagina = Math.max(parseInt(String(req.query.page || '1'), 10) || 1, 1)
+    const offset = (pagina - 1) * limite
 
     let sql = `SELECT * FROM notificacoes WHERE user_id = $1 AND org_id = $2`
     const params: unknown[] = [userId, orgId]
     if (!incluirArquivadas) sql += ` AND arquivada = false`
     if (apenasNaoLidas) sql += ` AND lida = false`
-    sql += ` ORDER BY atualizada_em DESC LIMIT 50`
+    sql += ` ORDER BY atualizada_em DESC LIMIT $3 OFFSET $4`
+    params.push(limite, offset)
 
     const notificacoes = await query(sql, params)
     const contagem = await queryOne<{ count: string }>(
       `SELECT COUNT(*) AS count FROM notificacoes WHERE user_id=$1 AND org_id=$2 AND lida=false AND arquivada=false`,
       [userId, orgId]
     )
+    let totalFiltro: number | undefined
+    if (req.query.page !== undefined || req.query.limit !== undefined) {
+      let sqlTotal = `SELECT COUNT(*) AS count FROM notificacoes WHERE user_id = $1 AND org_id = $2`
+      const paramsTotal: unknown[] = [userId, orgId]
+      if (!incluirArquivadas) sqlTotal += ` AND arquivada = false`
+      if (apenasNaoLidas) sqlTotal += ` AND lida = false`
+      const totalRow = await queryOne<{ count: string }>(sqlTotal, paramsTotal)
+      totalFiltro = parseInt(totalRow?.count || '0')
+    }
 
-    res.json({ notificacoes, nao_lidas: parseInt(contagem?.count || '0') })
+    res.json({
+      notificacoes,
+      nao_lidas: parseInt(contagem?.count || '0'),
+      pagina,
+      limite,
+      total: totalFiltro,
+      tem_mais: totalFiltro !== undefined ? offset + notificacoes.length < totalFiltro : notificacoes.length === limite,
+    })
   } catch (err) {
     console.error('[NOTIF] Erro ao listar:', err)
     res.status(500).json({ error: 'Erro ao buscar notificações.' })

@@ -28,6 +28,7 @@ const PessoaDetalhe  = lazy(() => import('./pages/PessoaDetalhe'))
 const Usuarios       = lazy(() => import('./pages/Usuarios'))
 const AceitarConvite = lazy(() => import('./pages/AceitarConvite'))
 const DesignEditor   = lazy(() => import('./pages/DesignEditor'))
+const Notificacoes   = lazy(() => import('./pages/Notificacoes'))
 
 function FullScreenLoader() {
   return (
@@ -113,6 +114,8 @@ export default function App() {
           }
         />
         <Route path="configuracoes" element={<Configuracoes />} />
+        {/* Notificações: página com todas as notificações (paginada), além do dropdown do sininho */}
+        <Route path="notificacoes" element={<Notificacoes />} />
         {/* Usuários: todos acessam; a tela e o backend limitam criação/listagem por hierarquia */}
         <Route path="usuarios" element={<Usuarios />} />
         <Route

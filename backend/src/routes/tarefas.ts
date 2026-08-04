@@ -2186,49 +2186,86 @@ router.post(
         "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2 AND ativo = TRUE",
         [userId, orgId],
       );
-      const items = parseChecklistItems(existing.checklist);
-      const index = items.findIndex(
-        (item) => String(item.id || "") === String(req.params.itemId || ""),
-      );
-      if (index < 0) {
-        res
-          .status(404)
-          .json({ error: "Tarefa da lista não encontrada." });
-        return;
-      }
-      const item = items[index];
-      if (item.feito) {
-        res.status(400).json({ error: "Este objetivo já foi concluído." });
-        return;
-      }
-      const currentOwner = checklistItemAssignmentId(item);
-      if (currentOwner && currentOwner !== userId) {
-        res
-          .status(409)
-          .json({ error: "Este objetivo já está com outro responsável." });
-        return;
-      }
 
-      items[index] = {
-        ...item,
-        responsavel_id: userId,
-        responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
-      };
-      const checklistJson = JSON.stringify(items);
-      const isFreeList = isFreeTeamTask(existing);
-      const tarefa = await queryOne<any>(
-        `UPDATE tarefas SET checklist = $1, status = CASE WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso' ELSE status END,
-          status_gestor = 'aguardando', escopo = 'equipe',
-          modo_distribuicao = CASE WHEN $6 THEN 'livre_equipe' ELSE modo_distribuicao END,
-          data_inicio = COALESCE(data_inicio, NOW()),
-          aceita_por = CASE WHEN $6 THEN COALESCE(aceita_por, $4) ELSE aceita_por END,
-          aceita_em = CASE WHEN $6 AND aceita_por IS NULL THEN NOW() ELSE aceita_em END,
-          responsavel_id = CASE WHEN $6 THEN COALESCE(responsavel_id, $4) ELSE responsavel_id END,
-          responsavel_nome = CASE WHEN $6 THEN COALESCE(responsavel_nome, $5) ELSE responsavel_nome END,
-          updated_at = NOW()
-       WHERE id = $2 AND org_id = $3 RETURNING *`,
-        [checklistJson, req.params.id, orgId, userId, profile?.nome || "Membro", isFreeList],
-      );
+      // Corrida real quando duas pessoas clicam "Assumir" quase ao mesmo tempo
+      // no mesmo item: antes, a checagem de "já tem dono?" era feita em cima do
+      // checklist lido no início da rota (getTaskForAccess, alguns milissegundos
+      // atrás) e a escrita sobrescrevia a coluna inteira sem nenhum lock -- as
+      // duas requisições liam "sem dono", as duas passavam na checagem, e a
+      // segunda a terminar sobrescrevia silenciosamente a atribuição da
+      // primeira (undo invisível de quem assumiu primeiro, sem erro nenhum pra
+      // ninguém). O advisory lock serializa as duas: a segunda só continua
+      // depois que a primeira já commitou, e nesse ponto relê o checklist
+      // FRESCO (não o de getTaskForAccess) -- então enxerga o dono que acabou
+      // de ser gravado e responde 409 corretamente, em vez de sobrescrever.
+      const client = await pool.connect();
+      let tarefa: any;
+      let itemTextoParaHistorico = "";
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [req.params.id]);
+
+        const fresco = await client.query(
+          `SELECT id, checklist, status, criado_por, titulo FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE`,
+          [req.params.id, orgId],
+        );
+        if (!fresco.rows[0]) {
+          await client.query("ROLLBACK");
+          res.status(404).json({ error: "Tarefa não encontrada." });
+          return;
+        }
+        const items = parseChecklistItems(fresco.rows[0].checklist);
+        const index = items.findIndex(
+          (item) => String(item.id || "") === String(req.params.itemId || ""),
+        );
+        if (index < 0) {
+          await client.query("ROLLBACK");
+          res.status(404).json({ error: "Tarefa da lista não encontrada." });
+          return;
+        }
+        const item = items[index];
+        if (item.feito) {
+          await client.query("ROLLBACK");
+          res.status(400).json({ error: "Este objetivo já foi concluído." });
+          return;
+        }
+        const currentOwner = checklistItemAssignmentId(item);
+        if (currentOwner && currentOwner !== userId) {
+          await client.query("ROLLBACK");
+          res.status(409).json({ error: "Este objetivo já está com outro responsável." });
+          return;
+        }
+
+        itemTextoParaHistorico = item.texto;
+        items[index] = {
+          ...item,
+          responsavel_id: userId,
+          responsavel_nome: profile?.nome || item.responsavel_nome || "Membro",
+        };
+        const checklistJson = JSON.stringify(items);
+        const isFreeList = isFreeTeamTask(existing);
+        const result = await client.query(
+          `UPDATE tarefas SET checklist = $1, status = CASE WHEN status IN ('pendente','devolvida','reenviada') THEN 'em_progresso' ELSE status END,
+            status_gestor = 'aguardando', escopo = 'equipe',
+            modo_distribuicao = CASE WHEN $6 THEN 'livre_equipe' ELSE modo_distribuicao END,
+            data_inicio = COALESCE(data_inicio, NOW()),
+            aceita_por = CASE WHEN $6 THEN COALESCE(aceita_por, $4) ELSE aceita_por END,
+            aceita_em = CASE WHEN $6 AND aceita_por IS NULL THEN NOW() ELSE aceita_em END,
+            responsavel_id = CASE WHEN $6 THEN COALESCE(responsavel_id, $4) ELSE responsavel_id END,
+            responsavel_nome = CASE WHEN $6 THEN COALESCE(responsavel_nome, $5) ELSE responsavel_nome END,
+            updated_at = NOW()
+         WHERE id = $2 AND org_id = $3 RETURNING *`,
+          [checklistJson, req.params.id, orgId, userId, profile?.nome || "Membro", isFreeList],
+        );
+        tarefa = result.rows[0];
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+      const checklistJson = JSON.stringify(parseChecklistItems(tarefa.checklist));
       await syncChecklistTable({
         orgId,
         tarefaId: req.params.id,
@@ -2242,7 +2279,7 @@ router.post(
         acao: "subtarefa_assumida",
         statusAnterior: existing.status,
         statusNovo: tarefa?.status || existing.status,
-        observacao: `${profile?.nome || "Membro"} assumiu: ${item.texto}`,
+        observacao: `${profile?.nome || "Membro"} assumiu: ${itemTextoParaHistorico}`,
       });
       if (existing.criado_por && existing.criado_por !== userId) {
         await criarNotificacao({
@@ -2250,7 +2287,7 @@ router.post(
           userId: existing.criado_por,
           tipo: "tarefa_atualizada",
           titulo: "Tarefa da lista assumida",
-          body: `${profile?.nome || "Um membro"} assumiu a tarefa "${item.texto}" na lista "${existing.titulo}".`,
+          body: `${profile?.nome || "Um membro"} assumiu a tarefa "${itemTextoParaHistorico}" na lista "${existing.titulo}".`,
           referenciaId: existing.id,
           referenciaTipo: "tarefa",
         }).catch(() => {});
