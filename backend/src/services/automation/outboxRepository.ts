@@ -91,6 +91,21 @@ export async function buscarEventoPorId(id: string): Promise<AutomationEventRow 
   return queryOne<AutomationEventRow>(`SELECT * FROM automation_events WHERE id = $1`, [id])
 }
 
+// Usado quando inserirEvento() retorna null (já existe uma linha para essa
+// chave de idempotência) -- para decidir se é um duplicado de verdade (já
+// processado com sucesso) ou uma entrega repetida de um evento cujo handler
+// falhou da última vez (ex.: bug de schema já corrigido, erro transitório de
+// rede/DB). Sem isso, uma falha no handler "envenena" a chave para sempre:
+// toda reentrega seguinte é tratada como duplicado e o handler nunca roda de
+// novo, mesmo depois do bug de origem ser corrigido. Reproduzido e confirmado
+// contra Postgres real antes desta correção.
+export async function buscarEventoPorChave(eventType: string, idempotencyKey: string): Promise<AutomationEventRow | null> {
+  return queryOne<AutomationEventRow>(
+    `SELECT * FROM automation_events WHERE event_type = $1 AND idempotency_key = $2`,
+    [eventType, idempotencyKey]
+  )
+}
+
 export { pool }
 
 export interface NovoRegistroAuditoria {

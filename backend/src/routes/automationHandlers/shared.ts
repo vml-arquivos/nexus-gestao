@@ -72,7 +72,7 @@ export async function criarTarefaAutomacao(input: CriarTarefaAutomacaoInput): Pr
           checklist, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome,
           origem_payload, external_key, workflow_tipo, competencia, recorrencia, projeto_grupo_id, escopo)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'media',$8,'pendente','aguardando','destrava',$9,$10,$11,$12,$13,$14,$15,$16,$17,'equipe')
-       ON CONFLICT (org_id, external_key) DO NOTHING
+       ON CONFLICT (org_id, external_key) WHERE external_key IS NOT NULL DO NOTHING
        RETURNING *`,
       [
         orgId,

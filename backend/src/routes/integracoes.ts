@@ -722,7 +722,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
             checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
             origem_payload, external_key, escopo, modo_distribuicao)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal')
-         ON CONFLICT (org_id, external_key) DO NOTHING
+         ON CONFLICT (org_id, external_key) WHERE external_key IS NOT NULL DO NOTHING
          RETURNING *`,
         [
           orgId,

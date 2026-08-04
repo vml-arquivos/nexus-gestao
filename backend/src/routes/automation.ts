@@ -15,7 +15,7 @@ import { Router, Request, Response } from 'express'
 import { authMiddleware, adminOrDevOnly } from '../middleware/auth'
 import { requireIntegrationSecret } from './integracoes'
 import { requireWebhookSignature } from '../middleware/webhookAuth'
-import { inserirEvento, buscarEventoPorId, pool } from '../services/automation/outboxRepository'
+import { inserirEvento, buscarEventoPorId, buscarEventoPorChave, pool, type AutomationEventRow } from '../services/automation/outboxRepository'
 import { despacharAgora } from '../services/automation/dispatcher'
 import { handleContratoAssinado, handleContratoEncerrado } from './automationHandlers/contrato'
 import { handleRotinaCndDue, handleRotinaCemprotDue } from './automationHandlers/rotinas'
@@ -36,6 +36,29 @@ const HANDLERS: Record<string, HandlerEvento> = {
   SemanaConcluida: (payload) => handleSemanaConcluida(payload),
 }
 
+/** Roda o handler do evento e marca dispatched/failed de acordo com o resultado. */
+async function processarEvento(evento: AutomationEventRow, eventType: string, payload: Record<string, unknown>) {
+  const handler = HANDLERS[eventType]
+  if (!handler) {
+    // Evento reconhecido pelo catálogo mas sem handler implementado ainda
+    // nesta entrega -- aceita e registra, não derruba a entrega do Destrava.
+    await pool.query(`UPDATE automation_events SET status = 'dispatched', dispatched_at = NOW() WHERE id = $1`, [evento.id])
+    return { ok: true, aviso: `event_type '${eventType}' recebido, sem handler implementado.` }
+  }
+  try {
+    const resultado = await handler(payload, evento.id)
+    await pool.query(`UPDATE automation_events SET status = 'dispatched', dispatched_at = NOW() WHERE id = $1`, [evento.id])
+    return { ok: true, resultado: resultado ?? undefined }
+  } catch (err: any) {
+    const tentativas = (evento.attempts || 0) + 1
+    await pool.query(
+      `UPDATE automation_events SET status = $1, attempts = $2, last_error = $3 WHERE id = $4`,
+      [tentativas >= 10 ? 'dead' : 'failed', tentativas, String(err?.message || err).slice(0, 2000), evento.id]
+    )
+    throw err
+  }
+}
+
 // ── Recebimento de eventos do Destrava ────────────────────────────────────
 router.post(
   '/destrava/eventos',
@@ -54,9 +77,16 @@ router.post(
       }
 
       // Ledger de idempotência: se já processamos esse evento antes (mesma
-      // chave), não reprocessa -- responde sucesso para o Destrava parar de
-      // reentregar, sem rodar o handler de novo.
-      const evento = await inserirEvento({
+      // chave) COM SUCESSO, não reprocessa -- responde sucesso para o
+      // Destrava parar de reentregar, sem rodar o handler de novo. Mas se a
+      // linha já existe porque uma entrega anterior tentou e o handler
+      // FALHOU (status pending/failed, nunca chegou a 'dispatched'), a chave
+      // não pode ficar "queimada" para sempre -- reprocessa usando a MESMA
+      // linha em vez de tratar como duplicado. Sem isso, um erro transitório
+      // (ou um bug já corrigido) travava a tarefa correspondente pra sempre,
+      // mesmo depois da causa raiz ser corrigida, porque toda reentrega
+      // seguinte do Destrava seria silenciosamente descartada como "já visto".
+      let evento = await inserirEvento({
         eventType,
         aggregateType: String(body.aggregate_type || ''),
         aggregateId: body.aggregate_id ? String(body.aggregate_id) : undefined,
@@ -66,22 +96,22 @@ router.post(
       })
 
       if (!evento) {
-        res.json({ ok: true, duplicado: true })
-        return
+        const existente = await buscarEventoPorChave(eventType, idempotencyKey)
+        if (!existente) {
+          // Corrida rara (linha sumiu entre o INSERT e esta leitura) -- trata
+          // como duplicado, é o comportamento seguro de antes.
+          res.json({ ok: true, duplicado: true })
+          return
+        }
+        if (existente.status === 'dispatched') {
+          res.json({ ok: true, duplicado: true })
+          return
+        }
+        evento = existente
       }
 
-      const handler = HANDLERS[eventType]
-      if (!handler) {
-        // Evento reconhecido pelo catálogo mas sem handler implementado ainda
-        // nesta entrega -- aceita e registra, não derruba a entrega do Destrava.
-        await pool.query(`UPDATE automation_events SET status = 'dispatched', dispatched_at = NOW() WHERE id = $1`, [evento.id])
-        res.json({ ok: true, aviso: `event_type '${eventType}' recebido, sem handler implementado.` })
-        return
-      }
-
-      const resultado = await handler(payload, evento.id)
-      await pool.query(`UPDATE automation_events SET status = 'dispatched', dispatched_at = NOW() WHERE id = $1`, [evento.id])
-      res.json({ ok: true, resultado: resultado ?? undefined })
+      const resposta = await processarEvento(evento, eventType, payload)
+      res.json(resposta)
     } catch (err: any) {
       console.error('[AUTOMATION] Erro ao processar evento do Destrava:', err)
       res.status(500).json({ error: err?.message || 'Erro ao processar evento.' })
