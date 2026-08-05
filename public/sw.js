@@ -1,14 +1,19 @@
 // Nexus Gestão — Service Worker para Push Notifications, PWA e suporte offline básico.
 // Cache leve: mantém o shell do app disponível sem prender versões antigas por muito tempo.
-// VERSÃO: FIX54 — API/SSE nunca passam pelo Cache Storage.
+// VERSÃO: FIX55 — navegação de página nunca passa pelo Service Worker (nginx já
+// serve certo); cache.addAll() trocado por cache.add() independente por item.
 
-const CACHE_NAME = 'nexus-shell-fix54-2026-08-03'
+const CACHE_NAME = 'nexus-shell-fix55-2026-08-05'
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME)
-    await cache.addAll(SHELL_URLS).catch(() => undefined)
+    // cache.addAll() é tudo-ou-nada: se UM único recurso falhar (ex: rede
+    // instável durante o deploy), NENHUM dos três fica salvo -- e o app
+    // ficava sem plano B nenhum bem na hora que mais precisaria dele.
+    // Cada recurso agora é cacheado (ou falha) de forma independente.
+    await Promise.all(SHELL_URLS.map((shellUrl) => cache.add(shellUrl).catch(() => undefined)))
     self.skipWaiting()
   })())
 })
@@ -76,6 +81,19 @@ self.addEventListener('fetch', (event) => {
   // tarefas também não podem ser compartilhadas entre sessões no Cache Storage.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return
 
+  // Navegação de página (abrir/recarregar uma rota como /tarefas, /agenda...)
+  // NUNCA passa pelo Service Worker. O nginx já serve essas rotas direto e
+  // corretamente (try_files .../index.html, sem cache). Antes, o SW refazia
+  // o fetch() por conta própria (linha "fresh = await fetch(req, ...)") e, se
+  // isso falhasse por qualquer motivo, cara a cara com um fallback frágil:
+  // cache.addAll() na instalação é tudo-ou-nada (um único arquivo faltando
+  // fazia NENHUM dos três ficar salvo) e o catch() engolia esse erro em
+  // silêncio -- então o fallback ficava vazio bem quando mais precisava dele,
+  // resultando no "network error" que aparecia no console ao abrir /tarefas.
+  // Deixar a navegação ir direto pro navegador/nginx elimina essa classe
+  // inteira de falha: não existe mais um "refetch" do SW pra dar errado.
+  if (req.mode === 'navigate') return
+
   // Assets de build (JS/CSS com hash): sempre network-first para garantir versão nova após deploy.
   // Só cai para cache se estiver offline.
   event.respondWith((async () => {
@@ -87,7 +105,14 @@ self.addEventListener('fetch', (event) => {
       cache.put(req, fresh.clone()).catch(() => undefined)
       return fresh
     } catch {
-      return (await caches.match(req)) || (await caches.match('/index.html')) || Response.error()
+      // Proteção extra: se até a leitura do cache falhar (quota, corrupção),
+      // não deixa a exceção subir sem tratamento -- isso também produzia o
+      // mesmo tipo de "network error" que estamos eliminando aqui.
+      try {
+        return (await caches.match(req)) || (await caches.match('/index.html')) || Response.error()
+      } catch {
+        return Response.error()
+      }
     }
   })())
 })
