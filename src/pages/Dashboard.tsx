@@ -292,6 +292,13 @@ export default function Dashboard() {
       // mais derrubar tarefas, financeiro e equipe junto. Cada seção carrega
       // e falha de forma independente, e o usuário vê o que deu certo em vez
       // de uma tela zerada sem explicação.
+      // agendaApi.list() sem mes/ano continua de propósito: o seletor de mês
+      // deste painel (mesFiltro, mais abaixo) navega entre meses usando os
+      // dados já carregados aqui, sem nova requisição. Deixar sem argumentos
+      // preserva esse comportamento. A correção real é no backend
+      // (backend/src/routes/agenda.ts): sem mes/ano, o servidor agora aplica
+      // uma janela padrão (45 dias atrás a 120 dias à frente) em vez de
+      // devolver o histórico inteiro da tabela agenda sem filtro nem limite.
       const [t, a, p, m, r] = await Promise.allSettled([
         tarefasApi.list(),
         agendaApi.list(),
