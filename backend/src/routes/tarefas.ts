@@ -1418,6 +1418,22 @@ async function getTaskForAccess(id: string, orgId: string) {
 // buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
 const taskListCache = new SingleFlightTtlCache<string, any[]>(2_000, 128);
 
+// Proteção direta contra travamento silencioso: antes, se listTasksForUser
+// ficasse pendurado por qualquer motivo (mesmo fora do controle do timeout do
+// driver do Postgres -- ex.: preso na fila do Node antes de sequer tocar no
+// banco), a única coisa que interrompia a espera era o PRÓPRIO NAVEGADOR
+// cancelando a requisição depois de ~20s, sem nenhuma mensagem útil. Agora
+// as 3 rotas que dependem dela cortam em 8s e devolvem o mesmo 503
+// recuperável já usado para outras indisponibilidades transitórias do banco.
+async function listTasksForUserComLimite(user: NonNullable<Request["user"]>) {
+  return Promise.race([
+    listTasksForUser(user),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(Object.assign(new Error("Consulta de tarefas excedeu o tempo limite."), { code: "57014" })), 8_000)
+    ),
+  ]);
+}
+
 async function listTasksForUser(user: NonNullable<Request["user"]>) {
   const { orgId, userId, role } = user;
   const cacheKey = `${orgId}:${userId}:${role}`;
@@ -1526,7 +1542,7 @@ function buildTaskStats(tasks: any[]) {
 router.get("/anexos-resumo", async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!;
-    const tarefasVisiveis = await listTasksForUser(req.user!);
+    const tarefasVisiveis = await listTasksForUserComLimite(req.user!);
     const ids = tarefasVisiveis.map((task) => String(task.id || "")).filter(Boolean);
     if (!ids.length) {
       res.json({ resumo: [] });
@@ -1551,11 +1567,11 @@ router.get("/anexos-resumo", async (req: Request, res: Response): Promise<void> 
 // ── STATS precisa vir antes de /:id ──────────────────────────────────────────
 router.get("/stats", async (req: Request, res: Response): Promise<void> => {
   try {
-    const tarefas = await listTasksForUser(req.user!);
+    const tarefas = await listTasksForUserComLimite(req.user!);
     res.json({ stats: buildTaskStats(tarefas) });
   } catch (err) {
     console.error("[TAREFAS] Erro ao buscar stats:", err);
-    res.status(500).json({ error: "Erro ao buscar estatísticas." });
+    respondRouteError(res, err, "Erro ao buscar estatísticas.");
   }
 });
 
@@ -1635,7 +1651,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   try {
     const { role } = req.user!;
     const { status, prioridade, responsavel_id } = req.query;
-    let tarefas = await listTasksForUser(req.user!);
+    let tarefas = await listTasksForUserComLimite(req.user!);
 
     if (typeof status === "string" && status && status !== "todos")
       tarefas = tarefas.filter((t) => t.status === status);
