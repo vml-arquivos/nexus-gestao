@@ -29,6 +29,24 @@ async function trySyncForUser(req: Request) {
   }
 }
 
+// Janela padrão quando o cliente não informa mes/ano (ex.: widget do Dashboard).
+// Antes, a ausência de mes/ano fazia `SELECT * FROM agenda` sem filtro de data
+// e SEM LIMIT nenhum. Com o histórico atual (300 mil+ linhas na tabela agenda),
+// essa consulta sem filtro varria/ordenava a tabela inteira a cada abertura do
+// Dashboard, estourava o statement_timeout do Postgres e, ao tentar
+// materializar centenas de milhares de linhas em memória, travava o event
+// loop do Node por vários segundos — derrubando de tabela (timeout real do
+// Postgres, visto nos logs como "canceling statement due to statement
+// timeout") outras rotas completamente não relacionadas (/tarefas, /ranking,
+// recorrência de tarefas) que compartilham o mesmo processo Node, mesmo com
+// pool de conexões ocioso. Ver RELATORIO-FIX55-AGENDA-DASHBOARD-SEM-LIMITE.md.
+const AGENDA_JANELA_PADRAO_DIAS_PASSADO = 45
+const AGENDA_JANELA_PADRAO_DIAS_FUTURO = 120
+// Backstop absoluto: nenhuma resposta de /api/agenda pode devolver mais que
+// isto, mesmo que um filtro de data futuro acabe cobrindo um período muito
+// grande. Protege o Node e o navegador independentemente do filtro usado.
+const AGENDA_LIMITE_MAXIMO_LINHAS = 2000
+
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!
@@ -44,10 +62,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       params.push(`%${userId}%`)
     }
 
+    let mesAnoValidos = false
     if (mes && ano) {
       const month = Number(mes)
       const year = Number(ano)
       if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(year) && year >= 2000 && year <= 2200) {
+        mesAnoValidos = true
         const start = `${year}-${String(month).padStart(2, '0')}-01`
         const nextMonth = month === 12
           ? `${year + 1}-01-01`
@@ -57,7 +77,21 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Sem mes/ano (ou valor inválido): aplica uma janela padrão em vez de
+    // trazer o histórico inteiro. Cobre "hoje", atrasados recentes e o
+    // próximo período — suficiente para qualquer widget/resumo — sem varrer
+    // a tabela inteira.
+    if (!mesAnoValidos) {
+      sql += ` AND data_inicio >= (NOW() - ($${params.length + 1}::text || ' days')::interval)`
+      params.push(String(AGENDA_JANELA_PADRAO_DIAS_PASSADO))
+      sql += ` AND data_inicio < (NOW() + ($${params.length + 1}::text || ' days')::interval)`
+      params.push(String(AGENDA_JANELA_PADRAO_DIAS_FUTURO))
+    }
+
     sql += ` ORDER BY data_inicio ASC, created_at ASC`
+    sql += ` LIMIT $${params.length + 1}`
+    params.push(AGENDA_LIMITE_MAXIMO_LINHAS)
+
     const eventos = await query(sql, params)
     res.json({ eventos, sync })
   } catch (err) {
