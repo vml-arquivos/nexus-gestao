@@ -2335,6 +2335,97 @@ function EmpresaDestravaModal({ tarefa, onClose }: { tarefa: Tarefa; onClose: ()
   )
 }
 
+// FIX60: junta, num só modal, todas as listas de tarefas Nexus já criadas
+// para a mesma empresa (mesmo origem_id) -- a ativa (se houver) e o
+// histórico de ocorrências já fechadas, preservado para consulta/auditoria.
+// Cada linha abre o TarefaDetalheModal já existente (checklist, aprovação,
+// anexos, tudo igual) em vez de duplicar essa UI aqui.
+function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
+  origemId: string
+  onClose: () => void
+  onAbrirTarefa: (t: Tarefa) => void
+}) {
+  const [dados, setDados] = useState<{ empresa: { nome: string | null }; ativas: Tarefa[]; historico: Tarefa[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState('')
+
+  useEffect(() => {
+    let cancelado = false
+    setLoading(true)
+    setErro('')
+    tarefasApi.tarefasDaEmpresa(origemId)
+      .then(r => { if (!cancelado) setDados(r) })
+      .catch(e => { if (!cancelado) setErro(e instanceof Error ? e.message : 'Erro ao buscar tarefas da empresa.') })
+      .finally(() => { if (!cancelado) setLoading(false) })
+    return () => { cancelado = true }
+  }, [origemId])
+
+  function linhaTarefa(t: Tarefa) {
+    const cfg = statusCfg(t.status)
+    const Icon = cfg.icon
+    const total = (t.checklist || []).length
+    const feitos = (t.checklist || []).filter((i: any) => i.feito).length
+    return (
+      <button
+        key={t.id}
+        type="button"
+        onClick={() => { onAbrirTarefa(t); onClose() }}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10,
+          border: '1px solid var(--border)', background: 'var(--bg3)', cursor: 'pointer',
+        }}
+      >
+        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon size={15} color={cfg.color} style={{ flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.titulo}</div>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+              Prazo: {fmtDate(t.prazo) || '—'} · {feitos}/{total} {total === 1 ? 'item' : 'itens'}
+            </div>
+          </div>
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 600, color: cfg.color, background: cfg.bg, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+          {cfg.label}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <ModalBase title={dados?.empresa?.nome ? `Tarefas — ${dados.empresa.nome}` : 'Tarefas da empresa'} onClose={onClose}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        {loading && <div style={{ color: 'var(--text3)' }}>Carregando…</div>}
+        {erro && <div style={{ color: 'var(--danger)' }}>{erro}</div>}
+        {dados && (
+          <>
+            <section style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>Ativa agora</div>
+              {dados.ativas.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista aberta para esta empresa no momento.</div>
+              )}
+              <div style={{ display: 'grid', gap: 8 }}>
+                {dados.ativas.map(linhaTarefa)}
+              </div>
+            </section>
+            <section style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>
+                Histórico ({dados.historico.length})
+              </div>
+              {dados.historico.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista concluída ou cancelada ainda.</div>
+              )}
+              <div style={{ display: 'grid', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
+                {dados.historico.map(linhaTarefa)}
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+    </ModalBase>
+  )
+}
+
 
 function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda, onEmpresaDestrava }: {
   tarefa: Tarefa
@@ -3768,7 +3859,7 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda }: {
+function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
   tarefa: Tarefa
   userId: string
   isGestor: boolean
@@ -3792,6 +3883,7 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
   onReminder: (t: Tarefa) => void
   onPedirAjuda: (t: Tarefa) => void
   onPainelAjuda: (t: Tarefa) => void
+  onEmpresa?: (origemId: string) => void
 }) {
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
@@ -3882,8 +3974,18 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
             : null}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDate(tarefa.data_reabertura)}</span>}
           {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo{anexosCount > 1 ? 's' : ''}</span>}
-          {(tarefa as any).origem_sistema === 'destrava' && (
-            <span className="task-destrava-badge">⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}</span>
+          {(tarefa as any).origem_sistema === 'destrava' && (tarefa as any).origem_id && (
+            <span
+              className="task-destrava-badge"
+              role="button"
+              tabIndex={0}
+              title="Ver todas as tarefas desta empresa"
+              onClick={(e) => { e.stopPropagation(); onEmpresa?.((tarefa as any).origem_id) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onEmpresa?.((tarefa as any).origem_id) } }}
+              style={{ cursor: onEmpresa ? 'pointer' : undefined }}
+            >
+              ⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}
+            </span>
           )}
         </div>
         {distributedTask && isGestor && executorSummary.length > 0 && (
@@ -4275,6 +4377,8 @@ export default function Tarefas() {
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
   const [empresaDestrava, setEmpresaDestrava] = useState<Tarefa | null>(null)
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
+  // FIX60: id (origem_id) da empresa cujo modal agregador está aberto agora.
+  const [empresaTarefasId, setEmpresaTarefasId] = useState<string | null>(null)
   // FIX59: guarda o id do último modal fechado manualmente via ?task=<id>.
   // Sem isso, se a lista de tarefas atualizar em segundo plano no instante
   // entre o clique no X e a URL efetivamente perder o ?task=, o efeito que
@@ -5058,12 +5162,20 @@ export default function Tarefas() {
               onReminder={enviarLembreteManual}
               onPedirAjuda={setAjuda}
               onPainelAjuda={setPainelAjuda}
+              onEmpresa={setEmpresaTarefasId}
             />
           ))}
         </div>
       )}
       {/* ── MODAIS ────────────────────────────────────────── */}
       {modalOpen && <TarefaModal key={edit?.id || 'novo'} tarefa={edit} membros={membros} onClose={() => { setModalOpen(false); setEdit(null) }} onSaved={(t) => { updateSaved(t); setModalOpen(false); setEdit(null) }} />}
+      {empresaTarefasId && (
+        <EmpresaTarefasModal
+          origemId={empresaTarefasId}
+          onClose={() => setEmpresaTarefasId(null)}
+          onAbrirTarefa={setDetalhe}
+        />
+      )}
       {responder && <RespostaModal key={responder.id} tarefa={responder} onClose={() => setResponder(null)} onSaved={(t) => { updateSaved(t); setResponder(null) }} />}
       {historico && <HistoricoModal key={historico.id} tarefa={historico} onClose={() => setHistorico(null)} />}
       {modoSelecao && selecionadas.size > 0 && (

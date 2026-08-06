@@ -1010,6 +1010,10 @@ export const tarefasApi = {
     return apiJson<EmpresaDestravaResumo>(`/tarefas/${id}/empresa-destrava`)
   },
 
+  async tarefasDaEmpresa(origemId: string): Promise<{ empresa: { origem_id: string; nome: string | null; tipo: string | null; url: string | null }; ativas: Tarefa[]; historico: Tarefa[] }> {
+    return apiJson(`/tarefas/empresa/${encodeURIComponent(origemId)}`)
+  },
+
   async arquivoEmpresaDestrava(id: string, docId: string, download = false): Promise<{ blob: Blob; filename?: string; mime?: string }> {
     const res = await apiFetch(`/tarefas/${id}/empresa-destrava/documentos/${docId}/${download ? 'download' : 'view'}`)
     if (!res.ok) {

@@ -1672,6 +1672,77 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ── TAREFAS AGRUPADAS POR EMPRESA (Destrava) ────────────────────────────────
+// FIX60: em vez de várias linhas soltas "Lista de tarefas da equipe" pra
+// mesma empresa espalhadas na listagem principal, esta rota junta tudo que
+// já existe pra um origem_id num só lugar -- a lista ativa (se houver) e o
+// histórico de ocorrências já fechadas (concluídas+aprovadas ou canceladas),
+// que continuam preservadas para consulta, anexos e auditoria.
+//
+// Reaproveita EXATAMENTE a mesma visibilidade por linha da listagem
+// principal (canListTaskForUser) e o mesmo saneamento por usuário
+// (sanitizeTaskForUser, que já filtra o checklist para mostrar a cada
+// membro só os itens atribuídos a ele -- gestor continua vendo tudo). Nada
+// de regra nova aqui: é a regra que já existe, só que reagrupada.
+
+/** Uma ocorrência conta como "fechada" (vira histórico) quando cancelada, ou
+ * concluída E aprovada pelo gestor -- mesma noção de "aberta" usada pela
+ * guarda de recorrência (FIX57) para nunca deixar duas ocorrências abertas
+ * ao mesmo tempo na mesma linhagem/empresa. Exportada e testada isoladamente
+ * porque é fácil essa condição divergir silenciosamente entre os dois lugares. */
+export function tarefaEstaFechada(t: { status?: string; status_gestor?: string }): boolean {
+  return t.status === "cancelada" || (t.status === "concluida" && t.status_gestor === "aprovada");
+}
+
+router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orgId, userId, role } = req.user!;
+    const origemId = String(req.params.origemId || "").trim();
+    if (!origemId) {
+      res.status(400).json({ error: "origemId é obrigatório." });
+      return;
+    }
+
+    const rows = await query(
+      `SELECT * FROM tarefas WHERE org_id = $1 AND origem_id = $2 ORDER BY created_at DESC LIMIT 500`,
+      [orgId, origemId],
+    );
+
+    let comandados = new Set<string>();
+    if (role === "sub_gestor") {
+      const subs = await query<{ id: string }>(
+        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
+        [orgId, userId],
+      );
+      comandados = new Set(subs.map((s) => s.id));
+    }
+
+    const tarefas = rows
+      .filter((task) => canListTaskForUser(task, req.user!, comandados))
+      .map((task) => sanitizeTaskForUser(task, req.user!));
+
+    const ativas = tarefas.filter((t: any) => !tarefaEstaFechada(t));
+    const historico = tarefas
+      .filter(tarefaEstaFechada)
+      .sort((a: any, b: any) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+
+    const referencia = rows[0];
+    res.json({
+      empresa: {
+        origem_id: origemId,
+        nome: referencia?.origem_nome || null,
+        tipo: referencia?.origem_tipo || null,
+        url: referencia?.origem_url || null,
+      },
+      ativas,
+      historico,
+    });
+  } catch (err) {
+    console.error("[TAREFAS] Erro ao buscar tarefas da empresa:", err);
+    respondRouteError(res, err, "Erro ao buscar tarefas da empresa.");
+  }
+});
+
 // ── RANKING DA EQUIPE / DESAFIO ─────────────────────────────────────────────
 router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
   try {
