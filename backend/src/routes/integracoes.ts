@@ -48,7 +48,16 @@ export function normalizeChecklistItems(value: unknown): Array<{ id: string; tex
       ? value.split('\n').map(line => line.trim()).filter(Boolean)
       : []
 
-  return raw
+  // FIX56: nenhuma tarefa real precisa de milhares de itens de checklist.
+  // Corta em 300 como barreira contra payload malformado/corrompido vindo
+  // do webhook do Destrava — a mesma classe de dado que travou a recorrência.
+  const LIMITE_CHECKLIST = 300
+  const limitado = raw.length > LIMITE_CHECKLIST ? raw.slice(0, LIMITE_CHECKLIST) : raw
+  if (raw.length > LIMITE_CHECKLIST) {
+    console.error(`[INTEGRACOES] Checklist recebido com ${raw.length} itens (limite ${LIMITE_CHECKLIST}); truncando.`)
+  }
+
+  return limitado
     .map((item: any) => {
       if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
       return {

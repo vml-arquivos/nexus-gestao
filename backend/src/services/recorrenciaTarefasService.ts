@@ -76,9 +76,29 @@ function deveGerarHoje(t: TarefaRecorrenteRow, hoje: Date): boolean {
 
 /** Reseta cada item do checklist para uma nova ocorrência: id novo (evita
  * colisão com a ocorrência anterior), não concluído, sem autoria de conclusão
- * anterior. Mantém texto, executor, pontuação e demais configurações. */
+ * anterior. Mantém texto, executor, pontuação e demais configurações.
+ *
+ * LIMITE_CHECKLIST_RECORRENCIA (FIX56): tarefas recorrentes nunca deveriam
+ * ter centenas de milhares de itens de checklist — isso é sinal de dado
+ * corrompido herdado de uma ocorrência anterior, não uma lista de tarefas
+ * real. Gerar milhares de UUIDs síncronos em JS trava o event loop do Node
+ * por vários segundos a cada execução, derrubando todas as outras rotas do
+ * mesmo processo (foi a causa raiz real dos travamentos intermitentes de
+ * /tarefas — não falta de RAM, não lock de banco: geração de checklist
+ * corrompido bloqueando a única thread do Node). Corta o checklist para um
+ * tamanho seguro antes de processar, e loga bem alto para ser notado. */
+const LIMITE_CHECKLIST_RECORRENCIA = 300
+
 function resetarChecklist(raw: unknown): unknown[] {
-  const items = Array.isArray(raw) ? raw : [];
+  const itemsBrutos = Array.isArray(raw) ? raw : [];
+  if (itemsBrutos.length > LIMITE_CHECKLIST_RECORRENCIA) {
+    console.error(
+      `[RECORRENCIA] ALERTA: checklist com ${itemsBrutos.length} itens (limite ${LIMITE_CHECKLIST_RECORRENCIA}). ` +
+      `Isso é dado corrompido, não uma lista real — truncando para evitar travar o processo. ` +
+      `Investigue e corrija a origem manualmente.`
+    )
+  }
+  const items = itemsBrutos.slice(0, LIMITE_CHECKLIST_RECORRENCIA);
   return items.map((item) => {
     const it = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
     return {
