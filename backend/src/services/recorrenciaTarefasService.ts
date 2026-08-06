@@ -86,8 +86,29 @@ function deveGerarHoje(t: TarefaRecorrenteRow, hoje: Date): boolean {
  * mesmo processo (foi a causa raiz real dos travamentos intermitentes de
  * /tarefas — não falta de RAM, não lock de banco: geração de checklist
  * corrompido bloqueando a única thread do Node). Corta o checklist para um
- * tamanho seguro antes de processar, e loga bem alto para ser notado. */
+ * tamanho seguro antes de processar, e loga bem alto para ser notado.
+ *
+ * dedupPorTexto (FIX58): variante menor do mesmo problema — um item real
+ * (ex.: "Finalizar o registro dos documentos...") aparecendo dezenas de
+ * vezes idêntico dentro do MESMO checklist, abaixo do limite acima então
+ * nunca barrado por ele. Provavelmente herdado de uma ocorrência antiga já
+ * corrompida e perpetuado por esta mesma função (que só reseta id/feito,
+ * nunca removia duplicata). Colapsa por texto igual antes de processar,
+ * mantendo a primeira ocorrência de cada texto distinto. */
 const LIMITE_CHECKLIST_RECORRENCIA = 300
+
+function dedupPorTexto(items: unknown[]): unknown[] {
+  const vistos = new Set<string>()
+  const resultado: unknown[] = []
+  for (const item of items) {
+    const texto = (item && typeof item === "object" ? (item as Record<string, unknown>).texto : undefined)
+    const chave = typeof texto === "string" ? texto.trim().toLowerCase() : JSON.stringify(item)
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    resultado.push(item)
+  }
+  return resultado
+}
 
 function resetarChecklist(raw: unknown): unknown[] {
   const itemsBrutos = Array.isArray(raw) ? raw : [];
@@ -98,8 +119,14 @@ function resetarChecklist(raw: unknown): unknown[] {
       `Investigue e corrija a origem manualmente.`
     )
   }
-  const items = itemsBrutos.slice(0, LIMITE_CHECKLIST_RECORRENCIA);
-  return items.map((item) => {
+  const itemsSemDuplicata = dedupPorTexto(itemsBrutos.slice(0, LIMITE_CHECKLIST_RECORRENCIA));
+  if (itemsSemDuplicata.length !== Math.min(itemsBrutos.length, LIMITE_CHECKLIST_RECORRENCIA)) {
+    console.error(
+      `[RECORRENCIA] ALERTA: checklist com itens de texto duplicado — reduzido de ` +
+      `${Math.min(itemsBrutos.length, LIMITE_CHECKLIST_RECORRENCIA)} para ${itemsSemDuplicata.length} itens únicos.`
+    )
+  }
+  return itemsSemDuplicata.map((item) => {
     const it = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
     return {
       ...it,

@@ -111,4 +111,33 @@ describe("recorrência — guarda contra lista duplicada aberta (FIX57)", () => 
     expect(guardaSql).toContain("status = 'cancelada'");
     expect(guardaSql).toContain("status = 'concluida' AND status_gestor = 'aprovada'");
   });
+
+  it("FIX58: colapsa itens de checklist com texto idêntico antes de gerar a próxima ocorrência", async () => {
+    const tarefaComChecklistDuplicado = {
+      ...TAREFA_BASE,
+      checklist: [
+        { id: "a", texto: "Finalizar o registro dos documentos.", feito: false },
+        { id: "b", texto: "Finalizar o registro dos documentos.", feito: false },
+        { id: "c", texto: "  finalizar o registro dos documentos.  ", feito: false }, // mesmo texto, espaço/maiúscula
+        { id: "d", texto: "Outro item de verdade, distinto.", feito: false },
+      ],
+    };
+    queryMock.mockResolvedValueOnce({ rows: [tarefaComChecklistDuplicado] });
+    queryMock.mockResolvedValueOnce({ rows: [] }); // sem ocorrência aberta na linhagem
+
+    const clientMock = { query: vi.fn().mockResolvedValue({ rows: [] }), release: vi.fn() };
+    connectMock.mockResolvedValueOnce(clientMock);
+
+    await avaliarRecorrenciaTarefas();
+
+    const insertCall = clientMock.query.mock.calls.find((c: any[]) => String(c[0]).startsWith("INSERT INTO tarefas"));
+    expect(insertCall).toBeTruthy();
+    const checklistJsonEnviado = insertCall![1][2]; // $3 = novoChecklist
+    const checklistParseado = JSON.parse(checklistJsonEnviado);
+    expect(checklistParseado).toHaveLength(2); // só os 2 textos distintos sobrevivem
+    expect(checklistParseado.map((i: any) => i.texto.trim().toLowerCase())).toEqual([
+      "finalizar o registro dos documentos.",
+      "outro item de verdade, distinto.",
+    ]);
+  });
 });

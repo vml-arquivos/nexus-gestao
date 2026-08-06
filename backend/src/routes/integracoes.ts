@@ -57,7 +57,7 @@ export function normalizeChecklistItems(value: unknown): Array<{ id: string; tex
     console.error(`[INTEGRACOES] Checklist recebido com ${raw.length} itens (limite ${LIMITE_CHECKLIST}); truncando.`)
   }
 
-  return limitado
+  const normalizado = limitado
     .map((item: any) => {
       if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
       return {
@@ -66,6 +66,21 @@ export function normalizeChecklistItems(value: unknown): Array<{ id: string; tex
         feito: Boolean(item?.feito),
       }
     })
+
+  // FIX58: mesma classe de corrupção vista na recorrência (item de texto
+  // repetido dezenas de vezes no mesmo checklist), aqui barrada na origem.
+  const vistos = new Set<string>()
+  const semDuplicata = normalizado.filter((item) => {
+    const chave = item.texto.toLowerCase()
+    if (vistos.has(chave)) return false
+    vistos.add(chave)
+    return true
+  })
+  if (semDuplicata.length !== normalizado.length) {
+    console.error(`[INTEGRACOES] Checklist com itens de texto duplicado; reduzido de ${normalizado.length} para ${semDuplicata.length}.`)
+  }
+
+  return semDuplicata
     .filter(item => item.texto)
 }
 

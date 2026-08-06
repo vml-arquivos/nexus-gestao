@@ -4275,6 +4275,13 @@ export default function Tarefas() {
   const [anexos, setAnexos] = useState<Tarefa | null>(null)
   const [empresaDestrava, setEmpresaDestrava] = useState<Tarefa | null>(null)
   const [detalhe, setDetalhe] = useState<Tarefa | null>(null)
+  // FIX59: guarda o id do último modal fechado manualmente via ?task=<id>.
+  // Sem isso, se a lista de tarefas atualizar em segundo plano no instante
+  // entre o clique no X e a URL efetivamente perder o ?task=, o efeito que
+  // observa location.search roda de novo, ainda vê o parâmetro antigo e
+  // reabre o mesmo modal -- na prática, o botão de fechar parece não fazer
+  // nada. Enquanto esse id estiver aqui, o efeito abaixo não reabre para ele.
+  const idFechadoManualmenteRef = useRef<string | null>(null)
   const [complemento, setComplemento] = useState<Tarefa | null>(null)
   const [ajuda, setAjuda] = useState<Tarefa | null>(null)
   const [painelAjuda, setPainelAjuda] = useState<Tarefa | null>(null)
@@ -4419,7 +4426,8 @@ export default function Tarefas() {
     const params = new URLSearchParams(location.search)
     const id = params.get('task')
     const openHelp = params.get('help') === '1'
-    if (!id) return
+    if (!id) { idFechadoManualmenteRef.current = null; return }
+    if (idFechadoManualmenteRef.current === id) return // acabou de ser fechado pelo usuário -- não reabre até a URL realmente trocar
 
     const found = tarefas.find(t => t.id === id)
     if (found) {
@@ -5072,7 +5080,7 @@ export default function Tarefas() {
         </div>
       )}
 
-      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { setDetalhe(null); if (new URLSearchParams(location.search).get('task')) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
+      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { const idAtual = new URLSearchParams(location.search).get('task'); if (idAtual) idFechadoManualmenteRef.current = idAtual; setDetalhe(null); if (idAtual) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
       {complemento && <ComplementoModal key={complemento.id} tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal key={ajuda.id} tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
       {painelAjuda && <PainelAjudaModal key={painelAjuda.id} tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}
