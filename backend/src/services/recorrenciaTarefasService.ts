@@ -129,8 +129,29 @@ function calcularNovoPrazo(t: TarefaRecorrenteRow, hoje: Date): string | null {
   return novo.toISOString().slice(0, 10);
 }
 
+async function existeOcorrenciaAbertaNaLinhagem(orgId: string, raizId: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM tarefas
+     WHERE org_id = $1
+       AND (id = $2 OR grupo_recorrencia_id = $2)
+       AND NOT (status = 'cancelada' OR (status = 'concluida' AND status_gestor = 'aprovada'))
+     LIMIT 1`,
+    [orgId, raizId],
+  );
+  return rows.length > 0;
+}
+
 async function gerarProximaOcorrencia(t: TarefaRecorrenteRow, hoje: Date): Promise<void> {
   const raizId = t.grupo_recorrencia_id || t.id;
+
+  // FIX57: uma empresa tem uma única lista ativa por vez nessa linhagem.
+  // Só gera a próxima ocorrência depois que a atual foi concluída E
+  // aprovada pelo gestor (ou cancelada) -- caso contrário a lista anterior
+  // continua sendo a "ativa" e as concluídas ficam como histórico/registro,
+  // consultável na aba Concluídas, com seus anexos e arquivos preservados.
+  const jaTemAberta = await existeOcorrenciaAbertaNaLinhagem(t.org_id, raizId);
+  if (jaTemAberta) return;
+
   const periodo = periodoAtual(t.recorrencia, hoje);
   const externalKey = `recorrencia-nexus:${raizId}:${periodo}`;
   const novoPrazo = calcularNovoPrazo(t, hoje);

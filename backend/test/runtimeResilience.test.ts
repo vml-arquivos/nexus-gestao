@@ -62,7 +62,7 @@ describe('proteções de runtime FIX54', () => {
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix56-checklist-corrompido-recorrencia-20260806')
+    expect(dockerfile).toContain('fix57-lista-unica-por-empresa-20260806')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })

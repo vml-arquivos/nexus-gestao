@@ -53,10 +53,10 @@ RUN --mount=type=cache,id=nexus-backend-npm,target=/root/.npm \
 FROM node:20-alpine AS production
 
 ENV NODE_ENV=production \
-    NEXUS_RELEASE=fix56-checklist-corrompido-recorrencia-20260806
+    NEXUS_RELEASE=fix57-lista-unica-por-empresa-20260806
 
 LABEL org.opencontainers.image.title="Nexus Gestão" \
-      org.opencontainers.image.version="fix56-checklist-corrompido-recorrencia-20260806"
+      org.opencontainers.image.version="fix57-lista-unica-por-empresa-20260806"
 
 # Barreira de serialização: esta cópia depende do builder completo. Portanto
 # nem apk nem qualquer trabalho da produção inicia junto com npm/tsc/vite.
