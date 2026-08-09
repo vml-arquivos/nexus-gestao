@@ -40,6 +40,17 @@ export async function handleRotinaCndDue(payload: Record<string, unknown>): Prom
   if (!contratoId || !competencia) {
     throw new Error('RotinaCndDue: contrato_id e competencia são obrigatórios.')
   }
+  // FIX62: empresa_id nunca pode ficar em branco silenciosamente. Sem essa
+  // trava, um evento chegando sem esse campo grava uma tarefa cujo
+  // agrupamento por empresa (empresa_id, usado no modal e na mesclagem de
+  // listas) vira string vazia -- e qualquer OUTRA tarefa que também venha a
+  // sofrer do mesmo problema, de uma empresa completamente diferente, cai
+  // no mesmo balde vazio e aparece misturada com ela. Rejeitar aqui é mais
+  // seguro que aceitar um dado que pode contaminar o agrupamento de outra
+  // empresa.
+  if (!empresaId) {
+    throw new Error('RotinaCndDue: empresa_id é obrigatório e não pode ficar em branco.')
+  }
 
   await criarTarefaAutomacao({
     externalKey: `rotina:cnd:${contratoId}:${competencia}`,
@@ -68,6 +79,10 @@ export async function handleRotinaCemprotDue(payload: Record<string, unknown>): 
 
   if (!contratoId || !isoWeek) {
     throw new Error('RotinaCemprotDue: contrato_id e iso_week são obrigatórios.')
+  }
+  // FIX62: mesma trava de RotinaCndDue acima -- ver comentário lá.
+  if (!empresaId) {
+    throw new Error('RotinaCemprotDue: empresa_id é obrigatório e não pode ficar em branco.')
   }
 
   await criarTarefaAutomacao({

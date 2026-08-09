@@ -1703,8 +1703,18 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // FIX62: agrupa pela chave REAL da empresa (origem_payload->>'empresa_id'),
+    // não pelo origem_id bruto. origem_id significa coisas diferentes conforme
+    // o tipo de tarefa (empresa_id para listas genéricas, mas contrato_id para
+    // Rotina CND/CEMPROT e acompanhamento_id para Acompanhamento Bancário) --
+    // usar origem_id direto misturava/deixava de juntar tarefas da mesma
+    // empresa. Fallback para origem_id preserva compatibilidade com tarefas
+    // antigas criadas antes desta correção, que não têm empresa_id gravado.
     const rows = await query(
-      `SELECT * FROM tarefas WHERE org_id = $1 AND origem_id = $2 ORDER BY created_at DESC LIMIT 500`,
+      `SELECT * FROM tarefas
+       WHERE org_id = $1
+         AND COALESCE(NULLIF(origem_payload->>'empresa_id', ''), origem_id) = $2
+       ORDER BY created_at DESC LIMIT 500`,
       [orgId, origemId],
     );
 
@@ -2767,6 +2777,14 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     // itens de aprovação em estados inconsistentes. Agora só mescla em cima
     // de uma lista que já está genuinamente aberta; se a única lista
     // existente estiver fechada, cria uma nova, do zero.
+    //
+    // FIX62: casa pela mesma chave real de empresa usada no modal agrupado
+    // (COALESCE do empresa_id gravado em origem_payload, com origem_id como
+    // fallback) -- ver comentário completo na rota GET /empresa/:origemId.
+    // Isso garante que uma lista criada manualmente para uma empresa também
+    // enxergue e mescle com tarefas automáticas (Rotina CND/CEMPROT,
+    // Acompanhamento Bancário) já abertas para essa MESMA empresa, e nunca
+    // com as de outra.
     if (escopo === "equipe" && origem_id) {
       const mergeClient = await pool.connect();
       try {
@@ -2774,7 +2792,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         const listaAbertaResult = await mergeClient.query<any>(
           `SELECT * FROM tarefas
            WHERE org_id = $1
-             AND origem_id = $2
+             AND COALESCE(NULLIF(origem_payload->>'empresa_id', ''), origem_id) = $2
              AND COALESCE(escopo, 'pessoal') = 'equipe'
              AND status <> 'cancelada'
              AND NOT (status = 'concluida' AND status_gestor = 'aprovada')

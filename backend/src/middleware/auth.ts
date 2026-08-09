@@ -3,11 +3,20 @@
 
 import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
+import { NEXUS_RELEASE } from '../release'
 
 const JWT_SECRET             = process.env.JWT_SECRET             || 'nexus-secret-dev'
 const JWT_REFRESH_SECRET     = process.env.JWT_REFRESH_SECRET     || 'nexus-refresh-secret-dev'
 const JWT_EXPIRES_IN         = process.env.JWT_EXPIRES_IN         || '15m'
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '365d'
+
+// FIX63: opção (desligada por padrão) para forçar todo mundo a logar de novo
+// quando uma atualização de verdade sobe -- ver comentário completo em
+// db/migrate.ts, onde a decisão de "isso é uma release nova?" é tomada. Aqui
+// só embutimos a release em todo token emitido e, se a opção estiver ligada,
+// recusamos qualquer token de uma release diferente da atual. Desligada
+// (padrão), o comportamento é idêntico ao de sempre -- zero mudança.
+const FORCE_RELOGIN_ON_DEPLOY = process.env.FORCE_RELOGIN_ON_DEPLOY === 'true'
 
 export type UserRole = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro'
 
@@ -17,6 +26,7 @@ export interface JwtPayload {
   role:   UserRole
   nome?:  string
   email?: string
+  rel?:   string
 }
 
 declare global {
@@ -28,8 +38,9 @@ declare global {
 }
 
 export function generateTokens(payload: JwtPayload): { accessToken: string; refreshToken: string } {
-  const accessToken  = jwt.sign(payload, JWT_SECRET,         { expiresIn: JWT_EXPIRES_IN as any })
-  const refreshToken = jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES_IN as any })
+  const payloadComRelease = { ...payload, rel: NEXUS_RELEASE }
+  const accessToken  = jwt.sign(payloadComRelease, JWT_SECRET,         { expiresIn: JWT_EXPIRES_IN as any })
+  const refreshToken = jwt.sign(payloadComRelease, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES_IN as any })
   return { accessToken, refreshToken }
 }
 
@@ -48,6 +59,10 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
     if (!decoded?.userId || !decoded?.orgId || !decoded?.role) {
       res.status(401).json({ error: 'Token inválido.' })
+      return
+    }
+    if (FORCE_RELOGIN_ON_DEPLOY && decoded.rel !== NEXUS_RELEASE) {
+      res.status(401).json({ error: 'O sistema foi atualizado. Faça login novamente.', code: 'RELOGIN_REQUIRED' })
       return
     }
     req.user = decoded

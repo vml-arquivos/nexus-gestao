@@ -655,6 +655,18 @@ function elegivelParaAprovacaoLote(t: Tarefa) {
   return t.escopo === 'equipe' && ['concluida', 'reenviada'].includes(t.status)
 }
 
+// FIX62: mesma chave real de agrupamento por empresa usada no backend
+// (COALESCE(origem_payload->>'empresa_id', origem_id) -- ver rota GET
+// /tarefas/empresa/:origemId). origem_id sozinho significa coisas
+// diferentes conforme o tipo de tarefa (contrato, acompanhamento, empresa),
+// então nunca usar ele direto pra agrupar/exibir "tarefas desta empresa".
+function empresaChave(tarefa: any): string | null {
+  const doPayload = tarefa?.origem_payload?.empresa_id
+  if (typeof doPayload === 'string' && doPayload.trim()) return doPayload.trim()
+  const origemId = tarefa?.origem_id
+  return typeof origemId === 'string' && origemId.trim() ? origemId.trim() : null
+}
+
 function statusCfg(status?: string) {
   return STATUS_CONFIG[status || 'pendente'] || STATUS_CONFIG.pendente
 }
@@ -3974,14 +3986,14 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
             : null}
           {tarefa.data_reabertura && <span><RotateCcw size={12} /> Reaberta {fmtDate(tarefa.data_reabertura)}</span>}
           {anexosCount > 0 && <span><Paperclip size={12} /> {anexosCount} arquivo{anexosCount > 1 ? 's' : ''}</span>}
-          {(tarefa as any).origem_sistema === 'destrava' && (tarefa as any).origem_id && (
+          {(tarefa as any).origem_sistema === 'destrava' && empresaChave(tarefa) && (
             <span
               className="task-destrava-badge"
               role="button"
               tabIndex={0}
               title="Ver todas as tarefas desta empresa"
-              onClick={(e) => { e.stopPropagation(); onEmpresa?.((tarefa as any).origem_id) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onEmpresa?.((tarefa as any).origem_id) } }}
+              onClick={(e) => { e.stopPropagation(); onEmpresa?.(empresaChave(tarefa)!) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onEmpresa?.(empresaChave(tarefa)!) } }}
               style={{ cursor: onEmpresa ? 'pointer' : undefined }}
             >
               ⚡ Destrava{(tarefa as any).origem_nome ? ` · ${(tarefa as any).origem_nome}` : ''}

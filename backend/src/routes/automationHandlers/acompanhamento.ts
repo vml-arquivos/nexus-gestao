@@ -47,6 +47,12 @@ export async function handleAcompanhamentoCriado(payload: Record<string, unknown
   if (!acompanhamentoId || !dataInicio || !numeroSemanas || numeroSemanas < 1) {
     throw new Error('AcompanhamentoCriado: acompanhamento_id, data_inicio e numero_semanas (>=1) são obrigatórios.')
   }
+  // FIX62: mesma trava usada em rotinas.ts -- empresa_id nunca fica vazio
+  // silenciosamente, para nunca virar um balde de agrupamento compartilhado
+  // por engano com outra empresa que também tenha esse campo faltando.
+  if (!empresaId) {
+    throw new Error('AcompanhamentoCriado: empresa_id é obrigatório e não pode ficar em branco.')
+  }
 
   const inicio = new Date(`${dataInicio}T12:00:00Z`)
   if (Number.isNaN(inicio.getTime())) {

@@ -1269,6 +1269,17 @@ async function migrate() {
     console.warn('[MIGRATE] Verificação de schema de tarefas pulada (não essencial):', err)
   }
 
+  // FIX63: opção (ligada só via FORCE_RELOGIN_ON_DEPLOY=true) que revoga
+  // sessões de todo mundo quando detecta que a release realmente mudou desde
+  // o último boot. Desligada por padrão -- zero mudança de comportamento
+  // pra quem não ativar.
+  try {
+    const { forceRelogueOnDeployOnce } = await import('./forceRelogueOnDeployOnce')
+    await forceRelogueOnDeployOnce()
+  } catch (err) {
+    console.warn('[MIGRATE] Verificação de FORCE_RELOGIN_ON_DEPLOY pulada (não essencial):', err)
+  }
+
   await pool.end()
 }
 

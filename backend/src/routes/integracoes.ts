@@ -723,6 +723,14 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     const checklist = normalizeChecklistItems(body.checklist)
     const metadata = {
       ...body.metadata,
+      // FIX62: padroniza a chave real de agrupamento por empresa nos 3
+      // caminhos que criam tarefa (este, rotinas.ts, acompanhamento.ts).
+      // Neste caminho genérico, quando o tipo é 'empresa', origem_id JÁ é o
+      // empresa_id (normalizeDestravaTaskInput usa empresa.id como
+      // external_id padrão) -- gravar aqui também deixa explícito e
+      // consistente com os outros dois caminhos, que usam contrato_id/
+      // acompanhamento_id como origem_id e por isso precisam do campo à parte.
+      empresa_id: externalType === 'empresa' ? externalId : (body.metadata as any)?.empresa_id || null,
       destrava_colaborador_id: body.destravaColaboradorId,
       destrava_colaborador_nome: body.criadoPorNome,
       destrava_colaborador_email: body.criadoPorEmail,
