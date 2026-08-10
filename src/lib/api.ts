@@ -196,6 +196,10 @@ export interface Tarefa {
   prioridade: 'baixa' | 'media' | 'alta'
   /** Separa tarefas pessoais de tarefas controladas pela equipe/gestor. */
   escopo?: 'pessoal' | 'equipe'
+  /** Contexto funcional da lista. Não é usado como chave de deduplicação. */
+  contexto_tipo?: 'empresa' | 'pessoa_fisica' | 'escritorio' | 'pessoal'
+  /** Relembra a mesma lista diariamente até execução e aprovação, sem cloná-la. */
+  lembrete_diario_ate_aprovacao?: boolean
   /** normal = tarefa atribuída; livre_equipe = fica disponível para um membro pegar. */
   modo_distribuicao?: 'normal' | 'livre_equipe'
   aceita_por?: string
@@ -541,7 +545,7 @@ export interface DestravaCatalogoItem {
 // ── FETCH COM AUTH ────────────────────────────────────────────────────────────
 let refreshPromise: Promise<string | null> | null = null
 
-type OfflineQueueItem = { id: string; path: string; method: string; body?: string; createdAt: string }
+type OfflineQueueItem = { id: string; owner?: string; path: string; method: string; body?: string; createdAt: string }
 const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'
 const OFFLINE_QUEUE_COUNT_KEY = 'nexus:offline-queue-count'
 
@@ -556,8 +560,10 @@ function readOfflineQueue(): OfflineQueueItem[] {
 function writeOfflineQueue(queue: OfflineQueueItem[]) {
   try {
     localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue))
-    localStorage.setItem(OFFLINE_QUEUE_COUNT_KEY, String(queue.length))
-    window.dispatchEvent(new CustomEvent('nexus:offline-queue-changed', { detail: { count: queue.length } }))
+    const owner = tokenOwner(getAccessToken())
+    const ownerCount = queue.filter(item => (item.owner || owner) === owner).length
+    localStorage.setItem(OFFLINE_QUEUE_COUNT_KEY, String(ownerCount))
+    window.dispatchEvent(new CustomEvent('nexus:offline-queue-changed', { detail: { count: ownerCount } }))
   } catch {}
 }
 
@@ -566,7 +572,8 @@ function enqueueOffline(path: string, options: RequestInit = {}) {
   if (method === 'GET' || options.body instanceof FormData) return false
   const body = typeof options.body === 'string' ? options.body : options.body ? JSON.stringify(options.body) : undefined
   const queue = readOfflineQueue()
-  queue.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, path, method, body, createdAt: new Date().toISOString() })
+  const owner = tokenOwner(getAccessToken())
+  queue.push({ id: `${owner}-${Date.now()}-${Math.random().toString(36).slice(2)}`, owner, path, method, body, createdAt: new Date().toISOString() })
   writeOfflineQueue(queue)
   return true
 }
@@ -592,17 +599,25 @@ export async function syncOfflineQueue(): Promise<number> {
   let queue = readOfflineQueue()
   if (!queue.length) return 0
   const pending: OfflineQueueItem[] = []
-  for (const item of queue) {
+  const owner = tokenOwner(getAccessToken())
+  for (let index = 0; index < queue.length; index++) {
+    const item = queue[index]
+    if ((item.owner || owner) !== owner) {
+      pending.push(item)
+      continue
+    }
     try {
-      const res = await apiFetch(item.path, { method: item.method, body: item.body })
+      const res = await apiFetch(item.path, { method: item.method, body: item.body, headers: { 'x-nexus-offline-replay': '1' } })
       if (!res.ok) pending.push(item)
     } catch {
-      pending.push(item)
+      // Mantém também todos os itens ainda não processados. A versão anterior
+      // interrompia o loop e acabava apagando silenciosamente o restante.
+      pending.push(item, ...queue.slice(index + 1))
       break
     }
   }
   writeOfflineQueue(pending)
-  return pending.length
+  return pending.filter(item => (item.owner || owner) === owner).length
 }
 
 if (typeof window !== 'undefined') {
@@ -675,7 +690,17 @@ async function apiFetch(path: string, options: RequestInit = {}): Promise<Respon
 
   const method = String(options.method || 'GET').toUpperCase()
   const timeoutMs = method === 'GET' ? 20_000 : 30_000
-  const res = await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers }, timeoutMs)
+  let res: Response
+  try {
+    res = await fetchWithTimeout(`${BASE_URL}${path}`, { ...options, headers }, timeoutMs)
+  } catch (error) {
+    // navigator.onLine pode continuar true quando o servidor, proxy ou DNS
+    // cai. Nesse caso, mutações JSON também entram na fila durável.
+    if (method !== 'GET' && headers['x-nexus-offline-replay'] !== '1' && enqueueOffline(path, options)) {
+      return new Response(JSON.stringify({ offlineQueued: true, error: 'Atualização salva offline. Ela será enviada quando o serviço voltar.' }), { status: 202, headers: { 'Content-Type': 'application/json' } })
+    }
+    throw error
+  }
 
   if (res.status === 401) {
     const newToken = await refreshAccessToken()
@@ -1010,8 +1035,8 @@ export const tarefasApi = {
     return apiJson<EmpresaDestravaResumo>(`/tarefas/${id}/empresa-destrava`)
   },
 
-  async tarefasDaEmpresa(origemId: string): Promise<{ empresa: { origem_id: string; nome: string | null; tipo: string | null; url: string | null }; ativas: Tarefa[]; historico: Tarefa[] }> {
-    return apiJson(`/tarefas/empresa/${encodeURIComponent(origemId)}`)
+  async tarefasDaEmpresa(origemId: string, contextoTipo: 'empresa' | 'pessoa_fisica' = 'empresa'): Promise<{ empresa: { origem_id: string; nome: string | null; tipo: string | null; url: string | null }; ativas: Tarefa[]; historico: Tarefa[] }> {
+    return apiJson(`/tarefas/empresa/${encodeURIComponent(origemId)}?contexto_tipo=${encodeURIComponent(contextoTipo)}`)
   },
 
   async arquivoEmpresaDestrava(id: string, docId: string, download = false): Promise<{ blob: Blob; filename?: string; mime?: string }> {

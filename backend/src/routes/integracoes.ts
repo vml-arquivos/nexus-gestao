@@ -41,7 +41,20 @@ export function requireIntegrationSecret(req: Request, res: Response, next: Next
   next()
 }
 
-export function normalizeChecklistItems(value: unknown): Array<{ id: string; texto: string; feito: boolean }> {
+export type IntegrationChecklistItem = {
+  id: string
+  texto: string
+  feito: boolean
+  descricao?: string
+  data?: string
+  responsavel_email?: string
+  responsavel_id?: string
+  responsavel_nome?: string
+  dificuldade?: string
+  pontuacao?: number
+}
+
+export function normalizeChecklistItems(value: unknown): IntegrationChecklistItem[] {
   const raw = Array.isArray(value)
     ? value
     : typeof value === 'string'
@@ -64,20 +77,25 @@ export function normalizeChecklistItems(value: unknown): Array<{ id: string; tex
         id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
         feito: Boolean(item?.feito),
+        ...(String(item?.descricao || '').trim() ? { descricao: String(item.descricao).trim() } : {}),
+        ...(String(item?.data || item?.prazo || '').trim() ? { data: String(item.data || item.prazo).trim() } : {}),
+        ...(String(item?.responsavel_email || '').trim() ? { responsavel_email: String(item.responsavel_email).trim().toLowerCase() } : {}),
+        ...(String(item?.dificuldade || '').trim() ? { dificuldade: String(item.dificuldade).trim() } : {}),
+        ...(Number.isFinite(Number(item?.pontuacao)) ? { pontuacao: Number(item.pontuacao) } : {}),
       }
     })
 
-  // FIX58: mesma classe de corrupção vista na recorrência (item de texto
-  // repetido dezenas de vezes no mesmo checklist), aqui barrada na origem.
+  // Somente o mesmo ID representa o mesmo item. Texto igual com membro, data
+  // ou descrição diferentes são ações distintas e jamais podem ser fundidas.
   const vistos = new Set<string>()
   const semDuplicata = normalizado.filter((item) => {
-    const chave = item.texto.toLowerCase()
+    const chave = item.id
     if (vistos.has(chave)) return false
     vistos.add(chave)
     return true
   })
   if (semDuplicata.length !== normalizado.length) {
-    console.error(`[INTEGRACOES] Checklist com itens de texto duplicado; reduzido de ${normalizado.length} para ${semDuplicata.length}.`)
+    console.error(`[INTEGRACOES] Checklist com IDs duplicados; reduzido de ${normalizado.length} para ${semDuplicata.length}.`)
   }
 
   return semDuplicata
@@ -721,6 +739,16 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
 
     const prioridade = VALID_PRIORIDADES.includes(body.prioridade) ? body.prioridade : 'media'
     const checklist = normalizeChecklistItems(body.checklist)
+    for (const item of checklist) {
+      if (!item.responsavel_email) continue
+      const owner = await findActiveUserByEmail(item.responsavel_email, orgId)
+      if (!owner) {
+        res.status(400).json({ error: `Responsável do checklist não encontrado no Nexus: ${item.responsavel_email}.` })
+        return
+      }
+      item.responsavel_id = owner.id
+      item.responsavel_nome = owner.nome
+    }
     const metadata = {
       ...body.metadata,
       // FIX62: padroniza a chave real de agrupamento por empresa nos 3
@@ -752,8 +780,8 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
         `INSERT INTO tarefas
            (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
             checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
-            origem_payload, external_key, escopo, modo_distribuicao)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal')
+            origem_payload, external_key, escopo, modo_distribuicao, contexto_tipo, lembrete_diario_ate_aprovacao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal',$18,$19)
          ON CONFLICT (org_id, external_key) WHERE external_key IS NOT NULL DO NOTHING
          RETURNING *`,
         [
@@ -774,6 +802,8 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
           sourceUrl,
           JSON.stringify(metadata),
           externalKey,
+          body.contextoTipo,
+          body.lembreteDiarioAteAprovacao,
         ]
       )
 

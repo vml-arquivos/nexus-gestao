@@ -1698,6 +1698,7 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
   try {
     const { orgId, userId, role } = req.user!;
     const origemId = String(req.params.origemId || "").trim();
+    const contextoTipo = String(req.query.contexto_tipo || "empresa").toLowerCase() === "pessoa_fisica" ? "pessoa_fisica" : "empresa";
     if (!origemId) {
       res.status(400).json({ error: "origemId é obrigatório." });
       return;
@@ -1714,8 +1715,13 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
       `SELECT * FROM tarefas
        WHERE org_id = $1
          AND COALESCE(NULLIF(origem_payload->>'empresa_id', ''), origem_id) = $2
+         AND COALESCE(
+           contexto_tipo,
+           CASE WHEN lower(COALESCE(origem_tipo, '')) IN ('pessoa_fisica','pf','cliente_pf','clientes_pf')
+             THEN 'pessoa_fisica' ELSE 'empresa' END
+         ) = $3
        ORDER BY created_at DESC LIMIT 500`,
-      [orgId, origemId],
+      [orgId, origemId, contextoTipo],
     );
 
     let comandados = new Set<string>();
@@ -2590,6 +2596,13 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       origem_url,
       origem_payload,
     } = req.body;
+    const contextoRaw = String((req.body as any).contexto_tipo || "").toLowerCase();
+    const contextoTipo = ["empresa", "pessoa_fisica", "escritorio", "pessoal"].includes(contextoRaw)
+      ? contextoRaw
+      : (origem_id
+          ? (["pessoa_fisica", "pf", "cliente_pf", "clientes_pf"].includes(String(origem_tipo || "").toLowerCase()) ? "pessoa_fisica" : "empresa")
+          : (normalizeTaskScope((req.body as any).escopo) === "pessoal" ? "pessoal" : "escritorio"));
+    const lembreteDiarioAteAprovacao = Boolean((req.body as any).lembrete_diario_ate_aprovacao);
     const recorrenciaRaw = String((req.body as any).recorrencia || "nenhum");
     const recorrencia = ["nenhum", "diario", "semanal", "mensal"].includes(recorrenciaRaw) ? recorrenciaRaw : "nenhum";
     const recorrenciaDiaSemana = recorrencia === "semanal" && (req.body as any).recorrencia_dia_semana !== undefined
@@ -2615,6 +2628,14 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 
     if (!["baixa", "media", "alta"].includes(prioridade)) {
       res.status(400).json({ error: "Prioridade inválida." });
+      return;
+    }
+    if (contextoRaw && !String(titulo || "").trim()) {
+      res.status(400).json({ error: "Título da lista é obrigatório para manter listas independentes." });
+      return;
+    }
+    if (["empresa", "pessoa_fisica"].includes(contextoTipo) && contextoRaw && !String(origem_id || "").trim()) {
+      res.status(400).json({ error: "Selecione o cadastro vinculado a esta lista." });
       return;
     }
 
@@ -2728,152 +2749,32 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         ? { nexus_tarefa_surpresa: true }
         : {}),
     };
+    const clientRequestId = String((origemPayloadFinal as any).nexus_client_request_id || "").trim();
 
     // Proteção contra duplo clique/envio repetido: se a mesma tarefa foi criada
     // há poucos segundos pelo mesmo usuário, devolve a existente em vez de criar
     // vários cartões iguais no painel do gestor. Não apaga dados e não altera a API.
-    const duplicate = await queryOne<any>(
-      `SELECT * FROM tarefas
-       WHERE org_id = $1
-         AND criado_por = $2
-         AND COALESCE(responsavel_id::text, '') = COALESCE($3::text, '')
-         AND lower(trim(titulo)) = lower(trim($4))
-         AND COALESCE(descricao, '') = COALESCE($5, '')
-         AND COALESCE(prazo::text, '') = COALESCE($6::text, '')
-         AND COALESCE(escopo, 'pessoal') = $7
-         AND COALESCE(modo_distribuicao, 'normal') = $8
-         AND created_at >= NOW() - INTERVAL '12 seconds'
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [
-        orgId,
-        userId,
-        responsavelId,
-        tituloFinal,
-        descricao || "",
-        prazo || "",
-        escopo,
-        modoFinal,
-      ],
-    );
-    if (duplicate) {
-      res.status(200).json({ tarefa: duplicate });
-      return;
-    }
-
-    // Empresa já tem lista ABERTA em aberto? Os itens novos entram nela em
-    // vez de criar outra lista separada para o mesmo cliente (evita "Lista
-    // de tarefas da equipe" duplicada para quem já tem uma em andamento).
-    // A lista aberta mais recente é escolhida quando há mais de uma.
-    // Não mexe em responsável/status/aceita_por já definidos — só soma itens.
-    //
-    // FIX61: antes, esta consulta também considerava listas já FINALIZADAS
-    // (concluída + aprovada pelo gestor) como candidatas a mesclagem,
-    // reabrindo uma lista antiga e já fechada para colar itens novos dentro
-    // dela. Isso contraria a regra do FIX57 (uma vez concluída+aprovada, a
-    // lista vira histórico e uma tarefa nova para a empresa deve começar
-    // fresca) e foi a causa real de tarefas novas "sumirem" dentro de listas
-    // antigas de outro contexto, parecendo pertencer a outro cliente e com
-    // itens de aprovação em estados inconsistentes. Agora só mescla em cima
-    // de uma lista que já está genuinamente aberta; se a única lista
-    // existente estiver fechada, cria uma nova, do zero.
-    //
-    // FIX62: casa pela mesma chave real de empresa usada no modal agrupado
-    // (COALESCE do empresa_id gravado em origem_payload, com origem_id como
-    // fallback) -- ver comentário completo na rota GET /empresa/:origemId.
-    // Isso garante que uma lista criada manualmente para uma empresa também
-    // enxergue e mescle com tarefas automáticas (Rotina CND/CEMPROT,
-    // Acompanhamento Bancário) já abertas para essa MESMA empresa, e nunca
-    // com as de outra.
-    if (escopo === "equipe" && origem_id) {
-      const mergeClient = await pool.connect();
-      try {
-        await mergeClient.query("BEGIN");
-        const listaAbertaResult = await mergeClient.query<any>(
-          `SELECT * FROM tarefas
-           WHERE org_id = $1
-             AND COALESCE(NULLIF(origem_payload->>'empresa_id', ''), origem_id) = $2
-             AND COALESCE(escopo, 'pessoal') = 'equipe'
-             AND status <> 'cancelada'
-             AND NOT (status = 'concluida' AND status_gestor = 'aprovada')
-           ORDER BY created_at DESC
-           LIMIT 1
-           FOR UPDATE`,
-          [orgId, origem_id],
-        );
-        const listaAberta = listaAbertaResult.rows[0];
-        if (!listaAberta) {
-          await mergeClient.query("ROLLBACK");
-        } else {
-          const itensExistentes = parseChecklistItems(listaAberta.checklist);
-          const itensNovos = JSON.parse(checklistNormalizado);
-          const itensParaAdicionar = itensNovos.length
-            ? itensNovos
-            : [
-                {
-                  id: uuidv4(),
-                  texto: tituloFinal,
-                  descricao: descricao || undefined,
-                  data: prazo || data || undefined,
-                  pontuacao: pontuacao || undefined,
-                  feito: false,
-                },
-              ];
-          const checklistMesclado = JSON.stringify([
-            ...itensExistentes,
-            ...itensParaAdicionar,
-          ]);
-          const prazoFinal =
-            listaAberta.prazo && prazo
-              ? String(listaAberta.prazo).slice(0, 10) >= String(prazo).slice(0, 10)
-                ? listaAberta.prazo
-                : prazo
-              : listaAberta.prazo || prazo || null;
-
-          const tarefaMescladaResult = await mergeClient.query<any>(
-            `UPDATE tarefas SET
-               checklist = $1,
-               prazo = $2,
-               updated_at = NOW()
-             WHERE id = $3 AND org_id = $4
-             RETURNING *`,
-            [checklistMesclado, prazoFinal, listaAberta.id, orgId],
-          );
-          await mergeClient.query("COMMIT");
-
-          await syncChecklistTable({
-            orgId,
-            tarefaId: listaAberta.id,
-            userId,
-            checklist: checklistMesclado,
-          });
-          await addHistorico({
-            orgId,
-            tarefaId: listaAberta.id,
-            userId,
-            acao: "itens_adicionados",
-            observacao: `${itensParaAdicionar.length} tarefa(s) nova(s) adicionada(s) à lista aberta de ${origem_nome || "empresa"} em vez de criar lista duplicada.`,
-          });
-          const tarefaFinal = await getTaskForAccess(listaAberta.id, orgId).catch(
-            () => tarefaMescladaResult.rows[0],
-          );
-          res.status(200).json({
-            tarefa: sanitizeTaskForUser(tarefaFinal || tarefaMescladaResult.rows[0], req.user!),
-          });
-          return;
-        }
-      } catch (mergeErr) {
-        await mergeClient.query("ROLLBACK").catch(() => {});
-        throw mergeErr;
-      } finally {
-        mergeClient.release();
+    // Idempotência protege somente a mesma tentativa de criação (duplo clique
+    // ou retry de rede). Conteúdo igual não significa lista igual: duas listas
+    // da mesma empresa, membro ou data continuam sendo registros independentes.
+    if (clientRequestId) {
+      const duplicate = await queryOne<any>(
+        `SELECT * FROM tarefas
+          WHERE org_id = $1 AND criado_por = $2
+            AND origem_payload->>'nexus_client_request_id' = $3
+          ORDER BY created_at DESC LIMIT 1`,
+        [orgId, userId, clientRequestId],
+      );
+      if (duplicate) {
+        res.status(200).json({ tarefa: duplicate });
+        return;
       }
     }
 
     const tarefa = await queryOne<any>(
       `INSERT INTO tarefas
-         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload, recorrencia, recorrencia_dia_semana, recorrencia_dia_mes, recorrencia_fim)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,'pendente','aguardando',$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+         (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade, checklist, obs, escopo, modo_distribuicao, pontuacao, conta_ranking, bloquear_nova_livre_ate_concluir, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload, recorrencia, recorrencia_dia_semana, recorrencia_dia_mes, recorrencia_fim, contexto_tipo, lembrete_diario_ate_aprovacao)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,'pendente','aguardando',$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
        RETURNING *`,
       [
         orgId,
@@ -2901,6 +2802,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         recorrenciaDiaSemana,
         recorrenciaDiaMes,
         recorrenciaFim,
+        contextoTipo,
+        lembreteDiarioAteAprovacao,
       ],
     );
 
@@ -4540,6 +4443,8 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
           "conta_ranking",
           "tarefa_surpresa",
           "surpresa_tarefa",
+          "contexto_tipo",
+          "lembrete_diario_ate_aprovacao",
         ];
 
     let memberChecklistMerged: string | null = null;
@@ -4598,6 +4503,21 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
 
       if (key === "escopo") {
         setValue("escopo", normalizeTaskScope((req.body as any)[key]));
+        continue;
+      }
+
+      if (key === "contexto_tipo") {
+        const nextContexto = String((req.body as any)[key] || "").toLowerCase();
+        if (!["empresa", "pessoa_fisica", "escritorio", "pessoal"].includes(nextContexto)) {
+          res.status(400).json({ error: "Tipo de tarefa inválido." });
+          return;
+        }
+        setValue("contexto_tipo", nextContexto);
+        continue;
+      }
+
+      if (key === "lembrete_diario_ate_aprovacao") {
+        setValue("lembrete_diario_ate_aprovacao", Boolean((req.body as any)[key]));
         continue;
       }
 

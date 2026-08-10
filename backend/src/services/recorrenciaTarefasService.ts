@@ -88,21 +88,26 @@ function deveGerarHoje(t: TarefaRecorrenteRow, hoje: Date): boolean {
  * corrompido bloqueando a única thread do Node). Corta o checklist para um
  * tamanho seguro antes de processar, e loga bem alto para ser notado.
  *
- * dedupPorTexto (FIX58): variante menor do mesmo problema — um item real
+ * dedupPorIdentidade (FIX58): variante menor do mesmo problema — um item real
  * (ex.: "Finalizar o registro dos documentos...") aparecendo dezenas de
  * vezes idêntico dentro do MESMO checklist, abaixo do limite acima então
  * nunca barrado por ele. Provavelmente herdado de uma ocorrência antiga já
  * corrompida e perpetuado por esta mesma função (que só reseta id/feito,
- * nunca removia duplicata). Colapsa por texto igual antes de processar,
- * mantendo a primeira ocorrência de cada texto distinto. */
+ * nunca removia duplicata). A identidade inclui texto, data, responsável e
+ * descrição: ações homônimas para pessoas ou datas diferentes são distintas. */
 const LIMITE_CHECKLIST_RECORRENCIA = 300
 
-function dedupPorTexto(items: unknown[]): unknown[] {
+function dedupPorIdentidade(items: unknown[]): unknown[] {
   const vistos = new Set<string>()
   const resultado: unknown[] = []
   for (const item of items) {
-    const texto = (item && typeof item === "object" ? (item as Record<string, unknown>).texto : undefined)
-    const chave = typeof texto === "string" ? texto.trim().toLowerCase() : JSON.stringify(item)
+    const value = (item && typeof item === "object" ? item : {}) as Record<string, unknown>
+    const chave = JSON.stringify({
+      texto: String(value.texto || '').trim().toLowerCase(),
+      data: String(value.data || '').slice(0, 10),
+      responsavel: String(value.responsavel_id || value.atribuido_a || value.executor_id || ''),
+      descricao: String(value.descricao || '').trim().toLowerCase(),
+    })
     if (vistos.has(chave)) continue
     vistos.add(chave)
     resultado.push(item)
@@ -119,10 +124,10 @@ function resetarChecklist(raw: unknown): unknown[] {
       `Investigue e corrija a origem manualmente.`
     )
   }
-  const itemsSemDuplicata = dedupPorTexto(itemsBrutos.slice(0, LIMITE_CHECKLIST_RECORRENCIA));
+  const itemsSemDuplicata = dedupPorIdentidade(itemsBrutos.slice(0, LIMITE_CHECKLIST_RECORRENCIA));
   if (itemsSemDuplicata.length !== Math.min(itemsBrutos.length, LIMITE_CHECKLIST_RECORRENCIA)) {
     console.error(
-      `[RECORRENCIA] ALERTA: checklist com itens de texto duplicado — reduzido de ` +
+      `[RECORRENCIA] ALERTA: checklist com itens de identidade duplicada — reduzido de ` +
       `${Math.min(itemsBrutos.length, LIMITE_CHECKLIST_RECORRENCIA)} para ${itemsSemDuplicata.length} itens únicos.`
     )
   }

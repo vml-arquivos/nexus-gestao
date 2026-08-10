@@ -54,6 +54,8 @@ export interface CriarNotifOpts {
   body?: string
   referenciaId?: string   // id da tarefa
   referenciaTipo?: string // 'tarefa'
+  /** Em alertas de cadência diária, reenvia o push mesmo atualizando a mesma notificação. */
+  reenviarPush?: boolean
 }
 
 export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
@@ -123,7 +125,7 @@ export async function criarOuAtualizarNotificacaoRecorrente(opts: CriarNotifOpts
     // e Web Push a cada execução do job -- o intervalo de notificacaoRecente
     // já decide a cadência de reemissão.
     const ehNova = Number((notif as { ocorrencias?: number })?.ocorrencias) === 1
-    if (ehNova) {
+    if (ehNova || opts.reenviarPush) {
       pushSse(opts.userId, 'notificacao', notif)
       sendPushToUser({
         orgId: opts.orgId,
@@ -162,11 +164,20 @@ async function notificacaoRecente(input: { orgId: string; userId: string; refere
   return Array.isArray(row) && row.length > 0
 }
 
-async function destinatariosTarefa(t: { org_id: string; responsavel_id?: string | null; criado_por?: string | null; aceita_por?: string | null; modo_distribuicao?: string | null }) {
+async function destinatariosTarefa(t: { org_id: string; responsavel_id?: string | null; criado_por?: string | null; aceita_por?: string | null; modo_distribuicao?: string | null; checklist?: unknown }) {
   const recipients = new Set<string>()
   if (t.responsavel_id) recipients.add(t.responsavel_id)
   if (t.aceita_por) recipients.add(t.aceita_por)
   if (t.criado_por) recipients.add(t.criado_por)
+  const checklist = Array.isArray(t.checklist)
+    ? t.checklist
+    : typeof t.checklist === 'string'
+      ? (() => { try { return JSON.parse(t.checklist) } catch { return [] } })()
+      : []
+  for (const item of checklist) {
+    const owner = String(item?.responsavel_id || item?.atribuido_a || item?.executor_id || '').trim()
+    if (owner) recipients.add(owner)
+  }
 
   // Tarefa livre/sem responsável: toda a equipe ativa recebe o alerta.
   if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') {
@@ -240,6 +251,41 @@ async function jobVencimentos() {
 
 async function jobLembreteDiario() {
   try {
+    // Listas marcadas como diárias conservam o mesmo ID e são lembradas até
+    // a execução ser aprovada. Concluída aguardando aprovação continua ativa;
+    // concluída + aprovada e cancelada encerram o lembrete.
+    const tarefasDiarias = await query<{
+      id: string; org_id: string; titulo: string; responsavel_id: string | null
+      criado_por: string | null; aceita_por: string | null; modo_distribuicao: string | null; checklist: unknown
+    }>(
+      `SELECT id, org_id, titulo, responsavel_id, criado_por, aceita_por, modo_distribuicao, checklist
+         FROM tarefas
+        WHERE lembrete_diario_ate_aprovacao = TRUE
+          AND status <> 'cancelada'
+          AND NOT (status = 'concluida' AND status_gestor = 'aprovada')
+        ORDER BY created_at ASC
+        LIMIT 1000`,
+      [],
+    )
+    let lembretesDeLista = 0
+    for (const tarefa of tarefasDiarias) {
+      const recipients = await destinatariosTarefa(tarefa)
+      for (const userId of recipients) {
+        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, tipo: 'lembrete_diario_tarefa', minutos: 20 * 60 })) continue
+        await criarOuAtualizarNotificacaoRecorrente({
+          orgId: tarefa.org_id,
+          userId,
+          tipo: 'lembrete_diario_tarefa',
+          titulo: '🔁 Lista diária ainda em execução',
+          body: `"${tarefa.titulo}" permanece ativa até ser finalizada e aprovada. É a mesma lista: nenhum registro novo foi criado.`,
+          referenciaId: tarefa.id,
+          referenciaTipo: 'tarefa',
+          reenviarPush: true,
+        })
+        lembretesDeLista++
+      }
+    }
+
     // Para cada usuário com tarefas pendentes para hoje, envia lembrete
     const resumos = await query<{
       responsavel_id: string; org_id: string; count: string
@@ -270,6 +316,9 @@ async function jobLembreteDiario() {
     }
     if (resumos.length > 0) {
       console.log(`[NOTIF] Lembretes diários enviados para ${resumos.length} usuário(s).`)
+    }
+    if (lembretesDeLista > 0) {
+      console.log(`[NOTIF] ${lembretesDeLista} lembrete(s) de lista diária enviados sem duplicar tarefas.`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de lembrete diário:', err)

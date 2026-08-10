@@ -475,67 +475,15 @@ function isAcceptedByOtherMember(tarefa: Tarefa, userId: string) {
   return isFreeTeamTask(tarefa) && !!tarefa.aceita_por && tarefa.aceita_por !== userId
 }
 
-function duplicateTaskVisualKey(tarefa: Tarefa) {
-  // Tarefas de equipe devem aparecer como uma única entidade no painel do gestor.
-  // Quando houver registros legados/repetidos com o mesmo título, descrição e prazo,
-  // agrupamos visualmente sem apagar dados. O responsável principal não entra na chave
-  // de tarefa da equipe, porque a execução pode estar distribuída nas tarefas da lista.
-  const escopo = taskScope(tarefa)
-  return [
-    escopo,
-    tarefa.criado_por || '',
-    escopo === 'equipe' ? 'tarefa-equipe-unificada' : (tarefa.responsavel_id || ''),
-    (tarefa.titulo || '').trim().toLowerCase(),
-    (tarefa.descricao || '').trim().toLowerCase(),
-    (tarefa.prazo || '').slice(0, 10),
-    tarefa.prioridade || '',
-  ].join('::')
-}
-
-function mergeChecklistVisual(base: ChecklistItem[] = [], incoming: ChecklistItem[] = []) {
-  const map = new Map<string, ChecklistItem>()
-  ;[...base, ...incoming].forEach(item => {
-    const key = [
-      (item.texto || '').trim().toLowerCase(),
-      (item.data || '').slice(0, 10),
-      (item.descricao || '').trim().toLowerCase(),
-      checklistItemAssignmentId(item) || '',
-    ].join('::')
-    const current = map.get(key)
-    if (!current) {
-      map.set(key, { ...item })
-    } else {
-      map.set(key, {
-        ...current,
-        feito: Boolean(current.feito || item.feito),
-        responsavel_nome: current.responsavel_nome || item.responsavel_nome,
-      })
-    }
-  })
-  return Array.from(map.values())
-}
-
 function consolidateVisualTasks(tasks: Tarefa[]) {
-  const map = new Map<string, Tarefa & { __merged_count?: number }>()
-  tasks.forEach(task => {
-    const key = duplicateTaskVisualKey(task)
-    const current = map.get(key)
-    if (!current) {
-      map.set(key, { ...task, checklist: normalizeChecklistItems(task.checklist), __merged_count: 1 })
-      return
-    }
-    current.checklist = mergeChecklistVisual(current.checklist || [], normalizeChecklistItems(task.checklist))
-    current.anexos_count = Number(current.anexos_count || 0) + Number(task.anexos_count || 0)
-    current.__merged_count = Number(current.__merged_count || 1) + 1
-    const currentUpdated = new Date(current.updated_at || current.created_at || 0).getTime()
-    const taskUpdated = new Date(task.updated_at || task.created_at || 0).getTime()
-    if (taskUpdated > currentUpdated) {
-      current.status = task.status
-      current.status_gestor = task.status_gestor
-      current.updated_at = task.updated_at
-    }
-  })
-  return Array.from(map.values())
+  // Cada registro é uma lista independente. Duas listas da mesma empresa ficam
+  // no mesmo agrupamento/modal da empresa, mas nunca compartilham checklist,
+  // responsável, data, aprovação, anexos ou histórico.
+  return tasks.map(task => ({
+    ...task,
+    checklist: normalizeChecklistItems(task.checklist),
+    __merged_count: 1,
+  }))
 }
 
 
@@ -662,9 +610,16 @@ function elegivelParaAprovacaoLote(t: Tarefa) {
 // então nunca usar ele direto pra agrupar/exibir "tarefas desta empresa".
 function empresaChave(tarefa: any): string | null {
   const doPayload = tarefa?.origem_payload?.empresa_id
-  if (typeof doPayload === 'string' && doPayload.trim()) return doPayload.trim()
   const origemId = tarefa?.origem_id
-  return typeof origemId === 'string' && origemId.trim() ? origemId.trim() : null
+  const id = typeof doPayload === 'string' && doPayload.trim()
+    ? doPayload.trim()
+    : (typeof origemId === 'string' ? origemId.trim() : '')
+  if (!id) return null
+  const tipo = tarefa?.contexto_tipo === 'pessoa_fisica'
+    || ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(String(tarefa?.origem_tipo || '').toLowerCase())
+    ? 'pessoa_fisica'
+    : 'empresa'
+  return `${tipo}|${id}`
 }
 
 function statusCfg(status?: string) {
@@ -729,6 +684,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [recorrenciaDiaMes, setRecorrenciaDiaMes] = useState(String((tarefa as any)?.recorrencia_dia_mes ?? new Date().getDate()))
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
+  const [contextoTipo, setContextoTipo] = useState<'empresa' | 'pessoa_fisica' | 'escritorio' | 'pessoal'>(() => {
+    if (tarefa?.contexto_tipo) return tarefa.contexto_tipo
+    const origem = String(tarefa?.origem_tipo || '').toLowerCase()
+    if (['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(origem)) return 'pessoa_fisica'
+    if (tarefa?.origem_id) return 'empresa'
+    return !tarefa || taskScope(tarefa) === 'pessoal' ? 'pessoal' : 'escritorio'
+  })
+  const [lembreteDiario, setLembreteDiario] = useState(Boolean(tarefa?.lembrete_diario_ate_aprovacao))
+  const [clientRequestId] = useState(() => globalThis.crypto?.randomUUID?.() || nanoid())
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
   const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao ?? 3))
   const [pontuacaoEscopo, setPontuacaoEscopo] = useState<PontuacaoEscopo>(() => clampPontuacaoEscopoParaSelecao(taskPontuacaoEscopo(tarefa)))
@@ -854,6 +818,18 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     setDestravaSelectOpen(true)
     void carregarCadastrosDestrava(tipo)
     window.setTimeout(() => destravaBuscaRef.current?.focus(), 0)
+  }
+
+  function changeContextoTipo(next: 'empresa' | 'pessoa_fisica' | 'escritorio' | 'pessoal') {
+    setContextoTipo(next)
+    if (next === 'empresa' || next === 'pessoa_fisica') {
+      changeTipoTarefa('equipe')
+      selecionarTipoDestrava(next)
+      return
+    }
+    setDestravaSelecionado(null)
+    setDestravaSelectOpen(false)
+    changeTipoTarefa(next === 'pessoal' ? 'pessoal' : 'equipe')
   }
 
   function limparPesquisaDestrava() {
@@ -1029,7 +1005,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   async function salvar() {
     if (loading) return
-    const tituloFinal = titulo.trim() || (tipoTarefa === 'equipe' ? 'Lista de tarefas da equipe' : 'Lista pessoal')
+    const tituloFinal = titulo.trim()
+    if (!tituloFinal) { toast('Informe um título para identificar esta lista sem misturá-la com outras.', 'error'); return }
+    if ((contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && !destravaSelecionado) {
+      toast(`Selecione ${contextoTipo === 'empresa' ? 'a empresa' : 'o cliente pessoa física'} desta lista.`, 'error')
+      return
+    }
     if (!tarefa?.id && prazo && prazo < todayIso()) { toast('O prazo de uma lista nova não pode ser anterior a hoje.', 'error'); return }
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
     if (!tarefa?.id && checklist.some(item => item.data && item.data.slice(0, 10) < todayIso())) { toast('Uma lista nova não pode conter tarefas com data anterior a hoje.', 'error'); return }
@@ -1055,6 +1036,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         descricao: descricao.trim() || undefined,
         prazo: prazo || undefined,
         prioridade,
+        contexto_tipo: contextoTipo,
+        lembrete_diario_ate_aprovacao: lembreteDiario,
         responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : (isMemberRequest ? responsavelId : user?.id),
         escopo: isGestor ? tipoTarefa : (isMemberRequest ? 'equipe' : 'pessoal'),
         modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
@@ -1070,9 +1053,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         origem_nome: destravaSelecionado?.nome || undefined,
         origem_url: destravaSelecionado?.url || undefined,
         tarefa_surpresa: tipoTarefa === 'equipe' ? tarefaSurpresa : false,
-        origem_payload: tipoTarefa === 'equipe'
-          ? { ...(destravaSelecionado?.metadata || {}), nexus_tarefa_surpresa: Boolean(tarefaSurpresa), nexus_pontuacao_escopo: pontuacaoEscopo }
-          : (destravaSelecionado?.metadata || undefined),
+        origem_payload: {
+          ...(destravaSelecionado?.metadata || {}),
+          nexus_client_request_id: clientRequestId,
+          ...(tipoTarefa === 'equipe' ? { nexus_tarefa_surpresa: Boolean(tarefaSurpresa), nexus_pontuacao_escopo: pontuacaoEscopo } : {}),
+        },
         ...(isGestor && tipoTarefa === 'equipe' && !tarefa?.id ? {
           recorrencia,
           recorrencia_dia_semana: recorrencia === 'semanal' ? Number(recorrenciaDiaSemana) : undefined,
@@ -1080,16 +1065,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         } as any : {}),
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
-      const foiMescladaEmListaExistente = !tarefa?.id && saved.titulo !== tituloFinal
       onSaved(saved)
       onClose()
-      toast(
-        tarefa?.id
-          ? 'Lista atualizada.'
-          : foiMescladaEmListaExistente
-            ? `Já havia uma lista em aberto para "${saved.origem_nome || 'esta empresa'}" — as tarefas novas foram adicionadas nela.`
-            : 'Lista criada com sucesso.'
-      )
+      toast(tarefa?.id ? 'Lista atualizada.' : 'Lista independente criada com sucesso.')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Erro ao salvar tarefa.', 'error')
     } finally {
@@ -1107,17 +1085,28 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   return (
     <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
       <div className="task-form-modal">
+        {isGestor && (
+          <div className="form-group">
+            <label className="form-label">Tipo da tarefa</label>
+            <select className="form-input" value={contextoTipo} onChange={e => changeContextoTipo(e.target.value as typeof contextoTipo)} disabled={Boolean(tarefa?.id)}>
+              <option value="empresa">Tarefa para empresa</option>
+              <option value="pessoa_fisica">Tarefa para Cliente PF</option>
+              <option value="escritorio">Escritório</option>
+              <option value="pessoal">Pessoal</option>
+            </select>
+          </div>
+        )}
         <div className="form-group">
-          <label className="form-label">Título da lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
-          <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Organização da demanda da empresa / Deixe vazio para gerar automático" />
+          <label className="form-label">Título da lista</label>
+          <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Documentos de agosto — não será misturada com outra lista" required />
         </div>
         <div className="form-group">
           <label className="form-label">Descrição da lista</label>
           <textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes e instruções" />
         </div>
-        {isGestor && (
+        {isGestor && (contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && (
           <div className="form-group">
-            <label className="form-label">Cliente da Destrava <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
+            <label className="form-label">{contextoTipo === 'empresa' ? 'Empresa' : 'Cliente pessoa física'} <span style={{ color: 'var(--danger)', fontWeight: 700 }}>*</span></label>
 
             <div className="destrava-client-select-grid">
               <div className="form-group destrava-client-type">
@@ -1127,6 +1116,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                   className="form-input"
                   value={destravaTipo}
                   onChange={e => selecionarTipoDestrava(e.target.value as 'empresa' | 'pessoa_fisica')}
+                  disabled
                 >
                   <option value="empresa">Clientes PJ</option>
                   <option value="pessoa_fisica">Clientes PF</option>
@@ -1311,34 +1301,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </select>
           </div>
         </div>
-        {isGestor && (
-          <div className="form-group">
-            <label className="form-label">Tipo da lista</label>
-            <div className="task-type-selector" role="radiogroup" aria-label="Tipo da lista">
-              <button
-                type="button"
-                className={tipoTarefa === 'pessoal' ? 'task-type-option active' : 'task-type-option'}
-                onClick={() => changeTipoTarefa('pessoal')}
-              >
-                <strong>Lista pessoal</strong>
-                <span>Minha execução, separada das tarefas do time.</span>
-              </button>
-              <button
-                type="button"
-                className={tipoTarefa === 'equipe' ? 'task-type-option active' : 'task-type-option'}
-                onClick={() => changeTipoTarefa('equipe')}
-              >
-                <strong>Lista de tarefas da equipe</strong>
-                <span>Controle do gestor, com ações do tarefas para membros.</span>
-              </button>
-            </div>
-          </div>
-        )}
         {isGestor && !tarefa?.id && tipoTarefa === 'equipe' && (
           <div className="form-group">
             <label className="form-label">Repetir esta lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
-            <div className="task-type-selector" role="radiogroup" aria-label="Recorrência da lista" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
-              {([['nenhum', 'Não repetir', 'Só esta vez'], ['diario', 'Todo dia', 'Gera uma nova todo dia'], ['semanal', 'Toda semana', 'Mesmo dia, toda semana'], ['mensal', 'Todo mês', 'Mesmo dia, todo mês']] as const).map(([value, label, desc]) => (
+            <div className="task-type-selector" role="radiogroup" aria-label="Recorrência da lista" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+              {([['nenhum', 'Não repetir', 'Só esta vez'], ['semanal', 'Toda semana', 'Mesmo dia, toda semana'], ['mensal', 'Todo mês', 'Mesmo dia, todo mês']] as const).map(([value, label, desc]) => (
                 <button key={value} type="button" className={recorrencia === value ? 'task-type-option active' : 'task-type-option'} onClick={() => setRecorrencia(value)}>
                   <strong>{label}</strong>
                   <span>{desc}</span>
@@ -1361,6 +1328,15 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               </div>
             )}
           </div>
+        )}
+        {isGestor && tipoTarefa === 'equipe' && (
+          <label className="form-check" style={{ alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={lembreteDiario} onChange={e => setLembreteDiario(e.target.checked)} />
+            <span>
+              <strong>Lembrar todos os dias até finalizar e aprovar</strong><br />
+              <small className="muted">Mantém o mesmo ID, checklist, responsável, datas, anexos e histórico. Nenhuma tarefa duplicada será criada.</small>
+            </span>
+          </label>
         )}
         {!isGestor && (
           <div className="form-group">
@@ -2357,7 +2333,7 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
   onClose: () => void
   onAbrirTarefa: (t: Tarefa) => void
 }) {
-  const [dados, setDados] = useState<{ empresa: { nome: string | null }; ativas: Tarefa[]; historico: Tarefa[] } | null>(null)
+  const [dados, setDados] = useState<{ empresa: { nome: string | null; tipo?: string | null }; ativas: Tarefa[]; historico: Tarefa[] } | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
 
@@ -2365,7 +2341,8 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
     let cancelado = false
     setLoading(true)
     setErro('')
-    tarefasApi.tarefasDaEmpresa(origemId)
+    const [contextoTipo, entidadeId] = origemId.includes('|') ? origemId.split('|', 2) : ['empresa', origemId]
+    tarefasApi.tarefasDaEmpresa(entidadeId, contextoTipo === 'pessoa_fisica' ? 'pessoa_fisica' : 'empresa')
       .then(r => { if (!cancelado) setDados(r) })
       .catch(e => { if (!cancelado) setErro(e instanceof Error ? e.message : 'Erro ao buscar tarefas da empresa.') })
       .finally(() => { if (!cancelado) setLoading(false) })
@@ -2404,8 +2381,9 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
     )
   }
 
+  const isPf = ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(String(dados?.empresa?.tipo || '').toLowerCase())
   return (
-    <ModalBase title={dados?.empresa?.nome ? `Tarefas — ${dados.empresa.nome}` : 'Tarefas da empresa'} onClose={onClose}>
+    <ModalBase title={dados?.empresa?.nome ? `Tarefas — ${dados.empresa.nome}` : (isPf ? 'Tarefas do cliente PF' : 'Tarefas da empresa')} onClose={onClose}>
       <div style={{ display: 'grid', gap: 16 }}>
         {loading && <div style={{ color: 'var(--text3)' }}>Carregando…</div>}
         {erro && <div style={{ color: 'var(--danger)' }}>{erro}</div>}
@@ -2414,7 +2392,7 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
             <section style={{ display: 'grid', gap: 8 }}>
               <div style={{ fontWeight: 600 }}>Ativa agora</div>
               {dados.ativas.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista aberta para esta empresa no momento.</div>
+                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista aberta para este cadastro no momento.</div>
               )}
               <div style={{ display: 'grid', gap: 8 }}>
                 {dados.ativas.map(linhaTarefa)}
@@ -4917,6 +4895,9 @@ export default function Tarefas() {
         </div>
         <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
           <Plus size={17} /> Nova lista
+        </button>
+        <button className="btn btn-secondary" onClick={() => navigate('/painel-offline/')} type="button" title="Abrir a carga diária que funciona sem internet ou servidor">
+          <Download size={17} /> Painel offline
         </button>
         {isGestor && (
           <button

@@ -19,6 +19,8 @@ export interface DestravaTaskInput {
   responsavelEmail: string | null
   cnpj: string | null
   metadata: Record<string, unknown>
+  contextoTipo: 'empresa' | 'pessoa_fisica'
+  lembreteDiarioAteAprovacao: boolean
 }
 
 function objectValue(value: unknown): Record<string, any> {
@@ -52,6 +54,7 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
   const idempotencyKey = text(body.idempotency_key || body.idempotencyKey) || null
   const pendenciaId = text(tarefa.id || metadataOriginal.pendencia_id)
   const moduloOrigem = text(tarefa.modulo_origem || metadataOriginal.modulo_origem)
+  const externalType = text(body.external_type) || 'empresa'
 
   return {
     titulo: text(body.titulo || tarefa.titulo),
@@ -59,7 +62,7 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
     data: text(body.data) || null,
     prazo: text(body.prazo || tarefa.prazo) || null,
     externalId: text(body.external_id || empresa.id),
-    externalType: text(body.external_type) || 'empresa',
+    externalType,
     externalName: text(body.external_name || empresa.razao_social),
     prioridade,
     checklist,
@@ -81,6 +84,8 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
       acao_recomendada: acaoRecomendada || null,
       origem_payload_legado: tarefa.titulo ? body : undefined,
     },
+    contextoTipo: ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(externalType.toLowerCase()) ? 'pessoa_fisica' : 'empresa',
+    lembreteDiarioAteAprovacao: Boolean(body.lembrete_diario_ate_aprovacao),
   }
 }
 

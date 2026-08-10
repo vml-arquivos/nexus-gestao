@@ -40,9 +40,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { user: u } = await auth.me()
       setUser(u)
-    } catch {
-      clearTokens()
-      setUser(null)
+    } catch (error) {
+      // Falha de internet/servidor não revoga uma sessão local ainda válida.
+      // O próprio cliente de API limpa tokens em 401 confirmado; aqui só
+      // removemos a sessão quando não existe um JWT local utilizável.
+      if (!optimista) {
+        clearTokens()
+        setUser(null)
+      } else {
+        setUser(optimista)
+        console.warn('[AUTH] Perfil remoto indisponível; mantendo sessão offline local.', error)
+      }
     } finally {
       setLoading(false)
     }

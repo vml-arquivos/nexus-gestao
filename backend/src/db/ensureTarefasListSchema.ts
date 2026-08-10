@@ -55,6 +55,16 @@ export async function ensureTarefasListSchemaOnce(): Promise<void> {
           SELECT 1 FROM information_schema.columns
            WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'conta_ranking'
         ) AS tarefas_conta_ranking,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'contexto_tipo'
+        ) AS tarefas_contexto_tipo,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'tarefas' AND column_name = 'lembrete_diario_ate_aprovacao'
+        ) AS tarefas_lembrete_diario,
+        to_regclass('public.idx_tarefas_contexto_entidade') IS NOT NULL AS idx_tarefas_contexto_entidade,
+        to_regclass('public.idx_tarefas_lembrete_diario') IS NOT NULL AS idx_tarefas_lembrete_diario,
         to_regclass('public.tarefa_anexos') IS NOT NULL AS tarefa_anexos,
         to_regclass('public.idx_tarefa_anexos_tarefa') IS NOT NULL AS idx_tarefa_anexos_tarefa,
         to_regclass('public.idx_tarefa_anexos_org') IS NOT NULL AS idx_tarefa_anexos_org
@@ -65,6 +75,10 @@ export async function ensureTarefasListSchemaOnce(): Promise<void> {
       atual.tarefas_aceita_por &&
       atual.tarefas_data_reabertura &&
       atual.tarefas_conta_ranking &&
+      atual.tarefas_contexto_tipo &&
+      atual.tarefas_lembrete_diario &&
+      atual.idx_tarefas_contexto_entidade &&
+      atual.idx_tarefas_lembrete_diario &&
       atual.tarefa_anexos &&
       atual.idx_tarefa_anexos_tarefa &&
       atual.idx_tarefa_anexos_org
@@ -108,6 +122,27 @@ export async function ensureTarefasListSchemaOnce(): Promise<void> {
     )
     await client.query('ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS data_reabertura TIMESTAMPTZ')
     await client.query('ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS conta_ranking BOOLEAN NOT NULL DEFAULT TRUE')
+    await client.query('ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS contexto_tipo TEXT')
+    await client.query("ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS lembrete_diario_ate_aprovacao BOOLEAN NOT NULL DEFAULT FALSE")
+    await client.query(`
+      UPDATE tarefas
+         SET contexto_tipo = CASE
+           WHEN origem_id IS NOT NULL AND lower(COALESCE(origem_tipo, '')) IN ('pessoa_fisica','pf','cliente_pf','clientes_pf') THEN 'pessoa_fisica'
+           WHEN origem_id IS NOT NULL THEN 'empresa'
+           WHEN COALESCE(escopo, 'pessoal') = 'pessoal' THEN 'pessoal'
+           ELSE 'escritorio'
+         END
+       WHERE contexto_tipo IS NULL
+    `)
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE tarefas ADD CONSTRAINT tarefas_contexto_tipo_check
+          CHECK (contexto_tipo IS NULL OR contexto_tipo IN ('empresa','pessoa_fisica','escritorio','pessoal'));
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+    `)
+    await client.query('CREATE INDEX IF NOT EXISTS idx_tarefas_contexto_entidade ON tarefas (org_id, contexto_tipo, origem_id, created_at DESC)')
+    await client.query('CREATE INDEX IF NOT EXISTS idx_tarefas_lembrete_diario ON tarefas (org_id, lembrete_diario_ate_aprovacao) WHERE lembrete_diario_ate_aprovacao = TRUE')
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS tarefa_anexos (
