@@ -17,6 +17,12 @@ import path from "path";
 import { publicarTarefaConcluidaSeAutomacao } from "./automationHandlers/publish";
 import { SingleFlightTtlCache } from "../lib/singleFlightTtlCache";
 import { respondRouteError } from "../lib/httpErrors";
+import {
+  normalizeChecklistRecurrence,
+  normalizeRecurrenceMonthday,
+  normalizeRecurrenceWeekday,
+} from "../lib/checklistRecurrence";
+import { resolveTaskListTitle, type TaskContextType } from "../lib/taskContextTitle";
 
 const router = Router();
 router.use(authMiddleware);
@@ -504,6 +510,9 @@ function parseChecklistItems(
   id?: string;
   texto: string;
   feito?: boolean;
+  recorrencia?: "unica" | "diaria" | "semanal" | "mensal";
+  recorrencia_dia_semana?: number;
+  recorrencia_dia_mes?: number;
   descricao?: string;
   data?: string;
   responsavel_id?: string;
@@ -581,6 +590,7 @@ function parseChecklistItems(
         item?.pontuacao,
         pointsForDifficulty(dificuldade),
       );
+      const recorrencia = normalizeChecklistRecurrence(item?.recorrencia);
       return {
         id: stableLegacyId("legacy-check", item, index),
         texto: String(item?.texto || item?.label || item?.title || "").trim(),
@@ -589,6 +599,15 @@ function parseChecklistItems(
             item?.descricao || item?.description || item?.obs || "",
           ).trim() || undefined,
         data: safeDate,
+        recorrencia,
+        recorrencia_dia_semana:
+          recorrencia === "semanal"
+            ? normalizeRecurrenceWeekday(item?.recorrencia_dia_semana)
+            : undefined,
+        recorrencia_dia_mes:
+          recorrencia === "mensal"
+            ? normalizeRecurrenceMonthday(item?.recorrencia_dia_mes)
+            : undefined,
         responsavel_id: isUuid(item?.responsavel_id)
           ? item.responsavel_id
           : undefined,
@@ -722,7 +741,7 @@ function checklistStructureKey(value: unknown) {
   return parseChecklistItems(value)
     .map(
       (item) =>
-        `${item.id || ""}:${item.texto}:${item.data || ""}:${item.descricao || ""}:${item.responsavel_id || ""}:${JSON.stringify((item as any).subtarefas || [])}`,
+        `${item.id || ""}:${item.texto}:${item.data || ""}:${item.descricao || ""}:${item.responsavel_id || ""}:${item.recorrencia || "unica"}:${item.recorrencia_dia_semana ?? ""}:${item.recorrencia_dia_mes ?? ""}:${JSON.stringify((item as any).subtarefas || [])}`,
     )
     .join("|");
 }
@@ -2604,14 +2623,13 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
           : (normalizeTaskScope((req.body as any).escopo) === "pessoal" ? "pessoal" : "escritorio"));
     const lembreteDiarioAteAprovacao = Boolean((req.body as any).lembrete_diario_ate_aprovacao);
     const recorrenciaRaw = String((req.body as any).recorrencia || "nenhum");
-    const recorrencia = ["nenhum", "diario", "semanal", "mensal"].includes(recorrenciaRaw) ? recorrenciaRaw : "nenhum";
-    const recorrenciaDiaSemana = recorrencia === "semanal" && (req.body as any).recorrencia_dia_semana !== undefined
+    const recorrenciaListaRecebida = ["nenhum", "diario", "semanal", "mensal"].includes(recorrenciaRaw) ? recorrenciaRaw : "nenhum";
+    const recorrenciaDiaSemanaRecebida = recorrenciaListaRecebida === "semanal" && (req.body as any).recorrencia_dia_semana !== undefined
       ? Math.max(0, Math.min(6, Number((req.body as any).recorrencia_dia_semana)))
       : null;
-    const recorrenciaDiaMes = recorrencia === "mensal" && (req.body as any).recorrencia_dia_mes !== undefined
+    const recorrenciaDiaMesRecebida = recorrenciaListaRecebida === "mensal" && (req.body as any).recorrencia_dia_mes !== undefined
       ? Math.max(1, Math.min(31, Number((req.body as any).recorrencia_dia_mes)))
       : null;
-    const recorrenciaFim = (req.body as any).recorrencia_fim || null;
     const tarefaSurpresa = Boolean(
       (req.body as any).tarefa_surpresa || (req.body as any).surpresa_tarefa,
     );
@@ -2717,9 +2735,13 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    const tituloFinal =
-      String(titulo || "").trim() ||
-      (escopo === "equipe" ? "Tarefa da equipe" : "Tarefa pessoal");
+    const tituloFinal = resolveTaskListTitle({
+      context: contextoTipo as TaskContextType,
+      entityName: origem_nome,
+      requestedTitle:
+        String(titulo || "").trim() ||
+        (escopo === "equipe" ? "Tarefa da equipe" : "Tarefa pessoal"),
+    });
     const contaRanking =
       escopo === "equipe" && (req.body as any).conta_ranking !== false;
     const responsavel = responsavelId
@@ -2732,10 +2754,28 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       "SELECT nome FROM profiles WHERE id = $1",
       [userId],
     );
+    // Compatibilidade de deploy: se uma versão anterior do frontend ainda
+    // enviar recorrência na lista, converte a intenção para cada item. Novas
+    // listas nunca entram no job que clona a lista inteira.
+    const recorrenciaItemLegada = lembreteDiarioAteAprovacao || recorrenciaListaRecebida === "diario"
+      ? "diaria"
+      : recorrenciaListaRecebida === "semanal" || recorrenciaListaRecebida === "mensal"
+        ? recorrenciaListaRecebida
+        : "unica";
+    const checklistRecebido = parseChecklistItems(checklist).map((item) =>
+      normalizeChecklistRecurrence(item.recorrencia) !== "unica" || recorrenciaItemLegada === "unica"
+        ? item
+        : {
+            ...item,
+            recorrencia: recorrenciaItemLegada,
+            recorrencia_dia_semana: recorrenciaItemLegada === "semanal" ? recorrenciaDiaSemanaRecebida ?? undefined : undefined,
+            recorrencia_dia_mes: recorrenciaItemLegada === "mensal" ? recorrenciaDiaMesRecebida ?? undefined : undefined,
+          },
+    );
     const checklistNormalizado =
       escopo === "equipe"
-        ? await normalizeChecklistForOrg(checklist, orgId, userId, role)
-        : await normalizePersonalChecklist(checklist, orgId, userId);
+        ? await normalizeChecklistForOrg(checklistRecebido, orgId, userId, role)
+        : await normalizePersonalChecklist(checklistRecebido, orgId, userId);
     const pontuacao =
       escopo === "equipe" && pontuacaoIncluiTarefa(pontuacaoEscopo)
         ? normalizePositiveScore(pontuacaoManual, 3)
@@ -2798,12 +2838,12 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         origem_nome || null,
         origem_url || null,
         JSON.stringify(origemPayloadFinal),
-        recorrencia,
-        recorrenciaDiaSemana,
-        recorrenciaDiaMes,
-        recorrenciaFim,
+        "nenhum",
+        null,
+        null,
+        null,
         contextoTipo,
-        lembreteDiarioAteAprovacao,
+        false,
       ],
     );
 

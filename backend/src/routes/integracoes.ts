@@ -8,6 +8,12 @@ import {
   normalizeDestravaTaskInput,
   selectUnambiguousOrgId,
 } from '../lib/destravaTaskContract'
+import {
+  normalizeChecklistRecurrence,
+  normalizeRecurrenceMonthday,
+  normalizeRecurrenceWeekday,
+} from '../lib/checklistRecurrence'
+import { resolveTaskListTitle } from '../lib/taskContextTitle'
 
 const router = Router()
 
@@ -52,6 +58,9 @@ export type IntegrationChecklistItem = {
   responsavel_nome?: string
   dificuldade?: string
   pontuacao?: number
+  recorrencia?: 'unica' | 'diaria' | 'semanal' | 'mensal'
+  recorrencia_dia_semana?: number
+  recorrencia_dia_mes?: number
 }
 
 export function normalizeChecklistItems(value: unknown): IntegrationChecklistItem[] {
@@ -73,6 +82,9 @@ export function normalizeChecklistItems(value: unknown): IntegrationChecklistIte
   const normalizado = limitado
     .map((item: any) => {
       if (typeof item === 'string') return { id: uuidv4(), texto: item.trim(), feito: false }
+      const recorrencia = normalizeChecklistRecurrence(item?.recorrencia)
+      const diaSemana = normalizeRecurrenceWeekday(item?.recorrencia_dia_semana)
+      const diaMes = normalizeRecurrenceMonthday(item?.recorrencia_dia_mes)
       return {
         id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
@@ -82,6 +94,9 @@ export function normalizeChecklistItems(value: unknown): IntegrationChecklistIte
         ...(String(item?.responsavel_email || '').trim() ? { responsavel_email: String(item.responsavel_email).trim().toLowerCase() } : {}),
         ...(String(item?.dificuldade || '').trim() ? { dificuldade: String(item.dificuldade).trim() } : {}),
         ...(Number.isFinite(Number(item?.pontuacao)) ? { pontuacao: Number(item.pontuacao) } : {}),
+        recorrencia,
+        ...(recorrencia === 'semanal' && diaSemana !== undefined ? { recorrencia_dia_semana: diaSemana } : {}),
+        ...(recorrencia === 'mensal' && diaMes !== undefined ? { recorrencia_dia_mes: diaMes } : {}),
       }
     })
 
@@ -703,7 +718,7 @@ router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<voi
 router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<void> => {
   try {
     const body = normalizeDestravaTaskInput(req.body || {})
-    const titulo = body.titulo
+    const tituloOriginal = body.titulo
     const externalId = body.externalId
     let externalType = body.externalType
     const extLower = externalType.toLowerCase()
@@ -713,7 +728,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     }
     const externalName = body.externalName
 
-    if (!titulo) {
+    if (!tituloOriginal) {
       res.status(400).json({ error: 'Título da tarefa é obrigatório.' })
       return
     }
@@ -738,7 +753,11 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     if (!responsavel || responsavel.org_id !== orgId) responsavel = creator
 
     const prioridade = VALID_PRIORIDADES.includes(body.prioridade) ? body.prioridade : 'media'
-    const checklist = normalizeChecklistItems(body.checklist)
+    const checklist = normalizeChecklistItems(body.checklist).map(item =>
+      body.lembreteDiarioAteAprovacao && item.recorrencia === 'unica'
+        ? { ...item, recorrencia: 'diaria' as const }
+        : item,
+    )
     for (const item of checklist) {
       if (!item.responsavel_email) continue
       const owner = await findActiveUserByEmail(item.responsavel_email, orgId)
@@ -751,6 +770,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     }
     const metadata = {
       ...body.metadata,
+      destrava_titulo_original: tituloOriginal,
       // FIX62: padroniza a chave real de agrupamento por empresa nos 3
       // caminhos que criam tarefa (este, rotinas.ts, acompanhamento.ts).
       // Neste caminho genérico, quando o tipo é 'empresa', origem_id JÁ é o
@@ -766,6 +786,11 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     }
     const sourceUrl = body.sourceUrl
     const externalKey = buildDestravaTaskExternalKey({ ...body, externalType })
+    const titulo = resolveTaskListTitle({
+      context: body.contextoTipo,
+      entityName: externalName,
+      requestedTitle: tituloOriginal,
+    })
 
     const client = await pool.connect()
     let tarefa: any = null
@@ -803,7 +828,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
           JSON.stringify(metadata),
           externalKey,
           body.contextoTipo,
-          body.lembreteDiarioAteAprovacao,
+          false,
         ]
       )
 

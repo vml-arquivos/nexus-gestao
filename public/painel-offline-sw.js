@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-painel-offline-v1'
+const CACHE_NAME = 'nexus-painel-offline-v2'
 const PANEL_URL = '/painel-offline/'
 
 self.addEventListener('install', event => {

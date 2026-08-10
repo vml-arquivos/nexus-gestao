@@ -6,6 +6,7 @@ import { Response } from 'express'
 import pool, { query } from '../db/pool'
 import { sendPushToUser } from '../services/pushService'
 import { runClusterSingletonJob } from './clusterJob'
+import { checklistReminderIsDue, normalizeChecklistRecurrence } from './checklistRecurrence'
 
 // ── SSE: mapa de conexões ativas ─────────────────────────────────────────────
 // Chave: userId  →  lista de respostas SSE abertas (multi-tab)
@@ -286,6 +287,73 @@ async function jobLembreteDiario() {
       }
     }
 
+    // Recorrência canônica por item de checklist. Uma lista pode misturar
+    // ações únicas, diárias, semanais e mensais; nenhuma ocorrência nova é
+    // inserida em tarefas. O job apenas lembra o mesmo item e agrega os itens
+    // do mesmo usuário/lista em uma única notificação diária.
+    const tarefasComChecklist = await query<{
+      id: string; org_id: string; titulo: string; responsavel_id: string | null
+      criado_por: string | null; aceita_por: string | null; modo_distribuicao: string | null
+      escopo: string | null; checklist: unknown
+    }>(
+      `SELECT id, org_id, titulo, responsavel_id, criado_por, aceita_por,
+              modo_distribuicao, escopo, checklist
+         FROM tarefas
+        WHERE status NOT IN ('cancelada', 'aprovada')
+          AND checklist IS NOT NULL
+          AND jsonb_typeof(checklist::jsonb) = 'array'
+        ORDER BY created_at ASC
+        LIMIT 1000`,
+      [],
+    )
+    let lembretesDeItem = 0
+    for (const tarefa of tarefasComChecklist) {
+      const checklist = Array.isArray(tarefa.checklist)
+        ? tarefa.checklist
+        : typeof tarefa.checklist === 'string'
+          ? (() => { try { const parsed = JSON.parse(tarefa.checklist); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
+          : []
+      const dueItems = checklist.filter((item: any) => {
+        if (normalizeChecklistRecurrence(item?.recorrencia) === 'unica') return false
+        if (item?.aprovacao_status === 'aprovada') return false
+        if (item?.feito && tarefa.escopo !== 'equipe') return false
+        return checklistReminderIsDue(item)
+      })
+      if (!dueItems.length) continue
+
+      const fallbackRecipients = await destinatariosTarefa(tarefa)
+      const byRecipient = new Map<string, any[]>()
+      for (const item of dueItems) {
+        const itemOwner = String(item?.responsavel_id || item?.assumido_por || item?.executor_id || item?.aceita_por || '').trim()
+        const recipients = new Set<string>(itemOwner ? [itemOwner] : fallbackRecipients)
+        // O criador/gestor precisa receber o lembrete enquanto um item feito
+        // aguarda aprovação; assim a cadência não fica presa no executor.
+        if (tarefa.criado_por) recipients.add(tarefa.criado_por)
+        for (const userId of recipients) {
+          if (!userId) continue
+          byRecipient.set(userId, [...(byRecipient.get(userId) || []), item])
+        }
+      }
+
+      for (const [userId, items] of byRecipient) {
+        const tipo = 'lembrete_recorrente_checklist'
+        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, tipo, minutos: 20 * 60 })) continue
+        const names = items.slice(0, 3).map(item => `“${String(item?.texto || 'Ação').slice(0, 90)}”`).join(', ')
+        const remaining = items.length > 3 ? ` e mais ${items.length - 3}` : ''
+        await criarOuAtualizarNotificacaoRecorrente({
+          orgId: tarefa.org_id,
+          userId,
+          tipo,
+          titulo: `🔁 ${items.length} ação${items.length > 1 ? 'ões recorrentes' : ' recorrente'} para hoje`,
+          body: `${tarefa.titulo}: ${names}${remaining}. É o mesmo checklist e o mesmo histórico; nenhuma tarefa foi duplicada.`,
+          referenciaId: tarefa.id,
+          referenciaTipo: 'tarefa',
+          reenviarPush: true,
+        })
+        lembretesDeItem++
+      }
+    }
+
     // Para cada usuário com tarefas pendentes para hoje, envia lembrete
     const resumos = await query<{
       responsavel_id: string; org_id: string; count: string
@@ -319,6 +387,9 @@ async function jobLembreteDiario() {
     }
     if (lembretesDeLista > 0) {
       console.log(`[NOTIF] ${lembretesDeLista} lembrete(s) de lista diária enviados sem duplicar tarefas.`)
+    }
+    if (lembretesDeItem > 0) {
+      console.log(`[NOTIF] ${lembretesDeItem} lembrete(s) recorrente(s) de checklist enviados sem duplicar itens.`)
     }
   } catch (err) {
     console.error('[NOTIF] Erro no job de lembrete diário:', err)

@@ -19,4 +19,16 @@ describe('checklist integrado — identidade por item', () => {
     ])
     expect(result).toHaveLength(1)
   })
+
+  it('preserva recorrência individual sem transformar a lista inteira', () => {
+    const result = normalizeChecklistItems([
+      { id: 'daily', texto: 'Conferir caixa', recorrencia: 'diaria' },
+      { id: 'weekly', texto: 'Reunião', recorrencia: 'semanal', recorrencia_dia_semana: 1 },
+      { id: 'monthly', texto: 'Fechamento', recorrencia: 'mensal', recorrencia_dia_mes: 31 },
+      { id: 'once', texto: 'Enviar contrato' },
+    ])
+    expect(result.map(item => item.recorrencia)).toEqual(['diaria', 'semanal', 'mensal', 'unica'])
+    expect(result[1].recorrencia_dia_semana).toBe(1)
+    expect(result[2].recorrencia_dia_mes).toBe(31)
+  })
 })

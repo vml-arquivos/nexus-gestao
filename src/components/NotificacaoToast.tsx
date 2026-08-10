@@ -24,7 +24,7 @@ function iconeParaTipo(tipo: string) {
     return <XCircle size={18} style={{ color: 'var(--color-danger)' }} />
   }
 
-  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario') {
+  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario' || tipo === 'lembrete_recorrente_checklist') {
     return <AlertTriangle size={18} style={{ color: 'var(--color-warning)' }} />
   }
 
@@ -35,7 +35,7 @@ function corParaTipo(tipo: string): string {
   if (tipo === 'nova_tarefa' || tipo === 'tarefa_criada') return 'var(--color-primary)'
   if (tipo === 'tarefa_concluida' || tipo === 'tarefa_aprovada') return 'var(--color-success)'
   if (tipo === 'tarefa_nao_concluida' || tipo === 'tarefa_devolvida') return 'var(--color-danger)'
-  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario') return 'var(--color-warning)'
+  if (tipo === 'tarefa_vencida' || tipo === 'lembrete_diario' || tipo === 'lembrete_recorrente_checklist') return 'var(--color-warning)'
   return 'var(--color-primary)'
 }
 

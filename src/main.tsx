@@ -35,7 +35,9 @@ async function clearOldPwaCaches() {
     // Limpamos apenas caches antigos para evitar tela branca por assets obsoletos.
     if ('caches' in window) {
       const keys = await caches.keys()
-      await Promise.all(keys.map(key => caches.delete(key)))
+      // A carga operacional offline tem cache próprio e não pode ser apagada
+      // pela recuperação de chunks da aplicação principal.
+      await Promise.all(keys.filter(key => key.startsWith('nexus-shell-')).map(key => caches.delete(key)))
     }
   } catch (err) {
     console.warn('[CACHE] Falha ao limpar caches antigos:', err)
@@ -65,7 +67,8 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 })
 
-// Limpeza proativa: remove caches antigos, mas preserva o Service Worker atual do Nexus.
+// Limpeza proativa: remove somente caches do shell principal. O painel offline
+// mantém seu cache versionado até a próxima sincronização bem-sucedida.
 if ('caches' in window) {
   window.addEventListener('load', () => {
     clearOldPwaCaches()

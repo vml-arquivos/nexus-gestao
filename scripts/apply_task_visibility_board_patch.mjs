@@ -66,6 +66,13 @@ const newNormalize = `function normalizeChecklistItems(items?: ChecklistItem[] |
       texto: item.texto || item.title || item.label || '',
       descricao: item.descricao || item.description || undefined,
       data: (item.data || item.date || item.due_date) ? String(item.data || item.date || item.due_date).slice(0, 10) : undefined,
+      recorrencia: normalizeChecklistRecurrence(item.recorrencia),
+      recorrencia_dia_semana: normalizeChecklistRecurrence(item.recorrencia) === 'semanal' && Number.isInteger(Number(item.recorrencia_dia_semana))
+        ? Math.max(0, Math.min(6, Number(item.recorrencia_dia_semana)))
+        : undefined,
+      recorrencia_dia_mes: normalizeChecklistRecurrence(item.recorrencia) === 'mensal' && Number.isInteger(Number(item.recorrencia_dia_mes))
+        ? Math.max(1, Math.min(31, Number(item.recorrencia_dia_mes)))
+        : undefined,
       responsavel_id: item.responsavel_id || item.responsavelId || item.assigned_to || item.assignedToId || undefined,
       responsavel_nome: item.responsavel_nome || item.responsavelNome || item.assigned_to_name || item.assignedToName || undefined,
       assumido_por: item.assumido_por || item.assumidoPor || item.claimed_by || item.claimedBy || undefined,

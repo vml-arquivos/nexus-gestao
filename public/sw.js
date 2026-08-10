@@ -21,8 +21,9 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys()
-    // Remove todos os caches antigos; qualquer nome diferente de CACHE_NAME é obsoleto.
-    await Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))
+    // Remove somente versões antigas do próprio shell. O cache independente
+    // do painel offline é uma carga operacional do usuário e deve sobreviver.
+    await Promise.all(names.filter(name => name.startsWith('nexus-shell-') && name !== CACHE_NAME).map(name => caches.delete(name)))
     await self.clients.claim()
   })())
 })

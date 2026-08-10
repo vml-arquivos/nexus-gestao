@@ -12,8 +12,24 @@ import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
 import { localTodayIso, nanoid } from '../lib/utils'
+import {
+  CHECKLIST_RECURRENCE_OPTIONS,
+  checklistRecurrenceLabel,
+  normalizeChecklistRecurrence,
+  type ChecklistRecurrence,
+} from '../lib/checklistRecurrence'
 
 type Priority = Tarefa['prioridade']
+
+type TaskContextType = 'empresa' | 'pessoa_fisica' | 'escritorio' | 'pessoal'
+
+function automaticTaskListTitle(context: TaskContextType, entityName?: string) {
+  const name = String(entityName || '').trim()
+  if (context === 'empresa') return name ? `Tarefa para empresa — ${name}` : 'Tarefa para empresa'
+  if (context === 'pessoa_fisica') return name ? `Tarefa para Cliente PF — ${name}` : 'Tarefa para Cliente PF'
+  if (context === 'escritorio') return 'Escritório'
+  return 'Pessoal'
+}
 
 function canDeleteTarefa(tarefa: Tarefa, userId: string, isGestor: boolean) {
   if (isGestor) return true
@@ -286,6 +302,13 @@ function normalizeChecklistItems(items?: ChecklistItem[] | null): ChecklistItem[
       texto: item.texto || item.title || item.label || '',
       descricao: item.descricao || item.description || undefined,
       data: (item.data || item.date || item.due_date) ? String(item.data || item.date || item.due_date).slice(0, 10) : undefined,
+      recorrencia: normalizeChecklistRecurrence(item.recorrencia),
+      recorrencia_dia_semana: normalizeChecklistRecurrence(item.recorrencia) === 'semanal' && Number.isInteger(Number(item.recorrencia_dia_semana))
+        ? Math.max(0, Math.min(6, Number(item.recorrencia_dia_semana)))
+        : undefined,
+      recorrencia_dia_mes: normalizeChecklistRecurrence(item.recorrencia) === 'mensal' && Number.isInteger(Number(item.recorrencia_dia_mes))
+        ? Math.max(1, Math.min(31, Number(item.recorrencia_dia_mes)))
+        : undefined,
       responsavel_id: item.responsavel_id || item.responsavelId || item.assigned_to || item.assignedToId || undefined,
       responsavel_nome: item.responsavel_nome || item.responsavelNome || item.assigned_to_name || item.assignedToName || undefined,
       assumido_por: item.assumido_por || item.assumidoPor || item.claimed_by || item.claimedBy || undefined,
@@ -676,12 +699,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 }) {
   const { user } = useAuth()
   const isGestor = isGestorLike(user?.role)
-  const [titulo, setTitulo] = useState(tarefa?.titulo || '')
+  const [titulo, setTitulo] = useState(tarefa?.titulo || (!tarefa ? 'Pessoal' : ''))
   const [descricao, setDescricao] = useState(tarefa?.descricao || '')
   const [prazo, setPrazo] = useState(tarefa?.prazo?.slice(0, 10) || '')
-  const [recorrencia, setRecorrencia] = useState<'nenhum' | 'diario' | 'semanal' | 'mensal'>((tarefa as any)?.recorrencia === 'diario' || (tarefa as any)?.recorrencia === 'semanal' || (tarefa as any)?.recorrencia === 'mensal' ? (tarefa as any).recorrencia : 'nenhum')
-  const [recorrenciaDiaSemana, setRecorrenciaDiaSemana] = useState(String((tarefa as any)?.recorrencia_dia_semana ?? new Date().getDay()))
-  const [recorrenciaDiaMes, setRecorrenciaDiaMes] = useState(String((tarefa as any)?.recorrencia_dia_mes ?? new Date().getDate()))
   const [prioridade, setPrioridade] = useState<Priority>(tarefa?.prioridade || 'media')
   const [tipoTarefa, setTipoTarefa] = useState<'pessoal' | 'equipe'>(() => tarefa?.id ? taskScope(tarefa) : 'pessoal')
   const [contextoTipo, setContextoTipo] = useState<'empresa' | 'pessoa_fisica' | 'escritorio' | 'pessoal'>(() => {
@@ -691,7 +711,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (tarefa?.origem_id) return 'empresa'
     return !tarefa || taskScope(tarefa) === 'pessoal' ? 'pessoal' : 'escritorio'
   })
-  const [lembreteDiario, setLembreteDiario] = useState(Boolean(tarefa?.lembrete_diario_ate_aprovacao))
   const [clientRequestId] = useState(() => globalThis.crypto?.randomUUID?.() || nanoid())
   const [modoDistribuicao, setModoDistribuicao] = useState<'normal' | 'livre_equipe'>(() => tarefa?.modo_distribuicao === 'livre_equipe' ? 'livre_equipe' : 'normal')
   const [pontuacao, setPontuacao] = useState(String(tarefa?.pontuacao ?? 3))
@@ -703,6 +722,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItem, setNovoItem] = useState('')
   const [novoItemDescricao, setNovoItemDescricao] = useState('')
   const [novoItemData, setNovoItemData] = useState('')
+  const [novoItemRecorrencia, setNovoItemRecorrencia] = useState<ChecklistRecurrence>('unica')
+  const [novoItemRecorrenciaDiaSemana, setNovoItemRecorrenciaDiaSemana] = useState(String(new Date().getDay()))
+  const [novoItemRecorrenciaDiaMes, setNovoItemRecorrenciaDiaMes] = useState(String(new Date().getDate()))
   const [novoItemResponsavelId, setNovoItemResponsavelId] = useState('')
   const [novoItemEscolherPessoa, setNovoItemEscolherPessoa] = useState(false)
   const [novoItemPontuacao, setNovoItemPontuacao] = useState('3')
@@ -738,6 +760,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     }
     return null
   })
+  const contextoVinculado = contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica'
+  const tituloAutomatico = automaticTaskListTitle(contextoTipo, destravaSelecionado?.nome)
+  const tituloAutomaticoBloqueado = !tarefa?.id && contextoVinculado
+  const tituloResolvido = tituloAutomaticoBloqueado ? tituloAutomatico : (titulo.trim() || tituloAutomatico)
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
   const responsaveisChecklist = assigneeOptions(membros, user || undefined)
@@ -829,7 +855,17 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     }
     setDestravaSelecionado(null)
     setDestravaSelectOpen(false)
+    setTitulo(automaticTaskListTitle(next))
     changeTipoTarefa(next === 'pessoal' ? 'pessoal' : 'equipe')
+  }
+
+  function changeNovoItemData(value: string) {
+    setNovoItemData(value)
+    if (!value) return
+    const parsed = new Date(`${value}T12:00:00`)
+    if (Number.isNaN(parsed.getTime())) return
+    setNovoItemRecorrenciaDiaSemana(String(parsed.getDay()))
+    setNovoItemRecorrenciaDiaMes(String(parsed.getDate()))
   }
 
   function limparPesquisaDestrava() {
@@ -939,6 +975,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       texto,
       descricao: undefined,
       data: novoItemData || undefined,
+      recorrencia: novoItemRecorrencia,
+      recorrencia_dia_semana: novoItemRecorrencia === 'semanal' ? Number(novoItemRecorrenciaDiaSemana) : undefined,
+      recorrencia_dia_mes: novoItemRecorrencia === 'mensal' ? Number(novoItemRecorrenciaDiaMes) : undefined,
       responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreLote ? undefined : (novoItemResponsavelId || undefined)),
       responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreLote ? undefined : checklistResponsibleName(novoItemResponsavelId)),
       livre: executorLivreLote || undefined,
@@ -971,6 +1010,9 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       texto: novoItem.trim(),
       descricao: novoItemDescricao.trim() || undefined,
       data: novoItemData || undefined,
+      recorrencia: novoItemRecorrencia,
+      recorrencia_dia_semana: novoItemRecorrencia === 'semanal' ? Number(novoItemRecorrenciaDiaSemana) : undefined,
+      recorrencia_dia_mes: novoItemRecorrencia === 'mensal' ? Number(novoItemRecorrenciaDiaMes) : undefined,
       responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreItem ? undefined : (novoItemResponsavelId || undefined)),
       responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreItem ? undefined : checklistResponsibleName(novoItemResponsavelId)),
       livre: executorLivreItem || undefined,
@@ -984,6 +1026,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     setNovoItem('')
     setNovoItemDescricao('')
     setNovoItemData('')
+    setNovoItemRecorrencia('unica')
     setNovoItemResponsavelId('')
     setNovoItemEscolherPessoa(false)
     setNovoItemDificuldade('nivel_3')
@@ -1005,7 +1048,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
 
   async function salvar() {
     if (loading) return
-    const tituloFinal = titulo.trim()
+    const tituloFinal = tituloResolvido
     if (!tituloFinal) { toast('Informe um título para identificar esta lista sem misturá-la com outras.', 'error'); return }
     if ((contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && !destravaSelecionado) {
       toast(`Selecione ${contextoTipo === 'empresa' ? 'a empresa' : 'o cliente pessoa física'} desta lista.`, 'error')
@@ -1037,7 +1080,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         prazo: prazo || undefined,
         prioridade,
         contexto_tipo: contextoTipo,
-        lembrete_diario_ate_aprovacao: lembreteDiario,
         responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : (isMemberRequest ? responsavelId : user?.id),
         escopo: isGestor ? tipoTarefa : (isMemberRequest ? 'equipe' : 'pessoal'),
         modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
@@ -1058,11 +1100,6 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           nexus_client_request_id: clientRequestId,
           ...(tipoTarefa === 'equipe' ? { nexus_tarefa_surpresa: Boolean(tarefaSurpresa), nexus_pontuacao_escopo: pontuacaoEscopo } : {}),
         },
-        ...(isGestor && tipoTarefa === 'equipe' && !tarefa?.id ? {
-          recorrencia,
-          recorrencia_dia_semana: recorrencia === 'semanal' ? Number(recorrenciaDiaSemana) : undefined,
-          recorrencia_dia_mes: recorrencia === 'mensal' ? Number(recorrenciaDiaMes) : undefined,
-        } as any : {}),
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
       onSaved(saved)
@@ -1097,8 +1134,18 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           </div>
         )}
         <div className="form-group">
-          <label className="form-label">Título da lista</label>
-          <input className="form-input" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex.: Documentos de agosto — não será misturada com outra lista" required />
+          <label className="form-label">{tituloAutomaticoBloqueado ? 'Título automático da lista' : 'Título da lista'}</label>
+          <input
+            className="form-input"
+            value={tituloAutomaticoBloqueado ? tituloAutomatico : titulo}
+            onChange={e => setTitulo(e.target.value)}
+            placeholder={contextoVinculado ? 'Gerado ao selecionar o cadastro' : 'Ex.: Documentos de agosto'}
+            readOnly={tituloAutomaticoBloqueado}
+            required
+          />
+          {tituloAutomaticoBloqueado && (
+            <small className="muted">O Nexus combina automaticamente o tipo e o nome selecionado. A separação real continua sendo feita pelo ID exclusivo da lista.</small>
+          )}
         </div>
         <div className="form-group">
           <label className="form-label">Descrição da lista</label>
@@ -1301,42 +1348,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             </select>
           </div>
         </div>
-        {isGestor && !tarefa?.id && tipoTarefa === 'equipe' && (
-          <div className="form-group">
-            <label className="form-label">Repetir esta lista <span style={{ color: 'var(--text3)', fontWeight: 500 }}>(opcional)</span></label>
-            <div className="task-type-selector" role="radiogroup" aria-label="Recorrência da lista" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-              {([['nenhum', 'Não repetir', 'Só esta vez'], ['semanal', 'Toda semana', 'Mesmo dia, toda semana'], ['mensal', 'Todo mês', 'Mesmo dia, todo mês']] as const).map(([value, label, desc]) => (
-                <button key={value} type="button" className={recorrencia === value ? 'task-type-option active' : 'task-type-option'} onClick={() => setRecorrencia(value)}>
-                  <strong>{label}</strong>
-                  <span>{desc}</span>
-                </button>
-              ))}
-            </div>
-            {recorrencia === 'semanal' && (
-              <select className="form-input" style={{ marginTop: 8 }} value={recorrenciaDiaSemana} onChange={e => setRecorrenciaDiaSemana(e.target.value)}>
-                {['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map((dia, i) => <option key={i} value={i}>Toda {dia}</option>)}
-              </select>
-            )}
-            {recorrencia === 'mensal' && (
-              <select className="form-input" style={{ marginTop: 8 }} value={recorrenciaDiaMes} onChange={e => setRecorrenciaDiaMes(e.target.value)}>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Todo dia {d} do mês</option>)}
-              </select>
-            )}
-            {recorrencia !== 'nenhum' && (
-              <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
-                O Nexus cria a próxima lista sozinho, com o mesmo checklist e configuração — você não precisa recriar manualmente.
-              </div>
-            )}
+        {tarefa?.id && (tarefa.lembrete_diario_ate_aprovacao || ['diario', 'semanal', 'mensal'].includes(String((tarefa as any).recorrencia || ''))) && (
+          <div className="integration-help">
+            <strong>Configuração histórica preservada:</strong> esta lista já possuía uma recorrência geral. Ela continuará funcionando para não alterar o histórico. Em listas novas, a frequência é definida separadamente em cada tarefa do checklist.
           </div>
-        )}
-        {isGestor && tipoTarefa === 'equipe' && (
-          <label className="form-check" style={{ alignItems: 'flex-start' }}>
-            <input type="checkbox" checked={lembreteDiario} onChange={e => setLembreteDiario(e.target.checked)} />
-            <span>
-              <strong>Lembrar todos os dias até finalizar e aprovar</strong><br />
-              <small className="muted">Mantém o mesmo ID, checklist, responsável, datas, anexos e histórico. Nenhuma tarefa duplicada será criada.</small>
-            </span>
-          </label>
         )}
         {!isGestor && (
           <div className="form-group">
@@ -1472,10 +1487,29 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 <label className="form-label">Data desta ação</label>
                 <DateFieldBR
                   value={novoItemData}
-                  onChange={setNovoItemData}
+                  onChange={changeNovoItemData}
                   min={todayIso()}
                   title="Data desta ação"
                 />
+              </div>
+              <div className="form-group task-item-recurrence-builder">
+                <label className="form-label">Frequência desta tarefa</label>
+                <div className="task-item-recurrence-controls">
+                  <select className="form-input" value={novoItemRecorrencia} onChange={e => setNovoItemRecorrencia(e.target.value as ChecklistRecurrence)}>
+                    {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  {novoItemRecorrencia === 'semanal' && (
+                    <select className="form-input" value={novoItemRecorrenciaDiaSemana} onChange={e => setNovoItemRecorrenciaDiaSemana(e.target.value)} aria-label="Dia da semana do lembrete">
+                      {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}
+                    </select>
+                  )}
+                  {novoItemRecorrencia === 'mensal' && (
+                    <select className="form-input" value={novoItemRecorrenciaDiaMes} onChange={e => setNovoItemRecorrenciaDiaMes(e.target.value)} aria-label="Dia do mês do lembrete">
+                      {Array.from({ length: 31 }, (_, index) => index + 1).map(day => <option key={day} value={day}>Dia {day}</option>)}
+                    </select>
+                  )}
+                </div>
+                <small className="muted">A frequência pertence somente a esta tarefa. O Nexus relembra o mesmo item até concluir e aprovar; não duplica a lista.</small>
               </div>
               {tipoTarefa === 'equipe' && (
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1631,6 +1665,37 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, descricao: e.target.value || undefined } : i))}
                 placeholder="Observação, comprovação esperada ou instrução opcional desta ação"
               />
+              <div className="task-item-recurrence-editor">
+                <div>
+                  <strong>Frequência desta tarefa</strong>
+                  <small>Mesmo item e mesmo histórico, sem gerar cópias.</small>
+                </div>
+                <select
+                  className="form-input"
+                  value={normalizeChecklistRecurrence(item.recorrencia)}
+                  onChange={e => {
+                    const recurrence = e.target.value as ChecklistRecurrence
+                    setChecklist(prev => prev.map(i => i.id === item.id ? {
+                      ...i,
+                      recorrencia: recurrence,
+                      recorrencia_dia_semana: recurrence === 'semanal' ? (i.recorrencia_dia_semana ?? new Date().getDay()) : undefined,
+                      recorrencia_dia_mes: recurrence === 'mensal' ? (i.recorrencia_dia_mes ?? new Date().getDate()) : undefined,
+                    } : i))
+                  }}
+                >
+                  {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                {normalizeChecklistRecurrence(item.recorrencia) === 'semanal' && (
+                  <select className="form-input" value={item.recorrencia_dia_semana ?? new Date().getDay()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, recorrencia_dia_semana: Number(e.target.value) } : i))} aria-label="Dia semanal desta tarefa">
+                    {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}
+                  </select>
+                )}
+                {normalizeChecklistRecurrence(item.recorrencia) === 'mensal' && (
+                  <select className="form-input" value={item.recorrencia_dia_mes ?? new Date().getDate()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, recorrencia_dia_mes: Number(e.target.value) } : i))} aria-label="Dia mensal desta tarefa">
+                    {Array.from({ length: 31 }, (_, index) => index + 1).map(day => <option key={day} value={day}>Dia {day}</option>)}
+                  </select>
+                )}
+              </div>
               <div className="objective-subtasks-editor">
                 <div className="objective-subtasks-title">Etapas desta tarefa</div>
                 {((item as any).subtarefas || []).map((sub: ObjectiveSubitem) => (
@@ -3470,6 +3535,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                                 {itemEhLivre && <em className="task-surprise-badge" style={{ background: 'var(--primary-dim)', color: 'var(--primary)' }}>🔓 Livre — qualquer um pode assumir</em>}
                                 {isSurpriseChecklistItem(item) && <em className="task-surprise-badge">🎁 Surpresa</em>}
                                 {bloqueadoPorSequencia && <em className="task-surprise-badge" style={{ background: 'var(--warning-dim)', color: 'var(--warning)' }}>🔒 Bloqueado até: {itemDependencia?.texto}</em>}
+                              </span>
+                            )}
+                            {normalizeChecklistRecurrence(item.recorrencia) !== 'unica' && (
+                              <span>
+                                <em className="task-recurrence-badge"><RotateCcw size={11} /> {checklistRecurrenceLabel(item)} · mesmo item</em>
                               </span>
                             )}
                             {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}

@@ -1,41 +1,40 @@
 # Correções de tarefas e continuidade — Nexus
 
-## Resultado funcional
+## Regra final de dados
 
-- Cada criação gera uma lista independente com `tarefa.id` próprio.
-- Listas da mesma Empresa ou Cliente PF continuam juntas no modal do cadastro, mas checklist, membro, data, aprovação, comentários, anexos e histórico ficam separados por lista.
-- Itens com o mesmo texto e membro ou data diferentes permanecem distintos.
-- O formulário exige título e oferece os contextos `empresa`, `pessoa_fisica`, `escritorio` e `pessoal`.
-- Empresa e PF exigem a seleção do cadastro correspondente.
-- `lembrete_diario_ate_aprovacao` relembra a mesma lista até a aprovação final; não usa recorrência e não cria cópia diária.
-- A Central de continuidade em `/painel-offline/` mantém a carga no IndexedDB, aceita execução offline, exporta JSON e sincroniza ao restabelecer a conexão.
-- O service worker offline usa escopo exclusivo `/painel-offline/`; o service worker principal e as demais rotas não foram alterados.
+- Cada criação gera uma lista independente com `tarefas.id` próprio. Texto, empresa, membro ou data iguais nunca fundem duas listas.
+- Dentro da lista, somente o mesmo `checklist.id` identifica o mesmo item. Texto igual com membro, data ou frequência diferentes continua sendo item distinto.
+- Empresa e Cliente PF recebem título canônico no frontend e novamente no backend: `Tarefa para empresa — Nome` ou `Tarefa para Cliente PF — Nome`.
+- Escritório e Pessoal recebem um título inicial automático, mas continuam aceitando título manual.
+- O Nexus é a fonte única de armazenamento. O modal do Destrava envia o contrato canônico e não grava uma cópia paralela da tarefa.
 
-## Banco de dados
+## Recorrência correta
 
-A inicialização executa migração aditiva e idempotente:
+- A frequência pertence ao item do checklist: `unica`, `diaria`, `semanal` ou `mensal`.
+- A mesma lista pode misturar todas as frequências e diferentes responsáveis/datas.
+- A recorrência apenas lembra o mesmo item até conclusão/aprovação. Não clona item nem lista.
+- Mês com menos dias ajusta uma recorrência do dia 29, 30 ou 31 para o último dia disponível.
+- Configurações antigas de recorrência da lista continuam funcionando para preservar histórico. Novas criações não entram no gerador legado de listas recorrentes.
+- Payload antigo que ainda enviar recorrência na lista é convertido no backend para recorrência dos itens, protegendo deploys com versões desencontradas.
 
-- `tarefas.contexto_tipo TEXT`
-- `tarefas.lembrete_diario_ate_aprovacao BOOLEAN NOT NULL DEFAULT FALSE`
-- constraint dos quatro contextos e índices parciais de consulta
+## Continuidade offline
 
-Não há remoção ou renomeação de coluna. Registros antigos são classificados de forma compatível na primeira inicialização.
+- `/painel-offline/` usa identidade Destrava, resumo, filtros, busca, cartões recolhíveis, progresso, responsável, datas e frequência por ação.
+- A carga fica no IndexedDB e alterações são enfileiradas de forma idempotente para sincronização posterior.
+- A exportação gera painel HTML autônomo e legível, com frequência por item.
+- O cache do painel offline é isolado do cache do shell principal. Atualização/recuperação de chunks do Nexus não apaga a carga operacional.
+- O service worker do painel foi versionado como `nexus-painel-offline-v2`.
 
-## Ordem de publicação
+## Compatibilidade de banco
 
-1. Publicar e confirmar o Nexus (frontend + backend).
-2. Confirmar que a migração aditiva terminou no log de inicialização.
-3. Testar criação Nexus, lembrete diário e `/painel-offline/` em homologação.
-4. Só então publicar o Destrava corrigido.
+As colunas aditivas anteriores (`contexto_tipo` e `lembrete_diario_ate_aprovacao`) foram preservadas. A nova recorrência fica dentro do JSONB do checklist, portanto não exige alteração destrutiva de tabela. Nenhuma coluna ou registro histórico é removido.
 
-Essa ordem impede que uma versão antiga do Nexus descarte os novos metadados de checklist enviados pelo Destrava.
+## Gate executado
 
-## Gate de regressão executado
+- Frontend: `npm run build`.
+- Backend: `npm run build`.
+- Backend: 14 arquivos / 58 testes Vitest aprovados.
+- Backend: 14 testes de lógica de tarefas aprovados.
+- Testes novos: quatro frequências no mesmo checklist, início da cadência, semanal, mensal/último dia, título canônico e identidade por ID.
 
-- Frontend: `npm run build`
-- Backend: `npm run build`
-- Backend: suíte Vitest completa
-- Teste adicional: texto igual com membro/data diferentes
-- Teste adicional: ID repetido de item é idempotente
-
-Antes da produção, repetir smoke test com o banco de homologação e um cadastro Empresa e PF reais.
+Antes da produção, publicar Nexus antes do Destrava e executar smoke test em homologação com uma Empresa e um Cliente PF reais.

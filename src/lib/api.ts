@@ -105,6 +105,12 @@ export interface ChecklistItem {
   id: string
   texto: string
   feito: boolean
+  /** Cadência de lembrete deste item. Nunca gera uma cópia da lista ou do item. */
+  recorrencia?: 'unica' | 'diaria' | 'semanal' | 'mensal'
+  /** 0=domingo ... 6=sábado, usado somente na recorrência semanal. */
+  recorrencia_dia_semana?: number
+  /** Dia 1..31, usado somente na recorrência mensal (ajusta ao último dia do mês). */
+  recorrencia_dia_mes?: number
   descricao?: string
   data?: string
   /** Responsável específico por executar este item do checklist. */
