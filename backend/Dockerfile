@@ -21,7 +21,7 @@ RUN npx tsc --skipLibCheck
 # ── Imagem de produção ────────────────────────────────────────────────────────
 FROM node:20-alpine AS production
 WORKDIR /app
-ENV NEXUS_RELEASE=fix52-loading-notificacoes-20260730
+ENV NEXUS_RELEASE=fix64-recorrencia-checklist-por-item-20260810
 
 # Apenas dependências de produção
 COPY package.json package-lock.json* ./

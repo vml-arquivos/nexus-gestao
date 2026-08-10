@@ -692,7 +692,7 @@
 }
 
 /* Modal canônico de criação — identidade visual Destrava. */
-.tarefa-modal-box:has(.task-form-modal) {
+.tarefa-create-modal-box {
   overflow: hidden !important;
   border: 1px solid rgba(30, 64, 175, .18) !important;
   border-radius: 20px !important;
@@ -700,22 +700,47 @@
   box-shadow: 0 28px 80px rgba(15, 23, 42, .32) !important;
 }
 
-.tarefa-modal-box:has(.task-form-modal) > .modal-header {
+.tarefa-create-modal-box > .modal-header {
   padding: 18px 22px !important;
   color: #fff !important;
   background: linear-gradient(110deg, #172554 0%, #1e3a8a 48%, #1d4ed8 100%) !important;
   border-bottom: 0 !important;
 }
 
-.tarefa-modal-box:has(.task-form-modal) > .modal-header .modal-title { color: #fff !important; font-weight: 850 !important; }
-.tarefa-modal-box:has(.task-form-modal) > .modal-header .modal-close { color: #dbeafe !important; background: rgba(255,255,255,.08) !important; }
-.tarefa-modal-box:has(.task-form-modal) > .modal-header .modal-close:hover { color: #fff !important; background: rgba(255,255,255,.16) !important; }
-.tarefa-modal-box:has(.task-form-modal) > .modal-content { background: #fff !important; color: #0f172a !important; }
-.tarefa-modal-box:has(.task-form-modal) .form-label { color: #475569 !important; }
-.tarefa-modal-box:has(.task-form-modal) .form-input { border-color: #cbd5e1 !important; background: #fff !important; color: #0f172a !important; }
-.tarefa-modal-box:has(.task-form-modal) .form-input:focus { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,.12) !important; }
-.tarefa-modal-box:has(.task-form-modal) .modal-actions { background: #fff !important; border-top: 1px solid #e2e8f0; }
-.tarefa-modal-box:has(.task-form-modal) .btn-primary { background: #1d4ed8 !important; color: #fff !important; }
+.tarefa-create-modal-box > .modal-header .modal-title { color: #fff !important; font-weight: 850 !important; }
+.tarefa-create-modal-box > .modal-header .modal-close { color: #dbeafe !important; background: rgba(255,255,255,.08) !important; }
+.tarefa-create-modal-box > .modal-header .modal-close:hover { color: #fff !important; background: rgba(255,255,255,.16) !important; }
+.tarefa-create-modal-box > .modal-content { background: #fff !important; color: #0f172a !important; }
+.tarefa-create-modal-box .form-label { color: #475569 !important; }
+.tarefa-create-modal-box .form-input { border-color: #cbd5e1 !important; background: #fff !important; color: #0f172a !important; }
+.tarefa-create-modal-box .form-input:focus { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,.12) !important; }
+.tarefa-create-modal-box .modal-actions { background: #fff !important; border-top: 1px solid #e2e8f0; }
+.tarefa-create-modal-box .btn-primary { background: #1d4ed8 !important; color: #fff !important; }
+
+.task-recurrence-release-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #93c5fd;
+  border-radius: 14px;
+  color: #172554;
+  background: linear-gradient(110deg, #eff6ff, #dbeafe);
+}
+
+.task-recurrence-release-banner > div { display: grid; gap: 2px; }
+.task-recurrence-release-banner strong { font-size: 14px; }
+.task-recurrence-release-banner span { color: #475569; font-size: 12px; }
+.task-recurrence-release-banner em {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: #1d4ed8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
 
 .task-item-recurrence-builder {
   grid-column: 1 / -1;
@@ -732,9 +757,42 @@
   margin-bottom: 6px;
 }
 
+.task-item-recurrence-options {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.task-item-recurrence-option {
+  display: grid;
+  gap: 2px;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  color: #1e3a8a;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.task-item-recurrence-option:hover { border-color: #60a5fa; transform: translateY(-1px); }
+.task-item-recurrence-option:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
+.task-item-recurrence-option strong { font-size: 13px; color: inherit; }
+.task-item-recurrence-option span { color: #64748b; font-size: 10px; line-height: 1.25; }
+.task-item-recurrence-option.active {
+  border-color: #1d4ed8;
+  color: #fff;
+  background: linear-gradient(120deg, #1e3a8a, #1d4ed8);
+  box-shadow: 0 6px 18px rgba(29, 78, 216, .2);
+}
+.task-item-recurrence-option.active span { color: #dbeafe; }
+
 .task-item-recurrence-editor {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, .7fr) minmax(160px, .7fr);
+  grid-template-columns: minmax(180px, .55fr) minmax(360px, 1.45fr);
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
@@ -763,4 +821,11 @@
 @media (max-width: 720px) {
   .task-item-recurrence-controls,
   .task-item-recurrence-editor { grid-template-columns: 1fr; }
+  .task-item-recurrence-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 430px) {
+  .task-recurrence-release-banner { grid-template-columns: auto minmax(0, 1fr); }
+  .task-recurrence-release-banner em { display: none; }
+  .task-item-recurrence-options { grid-template-columns: 1fr; }
 }

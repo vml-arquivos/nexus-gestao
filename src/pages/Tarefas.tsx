@@ -655,7 +655,7 @@ function prioridadeCfg(prioridade?: string) {
 
 let modalOpenCount = 0
 
-function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+function ModalBase({ title, children, onClose, variant = 'default' }: { title: string; children: ReactNode; onClose: () => void; variant?: 'default' | 'create-task' }) {
   useEffect(() => {
     modalOpenCount += 1
     document.documentElement.classList.add('modal-open')
@@ -673,7 +673,7 @@ function ModalBase({ title, children, onClose }: { title: string; children: Reac
   return (
     <div className="modal-overlay" role="presentation" onClick={e => e.target === e.currentTarget && onClose()}>
       <div
-        className="modal-box tarefa-modal-box"
+        className={`modal-box tarefa-modal-box${variant === 'create-task' ? ' tarefa-create-modal-box' : ''}`}
         role="dialog"
         aria-modal="true"
         data-modal="true"
@@ -1120,8 +1120,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     : (modoDistribuicao === 'livre_equipe' ? tarefa?.aceita_por_nome : undefined)
 
   return (
-    <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
+    <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose} variant="create-task">
       <div className="task-form-modal">
+        <div className="task-recurrence-release-banner" role="status">
+          <RotateCcw size={20} aria-hidden="true" />
+          <div>
+            <strong>Recorrência por item ativa</strong>
+            <span>Cada tarefa da lista pode ser única, diária, semanal ou mensal — sem duplicar a lista.</span>
+          </div>
+          <em>R2</em>
+        </div>
         {isGestor && (
           <div className="form-group">
             <label className="form-label">Tipo da tarefa</label>
@@ -1493,11 +1501,22 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 />
               </div>
               <div className="form-group task-item-recurrence-builder">
-                <label className="form-label">Frequência desta tarefa</label>
+                <label className="form-label">Esta tarefa precisa se repetir?</label>
                 <div className="task-item-recurrence-controls">
-                  <select className="form-input" value={novoItemRecorrencia} onChange={e => setNovoItemRecorrencia(e.target.value as ChecklistRecurrence)}>
-                    {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
+                  <div className="task-item-recurrence-options" role="radiogroup" aria-label="Frequência desta tarefa">
+                    {CHECKLIST_RECURRENCE_OPTIONS.map(option => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`task-item-recurrence-option${novoItemRecorrencia === option.value ? ' active' : ''}`}
+                        aria-pressed={novoItemRecorrencia === option.value}
+                        onClick={() => setNovoItemRecorrencia(option.value)}
+                      >
+                        <strong>{option.short}</strong>
+                        <span>{option.value === 'diaria' ? 'Lembrar todos os dias' : option.label}</span>
+                      </button>
+                    ))}
+                  </div>
                   {novoItemRecorrencia === 'semanal' && (
                     <select className="form-input" value={novoItemRecorrenciaDiaSemana} onChange={e => setNovoItemRecorrenciaDiaSemana(e.target.value)} aria-label="Dia da semana do lembrete">
                       {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}
@@ -1509,7 +1528,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     </select>
                   )}
                 </div>
-                <small className="muted">A frequência pertence somente a esta tarefa. O Nexus relembra o mesmo item até concluir e aprovar; não duplica a lista.</small>
+                <small className="muted">Escolha por item. Em “Diária”, o Nexus relembra esta mesma tarefa todos os dias até concluir e aprovar; nenhuma cópia é criada.</small>
               </div>
               {tipoTarefa === 'equipe' && (
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1667,24 +1686,31 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               />
               <div className="task-item-recurrence-editor">
                 <div>
-                  <strong>Frequência desta tarefa</strong>
-                  <small>Mesmo item e mesmo histórico, sem gerar cópias.</small>
+                  <strong>Esta tarefa precisa se repetir?</strong>
+                  <small>A escolha vale somente para este item e preserva o mesmo histórico.</small>
                 </div>
-                <select
-                  className="form-input"
-                  value={normalizeChecklistRecurrence(item.recorrencia)}
-                  onChange={e => {
-                    const recurrence = e.target.value as ChecklistRecurrence
-                    setChecklist(prev => prev.map(i => i.id === item.id ? {
-                      ...i,
-                      recorrencia: recurrence,
-                      recorrencia_dia_semana: recurrence === 'semanal' ? (i.recorrencia_dia_semana ?? new Date().getDay()) : undefined,
-                      recorrencia_dia_mes: recurrence === 'mensal' ? (i.recorrencia_dia_mes ?? new Date().getDate()) : undefined,
-                    } : i))
-                  }}
-                >
-                  {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                <div className="task-item-recurrence-options" role="radiogroup" aria-label={`Frequência da tarefa ${item.texto || 'sem título'}`}>
+                  {CHECKLIST_RECURRENCE_OPTIONS.map(option => {
+                    const active = normalizeChecklistRecurrence(item.recorrencia) === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`task-item-recurrence-option${active ? ' active' : ''}`}
+                        aria-pressed={active}
+                        onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? {
+                          ...i,
+                          recorrencia: option.value,
+                          recorrencia_dia_semana: option.value === 'semanal' ? (i.recorrencia_dia_semana ?? new Date().getDay()) : undefined,
+                          recorrencia_dia_mes: option.value === 'mensal' ? (i.recorrencia_dia_mes ?? new Date().getDate()) : undefined,
+                        } : i))}
+                      >
+                        <strong>{option.short}</strong>
+                        <span>{option.value === 'diaria' ? 'Lembrar todos os dias' : option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
                 {normalizeChecklistRecurrence(item.recorrencia) === 'semanal' && (
                   <select className="form-input" value={item.recorrencia_dia_semana ?? new Date().getDay()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, recorrencia_dia_semana: Number(e.target.value) } : i))} aria-label="Dia semanal desta tarefa">
                     {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}

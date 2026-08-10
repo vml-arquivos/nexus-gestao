@@ -1,2 +1,2 @@
-export const NEXUS_RELEASE = 'fix63-blindagem-empresas-e-relogin-deploy-20260806'
-export const NEXUS_RELEASE_DATE = '2026-08-06'
+export const NEXUS_RELEASE = 'fix64-recorrencia-checklist-por-item-20260810'
+export const NEXUS_RELEASE_DATE = '2026-08-10'

@@ -56,13 +56,31 @@ describe('proteções de runtime FIX54', () => {
     expect(sw).not.toContain('cache.put(req, fresh.clone()).catch(() => undefined)\n        return fresh')
   })
 
+  it('mantém a recorrência visível e configurável em cada item do checklist', () => {
+    const tarefasPage = read('src/pages/Tarefas.tsx')
+    const styles = read('src/task-workflow-fixes.css')
+    expect(tarefasPage).toContain('Recorrência por item ativa')
+    expect(tarefasPage).toContain("option.value === 'diaria' ? 'Lembrar todos os dias'")
+    expect(tarefasPage).toContain('task-item-recurrence-option')
+    expect(tarefasPage).toContain('recorrencia: option.value')
+    expect(styles).toContain('.task-item-recurrence-option.active')
+    expect(styles).toContain('.tarefa-create-modal-box > .modal-header')
+  })
+
+  it('recupera chunks antigos sem apagar o painel offline', () => {
+    const nginx = read('nginx.unified.conf')
+    expect(nginx).toContain('c.startsWith("nexus-shell-")')
+    expect(nginx).toContain('new URL(r.scope).pathname==="/"')
+    expect(nginx).not.toContain('ks.map(c=>caches.delete(c))')
+  })
+
   it('expõe liveness/versão reais e usa o startup com heap controlado', () => {
     const nginx = read('nginx.unified.conf')
     const dockerfile = read('Dockerfile')
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix63-blindagem-empresas-e-relogin-deploy-20260806')
+    expect(dockerfile).toContain('fix64-recorrencia-checklist-por-item-20260810')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })
