@@ -53,6 +53,19 @@ describe('contrato de tarefas Destrava/Nexus', () => {
     expect(input.metadata.contrato).toBe('destrava.nexus.tarefa.v1')
   })
 
+  it('ativa ranking por item somente quando o contrato solicita subtarefas', () => {
+    const manual = normalizeDestravaTaskInput({
+      titulo: 'Lista pontuada',
+      external_id: 'empresa-1',
+      pontuacao_escopo: 'subtarefas',
+      conta_ranking: true,
+    })
+    const legacy = normalizeDestravaTaskInput({ titulo: 'Lista antiga', external_id: 'empresa-1' })
+    expect(manual.pontuacaoEscopo).toBe('subtarefas')
+    expect(manual.contaRanking).toBe(true)
+    expect(legacy.pontuacaoEscopo).toBe('tarefa')
+  })
+
   it('gera chave determinística para impedir duplicatas', () => {
     const input = normalizeDestravaTaskInput({
       titulo: 'Tarefa idempotente',

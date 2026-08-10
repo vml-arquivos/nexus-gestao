@@ -21,6 +21,8 @@ export interface DestravaTaskInput {
   metadata: Record<string, unknown>
   contextoTipo: 'empresa' | 'pessoa_fisica'
   lembreteDiarioAteAprovacao: boolean
+  pontuacaoEscopo: 'tarefa' | 'subtarefas'
+  contaRanking: boolean
 }
 
 function objectValue(value: unknown): Record<string, any> {
@@ -55,6 +57,10 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
   const pendenciaId = text(tarefa.id || metadataOriginal.pendencia_id)
   const moduloOrigem = text(tarefa.modulo_origem || metadataOriginal.modulo_origem)
   const externalType = text(body.external_type) || 'empresa'
+  const pontuacaoEscopoRaw = text(body.pontuacao_escopo || body.pontuacao_tipo || metadataOriginal.nexus_pontuacao_escopo).toLowerCase()
+  const pontuacaoEscopo = ['subtarefa', 'subtarefas', 'checklist', 'checklists'].includes(pontuacaoEscopoRaw)
+    ? 'subtarefas' as const
+    : 'tarefa' as const
 
   return {
     titulo: text(body.titulo || tarefa.titulo),
@@ -86,6 +92,8 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
     },
     contextoTipo: ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(externalType.toLowerCase()) ? 'pessoa_fisica' : 'empresa',
     lembreteDiarioAteAprovacao: Boolean(body.lembrete_diario_ate_aprovacao),
+    pontuacaoEscopo,
+    contaRanking: body.conta_ranking !== false,
   }
 }
 

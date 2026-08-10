@@ -42,6 +42,16 @@ describe('proteções de runtime FIX54', () => {
     expect(migrate).toContain("SET escopo = 'equipe'")
   })
 
+  it('expõe todas as equipes e perfis ativos ao Destrava sem atravessar organização', () => {
+    const integracoes = read('backend/src/routes/integracoes.ts')
+    expect(integracoes).toContain("router.post('/destrava/destinatarios'")
+    expect(integracoes).toContain('WHERE org_id = $1')
+    expect(integracoes).toContain('COALESCE(ativo, TRUE) = TRUE')
+    expect(integracoes).toContain('findActiveUserById(item.responsavel_id, orgId)')
+    expect(integracoes).toContain('nexus_pontuacao_escopo: body.pontuacaoEscopo')
+    expect(integracoes).not.toContain("role IN ('membro','sub_gestor')")
+  })
+
   it('cede o pool ao tráfego durante o arquivamento em lotes', () => {
     const notificacoes = read('backend/src/lib/notifHelper.ts')
     expect(notificacoes).toContain('pool.waitingCount > 0')
@@ -80,7 +90,7 @@ describe('proteções de runtime FIX54', () => {
     expect(nginx).toContain('location = /health/live')
     expect(nginx).toContain('location = /version')
     expect(nginx).toContain('proxy_buffering    off')
-    expect(dockerfile).toContain('fix64-recorrencia-checklist-por-item-20260810')
+    expect(dockerfile).toContain('fix65-destinatarios-ranking-destrava-20260810')
     expect(dockerfile).toContain('CMD ["/app/healthcheck.sh"]')
     expect(dockerfile).toContain('COPY backend-start.sh /app/backend-start.sh')
   })

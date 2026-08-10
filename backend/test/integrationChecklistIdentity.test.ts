@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeChecklistItems } from '../src/routes/integracoes'
+import { normalizeChecklistItems, normalizeIntegrationChecklistScore } from '../src/routes/integracoes'
 
 describe('checklist integrado — identidade por item', () => {
   it('preserva texto igual quando membro ou data são diferentes', () => {
@@ -30,5 +30,19 @@ describe('checklist integrado — identidade por item', () => {
     expect(result.map(item => item.recorrencia)).toEqual(['diaria', 'semanal', 'mensal', 'unica'])
     expect(result[1].recorrencia_dia_semana).toBe(1)
     expect(result[2].recorrencia_dia_mes).toBe(31)
+  })
+
+  it('preserva o ID canônico do responsável para validação na mesma organização', () => {
+    const result = normalizeChecklistItems([
+      { id: 'assigned', texto: 'Ação do gestor', responsavel_id: 'gestor-uuid' },
+    ])
+    expect(result[0].responsavel_id).toBe('gestor-uuid')
+  })
+
+  it('usa somente a escala oficial do ranking do Nexus', () => {
+    expect(normalizeIntegrationChecklistScore({ dificuldade: 'nivel_1', pontuacao: 20 })).toEqual({ dificuldade: 'nivel_1', pontuacao: 0 })
+    expect(normalizeIntegrationChecklistScore({ dificuldade: 'nivel_5' })).toEqual({ dificuldade: 'nivel_5', pontuacao: 20 })
+    expect(normalizeIntegrationChecklistScore({ pontuacao: 4 })).toEqual({ dificuldade: 'nivel_3', pontuacao: 3 })
+    expect(normalizeIntegrationChecklistScore({})).toBeNull()
   })
 })

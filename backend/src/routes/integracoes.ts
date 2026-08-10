@@ -63,6 +63,55 @@ export type IntegrationChecklistItem = {
   recorrencia_dia_mes?: number
 }
 
+type IntegrationChecklistDifficulty = 'nivel_1' | 'nivel_2' | 'nivel_3' | 'nivel_4' | 'nivel_5'
+
+const INTEGRATION_DIFFICULTY_POINTS: Record<IntegrationChecklistDifficulty, number> = {
+  nivel_1: 0,
+  nivel_2: 1,
+  nivel_3: 3,
+  nivel_4: 5,
+  nivel_5: 20,
+}
+
+const INTEGRATION_OFFICIAL_SCORES = [0, 1, 3, 5, 20] as const
+
+/**
+ * A integração usa exatamente a mesma escala oficial da tela de tarefas.
+ * Se um cliente antigo informar apenas pontos, convertemos para o valor
+ * oficial mais próximo. Valores arbitrários nunca entram no ranking.
+ */
+export function normalizeIntegrationChecklistScore(input: {
+  dificuldade?: unknown
+  pontuacao?: unknown
+}): { dificuldade: IntegrationChecklistDifficulty; pontuacao: number } | null {
+  const rawDifficulty = String(input.dificuldade || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s-]+/g, '_')
+  const aliases: Record<string, IntegrationChecklistDifficulty> = {
+    nivel_1: 'nivel_1', n1: 'nivel_1', iniciante: 'nivel_1', leve: 'nivel_1', basico: 'nivel_1',
+    nivel_2: 'nivel_2', n2: 'nivel_2', facil: 'nivel_2',
+    nivel_3: 'nivel_3', n3: 'nivel_3', medio: 'nivel_3', normal: 'nivel_3',
+    nivel_4: 'nivel_4', n4: 'nivel_4', dificil: 'nivel_4',
+    nivel_5: 'nivel_5', n5: 'nivel_5', hard: 'nivel_5', super_dificil: 'nivel_5', nivel_hard: 'nivel_5',
+  }
+
+  const hasDifficulty = Boolean(rawDifficulty)
+  const hasScore = input.pontuacao !== undefined && input.pontuacao !== null && String(input.pontuacao).trim() !== ''
+  if (!hasDifficulty && !hasScore) return null
+
+  const byDifficulty = aliases[rawDifficulty]
+  if (byDifficulty) return { dificuldade: byDifficulty, pontuacao: INTEGRATION_DIFFICULTY_POINTS[byDifficulty] }
+
+  const parsed = Number(typeof input.pontuacao === 'string' ? input.pontuacao.replace(',', '.') : input.pontuacao)
+  const bounded = Number.isFinite(parsed) ? Math.max(0, Math.min(20, parsed)) : 3
+  const official = INTEGRATION_OFFICIAL_SCORES.reduce(
+    (closest, candidate) => Math.abs(candidate - bounded) < Math.abs(closest - bounded) ? candidate : closest,
+    INTEGRATION_OFFICIAL_SCORES[0],
+  )
+  const difficulty = (Object.entries(INTEGRATION_DIFFICULTY_POINTS)
+    .find(([, points]) => points === official)?.[0] || 'nivel_3') as IntegrationChecklistDifficulty
+  return { dificuldade: difficulty, pontuacao: official }
+}
+
 export function normalizeChecklistItems(value: unknown): IntegrationChecklistItem[] {
   const raw = Array.isArray(value)
     ? value
@@ -85,6 +134,7 @@ export function normalizeChecklistItems(value: unknown): IntegrationChecklistIte
       const recorrencia = normalizeChecklistRecurrence(item?.recorrencia)
       const diaSemana = normalizeRecurrenceWeekday(item?.recorrencia_dia_semana)
       const diaMes = normalizeRecurrenceMonthday(item?.recorrencia_dia_mes)
+      const scoring = normalizeIntegrationChecklistScore(item || {})
       return {
         id: typeof item?.id === 'string' && item.id ? item.id : uuidv4(),
         texto: String(item?.texto || item?.label || item?.title || '').trim(),
@@ -92,8 +142,8 @@ export function normalizeChecklistItems(value: unknown): IntegrationChecklistIte
         ...(String(item?.descricao || '').trim() ? { descricao: String(item.descricao).trim() } : {}),
         ...(String(item?.data || item?.prazo || '').trim() ? { data: String(item.data || item.prazo).trim() } : {}),
         ...(String(item?.responsavel_email || '').trim() ? { responsavel_email: String(item.responsavel_email).trim().toLowerCase() } : {}),
-        ...(String(item?.dificuldade || '').trim() ? { dificuldade: String(item.dificuldade).trim() } : {}),
-        ...(Number.isFinite(Number(item?.pontuacao)) ? { pontuacao: Number(item.pontuacao) } : {}),
+        ...(String(item?.responsavel_id || '').trim() ? { responsavel_id: String(item.responsavel_id).trim() } : {}),
+        ...(scoring || {}),
         recorrencia,
         ...(recorrencia === 'semanal' && diaSemana !== undefined ? { recorrencia_dia_semana: diaSemana } : {}),
         ...(recorrencia === 'mensal' && diaMes !== undefined ? { recorrencia_dia_mes: diaMes } : {}),
@@ -143,6 +193,22 @@ export async function findActiveUserByEmail(email?: string | null, orgId?: strin
         ) = 1
       LIMIT 1`,
     [email.trim()]
+  )
+}
+
+export async function findActiveUserById(id?: string | null, orgId?: string | null): Promise<NexusUser | null> {
+  const normalizedId = String(id || '').trim()
+  if (!normalizedId || !orgId) return null
+  // Comparação por texto evita erro 500 do PostgreSQL caso um cliente antigo
+  // envie algo que não seja UUID. O vínculo com org_id e ativo é obrigatório.
+  return queryOne<NexusUser>(
+    `SELECT id, org_id, nome, email, role
+       FROM profiles
+      WHERE id::text = $1
+        AND org_id = $2
+        AND COALESCE(ativo, TRUE) = TRUE
+      LIMIT 1`,
+    [normalizedId, orgId],
   )
 }
 
@@ -558,6 +624,95 @@ router.get('/destrava/status', async (_req: Request, res: Response): Promise<voi
   res.json({ ok: true, sistema: 'nexus', integracao: 'destrava', timestamp: new Date().toISOString() })
 })
 
+/**
+ * Catálogo oficial de destinatários para o modal do Destrava.
+ *
+ * A chave da integração fica somente entre os backends. A organização é
+ * resolvida com as mesmas regras conservadoras usadas na criação da tarefa,
+ * e nenhuma equipe ou pessoa de outra organização pode ser retornada.
+ * Não há filtro por cargo: dev, admin, gestor, subgestor e membro ativos são
+ * selecionáveis, inclusive o próprio gestor.
+ */
+router.post('/destrava/destinatarios', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const creator = await resolveIntegrationUser(req.body || {})
+    if (!creator) {
+      res.status(400).json({
+        error: 'Não foi possível determinar com segurança a organização dos destinatários. Verifique o vínculo da empresa ou configure NEXUS_DESTRAVA_ORG_ID.',
+      })
+      return
+    }
+
+    const orgId = creator.org_id
+    const [members, teams, links] = await Promise.all([
+      query<any>(
+        `SELECT id, nome, email, role, cargo
+           FROM profiles
+          WHERE org_id = $1
+            AND COALESCE(ativo, TRUE) = TRUE
+          ORDER BY CASE role
+            WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3
+            WHEN 'sub_gestor' THEN 4 ELSE 5 END,
+            lower(nome), lower(email)`,
+        [orgId],
+      ),
+      query<any>(
+        `SELECT id, nome, descricao
+           FROM equipes
+          WHERE org_id = $1
+          ORDER BY lower(nome), id`,
+        [orgId],
+      ),
+      query<any>(
+        `SELECT em.equipe_id, COALESCE(em.user_id, em.profile_id) AS membro_id
+           FROM equipes_membros em
+           JOIN equipes e ON e.id = em.equipe_id AND e.org_id = $1
+           JOIN profiles p
+             ON p.id = COALESCE(em.user_id, em.profile_id)
+            AND p.org_id = e.org_id
+            AND COALESCE(p.ativo, TRUE) = TRUE
+          WHERE COALESCE(em.ativo, TRUE) = TRUE`,
+        [orgId],
+      ).catch(() => []),
+    ])
+
+    const teamIdsByMember = new Map<string, string[]>()
+    const memberIdsByTeam = new Map<string, string[]>()
+    for (const link of links) {
+      const memberId = String(link.membro_id || '')
+      const teamId = String(link.equipe_id || '')
+      if (!memberId || !teamId) continue
+      teamIdsByMember.set(memberId, [...(teamIdsByMember.get(memberId) || []), teamId])
+      memberIdsByTeam.set(teamId, [...(memberIdsByTeam.get(teamId) || []), memberId])
+    }
+
+    res.json({
+      membros: members.map(member => ({
+        id: member.id,
+        nome: member.nome,
+        email: member.email,
+        role: member.role,
+        cargo: member.cargo || null,
+        equipe_ids: teamIdsByMember.get(String(member.id)) || [],
+      })),
+      equipes: teams.map(team => ({
+        id: team.id,
+        nome: team.nome,
+        descricao: team.descricao || null,
+        membro_ids: memberIdsByTeam.get(String(team.id)) || [],
+      })),
+      total_membros: members.length,
+      total_equipes: teams.length,
+      // Serve somente como sugestão visual. A escolha explícita do item
+      // continua prevalecendo e é revalidada no POST da tarefa.
+      responsavel_sugerido_id: members.some(member => member.id === creator.id) ? creator.id : null,
+    })
+  } catch (err) {
+    console.error('[INTEGRACOES] Erro ao listar destinatários para o Destrava:', err)
+    res.status(500).json({ error: 'Erro ao carregar equipes e membros do Nexus.' })
+  }
+})
+
 // ── Workflow 2 (Acompanhamento Bancário): leitura/escrita direta de UMA tarefa ──
 // Usadas pela tela de acompanhamento bancário do Destrava para renderizar e
 // atualizar, em tempo real, a tarefa que vive no Nexus (system of record) --
@@ -759,14 +914,19 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
         : item,
     )
     for (const item of checklist) {
-      if (!item.responsavel_email) continue
-      const owner = await findActiveUserByEmail(item.responsavel_email, orgId)
+      if (!item.responsavel_id && !item.responsavel_email) continue
+      const owner = item.responsavel_id
+        ? await findActiveUserById(item.responsavel_id, orgId)
+        : await findActiveUserByEmail(item.responsavel_email, orgId)
       if (!owner) {
-        res.status(400).json({ error: `Responsável do checklist não encontrado no Nexus: ${item.responsavel_email}.` })
+        res.status(400).json({ error: 'Responsável do checklist não encontrado, inativo ou pertencente a outra organização.' })
         return
       }
       item.responsavel_id = owner.id
       item.responsavel_nome = owner.nome
+      // O e-mail foi útil apenas para compatibilidade e resolução. O JSON
+      // persistido usa o ID canônico do Nexus como fonte de verdade.
+      delete item.responsavel_email
     }
     const metadata = {
       ...body.metadata,
@@ -783,6 +943,8 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
       destrava_colaborador_nome: body.criadoPorNome,
       destrava_colaborador_email: body.criadoPorEmail,
       cnpj: body.cnpj,
+      nexus_pontuacao_escopo: body.pontuacaoEscopo,
+      pontuacao_escopo: body.pontuacaoEscopo,
     }
     const sourceUrl = body.sourceUrl
     const externalKey = buildDestravaTaskExternalKey({ ...body, externalType })
@@ -805,8 +967,9 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
         `INSERT INTO tarefas
            (org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, data, prazo, prioridade,
             checklist, obs, status, status_gestor, origem_sistema, origem_tipo, origem_id, origem_nome, origem_url,
-            origem_payload, external_key, escopo, modo_distribuicao, contexto_tipo, lembrete_diario_ate_aprovacao)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal',$18,$19)
+            origem_payload, external_key, escopo, modo_distribuicao, contexto_tipo, lembrete_diario_ate_aprovacao,
+            conta_ranking)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pendente','aguardando','destrava',$12,$13,$14,$15,$16,$17,'equipe','normal',$18,$19,$20)
          ON CONFLICT (org_id, external_key) WHERE external_key IS NOT NULL DO NOTHING
          RETURNING *`,
         [
@@ -829,6 +992,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
           externalKey,
           body.contextoTipo,
           false,
+          body.contaRanking,
         ]
       )
 
