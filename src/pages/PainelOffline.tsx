@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle, ArrowLeft, Building2, CalendarDays, Check, CheckCircle2,
-  ChevronDown, Download, HardDrive, ListChecks, RefreshCw, Search,
-  ShieldCheck, UserRound, Wifi, WifiOff,
+  ChevronDown, Clock3, Download, Eye, HardDrive, LayoutDashboard, ListChecks,
+  MonitorDown, RefreshCw, Search, ShieldCheck, StickyNote, UserRound, Wifi, WifiOff,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { tarefasApi, type ChecklistItem, type Tarefa } from '../lib/api'
@@ -70,6 +70,14 @@ function priorityRank(priority: Tarefa['prioridade']) {
   return priority === 'alta' ? 0 : priority === 'media' ? 1 : 2
 }
 
+function taskStatusLabel(task: Tarefa) {
+  if (task.status === 'concluida' && task.status_gestor !== 'aprovada') return 'Aguardando aprovação'
+  if (task.status === 'em_progresso') return 'Em execução'
+  if (task.status === 'devolvida') return 'Devolvida'
+  if (task.status === 'nao_concluida') return 'Não concluída'
+  return 'Pendente'
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -93,8 +101,10 @@ export default function PainelOffline() {
   const [query, setQuery] = useState('')
   const [view, setView] = useState<PanelView>('hoje')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [clock, setClock] = useState(() => new Date())
 
   const today = localDateKey()
+  const isManager = Boolean(user && ['dev', 'admin', 'gestor', 'sub_gestor'].includes(user.role))
   const openTasks = useMemo(() => tasks.filter(task => !isClosed(task)), [tasks])
   const summary = useMemo(() => {
     const actions = openTasks.flatMap(task => task.checklist || [])
@@ -103,8 +113,14 @@ export default function PainelOffline() {
       recurringActions: actions.filter(item => normalizeChecklistRecurrence(item.recorrencia) !== 'unica').length,
       pendingActions: actions.filter(item => !item.feito).length,
       completedActions: actions.filter(item => item.feito).length,
+      awaitingApproval: openTasks.filter(task => task.status === 'concluida' && task.status_gestor !== 'aprovada').length,
     }
   }, [openTasks, today])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(new Date()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const visibleTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR')
@@ -257,12 +273,12 @@ export default function PainelOffline() {
       }).join('')
       return `<section><header><div><small>${escapeHtml(task.origem_nome || 'Nexus')}</small><h2>${escapeHtml(task.titulo)}</h2><p>${escapeHtml(task.responsavel_nome || 'Equipe')} · ${progress.done}/${progress.total} concluídas</p></div><b>${progress.percent}%</b></header><ul>${items || '<li>Lista sem checklist.</li>'}</ul></section>`
     }).join('')
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Carga Nexus ${today}</title><style>body{font-family:Inter,Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0;padding:32px}main{max-width:980px;margin:auto}h1{margin:0 0 4px}p{color:#64748b}section{background:#fff;border:1px solid #dfe7f1;border-radius:16px;padding:20px;margin:14px 0;break-inside:avoid}header{display:flex;justify-content:space-between;gap:20px}header small{color:#2563eb;font-weight:700;text-transform:uppercase}h2{margin:5px 0;font-size:18px}ul{list-style:none;padding:0;margin:16px 0 0}li{display:flex;gap:10px;border-top:1px solid #edf2f7;padding:12px 0}.box{width:20px;height:20px;border:2px solid #94a3b8;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:none}.done{opacity:.55}.done strong{text-decoration:line-through}li small{display:block;color:#64748b;margin-top:3px}@media print{body{background:#fff;padding:0}}</style></head><body><main><h1>Carga operacional Nexus</h1><p>${escapeHtml(owner?.nome)} · exportada em ${escapeHtml(new Date().toLocaleString('pt-BR'))}</p>${taskHtml || '<section>Nenhuma lista neste filtro.</section>'}</main></body></html>`
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Minha área de trabalho ${today}</title><style>body{font-family:Inter,Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0;padding:32px}main{max-width:980px;margin:auto}h1{margin:0 0 4px}p{color:#64748b}section{background:#fff;border:1px solid #dfe7f1;border-radius:16px;padding:20px;margin:14px 0;break-inside:avoid}header{display:flex;justify-content:space-between;gap:20px}header small{color:#2563eb;font-weight:700;text-transform:uppercase}h2{margin:5px 0;font-size:18px}ul{list-style:none;padding:0;margin:16px 0 0}li{display:flex;gap:10px;border-top:1px solid #edf2f7;padding:12px 0}.box{width:20px;height:20px;border:2px solid #94a3b8;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:none}.done{opacity:.55}.done strong{text-decoration:line-through}li small{display:block;color:#64748b;margin-top:3px}@media print{body{background:#fff;padding:0}}</style></head><body><main><h1>Minha área de trabalho</h1><p>${escapeHtml(owner?.nome)} · exportada em ${escapeHtml(new Date().toLocaleString('pt-BR'))}</p>${taskHtml || '<section>Nenhuma lista neste filtro.</section>'}</main></body></html>`
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `nexus-carga-operacional-${today}.html`
+    anchor.download = `minha-area-de-trabalho-nexus-${today}.html`
     anchor.click()
     URL.revokeObjectURL(url)
   }
@@ -272,48 +288,54 @@ export default function PainelOffline() {
   }
 
   return (
-    <main className="offline-shell">
-      <section className="offline-hero">
-        <div className="offline-hero-topline">
+    <main className="offline-shell" data-workspace-role={isManager ? 'manager' : 'member'}>
+      <section className="offline-desk-header">
+        <div className="offline-desk-topline">
           <button className="offline-back" type="button" onClick={() => navigate('/tarefas')}><ArrowLeft size={16} /> Voltar às tarefas</button>
           <div className={online ? 'offline-connection is-online' : 'offline-connection is-offline'}>
             {online ? <Wifi size={15} /> : <WifiOff size={15} />}{online ? 'Conectado' : 'Modo offline'}
           </div>
         </div>
-        <div className="offline-hero-content">
-          <div className="offline-title-block">
-            <span className="offline-eyebrow"><ShieldCheck size={15} /> CONTINUIDADE OPERACIONAL</span>
-            <h1>Seu trabalho continua, mesmo sem internet.</h1>
-            <p>Carga protegida de <strong>{owner.nome}</strong>. Execute as ações normalmente; o Nexus envia tudo quando a conexão voltar.</p>
+        <div className="offline-desk-main">
+          <div className="offline-desk-title">
+            <span className="offline-eyebrow"><LayoutDashboard size={15} /> NEXUS WORKSPACE</span>
+            <h1>Minha área de trabalho</h1>
+            <p><strong>{owner.nome}</strong><span />{isManager ? 'Visão da equipe e aprovações' : 'Tarefas, prazos e anotações do dia'}</p>
           </div>
-          <div className="offline-hero-actions">
-            <button className="offline-action secondary" type="button" onClick={exportLoad}><Download size={17} /> Baixar carga</button>
+          <div className="offline-clock" aria-label="Data e hora atuais">
+            <span><Clock3 size={18} /> Agora</span>
+            <strong>{clock.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>
+            <small>{clock.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}</small>
+          </div>
+        </div>
+        <div className="offline-desk-actions">
+            <button className="offline-action secondary" type="button" onClick={exportLoad}><Download size={17} /> Exportar meu quadro</button>
             {installPrompt && (
-              <button className="offline-action secondary" type="button" onClick={async () => { await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null) }}><HardDrive size={17} /> Instalar no PC</button>
+              <button className="offline-action secondary" type="button" onClick={async () => { await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null) }}><MonitorDown size={17} /> Usar offline no PC</button>
             )}
+            {!installPrompt && <span className="offline-ready"><HardDrive size={16} /> Disponível neste navegador</span>}
             <button className="offline-action primary" type="button" onClick={() => void refreshFromServer()} disabled={!online || loading}><RefreshCw size={17} className={loading ? 'offline-spin' : ''} /> {loading ? 'Sincronizando…' : 'Sincronizar agora'}</button>
-          </div>
         </div>
       </section>
 
       <section className={pending ? 'offline-sync-status has-pending' : 'offline-sync-status'} aria-live="polite">
         <div className="offline-sync-icon">{pending ? <AlertTriangle size={19} /> : <ShieldCheck size={19} />}</div>
         <div>
-          <strong>{pending ? `${pending} alteração(ões) protegida(s), aguardando envio` : 'Carga local segura e sincronizada'}</strong>
+          <strong>{pending ? `${pending} alteração(ões) aguardando sincronização` : 'Área de trabalho sincronizada'}</strong>
           <span>{savedAt ? `Atualizada em ${new Date(savedAt).toLocaleString('pt-BR')}.` : 'Faça a primeira sincronização enquanto estiver conectado.'} {message}</span>
         </div>
       </section>
 
-      <section className="offline-metrics" aria-label="Resumo da carga">
-        <div className="offline-metric blue"><span><CalendarDays size={19} /></span><div><strong>{summary.today}</strong><small>Listas para agora</small></div></div>
-        <div className="offline-metric violet"><span><RefreshCw size={19} /></span><div><strong>{summary.recurringActions}</strong><small>Ações recorrentes</small></div></div>
-        <div className="offline-metric amber"><span><ListChecks size={19} /></span><div><strong>{summary.pendingActions}</strong><small>Ações pendentes</small></div></div>
-        <div className="offline-metric green"><span><CheckCircle2 size={19} /></span><div><strong>{summary.completedActions}</strong><small>Ações concluídas</small></div></div>
+      <section className="offline-desk-notes" aria-label="Resumo do trabalho">
+        <article className="offline-note note-yellow"><span><StickyNote size={20} /></span><div><small>Foco de hoje</small><strong>{summary.today}</strong><p>listas para acompanhar agora</p></div></article>
+        <article className="offline-note note-blue"><span><RefreshCw size={20} /></span><div><small>Rotina</small><strong>{summary.recurringActions}</strong><p>ações recorrentes ativas</p></div></article>
+        <article className="offline-note note-rose"><span><ListChecks size={20} /></span><div><small>Pendências</small><strong>{summary.pendingActions}</strong><p>ações ainda em aberto</p></div></article>
+        <article className="offline-note note-green"><span><CheckCircle2 size={20} /></span><div><small>{isManager ? 'Para aprovar' : 'Concluídas'}</small><strong>{isManager ? summary.awaitingApproval : summary.completedActions}</strong><p>{isManager ? 'listas aguardando revisão' : 'ações executadas'}</p></div></article>
       </section>
 
       <section className="offline-workspace">
         <header className="offline-workspace-head">
-          <div><span className="offline-section-kicker">CARGA OPERACIONAL</span><h2>Listas disponíveis neste dispositivo</h2></div>
+          <div className="offline-workspace-title"><span><LayoutDashboard size={19} /></span><div><small>{isManager ? 'ACOMPANHAMENTO DA EQUIPE' : 'ORGANIZAÇÃO PESSOAL'}</small><h2>{isManager ? 'Quadro de execução e aprovação' : 'Meu quadro de tarefas'}</h2></div></div>
           <div className="offline-view-tabs" role="tablist" aria-label="Filtrar listas">
             <button type="button" className={view === 'hoje' ? 'active' : ''} onClick={() => setView('hoje')}>Agora <b>{summary.today}</b></button>
             <button type="button" className={view === 'recorrentes' ? 'active' : ''} onClick={() => setView('recorrentes')}>Recorrentes <b>{summary.recurringActions}</b></button>
@@ -338,16 +360,18 @@ export default function PainelOffline() {
               const isExpanded = expanded.has(task.id)
               const isPf = task.contexto_tipo === 'pessoa_fisica'
               const awaitingApproval = task.status === 'concluida'
+              const assignedToManager = task.responsavel_id === user?.id || (task.checklist || []).some(item => item.responsavel_id === user?.id)
+              const managerTrackingOnly = isManager && !assignedToManager
               return (
-                <article className={isExpanded ? 'offline-task is-expanded' : 'offline-task'} key={task.id}>
+                <article className={`offline-task priority-${task.prioridade || 'media'}${isExpanded ? ' is-expanded' : ''}`} key={task.id}>
                   <div className="offline-task-main">
                     <button className="offline-task-toggle" type="button" onClick={() => toggleExpanded(task.id)} aria-expanded={isExpanded}>
                       <span className="offline-entity-icon">{isPf ? <UserRound size={19} /> : <Building2 size={19} />}</span>
                       <span className="offline-task-copy">
-                        <span className="offline-entity-name">{task.origem_nome || (task.contexto_tipo === 'pessoal' ? 'Pessoal' : task.contexto_tipo === 'escritorio' ? 'Escritório' : 'Nexus')}</span>
+                        <span className="offline-task-overline"><span className="offline-entity-name">{task.origem_nome || (task.contexto_tipo === 'pessoal' ? 'Pessoal' : task.contexto_tipo === 'escritorio' ? 'Escritório' : 'Nexus')}</span><span className={`offline-task-status status-${task.status}`}>{taskStatusLabel(task)}</span></span>
                         <strong>{task.titulo}</strong>
                         <span className="offline-task-meta">
-                          <em>{task.responsavel_nome || 'Equipe'}</em>
+                          <em><UserRound size={13} /> {task.responsavel_nome || 'Equipe'}</em>
                           {task.prazo && <em><CalendarDays size={13} /> Prazo {formatDate(task.prazo)}</em>}
                           {(task.lembrete_diario_ate_aprovacao || hasRecurringChecklistItem(task.checklist)) && <em className="daily"><RefreshCw size={12} /> Recorrência por ação</em>}
                         </span>
@@ -356,10 +380,17 @@ export default function PainelOffline() {
                       <ChevronDown className="offline-chevron" size={19} />
                     </button>
                     <div className="offline-progress-track"><span style={{ width: `${progress.percent}%` }} /></div>
-                    <button className={awaitingApproval ? 'offline-finish awaiting' : 'offline-finish'} type="button" onClick={() => void finishTask(task)} disabled={awaitingApproval}>
-                      {awaitingApproval ? <ShieldCheck size={16} /> : <CheckCircle2 size={16} />}
-                      {awaitingApproval ? 'Aguardando aprovação' : 'Finalizar lista'}
-                    </button>
+                    {managerTrackingOnly ? (
+                      <button className={awaitingApproval ? 'offline-finish review' : 'offline-finish tracking'} type="button" onClick={() => navigate(`/tarefas?task=${encodeURIComponent(task.id)}`)} disabled={!online}>
+                        {awaitingApproval ? <ShieldCheck size={16} /> : <Eye size={16} />}
+                        {awaitingApproval ? 'Revisar e aprovar' : 'Ver andamento'}
+                      </button>
+                    ) : (
+                      <button className={awaitingApproval ? 'offline-finish awaiting' : 'offline-finish'} type="button" onClick={() => void finishTask(task)} disabled={awaitingApproval}>
+                        {awaitingApproval ? <ShieldCheck size={16} /> : <CheckCircle2 size={16} />}
+                        {awaitingApproval ? 'Aguardando aprovação' : 'Finalizar lista'}
+                      </button>
+                    )}
                   </div>
 
                   {isExpanded && (
@@ -385,7 +416,7 @@ export default function PainelOffline() {
                               {normalizeChecklistRecurrence(item.recorrencia) !== 'unica' && <span className="recurrence"><RefreshCw size={12} /> {checklistRecurrenceLabel(item)} · mesmo item</span>}
                             </div>
                           </div>
-                          <span className={item.feito ? 'offline-item-state done' : 'offline-item-state'}>{item.feito ? 'Concluída' : 'Pendente'}</span>
+                          <span className={item.feito ? 'offline-item-state done' : item.aprovacao_status === 'devolvida' ? 'offline-item-state returned' : 'offline-item-state'}>{item.feito ? (item.aprovacao_status === 'aprovada' ? 'Aprovada' : 'Concluída') : item.aprovacao_status === 'devolvida' ? 'Devolvida' : 'Pendente'}</span>
                         </div>
                       ))}
                     </div>
