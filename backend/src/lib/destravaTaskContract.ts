@@ -47,17 +47,27 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
   const contexto = objectValue(body.contexto)
   const metadataOriginal = objectValue(body.metadata)
 
+  // Todos os emissores (tela do Nexus, webhook atual e versões anteriores do
+  // Destrava) terminam no mesmo modelo canônico. Os fallbacks abaixo não
+  // mudam a precedência do contrato plano; apenas promovem campos que versões
+  // antigas enviavam dentro de `tarefa`/`contexto`.
+  const checklistOriginal = body.checklist
+    ?? tarefa.checklist
+    ?? tarefa.subtarefas
+    ?? tarefa.itens
+    ?? tarefa.acoes
+
   const prioridadeRaw = text(body.prioridade || tarefa.prioridade).toLowerCase()
   const prioridade = ['baixa', 'media', 'alta'].includes(prioridadeRaw)
     ? prioridadeRaw as DestravaTaskInput['prioridade']
     : 'media'
   const acaoRecomendada = text(tarefa.acao_recomendada || metadataOriginal.acao_recomendada)
-  const checklist = body.checklist ?? (acaoRecomendada ? [{ texto: acaoRecomendada, feito: false }] : [])
+  const checklist = checklistOriginal ?? (acaoRecomendada ? [{ texto: acaoRecomendada, feito: false }] : [])
   const idempotencyKey = text(body.idempotency_key || body.idempotencyKey) || null
   const pendenciaId = text(tarefa.id || metadataOriginal.pendencia_id)
   const moduloOrigem = text(tarefa.modulo_origem || metadataOriginal.modulo_origem)
-  const externalType = text(body.external_type) || 'empresa'
-  const pontuacaoEscopoRaw = text(body.pontuacao_escopo || body.pontuacao_tipo || metadataOriginal.nexus_pontuacao_escopo).toLowerCase()
+  const externalType = text(body.external_type || empresa.tipo || contexto.tipo) || 'empresa'
+  const pontuacaoEscopoRaw = text(body.pontuacao_escopo || body.pontuacao_tipo || tarefa.pontuacao_escopo || metadataOriginal.nexus_pontuacao_escopo).toLowerCase()
   const pontuacaoEscopo = ['subtarefa', 'subtarefas', 'checklist', 'checklists'].includes(pontuacaoEscopoRaw)
     ? 'subtarefas' as const
     : 'tarefa' as const
@@ -65,20 +75,20 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
   return {
     titulo: text(body.titulo || tarefa.titulo),
     descricao: text(body.descricao || tarefa.descricao) || null,
-    data: text(body.data) || null,
-    prazo: text(body.prazo || tarefa.prazo) || null,
+    data: text(body.data || tarefa.data) || null,
+    prazo: text(body.prazo || tarefa.prazo || tarefa.data_limite) || null,
     externalId: text(body.external_id || empresa.id),
     externalType,
     externalName: text(body.external_name || empresa.razao_social),
     prioridade,
     checklist,
-    observacao: text(body.obs) || null,
+    observacao: text(body.obs || body.observacao || tarefa.obs || tarefa.observacao) || null,
     sourceUrl: text(body.source_url || contexto.link_empresa || contexto.link_modulo) || null,
     idempotencyKey,
-    criadoPorEmail: text(body.criado_por_email) || null,
+    criadoPorEmail: text(body.criado_por_email || tarefa.criado_por_email) || null,
     criadoPorNome: text(body.criado_por_nome || body.destrava_colaborador_nome) || null,
     destravaColaboradorId: text(body.destrava_colaborador_id) || null,
-    responsavelEmail: text(body.responsavel_email) || null,
+    responsavelEmail: text(body.responsavel_email || tarefa.responsavel_email) || null,
     cnpj: text(body.cnpj || empresa.cnpj) || null,
     metadata: {
       ...metadataOriginal,
@@ -91,9 +101,9 @@ export function normalizeDestravaTaskInput(raw: unknown): DestravaTaskInput {
       origem_payload_legado: tarefa.titulo ? body : undefined,
     },
     contextoTipo: ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(externalType.toLowerCase()) ? 'pessoa_fisica' : 'empresa',
-    lembreteDiarioAteAprovacao: Boolean(body.lembrete_diario_ate_aprovacao),
+    lembreteDiarioAteAprovacao: Boolean(body.lembrete_diario_ate_aprovacao ?? tarefa.lembrete_diario_ate_aprovacao),
     pontuacaoEscopo,
-    contaRanking: body.conta_ranking !== false,
+    contaRanking: (body.conta_ranking ?? tarefa.conta_ranking) !== false,
   }
 }
 

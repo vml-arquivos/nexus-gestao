@@ -53,6 +53,37 @@ describe('contrato de tarefas Destrava/Nexus', () => {
     expect(input.metadata.contrato).toBe('destrava.nexus.tarefa.v1')
   })
 
+  it('promove todos os campos visuais aninhados para o modelo canônico do Nexus', () => {
+    const input = normalizeDestravaTaskInput({
+      empresa: { id: 'empresa-visual', razao_social: 'Empresa Visual', tipo: 'empresa' },
+      tarefa: {
+        titulo: 'Conferência completa',
+        descricao: 'Mesma descrição exibida no Nexus',
+        data: '2026-08-11',
+        data_limite: '2026-08-15',
+        prioridade: 'alta',
+        observacao: 'Observação integrada',
+        responsavel_email: 'membro@exemplo.com',
+        checklist: [{ texto: 'Primeira ação', data: '2026-08-12' }],
+        pontuacao_escopo: 'subtarefas',
+        conta_ranking: false,
+      },
+    })
+
+    expect(input).toMatchObject({
+      titulo: 'Conferência completa',
+      descricao: 'Mesma descrição exibida no Nexus',
+      data: '2026-08-11',
+      prazo: '2026-08-15',
+      prioridade: 'alta',
+      observacao: 'Observação integrada',
+      responsavelEmail: 'membro@exemplo.com',
+      pontuacaoEscopo: 'subtarefas',
+      contaRanking: false,
+    })
+    expect(input.checklist).toEqual([{ texto: 'Primeira ação', data: '2026-08-12' }])
+  })
+
   it('ativa ranking por item somente quando o contrato solicita subtarefas', () => {
     const manual = normalizeDestravaTaskInput({
       titulo: 'Lista pontuada',

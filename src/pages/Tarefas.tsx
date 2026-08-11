@@ -2493,10 +2493,12 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
         <span className="company-task-state" style={{ color: cfg.color, background: cfg.bg }}><Icon size={16} /></span>
         <div className="company-task-copy">
           <strong>{t.titulo}</strong>
+          {t.descricao && <p className="company-task-description">{t.descricao}</p>}
           <div>
             {responsaveis.length > 0 && <span><User size={11} /> {responsaveis.slice(0, 2).join(', ')}{responsaveis.length > 2 ? ` +${responsaveis.length - 2}` : ''}</span>}
             <span><Calendar size={11} /> {fmtDate(t.prazo) || 'Sem prazo geral'}</span>
             <span><CheckCircle2 size={11} /> {feitos}/{total} {total === 1 ? 'ação' : 'ações'}</span>
+            {t.created_at && <span>Criada {fmtDate(t.created_at)}</span>}
           </div>
         </div>
         <div className="company-task-badges">
