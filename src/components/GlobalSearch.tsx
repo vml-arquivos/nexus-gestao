@@ -53,6 +53,7 @@ function abrirCriacaoEm(navigate: ReturnType<typeof useNavigate>, rota: string) 
 }
 
 const ACOES_RAPIDAS: AcaoRapida[] = [
+  { id: 'meu-dia', titulo: 'Abrir Meu Dia', subtitulo: 'Prioridades, atrasos e próximas ações', executar: nav => nav('/meu-dia') },
   { id: 'nova-tarefa', titulo: 'Nova tarefa / lista', subtitulo: 'Abrir criação em Tarefas', executar: nav => abrirCriacaoEm(nav, '/tarefas') },
   { id: 'novo-lancamento', titulo: 'Novo lançamento financeiro', subtitulo: 'Abrir criação em Financeiro', executar: nav => abrirCriacaoEm(nav, '/financeiro') },
   { id: 'novo-contato', titulo: 'Novo contato/pessoa', subtitulo: 'Abrir criação em Pessoas', executar: nav => abrirCriacaoEm(nav, '/pessoas') },

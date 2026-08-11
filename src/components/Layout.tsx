@@ -5,7 +5,7 @@ import {
   BrainCircuit,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
   LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
-  CheckCircle, XCircle, AlertTriangle, Search,
+  CheckCircle, XCircle, AlertTriangle, Search, Target,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { GlobalSearch } from './GlobalSearch'
@@ -21,6 +21,7 @@ import { useVisualTexts, type VisualTextKey } from '../hooks/useVisualTexts'
 // ── Rotas de navegação ────────────────────────────────────────────────────────
 const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey; section: string }[] = [
   { path: '/',             icon: LayoutDashboard, labelKey: 'nav.home',         section: 'Principal' },
+  { path: '/meu-dia',      icon: Target,          labelKey: 'nav.myDay',        section: 'Principal' },
   { path: '/inteligencia', icon: BrainCircuit,    labelKey: 'nav.intelligence', section: 'Principal' },
   { path: '/tarefas',      icon: CheckCircle2,    labelKey: 'nav.tasks',        section: 'Trabalho' },
   { path: '/agenda',       icon: Calendar,        labelKey: 'nav.agenda',       section: 'Trabalho' },
@@ -180,7 +181,7 @@ export default function Layout() {
     if (!user) return false
     // Membro não vê equipe no bottom nav
     if (!isGestorLike(user.role) && (n.path === '/equipe' || n.path === '/equipes')) return false
-    return ['/', '/equipe', '/tarefas', '/agenda'].includes(n.path)
+    return ['/meu-dia', '/equipe', '/tarefas', '/agenda'].includes(n.path)
   }).map(item => {
     // Se membro, redireciona /tarefas para /minhas-tarefas
     const adjusted = !isGestorLike(user?.role) && item.path === '/tarefas'
