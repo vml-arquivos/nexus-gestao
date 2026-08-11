@@ -11017,3 +11017,128 @@ textarea.form-input,
   width: 100% !important;
   box-sizing: border-box !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NEXUS PREMIUM UI — linguagem visual compartilhada (somente CSS)
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --premium-navy: #102a56;
+  --premium-blue: #1769e0;
+  --premium-soft: rgba(23,105,224,.08);
+  --premium-surface: color-mix(in srgb, var(--bg2) 98%, #f8fbff 2%);
+  --premium-border: color-mix(in srgb, var(--border2) 72%, #cad7e7 28%);
+  --premium-shadow: 0 10px 30px rgba(20,43,79,.075);
+  --premium-shadow-hover: 0 15px 38px rgba(20,43,79,.115);
+}
+
+body {
+  letter-spacing: -.006em;
+  background: radial-gradient(circle at 86% -8%, rgba(96,165,250,.10), transparent 31%), var(--bg);
+}
+
+/* Hierarquia compacta, sem títulos desproporcionais. */
+.page-header, .tarefas-page-header { min-height: 58px; margin-bottom: 14px; padding-block: 8px; }
+.page-title, .tarefas-page-title {
+  font-size: clamp(20px,2.1vw,27px) !important;
+  font-weight: 690 !important;
+  letter-spacing: -.035em !important;
+  line-height: 1.12 !important;
+}
+.page-subtitle, .tarefas-page-sub { margin-top: 4px !important; color: var(--text3) !important; font-size: 11.5px !important; line-height: 1.35 !important; }
+.section-label { font-size: 10px; letter-spacing: .09em; }
+
+/* Componentes compartilhados. */
+.btn { min-height: 34px; padding: 7px 12px; border-radius: 10px !important; font-size: 11.5px !important; font-weight: 680 !important; box-shadow: none; }
+.btn-primary {
+  border-color: var(--premium-navy) !important;
+  background: linear-gradient(135deg,var(--premium-navy),#174f9b) !important;
+  color: #fff !important;
+  box-shadow: 0 6px 15px rgba(16,42,86,.15) !important;
+}
+.btn-primary:hover:not(:disabled) { background: linear-gradient(135deg,#0c234a,var(--premium-blue)) !important; box-shadow: 0 9px 22px rgba(16,42,86,.21) !important; }
+.btn-secondary { border-color: var(--premium-border) !important; background: var(--premium-surface) !important; color: var(--text2) !important; }
+.btn-secondary:hover:not(:disabled), .btn-ghost:hover:not(:disabled) { border-color: rgba(23,105,224,.28) !important; background: var(--premium-soft) !important; color: var(--premium-blue) !important; }
+.form-input, .form-select, input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  border-color: var(--premium-border) !important;
+  border-radius: 11px !important;
+  background: color-mix(in srgb,var(--bg2) 96%,#f5f8fc 4%) !important;
+  font-size: 12px !important;
+}
+.form-input:focus, .form-select:focus, input:focus, select:focus, textarea:focus { border-color: rgba(23,105,224,.55) !important; box-shadow: 0 0 0 3px rgba(23,105,224,.09) !important; }
+.card, .nexus-card { border-color: var(--premium-border); border-radius: 16px; background: var(--premium-surface); box-shadow: 0 5px 18px rgba(20,43,79,.045); }
+.card:hover, .nexus-card:hover { border-color: rgba(23,105,224,.22); box-shadow: var(--premium-shadow); }
+
+/* Modais uniformes e discretos. */
+.modal-overlay, .modal-backdrop { background: rgba(7,20,43,.48) !important; backdrop-filter: blur(5px); }
+.modal-box, .modal-card, .sheet { border: 1px solid rgba(190,205,224,.9) !important; border-radius: 20px !important; background: var(--bg2) !important; box-shadow: 0 28px 85px rgba(5,23,52,.22) !important; }
+.modal-header { min-height: 50px; margin-bottom: 14px !important; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.modal-title, .modal-card h2, .modal-box h2, .sheet-title { font-size: clamp(16px,1.7vw,20px) !important; font-weight: 690 !important; letter-spacing: -.025em !important; }
+.modal-close { border-radius: 10px !important; }
+
+/* Tarefas: mesma identidade e densidade do workspace premium. */
+.tarefas-page-shell { max-width: 1500px; margin: 0 auto; }
+.tarefas-page-header { padding: 4px 2px 10px !important; border-bottom: 1px solid color-mix(in srgb,var(--border) 72%,transparent); }
+.tarefas-page-header > div:last-child { gap: 8px !important; }
+.task-smart-tabs { gap: 9px !important; margin-bottom: 13px !important; }
+.task-smart-tab {
+  min-height: 51px !important;
+  padding: 9px 12px !important;
+  border: 1px solid var(--premium-border) !important;
+  border-radius: 13px !important;
+  background: var(--premium-surface) !important;
+  box-shadow: 0 3px 12px rgba(20,43,79,.035);
+}
+.task-smart-tab:hover { border-color: rgba(23,105,224,.28) !important; box-shadow: 0 7px 18px rgba(20,43,79,.07); }
+.task-smart-tab.active { border-color: rgba(23,105,224,.45) !important; background: linear-gradient(145deg,rgba(23,105,224,.10),rgba(52,211,153,.07)) !important; box-shadow: inset 0 0 0 1px rgba(23,105,224,.06),0 7px 18px rgba(23,105,224,.07); }
+.task-smart-tab-main strong { font-size: 11.5px !important; font-weight: 690 !important; }
+.task-smart-tab-main em, .task-smart-tab-hint { font-size: 9.5px !important; color: var(--text3) !important; }
+.task-flow-tabs { gap: 7px !important; margin: 0 0 12px !important; padding: 0 !important; }
+.task-flow-tab { min-height: 36px !important; padding: 7px 12px !important; border: 1px solid var(--premium-border) !important; border-radius: 999px !important; background: var(--bg2) !important; box-shadow: none !important; }
+.task-flow-tab strong { font-size: 11px !important; font-weight: 650 !important; }
+.task-flow-tab.active { border-color: rgba(23,105,224,.38) !important; background: rgba(23,105,224,.08) !important; }
+.task-flow-tab.active strong { color: var(--premium-blue) !important; }
+.tarefas-search-row { gap: 8px !important; margin-bottom: 13px !important; padding: 7px !important; border: 1px solid var(--premium-border); border-radius: 14px; background: var(--bg2); box-shadow: 0 5px 18px rgba(20,43,79,.035); }
+.tarefas-search-input { height: 36px !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
+.tarefas-view-toggle { height: 36px !important; border-color: var(--premium-border) !important; border-radius: 10px !important; }
+.tarefas-view-toggle button { padding-inline: 13px !important; font-size: 11px !important; }
+.tarefas-view-toggle button.active { background: var(--premium-navy) !important; color: #fff !important; }
+
+.task-report-list { gap: 9px !important; }
+.task-report-row { min-height: 79px; padding: 11px 13px !important; border: 1px solid var(--premium-border) !important; border-radius: 15px !important; background: var(--premium-surface) !important; box-shadow: 0 4px 16px rgba(20,43,79,.04); }
+.task-report-row:hover { border-color: rgba(23,105,224,.30) !important; background: var(--bg2) !important; box-shadow: var(--premium-shadow-hover) !important; }
+.task-report-title { font-size: 12.5px !important; font-weight: 690 !important; }
+.task-report-meta { margin-top: 4px !important; color: var(--text3) !important; font-size: 10.5px !important; }
+.task-report-team-line { margin-top: 3px !important; color: var(--text3) !important; font-size: 10px !important; }
+.task-report-status span, .task-report-priority span { min-height: 24px; padding: 4px 9px !important; font-size: 10px !important; }
+.task-report-progress strong { font-size: 10.5px !important; }
+.task-report-actions .btn.task-action-btn, .task-report-actions .btn.task-action-icon { min-height: 29px !important; height: 29px !important; border-radius: 9px !important; font-size: 10.5px !important; }
+.task-company-row { border-left: 3px solid #6d4aff !important; background: linear-gradient(90deg,rgba(109,74,255,.035),var(--bg2) 26%) !important; }
+.task-company-open { background: linear-gradient(135deg,var(--premium-navy),#4230a4) !important; border-color: transparent !important; }
+
+.task-board { gap: 13px !important; }
+.task-board-column { padding: 10px !important; border: 1px solid var(--premium-border) !important; border-radius: 18px !important; background: color-mix(in srgb,var(--bg3) 82%,#e9f1fb 18%) !important; }
+.task-board-column-head { min-height: 39px !important; padding: 7px 6px 11px !important; font-size: 11.5px !important; }
+.task-board-card { border: 1px solid var(--premium-border) !important; border-radius: 14px !important; background: var(--bg2) !important; box-shadow: 0 4px 15px rgba(20,43,79,.055) !important; }
+.task-board-card:hover { border-color: rgba(23,105,224,.28) !important; box-shadow: var(--premium-shadow) !important; }
+.task-board-card-title { font-size: 12.5px !important; font-weight: 690 !important; line-height: 1.35 !important; }
+
+/* Tabelas e estados vazios. */
+table { border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--premium-border); border-radius: 14px; background: var(--bg2); }
+thead th { background: color-mix(in srgb,var(--bg3) 86%,#edf4fb 14%); color: var(--text2); font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+tbody td { border-color: var(--border) !important; font-size: 11.5px; }
+.empty-state, .tarefas-empty { border: 1px dashed var(--premium-border); border-radius: 16px; background: color-mix(in srgb,var(--bg2) 88%,#f4f8fc 12%); }
+
+@media (max-width:760px) {
+  .page-header, .tarefas-page-header { align-items: flex-start; min-height: auto; padding-block: 6px !important; }
+  .page-title, .tarefas-page-title { font-size: 20px !important; }
+  .tarefas-page-header > div:last-child { width: 100%; display: grid !important; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .tarefas-page-header > div:last-child .btn { width: 100%; }
+  .task-smart-tabs { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .tarefas-search-row { padding: 6px !important; }
+  .task-report-row { border-radius: 14px !important; }
+  .modal-box, .modal-card, .sheet { border-radius: 20px 20px 14px 14px !important; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .task-report-row, .task-board-card, .card, .btn { transform: none !important; transition-duration: .01ms !important; }
+}
