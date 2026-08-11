@@ -11140,6 +11140,22 @@ tbody td { border-color: var(--border) !important; font-size: 11.5px; }
   .modal-box, .modal-card, .sheet { border-radius: 20px 20px 14px 14px !important; }
 }
 
+/* FIX77 — conteúdo operacional copiável.
+   O checkbox continua sendo o único comando de execução; título, CNPJ,
+   descrição, executor e etapas aceitam seleção nativa com mouse, teclado ou
+   toque prolongado, sem alterar qualquer regra da tarefa. */
+.tarefa-modal-box .task-check-copyable,
+.tarefa-modal-box .task-check-copyable *:not(button):not(input):not(select):not(textarea) {
+  -webkit-user-select:text !important;
+  user-select:text !important;
+}
+.tarefa-modal-box .task-check-copyable { cursor:text; }
+.tarefa-modal-box .task-check-copyable::selection,
+.tarefa-modal-box .task-check-copyable *::selection {
+  color:var(--text);
+  background:rgba(59,130,246,.28);
+}
+
 @media (prefers-reduced-motion:reduce) {
   .task-report-row, .task-board-card, .card, .btn { transform: none !important; transition-duration: .01ms !important; }
 }

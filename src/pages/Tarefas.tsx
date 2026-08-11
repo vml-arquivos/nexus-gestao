@@ -3553,7 +3553,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                 </div>
                 <div style={{ borderTop: '1px solid var(--border)' }}>
                   {displayChecklist.map(item => (
-                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                    <div key={item.id} className="task-check-copyable" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                       <CheckCircle2 size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
                       <span style={{ flex: '1 1 0%', minWidth: 0, overflowWrap: 'anywhere' }}>{checklistDisplayText(item)}</span>
                       {!isPersonal && tarefa.conta_ranking !== false && <span style={{ flexShrink: 0, color: 'var(--text3)', fontSize: 12 }}>{(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} pt(s)</span>}
@@ -3621,7 +3621,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                           >
                             <span className="task-check-box" aria-hidden="true">{item.feito ? '✓' : ''}</span>
                           </button>
-                          <div style={{ position: 'static', minWidth: 0, maxWidth: '100%', flex: '1 1 0%', display: 'flex', flexDirection: 'column', gap: 3, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', boxSizing: 'border-box' }}>
+                          <div className="task-check-copyable" style={{ position: 'static', minWidth: 0, maxWidth: '100%', flex: '1 1 0%', display: 'flex', flexDirection: 'column', gap: 3, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', boxSizing: 'border-box' }}>
                             <span style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block', maxWidth: '100%', fontWeight: 600, textDecoration: item.feito ? 'line-through' : 'none', textDecorationColor: 'var(--success)' }}>{checklistDisplayText(item)}</span>
                             {(isSurpriseChecklistItem(item) || bloqueadoPorSequencia || itemEhLivre) && (
                               <span style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
