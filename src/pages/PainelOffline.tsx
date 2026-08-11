@@ -24,6 +24,7 @@ import {
   hasRecurringChecklistItem,
   normalizeChecklistRecurrence,
 } from '../lib/checklistRecurrence'
+import { buildOfflineWorkspaceHtml } from '../lib/exportOfflineWorkspace'
 
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 type PanelView = 'hoje' | 'recorrentes' | 'todas'
@@ -265,15 +266,7 @@ export default function PainelOffline() {
   }
 
   function exportLoad() {
-    const taskHtml = visibleTasks.map(task => {
-      const progress = taskProgress(task)
-      const items = (task.checklist || []).map(item => {
-        const recurrence = normalizeChecklistRecurrence(item.recorrencia) === 'unica' ? '' : `${checklistRecurrenceLabel(item)} · mesmo item`
-        return `<li class="${item.feito ? 'done' : ''}"><span class="box">${item.feito ? '✓' : ''}</span><div><strong>${escapeHtml(item.texto)}</strong><small>${escapeHtml([item.responsavel_nome, formatDate(item.data), recurrence].filter(Boolean).join(' · '))}</small></div></li>`
-      }).join('')
-      return `<section><header><div><small>${escapeHtml(task.origem_nome || 'Nexus')}</small><h2>${escapeHtml(task.titulo)}</h2><p>${escapeHtml(task.responsavel_nome || 'Equipe')} · ${progress.done}/${progress.total} concluídas</p></div><b>${progress.percent}%</b></header><ul>${items || '<li>Lista sem checklist.</li>'}</ul></section>`
-    }).join('')
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Minha área de trabalho ${today}</title><style>body{font-family:Inter,Arial,sans-serif;background:#f4f7fb;color:#14213d;margin:0;padding:32px}main{max-width:980px;margin:auto}h1{margin:0 0 4px}p{color:#64748b}section{background:#fff;border:1px solid #dfe7f1;border-radius:16px;padding:20px;margin:14px 0;break-inside:avoid}header{display:flex;justify-content:space-between;gap:20px}header small{color:#2563eb;font-weight:700;text-transform:uppercase}h2{margin:5px 0;font-size:18px}ul{list-style:none;padding:0;margin:16px 0 0}li{display:flex;gap:10px;border-top:1px solid #edf2f7;padding:12px 0}.box{width:20px;height:20px;border:2px solid #94a3b8;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;flex:none}.done{opacity:.55}.done strong{text-decoration:line-through}li small{display:block;color:#64748b;margin-top:3px}@media print{body{background:#fff;padding:0}}</style></head><body><main><h1>Minha área de trabalho</h1><p>${escapeHtml(owner?.nome)} · exportada em ${escapeHtml(new Date().toLocaleString('pt-BR'))}</p>${taskHtml || '<section>Nenhuma lista neste filtro.</section>'}</main></body></html>`
+    const html = buildOfflineWorkspaceHtml(visibleTasks, owner?.nome || 'Usuário Nexus', today)
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
