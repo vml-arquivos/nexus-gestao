@@ -712,25 +712,54 @@ function prioridadeCfg(prioridade?: string) {
 }
 
 let modalOpenCount = 0
+const modalStack: string[] = []
 
 function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const modalIdRef = useRef(`task-modal-${nanoid()}`)
+  const closeRequestedRef = useRef(false)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const requestClose = useCallback(() => {
+    if (closeRequestedRef.current) return
+    closeRequestedRef.current = true
+    onClose()
+  }, [onClose])
+
   useEffect(() => {
+    const modalId = modalIdRef.current
     modalOpenCount += 1
+    modalStack.push(modalId)
     document.documentElement.classList.add('modal-open')
     document.body.classList.add('modal-open')
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || modalStack[modalStack.length - 1] !== modalId) return
+      event.preventDefault()
+      event.stopPropagation()
+      requestClose()
+    }
+    document.addEventListener('keydown', handleKeyDown, true)
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus({ preventScroll: true }), 0)
 
     return () => {
+      window.clearTimeout(focusTimer)
+      document.removeEventListener('keydown', handleKeyDown, true)
+      const stackIndex = modalStack.lastIndexOf(modalId)
+      if (stackIndex >= 0) modalStack.splice(stackIndex, 1)
       modalOpenCount = Math.max(0, modalOpenCount - 1)
       if (modalOpenCount === 0) {
         document.documentElement.classList.remove('modal-open')
         document.body.classList.remove('modal-open')
       }
     }
-  }, [])
+  }, [requestClose])
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div
+      className="modal-overlay task-modal-overlay"
+      role="presentation"
+      onPointerDown={e => { if (e.target === e.currentTarget) requestClose() }}
+    >
       <div
+        id={modalIdRef.current}
         className="modal-box tarefa-modal-box"
         role="dialog"
         aria-modal="true"
@@ -739,7 +768,15 @@ function ModalBase({ title, children, onClose }: { title: string; children: Reac
       >
         <div className="modal-header">
           <div className="modal-title">{title}</div>
-          <button className="modal-close" onClick={onClose} type="button"><X size={18} /></button>
+          <button
+            ref={closeButtonRef}
+            className="modal-close task-modal-close"
+            onPointerDown={e => { e.preventDefault(); e.stopPropagation(); requestClose() }}
+            onClick={e => { e.preventDefault(); e.stopPropagation(); requestClose() }}
+            type="button"
+            aria-label={`Fechar ${title}`}
+            title="Fechar (Esc)"
+          ><X size={20} aria-hidden="true" /></button>
         </div>
         <div className="modal-content" data-scroll>
           {children}
@@ -5498,7 +5535,18 @@ export default function Tarefas() {
         </div>
       )}
 
-      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => { const idAtual = new URLSearchParams(location.search).get('task'); if (idAtual) idFechadoManualmenteRef.current = idAtual; setDetalhe(null); if (idAtual) navigate('/tarefas', { replace: true }) }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
+      {detalhe && <TarefaDetalheModal key={detalhe.id} tarefa={detalhe} membros={membros} isGestor={isGestor} userId={user?.id || ''} allTasks={tarefas} onClose={() => {
+        const params = new URLSearchParams(location.search)
+        const idAtual = params.get('task')
+        if (idAtual) idFechadoManualmenteRef.current = idAtual
+        setDetalhe(null)
+        if (idAtual) {
+          params.delete('task')
+          params.delete('help')
+          const query = params.toString()
+          navigate(`${location.pathname}${query ? `?${query}` : ''}`, { replace: true })
+        }
+      }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
       {complemento && <ComplementoModal key={complemento.id} tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal key={ajuda.id} tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
       {painelAjuda && <PainelAjudaModal key={painelAjuda.id} tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}

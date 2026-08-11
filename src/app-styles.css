@@ -11156,6 +11156,134 @@ tbody td { border-color: var(--border) !important; font-size: 11.5px; }
   background:rgba(59,130,246,.28);
 }
 
+/* FIX78 — contrato visual definitivo dos modais de tarefas.
+   Uma única rolagem interna, cabeçalho sempre acessível e controles com área
+   de toque compatível com desktop, tablet e celular. */
+.task-modal-overlay {
+  align-items:center !important;
+  justify-content:center !important;
+  padding:clamp(10px,2vw,24px) !important;
+  overflow:hidden !important;
+  overscroll-behavior:contain !important;
+}
+.task-modal-overlay > .tarefa-modal-box {
+  width:min(94vw,1080px) !important;
+  max-width:1080px !important;
+  height:min(92dvh,900px) !important;
+  max-height:min(92dvh,900px) !important;
+  margin:0 !important;
+  padding:0 !important;
+  display:flex !important;
+  flex-direction:column !important;
+  overflow:hidden !important;
+  border:1px solid color-mix(in srgb,var(--border) 86%,transparent) !important;
+  border-radius:22px !important;
+  box-shadow:0 28px 80px rgba(15,23,42,.28) !important;
+}
+.task-modal-overlay > .tarefa-modal-box::before { display:none !important; }
+.task-modal-overlay > .tarefa-modal-box > .modal-header {
+  position:relative !important;
+  inset:auto !important;
+  z-index:100 !important;
+  flex:0 0 auto !important;
+  min-height:72px !important;
+  margin:0 !important;
+  padding:14px 18px 14px 22px !important;
+  background:color-mix(in srgb,var(--bg2) 96%,transparent) !important;
+  border-bottom:1px solid var(--border) !important;
+  backdrop-filter:blur(14px) !important;
+}
+.task-modal-overlay > .tarefa-modal-box > .modal-header .modal-title {
+  min-width:0 !important;
+  font-size:clamp(18px,2vw,22px) !important;
+  line-height:1.25 !important;
+  overflow-wrap:anywhere !important;
+}
+.task-modal-overlay .task-modal-close {
+  position:relative !important;
+  z-index:110 !important;
+  width:46px !important;
+  min-width:46px !important;
+  height:46px !important;
+  min-height:46px !important;
+  padding:0 !important;
+  flex:0 0 46px !important;
+  border:1px solid var(--border) !important;
+  border-radius:13px !important;
+  background:var(--bg3) !important;
+  color:var(--text2) !important;
+  pointer-events:auto !important;
+  touch-action:manipulation !important;
+  cursor:pointer !important;
+}
+.task-modal-overlay .task-modal-close:hover,
+.task-modal-overlay .task-modal-close:focus-visible {
+  color:var(--text) !important;
+  background:var(--bg4) !important;
+  border-color:color-mix(in srgb,var(--primary) 40%,var(--border)) !important;
+  outline:3px solid color-mix(in srgb,var(--primary) 22%,transparent) !important;
+  outline-offset:2px !important;
+}
+.task-modal-overlay > .tarefa-modal-box > .modal-content {
+  position:relative !important;
+  z-index:1 !important;
+  flex:1 1 auto !important;
+  width:100% !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  height:auto !important;
+  max-height:none !important;
+  margin:0 !important;
+  padding:18px 22px max(92px,calc(24px + env(safe-area-inset-bottom))) !important;
+  overflow-x:hidden !important;
+  overflow-y:auto !important;
+  overscroll-behavior:contain !important;
+  scrollbar-gutter:stable !important;
+  scrollbar-width:thin !important;
+  scrollbar-color:color-mix(in srgb,var(--primary) 42%,var(--border2)) transparent !important;
+}
+.task-modal-overlay > .tarefa-modal-box > .modal-content::-webkit-scrollbar { width:9px; }
+.task-modal-overlay > .tarefa-modal-box > .modal-content::-webkit-scrollbar-track { background:transparent; }
+.task-modal-overlay > .tarefa-modal-box > .modal-content::-webkit-scrollbar-thumb {
+  border:2px solid transparent;
+  border-radius:999px;
+  background-clip:padding-box;
+  background-color:color-mix(in srgb,var(--primary) 42%,var(--border2));
+}
+
+@media (max-width:640px) {
+  .task-modal-overlay { padding:0 !important; align-items:stretch !important; }
+  .task-modal-overlay > .tarefa-modal-box {
+    width:100dvw !important;
+    max-width:100dvw !important;
+    height:100dvh !important;
+    max-height:100dvh !important;
+    border:0 !important;
+    border-radius:0 !important;
+  }
+  .task-modal-overlay > .tarefa-modal-box > .modal-header {
+    min-height:64px !important;
+    padding:calc(9px + env(safe-area-inset-top)) 10px 9px 14px !important;
+  }
+  .task-modal-overlay .task-modal-close {
+    width:44px !important;
+    min-width:44px !important;
+    height:44px !important;
+    min-height:44px !important;
+    flex-basis:44px !important;
+  }
+  .task-modal-overlay > .tarefa-modal-box > .modal-content {
+    padding:12px 10px max(118px,calc(28px + env(safe-area-inset-bottom))) !important;
+    scrollbar-gutter:auto !important;
+  }
+  .tarefa-modal-box .task-detail-hero-actions,
+  .tarefa-modal-box .task-detail-actions,
+  .tarefa-modal-box .modal-actions { display:grid !important; grid-template-columns:1fr !important; }
+  .tarefa-modal-box .task-detail-hero-actions .btn,
+  .tarefa-modal-box .task-detail-actions .btn,
+  .tarefa-modal-box .modal-actions .btn { width:100% !important; min-height:44px !important; }
+}
+
 @media (prefers-reduced-motion:reduce) {
   .task-report-row, .task-board-card, .card, .btn { transform: none !important; transition-duration: .01ms !important; }
 }
