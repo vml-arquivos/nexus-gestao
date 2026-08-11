@@ -9,12 +9,12 @@
 /* ── TOKENS COMPARTILHADOS ──────────────────────────────────────── */
 :root {
   /* Paleta de marca */
-  --primary:        #5b7cfa;
-  --primary-hover:  #4d6ee6;
-  --primary-light:  #93aeff;
-  --primary-dim:    rgba(91,124,250,0.12);
-  --primary-dim2:   rgba(91,124,250,0.06);
-  --primary-glow:  rgba(91,124,250,0.25);
+  --primary:        #2457e6;
+  --primary-hover:  #1d49c4;
+  --primary-light:  #75a4ff;
+  --primary-dim:    rgba(36,87,230,0.12);
+  --primary-dim2:   rgba(36,87,230,0.06);
+  --primary-glow:   rgba(36,87,230,0.25);
 
   /* Semântica */
   --secondary:      #38bdf8;
@@ -29,7 +29,7 @@
   --info-dim:       rgba(56,189,248,0.10);
 
   /* Gradientes */
-  --grad-primary: linear-gradient(135deg,#5b7cfa 0%,#38bdf8 100%);
+  --grad-primary: linear-gradient(135deg,#173778 0%,#2457e6 100%);
 
   /* Border radius */
   --radius-xs:   6px;

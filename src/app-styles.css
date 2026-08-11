@@ -11142,3 +11142,136 @@ tbody td { border-color: var(--border) !important; font-size: 11.5px; }
 @media (prefers-reduced-motion:reduce) {
   .task-report-row, .task-board-card, .card, .btn { transform: none !important; transition-duration: .01ms !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIX70 — identidade Nexus única em todas as páginas
+   Cabeçalhos azuis compactos + superfícies e densidade do workspace.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --premium-navy: #173778;
+  --premium-blue: #2457e6;
+  --premium-header: linear-gradient(125deg,#172b63 0%,#244596 56%,#2d64e5 100%);
+}
+
+[data-theme="light"] { --bg: #f2f5fa; --bg3: #edf2f8; }
+
+.main-content { background: radial-gradient(circle at 88% 0,rgba(76,130,235,.075),transparent 30%),var(--bg); }
+.page-scroll { scrollbar-gutter: stable; }
+.page-scroll > div { animation: premium-page-in .22s ease both; }
+@keyframes premium-page-in { from { opacity:.65; transform:translateY(3px) } to { opacity:1; transform:none } }
+
+/* Moldura da aplicação. */
+.sidebar { border-right: 1px solid #dce5f0 !important; box-shadow: 5px 0 24px rgba(20,43,79,.035); }
+.topbar { border-bottom: 1px solid #dce5f0 !important; box-shadow: 0 4px 16px rgba(20,43,79,.035); }
+.nav-item, .nexus-nav-item { border-radius: 10px !important; font-size: 12px !important; }
+.nav-item.active, .nexus-nav-item.active { color: var(--premium-blue) !important; background: rgba(36,87,230,.09) !important; box-shadow: inset 3px 0 var(--premium-blue); }
+
+/* Cabeçalho institucional comum: forte, compacto e sem letras gigantes. */
+.page-header,
+.tarefas-page-header,
+.dash-hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 88px !important;
+  margin-bottom: 14px !important;
+  padding: 17px 20px !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-radius: 20px !important;
+  color: #fff !important;
+  background: var(--premium-header) !important;
+  box-shadow: 0 14px 34px rgba(23,55,120,.15) !important;
+}
+.page-header::after,
+.tarefas-page-header::after,
+.dash-hero::after {
+  content: '';
+  position: absolute;
+  right: -42px;
+  bottom: -72px;
+  width: 180px;
+  height: 180px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.page-header h1,
+.page-header .page-title,
+.tarefas-page-title,
+.dash-hero h1 { position:relative; z-index:1; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:680 !important; letter-spacing:-.03em !important; }
+.page-header p,
+.page-header .page-subtitle,
+.tarefas-page-sub,
+.dash-hero p,
+.dash-eyebrow { position:relative; z-index:1; color:rgba(226,236,252,.78) !important; font-size:11.5px !important; }
+.page-header > *, .tarefas-page-header > *, .dash-hero > * { position:relative; z-index:1; }
+.page-header .btn-secondary,
+.tarefas-page-header .btn-secondary,
+.dash-hero .dash-secondary-action { color:#fff !important; border-color:rgba(255,255,255,.20) !important; background:rgba(255,255,255,.10) !important; }
+.page-header .btn-primary,
+.tarefas-page-header .btn-primary,
+.dash-hero .dash-primary-action { color:#173778 !important; border-color:#fff !important; background:#fff !important; box-shadow:0 7px 18px rgba(7,23,58,.18) !important; }
+
+/* Dashboard alinhado ao workspace, substituindo o roxo isolado. */
+.dash-board-page { width:min(100% - 34px,1500px) !important; padding-top:18px !important; }
+.dash-hero { align-items:center !important; }
+.dash-foco-dia {
+  border:1px solid rgba(36,87,230,.20) !important;
+  border-radius:18px !important;
+  background:linear-gradient(135deg,rgba(36,87,230,.085),rgba(56,189,248,.045)) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045);
+}
+.dash-foco-dia-header { color:var(--premium-blue) !important; }
+.dash-foco-item { border-color:var(--premium-border) !important; border-radius:13px !important; box-shadow:0 3px 11px rgba(20,43,79,.035); }
+.dash-metrics-grid { gap:13px !important; }
+.dash-metric-card,
+.dash-command-panel,
+.dash-workspace,
+.dash-calendar-panel,
+.dash-finance-panel,
+.dash-ranking-panel,
+.dash-summary-strip > div,
+.dash-finance-grid > div {
+  border:1px solid var(--premium-border) !important;
+  border-radius:17px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+.dash-metric-card { min-height:100px !important; padding:14px 16px !important; }
+.dash-metric-card svg { color:var(--premium-blue) !important; }
+.dash-metric-card strong { font-size:22px !important; font-weight:680 !important; }
+.dash-section-head h2 { font-size:15px !important; font-weight:680 !important; letter-spacing:-.02em; }
+.dash-kanban-col { border:1px solid var(--premium-border) !important; border-radius:16px !important; background:color-mix(in srgb,var(--bg3) 84%,#e7eef8 16%) !important; }
+
+/* Página de tarefas: composição única, não uma coleção de controles soltos. */
+.tarefas-page-shell { max-width:1500px !important; padding-top:18px !important; }
+.tarefas-page-header { align-items:center !important; }
+.tarefas-page-header > div:last-child { display:flex !important; align-items:center; }
+.task-smart-tabs { padding:3px !important; border-radius:16px; background:rgba(222,231,242,.58); }
+.task-smart-tab { box-shadow:none !important; }
+.task-smart-tab.active { color:var(--premium-blue) !important; border-color:rgba(36,87,230,.38) !important; background:#fff !important; box-shadow:0 6px 18px rgba(20,43,79,.075) !important; }
+.task-flow-tab.active { color:#fff !important; border-color:var(--premium-blue) !important; background:var(--premium-blue) !important; }
+.task-flow-tab.active strong { color:#fff !important; }
+.task-flow-tab.active .tab-count { color:var(--premium-blue) !important; background:#fff !important; }
+.tarefas-search-row { border-radius:16px !important; box-shadow:0 7px 22px rgba(20,43,79,.045) !important; }
+.tarefas-view-toggle button.active { background:var(--premium-blue) !important; }
+.task-report-row { min-height:76px !important; border-radius:16px !important; }
+.task-company-row { border-left-color:var(--premium-blue) !important; background:linear-gradient(90deg,rgba(36,87,230,.055),var(--bg2) 28%) !important; }
+.task-company-source,
+.task-destrava-badge { color:var(--premium-blue) !important; border-color:rgba(36,87,230,.18) !important; background:rgba(36,87,230,.08) !important; }
+.task-company-open { background:var(--premium-blue) !important; }
+
+/* Todas as demais páginas recebem superfícies, seções e formulários iguais. */
+.page-scroll > div:not(.dash-board-page):not(.tarefas-page-shell):not(.offline-shell) { width:min(100% - 32px,1500px) !important; margin-inline:auto !important; }
+.card-header, .section-header { border-bottom:1px solid var(--border) !important; }
+.card-title { font-size:14px !important; font-weight:680 !important; letter-spacing:-.015em; }
+.badge { font-size:9.5px !important; font-weight:720 !important; }
+.progress-fill, .task-progress-line span { background:linear-gradient(90deg,var(--premium-blue),#55a0f5) !important; }
+.modal-box::before, .modal-card::before { background:linear-gradient(90deg,var(--premium-navy),var(--premium-blue)) !important; }
+
+@media (max-width:760px) {
+  .dash-board-page,
+  .page-scroll > div:not(.dash-board-page):not(.tarefas-page-shell):not(.offline-shell) { width:100% !important; }
+  .page-header, .tarefas-page-header, .dash-hero { min-height:auto !important; margin-inline:0 !important; padding:15px !important; border-radius:16px !important; }
+  .tarefas-page-header > div:last-child { display:grid !important; }
+  .dash-hero { align-items:flex-start !important; }
+}
