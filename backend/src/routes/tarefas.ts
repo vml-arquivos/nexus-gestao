@@ -23,6 +23,7 @@ import {
   normalizeRecurrenceWeekday,
 } from "../lib/checklistRecurrence";
 import { resolveTaskListTitle, type TaskContextType } from "../lib/taskContextTitle";
+import { creatorCanEnableTaskRanking, removeChecklistScoringForMember } from "../lib/taskCreationPolicy";
 
 const router = Router();
 router.use(authMiddleware);
@@ -678,12 +679,9 @@ async function normalizeChecklistForOrg(
         new Error("Responsável do objetivo não encontrado."),
         { statusCode: 404 },
       );
-    if (role === "membro" && id !== userId) {
-      throw Object.assign(
-        new Error("Membro só pode atribuir objetivo para si mesmo."),
-        { statusCode: 403 },
-      );
-    }
+    // Qualquer membro pode solicitar uma entrega empresarial para outra
+    // pessoa ativa da mesma organização. A consulta acima continua sendo a
+    // barreira de isolamento entre organizações.
     if (
       role === "sub_gestor" &&
       id !== userId &&
@@ -2671,9 +2669,9 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     const modoFinal = role === "membro" ? "normal" : modoDistribuicao;
 
     if (role === "membro") {
-      // Membro continua criando tarefa pessoal normalmente, mas agora também pode
-      // solicitar uma tarefa para um gestor/admin/subgestor da própria organização.
-      // Isso não libera tarefa livre nem atribuição para outros membros.
+      // Membro continua criando tarefa pessoal normalmente e também pode
+      // solicitar tarefa empresarial para qualquer pessoa ativa da organização.
+      // Isso não libera lista livre nem concede pontuação ao solicitante.
       if (
         requestedEscopo === "equipe" &&
         responsavelId &&
@@ -2689,19 +2687,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         );
         if (!destino) {
           res.status(404).json({ error: "Responsável não encontrado." });
-          return;
-        }
-        if (
-          !["admin", "dev", "gestor", "sub_gestor"].includes(
-            String(destino.role || ""),
-          )
-        ) {
-          res
-            .status(403)
-            .json({
-              error:
-                "Membro só pode solicitar tarefa para gestor, subgestor, admin ou dev.",
-            });
           return;
         }
         escopo = "equipe";
@@ -2744,8 +2729,9 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         String(titulo || "").trim() ||
         (escopo === "equipe" ? "Tarefa da equipe" : "Tarefa pessoal"),
     });
+    const criadaPorGestor = creatorCanEnableTaskRanking(role);
     const contaRanking =
-      escopo === "equipe" && (req.body as any).conta_ranking !== false;
+      criadaPorGestor && escopo === "equipe" && (req.body as any).conta_ranking !== false;
     const responsavel = responsavelId
       ? await queryOne<{ nome: string }>(
           "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
@@ -2774,18 +2760,21 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
             recorrencia_dia_mes: recorrenciaItemLegada === "mensal" ? recorrenciaDiaMesRecebida ?? undefined : undefined,
           },
     );
-    const checklistNormalizado =
+    let checklistNormalizado =
       escopo === "equipe"
         ? await normalizeChecklistForOrg(checklistRecebido, orgId, userId, role)
         : await normalizePersonalChecklist(checklistRecebido, orgId, userId);
+    if (!criadaPorGestor) {
+      checklistNormalizado = JSON.stringify(removeChecklistScoringForMember(parseChecklistItems(checklistNormalizado)));
+    }
     const pontuacao =
-      escopo === "equipe" && pontuacaoIncluiTarefa(pontuacaoEscopo)
+      criadaPorGestor && escopo === "equipe" && pontuacaoIncluiTarefa(pontuacaoEscopo)
         ? normalizePositiveScore(pontuacaoManual, 3)
         : 0;
     const origemPayloadFinal = {
       ...parseOriginPayloadSafe(origem_payload),
       ...(escopo === "equipe"
-        ? { nexus_pontuacao_escopo: pontuacaoEscopo }
+        ? { nexus_pontuacao_escopo: criadaPorGestor ? pontuacaoEscopo : "tarefa", nexus_criada_por_gestor: criadaPorGestor }
         : {}),
       ...(escopo === "equipe" && tarefaSurpresa
         ? { nexus_tarefa_surpresa: true }

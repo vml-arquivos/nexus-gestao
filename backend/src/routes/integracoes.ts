@@ -14,6 +14,7 @@ import {
   normalizeRecurrenceWeekday,
 } from '../lib/checklistRecurrence'
 import { resolveTaskListTitle } from '../lib/taskContextTitle'
+import { creatorCanEnableTaskRanking, removeChecklistScoringForMember } from '../lib/taskCreationPolicy'
 
 const router = Router()
 
@@ -908,11 +909,13 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
     if (!responsavel || responsavel.org_id !== orgId) responsavel = creator
 
     const prioridade = VALID_PRIORIDADES.includes(body.prioridade) ? body.prioridade : 'media'
-    const checklist = normalizeChecklistItems(body.checklist).map(item =>
+    const criadaPorGestor = creatorCanEnableTaskRanking(creator.role)
+    let checklist = normalizeChecklistItems(body.checklist).map(item =>
       body.lembreteDiarioAteAprovacao && item.recorrencia === 'unica'
         ? { ...item, recorrencia: 'diaria' as const }
         : item,
     )
+    if (!criadaPorGestor) checklist = removeChecklistScoringForMember(checklist)
     for (const item of checklist) {
       if (!item.responsavel_id && !item.responsavel_email) continue
       const owner = item.responsavel_id
@@ -945,6 +948,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
       cnpj: body.cnpj,
       nexus_pontuacao_escopo: body.pontuacaoEscopo,
       pontuacao_escopo: body.pontuacaoEscopo,
+      nexus_criada_por_gestor: criadaPorGestor,
     }
     const sourceUrl = body.sourceUrl
     const externalKey = buildDestravaTaskExternalKey({ ...body, externalType })
@@ -992,7 +996,7 @@ router.post('/destrava/tarefas', async (req: Request, res: Response): Promise<vo
           externalKey,
           body.contextoTipo,
           false,
-          body.contaRanking,
+          criadaPorGestor && body.contaRanking,
         ]
       )
 

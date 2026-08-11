@@ -825,7 +825,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [loading, setLoading] = useState(false)
   const canMarkChecklistInEdit = !tarefa?.id || tarefa.responsavel_id === user?.id || (!tarefa.responsavel_id && tarefa.criado_por === user?.id)
   const responsaveisChecklist = assigneeOptions(membros, user || undefined)
-  const gestoresParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id && ['admin','dev','gestor','sub_gestor'].includes(String(m.role || '')))
+  const pessoasParaSolicitar = responsaveisChecklist.filter(m => m.id !== user?.id)
   const isMemberRequest = !isGestor && tipoTarefa === 'equipe' && !!responsavelId && responsavelId !== user?.id
 
   async function carregarCadastrosDestrava(tipo: 'empresa' | 'pessoa_fisica' = destravaTipo) {
@@ -1039,8 +1039,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreLote ? undefined : (novoItemResponsavelId || undefined)),
       responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreLote ? undefined : checklistResponsibleName(novoItemResponsavelId)),
       livre: executorLivreLote || undefined,
-      dificuldade: tipoTarefa === 'pessoal' ? 'nivel_1' : novoItemDificuldade,
-      pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
+      dificuldade: tipoTarefa === 'pessoal' || !isGestor ? 'nivel_1' : novoItemDificuldade,
+      pontuacao: tipoTarefa === 'pessoal' || !isGestor ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
       subtarefas: [],
       revelar_apos_assumir: tipoTarefa === 'pessoal' ? false : Boolean(tarefaSurpresa || novoItemSurpresa),
       criado_em: new Date().toISOString(),
@@ -1061,7 +1061,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   function addItem() {
     if (!novoItem.trim()) { toast('Informe o nome da tarefa.', 'error'); return }
     if (novoItemData && novoItemData < todayIso()) { toast('A data de uma nova tarefa não pode ser anterior a hoje.', 'error'); return }
-    if (tipoTarefa === 'equipe' && (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
+    if (isGestor && tipoTarefa === 'equipe' && (novoItemPontuacao === '' || Number.isNaN(Number(novoItemPontuacao)) || Number(novoItemPontuacao) < 0 || Number(novoItemPontuacao) > SCORE_MAX)) { toast(`Informe a pontuação da tarefa entre 0 e ${SCORE_MAX} pontos.`, 'error'); return }
     const executorLivreItem = tipoTarefa !== 'pessoal' && novoItemResponsavelId === '__livre__'
     setChecklist(prev => [...prev, {
       id: nanoid(),
@@ -1074,8 +1074,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreItem ? undefined : (novoItemResponsavelId || undefined)),
       responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreItem ? undefined : checklistResponsibleName(novoItemResponsavelId)),
       livre: executorLivreItem || undefined,
-      dificuldade: tipoTarefa === 'pessoal' ? 'nivel_1' : novoItemDificuldade,
-      pontuacao: tipoTarefa === 'pessoal' ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || 0))),
+      dificuldade: tipoTarefa === 'pessoal' || !isGestor ? 'nivel_1' : novoItemDificuldade,
+      pontuacao: tipoTarefa === 'pessoal' || !isGestor ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || 0))),
       subtarefas: [],
       revelar_apos_assumir: tipoTarefa === 'pessoal' ? false : Boolean(tarefaSurpresa || novoItemSurpresa),
       criado_em: new Date().toISOString(),
@@ -1115,7 +1115,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (!tarefa?.id && prazo && prazo < todayIso()) { toast('O prazo de uma lista nova não pode ser anterior a hoje.', 'error'); return }
     if (tipoTarefa === 'equipe' && checklist.length === 0) { toast('Adicione pelo menos uma tarefa na lista.', 'error'); return }
     if (!tarefa?.id && checklist.some(item => item.data && item.data.slice(0, 10) < todayIso())) { toast('Uma lista nova não pode conter tarefas com data anterior a hoje.', 'error'); return }
-    const exigePontosNasTarefas = tipoTarefa === 'equipe' && pontuacaoIncluiSubtarefas(pontuacaoEscopo)
+    const exigePontosNasTarefas = isGestor && tipoTarefa === 'equipe' && pontuacaoIncluiSubtarefas(pontuacaoEscopo)
     const invalidItem = checklist.find(item => !String(item.texto || '').trim() || (exigePontosNasTarefas && ((item as any).pontuacao === undefined || (item as any).pontuacao === null || Number.isNaN(Number((item as any).pontuacao)))))
     if (invalidItem) { toast(exigePontosNasTarefas ? 'Cada tarefa precisa ter nome e pontuação.' : 'Cada ação do checklist precisa ter nome.', 'error'); return }
     const invalidSubitem = checklist.some(item => Array.isArray((item as any).subtarefas) && (item as any).subtarefas.some((sub: any) => !String(sub?.texto || '').trim()))
@@ -1129,7 +1129,12 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           pontuacao: 0,
           revelar_apos_assumir: false,
         }
-      : { ...item, revelar_apos_assumir: tarefaSurpresa ? true : Boolean((item as any).revelar_apos_assumir) })
+      : {
+          ...item,
+          dificuldade: isGestor ? item.dificuldade : 'nivel_1' as ChecklistDifficulty,
+          pontuacao: isGestor ? Number((item as any).pontuacao || 0) : 0,
+          revelar_apos_assumir: isGestor && tarefaSurpresa ? true : Boolean((item as any).revelar_apos_assumir),
+        })
     setLoading(true)
     try {
       const payload: Partial<Tarefa> = {
@@ -1141,10 +1146,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         responsavel_id: isGestor ? ((modoDistribuicao === 'livre_equipe' ? null : (tipoTarefa === 'pessoal' ? (user?.id || null) : (responsavelId || null))) as any) : (isMemberRequest ? responsavelId : user?.id),
         escopo: isGestor ? tipoTarefa : (isMemberRequest ? 'equipe' : 'pessoal'),
         modo_distribuicao: isGestor ? modoDistribuicao : 'normal',
-        pontuacao: tipoTarefa === 'equipe' && pontuacaoIncluiTarefa(pontuacaoEscopo) ? Number(pontuacao || 0) : 0,
-        pontuacao_escopo: tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
-        pontuacao_tipo: tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
-        conta_ranking: tipoTarefa === 'equipe' ? contaRanking : false,
+        pontuacao: isGestor && tipoTarefa === 'equipe' && pontuacaoIncluiTarefa(pontuacaoEscopo) ? Number(pontuacao || 0) : 0,
+        pontuacao_escopo: isGestor && tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
+        pontuacao_tipo: isGestor && tipoTarefa === 'equipe' ? pontuacaoEscopo : undefined,
+        conta_ranking: isGestor && tipoTarefa === 'equipe' ? contaRanking : false,
         checklist: checklistFinal,
         obs: obs.trim() || undefined,
         origem_sistema: destravaSelecionado ? 'destrava' : undefined,
@@ -1156,7 +1161,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         origem_payload: {
           ...(destravaSelecionado?.metadata || {}),
           nexus_client_request_id: clientRequestId,
-          ...(tipoTarefa === 'equipe' ? { nexus_tarefa_surpresa: Boolean(tarefaSurpresa), nexus_pontuacao_escopo: pontuacaoEscopo } : {}),
+          ...(tipoTarefa === 'equipe' ? { nexus_tarefa_surpresa: Boolean(isGestor && tarefaSurpresa), nexus_pontuacao_escopo: isGestor ? pontuacaoEscopo : 'tarefa', nexus_criada_por_gestor: isGestor } : {}),
         },
       }
       const saved = tarefa?.id ? await tarefasApi.update(tarefa.id, payload) : await tarefasApi.create(payload)
@@ -1180,7 +1185,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   return (
     <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
       <div className="task-form-modal">
-        {isGestor && (
+        {(
           <div className="form-group">
             <label className="form-label">Tipo da tarefa</label>
             <select className="form-input" value={contextoTipo} onChange={e => changeContextoTipo(e.target.value as typeof contextoTipo)} disabled={Boolean(tarefa?.id)}>
@@ -1209,7 +1214,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <label className="form-label">Descrição da lista</label>
           <textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes e instruções" />
         </div>
-        {isGestor && (contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && (
+        {(contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && (
           <div className="form-group">
             <label className="form-label">{contextoTipo === 'empresa' ? 'Empresa' : 'Cliente pessoa física'} <span style={{ color: 'var(--danger)', fontWeight: 700 }}>*</span></label>
 
@@ -1426,16 +1431,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               <button
                 type="button"
                 className={tipoTarefa === 'equipe' ? 'task-type-option active' : 'task-type-option'}
-                onClick={() => { setTipoTarefa('equipe'); if (!responsavelId || responsavelId === user?.id) setResponsavelId(gestoresParaSolicitar[0]?.id || '') }}
+                onClick={() => { setTipoTarefa('equipe'); if (!responsavelId || responsavelId === user?.id) setResponsavelId(pessoasParaSolicitar[0]?.id || '') }}
               >
-                <strong>Solicitar ao gestor</strong>
-                <span>Envia uma demanda para o responsável conferir ou executar.</span>
+                <strong>Solicitar para outra pessoa</strong>
+                <span>Envia uma demanda empresarial para qualquer membro da equipe executar.</span>
               </button>
             </div>
             {tipoTarefa === 'equipe' && (
               <select className="form-input" style={{ marginTop: 8 }} value={responsavelId} onChange={e => setResponsavelId(e.target.value)}>
-                <option value="">Selecione o gestor</option>
-                {gestoresParaSolicitar.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
+                <option value="">Selecione quem irá executar</option>
+                {pessoasParaSolicitar.map(m => <option key={m.id} value={m.id}>{m.nome}{m.role ? ` · ${m.role}` : ''}</option>)}
               </select>
             )}
           </div>
@@ -2748,7 +2753,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   }
 
   // Checklist marcável somente pelo executor real da tarefa.
-  // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
+  // Cargo não bloqueia execução: gestor/admin/dev designado também executa.
   const hasChecklistForMe = checklist.some(item => isChecklistItemExecutor(item, tarefa, userId))
   const myProgress = checklistProgressForUser({ ...tarefa, checklist }, userId)
   const geralProgress = checklistProgress(checklist)
@@ -2756,11 +2761,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const isAssigneeByFreeTask = tarefa.aceita_por === userId
   const canExecuteTask = !isTaskFinalizada && (isPersonal
     ? (isResponsavel || isCriador)
-    : (!isGestor && (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe)))
+    : (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe))
   const canToggleChecklist = canExecuteTask && !isTaskFinalizada
   // Gestor precisa aprovar/devolver mesmo quando também é criador/responsável.
   // A aprovação do gestor é a etapa que libera pontuação no ranking.
-  const canReviewTask = !isPersonal && isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
+  const canReviewTask = !isPersonal && isGestor && !canExecuteTask && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   // Independente de canReviewTask (que exclui 'aprovada' de propósito, pois
   // aprovar de novo não faz sentido) — reabrir uma lista já finalizada para
   // complementar ou corrigir é uma ação distinta, sempre disponível ao gestor.
@@ -3551,7 +3556,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                       <CheckCircle2 size={13} style={{ color: 'var(--success)', flexShrink: 0 }} />
                       <span style={{ flex: '1 1 0%', minWidth: 0, overflowWrap: 'anywhere' }}>{checklistDisplayText(item)}</span>
-                      {!isPersonal && <span style={{ flexShrink: 0, color: 'var(--text3)', fontSize: 12 }}>{(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} pt(s)</span>}
+                      {!isPersonal && tarefa.conta_ranking !== false && <span style={{ flexShrink: 0, color: 'var(--text3)', fontSize: 12 }}>{(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} pt(s)</span>}
                       {isGestor && (
                         <button className="btn btn-ghost btn-sm" type="button" onClick={() => corrigirPontuacaoItem(item)} disabled={saving} style={{ flexShrink: 0 }}>Corrigir pontuação</button>
                       )}
@@ -3572,7 +3577,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                     <Calendar size={13} /> {checklistDateLabel(dateKey === 'sem-data' ? undefined : dateKey)}
                   </div>
                   {checklistByDate[dateKey].map(item => {
-                    const canAssumeThisItem = !isGestor && !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
+                    const canAssumeThisItem = !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
                     const itemEhLivre = !item.feito && !checklistItemAssignmentId(item) && (isFreeTeamTask(tarefa) || (item as any).livre === true)
                     const itemDependencia = item.depende_de ? checklist.find(i => i.id === item.depende_de) : undefined
                     const bloqueadoPorSequencia = !item.feito && !!itemDependencia && !itemDependencia.feito
@@ -3630,7 +3635,9 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
                                 <em className="task-recurrence-badge"><RotateCcw size={11} /> {checklistRecurrenceLabel(item)} · mesmo item</em>
                               </span>
                             )}
-                            {!isPersonal && <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>}
+                            {!isPersonal && tarefa.conta_ranking !== false
+                              ? <span className="task-check-points">{difficultyLabel((item as any).dificuldade)} · {(item as any).pontuacao ?? difficultyPoints((item as any).dificuldade)} ponto(s)</span>
+                              : !isPersonal && <span className="task-check-points">Sem pontuação · solicitação de membro</span>}
                             {!isPersonal && <span className="task-check-desc"><User size={12} /> Executor: {checklistExecutorName(item, tarefa)}</span>}
                             {item.data && <span className="task-check-desc"><Calendar size={12} /> Execução: {fmtDate(item.data)}</span>}
                             {checklistDisplayDesc(item) && <span className="task-check-desc">{checklistDisplayDesc(item)}</span>}
@@ -4059,13 +4066,13 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
   const hasHelpPending = isGestor ? rawHelpPending : (canAnswerHelp || hasMyHelpRequest)
 
   // Checklist marcável somente pelo executor real da tarefa.
-  // Gestor/admin/dev conferem, aprovam e devolvem, mas não marcam execução de outra pessoa.
+  // Gestor designado também é executor; a identidade do dono continua obrigatória.
   const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)
   const isAssigneeByFreeTask = tarefa.aceita_por === userId
   const canExecuteTask = !isTaskFinalizada && (isPersonal
     ? (isResponsavel || isCriador)
-    : (!isGestor && (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe)))
-  const canReviewTask = !isPersonal && isGestor && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
+    : (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe))
+  const canReviewTask = !isPersonal && isGestor && !canExecuteTask && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
   const ultimaEvidencia = (tarefa as any).ultima_evidencia_em as string | undefined
   const responsavelLabel = livreDisponivel
     ? 'Livre para assumir'
