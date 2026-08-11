@@ -20,6 +20,11 @@ describe("tarefaEstaFechada (FIX60 — agrupamento por empresa)", () => {
     expect(tarefaEstaFechada({ status: "concluida", status_gestor: "aprovada" })).toBe(true);
   });
 
+  it("status final aprovada é fechado mesmo sem status_gestor legado", () => {
+    expect(tarefaEstaFechada({ status: "aprovada" })).toBe(true);
+    expect(tarefaEstaFechada({ status: "aprovada", status_gestor: "aguardando" })).toBe(true);
+  });
+
   it("concluida mas AINDA sem aprovação do gestor continua aberta", () => {
     expect(tarefaEstaFechada({ status: "concluida", status_gestor: "aguardando" })).toBe(false);
   });

@@ -1710,7 +1710,9 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
  * ao mesmo tempo na mesma linhagem/empresa. Exportada e testada isoladamente
  * porque é fácil essa condição divergir silenciosamente entre os dois lugares. */
 export function tarefaEstaFechada(t: { status?: string; status_gestor?: string }): boolean {
-  return t.status === "cancelada" || (t.status === "concluida" && t.status_gestor === "aprovada");
+  return t.status === "cancelada"
+    || t.status === "aprovada"
+    || (t.status === "concluida" && t.status_gestor === "aprovada");
 }
 
 router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<void> => {

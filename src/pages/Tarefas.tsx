@@ -645,6 +645,64 @@ function empresaChave(tarefa: any): string | null {
   return `${tipo}|${id}`
 }
 
+function tarefaDaEmpresaEstaNoHistorico(tarefa: Tarefa) {
+  return tarefa.status === 'cancelada'
+    || tarefa.status === 'aprovada'
+    || (tarefa.status === 'concluida' && tarefa.status_gestor === 'aprovada')
+}
+
+function tarefaDestravaArquivada(tarefa: Tarefa) {
+  return tarefa.origem_sistema === 'destrava'
+    && Boolean(empresaChave(tarefa))
+    && tarefaDaEmpresaEstaNoHistorico(tarefa)
+}
+
+type EmpresaVisualGroup = {
+  kind: 'empresa'
+  key: string
+  tarefas: Tarefa[]
+}
+
+type TarefaVisualEntry = { kind: 'tarefa'; tarefa: Tarefa } | EmpresaVisualGroup
+
+/**
+ * Uma empresa ocupa um único cartão na página. As listas continuam sendo
+ * registros independentes e só são reunidas visualmente; checklist, executor,
+ * prazo, pontuação, anexos e aprovação nunca são mesclados.
+ */
+function agruparTarefasPorEmpresa(tasks: Tarefa[]): TarefaVisualEntry[] {
+  const entries: TarefaVisualEntry[] = []
+  const groups = new Map<string, EmpresaVisualGroup>()
+
+  tasks.forEach(tarefa => {
+    const key = tarefa.origem_sistema === 'destrava' ? empresaChave(tarefa) : null
+    if (!key) {
+      entries.push({ kind: 'tarefa', tarefa })
+      return
+    }
+
+    const existing = groups.get(key)
+    if (existing) {
+      existing.tarefas.push(tarefa)
+      return
+    }
+
+    const group: EmpresaVisualGroup = { kind: 'empresa', key, tarefas: [tarefa] }
+    groups.set(key, group)
+    entries.push(group)
+  })
+
+  return entries
+}
+
+function colunaDoGrupoEmpresa(group: EmpresaVisualGroup) {
+  const ativas = group.tarefas.filter(tarefa => !tarefaDaEmpresaEstaNoHistorico(tarefa))
+  if (ativas.some(tarefa => tarefa.status === 'concluida')) return 'revisao'
+  if (ativas.some(tarefa => ['em_progresso', 'devolvida', 'reenviada', 'nao_concluida'].includes(String(tarefa.status)))) return 'execucao'
+  if (ativas.length > 0) return 'pendente'
+  return 'concluida'
+}
+
 function statusCfg(status?: string) {
   return STATUS_CONFIG[status || 'pendente'] || STATUS_CONFIG.pendente
 }
@@ -655,7 +713,7 @@ function prioridadeCfg(prioridade?: string) {
 
 let modalOpenCount = 0
 
-function ModalBase({ title, children, onClose, variant = 'default' }: { title: string; children: ReactNode; onClose: () => void; variant?: 'default' | 'create-task' }) {
+function ModalBase({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   useEffect(() => {
     modalOpenCount += 1
     document.documentElement.classList.add('modal-open')
@@ -673,7 +731,7 @@ function ModalBase({ title, children, onClose, variant = 'default' }: { title: s
   return (
     <div className="modal-overlay" role="presentation" onClick={e => e.target === e.currentTarget && onClose()}>
       <div
-        className={`modal-box tarefa-modal-box${variant === 'create-task' ? ' tarefa-create-modal-box' : ''}`}
+        className="modal-box tarefa-modal-box"
         role="dialog"
         aria-modal="true"
         data-modal="true"
@@ -1120,16 +1178,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     : (modoDistribuicao === 'livre_equipe' ? tarefa?.aceita_por_nome : undefined)
 
   return (
-    <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose} variant="create-task">
+    <ModalBase title={tarefa?.id ? 'Editar lista de tarefas' : 'Nova lista de tarefas'} onClose={onClose}>
       <div className="task-form-modal">
-        <div className="task-recurrence-release-banner" role="status">
-          <RotateCcw size={20} aria-hidden="true" />
-          <div>
-            <strong>Recorrência por item ativa</strong>
-            <span>Cada tarefa da lista pode ser única, diária, semanal ou mensal — sem duplicar a lista.</span>
-          </div>
-          <em>R2</em>
-        </div>
         {isGestor && (
           <div className="form-group">
             <label className="form-label">Tipo da tarefa</label>
@@ -1501,22 +1551,11 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                 />
               </div>
               <div className="form-group task-item-recurrence-builder">
-                <label className="form-label">Esta tarefa precisa se repetir?</label>
+                <label className="form-label">Frequência desta tarefa</label>
                 <div className="task-item-recurrence-controls">
-                  <div className="task-item-recurrence-options" role="radiogroup" aria-label="Frequência desta tarefa">
-                    {CHECKLIST_RECURRENCE_OPTIONS.map(option => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`task-item-recurrence-option${novoItemRecorrencia === option.value ? ' active' : ''}`}
-                        aria-pressed={novoItemRecorrencia === option.value}
-                        onClick={() => setNovoItemRecorrencia(option.value)}
-                      >
-                        <strong>{option.short}</strong>
-                        <span>{option.value === 'diaria' ? 'Lembrar todos os dias' : option.label}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <select className="form-input" value={novoItemRecorrencia} onChange={e => setNovoItemRecorrencia(e.target.value as ChecklistRecurrence)}>
+                    {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
                   {novoItemRecorrencia === 'semanal' && (
                     <select className="form-input" value={novoItemRecorrenciaDiaSemana} onChange={e => setNovoItemRecorrenciaDiaSemana(e.target.value)} aria-label="Dia da semana do lembrete">
                       {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}
@@ -1528,7 +1567,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
                     </select>
                   )}
                 </div>
-                <small className="muted">Escolha por item. Em “Diária”, o Nexus relembra esta mesma tarefa todos os dias até concluir e aprovar; nenhuma cópia é criada.</small>
+                <small className="muted">A frequência pertence somente a esta tarefa. O Nexus relembra o mesmo item até concluir e aprovar; não duplica a lista.</small>
               </div>
               {tipoTarefa === 'equipe' && (
                 <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1686,31 +1725,24 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
               />
               <div className="task-item-recurrence-editor">
                 <div>
-                  <strong>Esta tarefa precisa se repetir?</strong>
-                  <small>A escolha vale somente para este item e preserva o mesmo histórico.</small>
+                  <strong>Frequência desta tarefa</strong>
+                  <small>Mesmo item e mesmo histórico, sem gerar cópias.</small>
                 </div>
-                <div className="task-item-recurrence-options" role="radiogroup" aria-label={`Frequência da tarefa ${item.texto || 'sem título'}`}>
-                  {CHECKLIST_RECURRENCE_OPTIONS.map(option => {
-                    const active = normalizeChecklistRecurrence(item.recorrencia) === option.value
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={`task-item-recurrence-option${active ? ' active' : ''}`}
-                        aria-pressed={active}
-                        onClick={() => setChecklist(prev => prev.map(i => i.id === item.id ? {
-                          ...i,
-                          recorrencia: option.value,
-                          recorrencia_dia_semana: option.value === 'semanal' ? (i.recorrencia_dia_semana ?? new Date().getDay()) : undefined,
-                          recorrencia_dia_mes: option.value === 'mensal' ? (i.recorrencia_dia_mes ?? new Date().getDate()) : undefined,
-                        } : i))}
-                      >
-                        <strong>{option.short}</strong>
-                        <span>{option.value === 'diaria' ? 'Lembrar todos os dias' : option.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <select
+                  className="form-input"
+                  value={normalizeChecklistRecurrence(item.recorrencia)}
+                  onChange={e => {
+                    const recurrence = e.target.value as ChecklistRecurrence
+                    setChecklist(prev => prev.map(i => i.id === item.id ? {
+                      ...i,
+                      recorrencia: recurrence,
+                      recorrencia_dia_semana: recurrence === 'semanal' ? (i.recorrencia_dia_semana ?? new Date().getDay()) : undefined,
+                      recorrencia_dia_mes: recurrence === 'mensal' ? (i.recorrencia_dia_mes ?? new Date().getDate()) : undefined,
+                    } : i))
+                  }}
+                >
+                  {CHECKLIST_RECURRENCE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
                 {normalizeChecklistRecurrence(item.recorrencia) === 'semanal' && (
                   <select className="form-input" value={item.recorrencia_dia_semana ?? new Date().getDay()} onChange={e => setChecklist(prev => prev.map(i => i.id === item.id ? { ...i, recorrencia_dia_semana: Number(e.target.value) } : i))} aria-label="Dia semanal desta tarefa">
                     {['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'].map((day, index) => <option key={day} value={index}>{day}</option>)}
@@ -2427,6 +2459,7 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
   const [dados, setDados] = useState<{ empresa: { nome: string | null; tipo?: string | null }; ativas: Tarefa[]; historico: Tarefa[] } | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
+  const [historicoAberto, setHistoricoAberto] = useState(false)
 
   useEffect(() => {
     let cancelado = false
@@ -2442,32 +2475,35 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
 
   function linhaTarefa(t: Tarefa) {
     const cfg = statusCfg(t.status)
+    const prioridade = prioridadeCfg(t.prioridade)
     const Icon = cfg.icon
     const total = (t.checklist || []).length
     const feitos = (t.checklist || []).filter((i: any) => i.feito).length
+    const responsaveis = Array.from(new Set([
+      t.responsavel_nome_perfil || t.responsavel_nome,
+      ...(t.checklist || []).map(item => item.responsavel_nome),
+    ].filter((value): value is string => Boolean(value))))
     return (
       <button
         key={t.id}
         type="button"
         onClick={() => { onAbrirTarefa(t); onClose() }}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-          width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10,
-          border: '1px solid var(--border)', background: 'var(--bg3)', cursor: 'pointer',
-        }}
+        className="company-task-item"
       >
-        <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon size={15} color={cfg.color} style={{ flexShrink: 0 }} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.titulo}</div>
-            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-              Prazo: {fmtDate(t.prazo) || '—'} · {feitos}/{total} {total === 1 ? 'item' : 'itens'}
-            </div>
+        <span className="company-task-state" style={{ color: cfg.color, background: cfg.bg }}><Icon size={16} /></span>
+        <div className="company-task-copy">
+          <strong>{t.titulo}</strong>
+          <div>
+            {responsaveis.length > 0 && <span><User size={11} /> {responsaveis.slice(0, 2).join(', ')}{responsaveis.length > 2 ? ` +${responsaveis.length - 2}` : ''}</span>}
+            <span><Calendar size={11} /> {fmtDate(t.prazo) || 'Sem prazo geral'}</span>
+            <span><CheckCircle2 size={11} /> {feitos}/{total} {total === 1 ? 'ação' : 'ações'}</span>
           </div>
         </div>
-        <span style={{ fontSize: 12, fontWeight: 600, color: cfg.color, background: cfg.bg, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>
-          {cfg.label}
-        </span>
+        <div className="company-task-badges">
+          <span style={{ color: prioridade.color, background: `${prioridade.color}16` }}>{prioridade.label}</span>
+          <span style={{ color: cfg.color, background: cfg.bg }}>{cfg.label}</span>
+        </div>
+        <ChevronRight size={17} className="company-task-chevron" />
       </button>
     )
   }
@@ -2475,30 +2511,54 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
   const isPf = ['pessoa_fisica', 'pf', 'cliente_pf', 'clientes_pf'].includes(String(dados?.empresa?.tipo || '').toLowerCase())
   return (
     <ModalBase title={dados?.empresa?.nome ? `Tarefas — ${dados.empresa.nome}` : (isPf ? 'Tarefas do cliente PF' : 'Tarefas da empresa')} onClose={onClose}>
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div className="company-task-modal">
         {loading && <div style={{ color: 'var(--text3)' }}>Carregando…</div>}
         {erro && <div style={{ color: 'var(--danger)' }}>{erro}</div>}
         {dados && (
           <>
-            <section style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontWeight: 600 }}>Ativa agora</div>
+            <header className="company-task-hero">
+              <span className="company-task-hero-icon"><Building2 size={22} /></span>
+              <div>
+                <small>{isPf ? 'CLIENTE PF · DESTRAVA' : 'EMPRESA · DESTRAVA'}</small>
+                <strong>{dados.empresa.nome || (isPf ? 'Cliente PF vinculado' : 'Empresa vinculada')}</strong>
+                <p>Um único espaço para acompanhar as listas sem misturar responsáveis, datas ou checklists.</p>
+              </div>
+            </header>
+
+            <div className="company-task-summary">
+              <div><strong>{dados.ativas.length}</strong><span>listas ativas</span></div>
+              <div><strong>{dados.ativas.reduce((total, tarefa) => total + (tarefa.checklist || []).filter(item => !item.feito).length, 0)}</strong><span>ações pendentes</span></div>
+              <div><strong>{dados.ativas.filter(tarefa => tarefa.status === 'concluida').length}</strong><span>para aprovação</span></div>
+              <div><strong>{dados.historico.length}</strong><span>no histórico</span></div>
+            </div>
+
+            <section className="company-task-section">
+              <div className="company-task-section-head">
+                <div><small>TRABALHO ATUAL</small><strong>Listas em andamento</strong></div>
+                <span>{dados.ativas.length}</span>
+              </div>
               {dados.ativas.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista aberta para este cadastro no momento.</div>
+                <div className="company-task-empty"><CheckCircle2 size={20} /> Nenhuma lista aberta para este cadastro no momento.</div>
               )}
-              <div style={{ display: 'grid', gap: 8 }}>
+              <div className="company-task-list">
                 {dados.ativas.map(linhaTarefa)}
               </div>
             </section>
-            <section style={{ display: 'grid', gap: 8 }}>
-              <div style={{ fontWeight: 600 }}>
-                Histórico ({dados.historico.length})
-              </div>
-              {dados.historico.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--text3)' }}>Nenhuma lista concluída ou cancelada ainda.</div>
+
+            <section className="company-task-history">
+              <button type="button" className="company-task-history-toggle" onClick={() => setHistoricoAberto(value => !value)} aria-expanded={historicoAberto}>
+                <span className="company-task-history-icon"><History size={18} /></span>
+                <span><strong>Histórico da empresa</strong><small>Listas finalizadas, aprovadas ou canceladas ficam arquivadas aqui.</small></span>
+                <em>{dados.historico.length}</em>
+                <ChevronDown size={17} className={historicoAberto ? 'is-open' : ''} />
+              </button>
+              {historicoAberto && (
+                <div className="company-task-history-body">
+                  {dados.historico.length === 0
+                    ? <div className="company-task-empty">Nenhuma lista finalizada ou aprovada ainda.</div>
+                    : dados.historico.map(linhaTarefa)}
+                </div>
               )}
-              <div style={{ display: 'grid', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
-                {dados.historico.map(linhaTarefa)}
-              </div>
             </section>
           </>
         )}
@@ -4198,6 +4258,130 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
   )
 }
 
+function resumoGrupoEmpresa(group: EmpresaVisualGroup) {
+  const ativas = group.tarefas.filter(tarefa => !tarefaDaEmpresaEstaNoHistorico(tarefa))
+  const historico = group.tarefas.filter(tarefaDaEmpresaEstaNoHistorico)
+  const base = ativas[0] || group.tarefas[0]
+  const checklist = ativas.flatMap(tarefa => visibleChecklistItems(tarefa, '', true))
+  const feitos = checklist.filter(item => item.feito).length
+  const total = checklist.length
+  const responsaveis = new Set<string>()
+  ativas.forEach(tarefa => {
+    const nomeLista = tarefa.responsavel_nome_perfil || tarefa.responsavel_nome
+    if (nomeLista) responsaveis.add(nomeLista)
+    ;(tarefa.checklist || []).forEach(item => { if (item.responsavel_nome) responsaveis.add(item.responsavel_nome) })
+  })
+  const prazos = ativas.map(tarefa => tarefa.prazo).filter((value): value is string => Boolean(value)).sort()
+  const prioridade = ativas.some(tarefa => tarefa.prioridade === 'alta')
+    ? 'alta'
+    : ativas.some(tarefa => tarefa.prioridade === 'media') ? 'media' : 'baixa'
+  const aguardandoAprovacao = ativas.filter(tarefa => tarefa.status === 'concluida').length
+  const emExecucao = ativas.filter(tarefa => ['em_progresso', 'devolvida', 'reenviada', 'nao_concluida'].includes(String(tarefa.status))).length
+  const atrasadas = ativas.filter(tarefa => isOverdue(tarefa.prazo, tarefa.status)).length
+  const aggregateStatus = aguardandoAprovacao > 0
+    ? 'concluida'
+    : emExecucao > 0 ? 'em_progresso' : ativas.length > 0 ? 'pendente' : 'aprovada'
+
+  return {
+    ativas,
+    historico,
+    base,
+    nome: base?.origem_nome || (base?.contexto_tipo === 'pessoa_fisica' ? 'Cliente PF' : 'Empresa vinculada'),
+    total,
+    feitos,
+    responsaveis: Array.from(responsaveis),
+    proximoPrazo: prazos[0] || null,
+    prioridade,
+    aguardandoAprovacao,
+    emExecucao,
+    atrasadas,
+    aggregateStatus,
+  }
+}
+
+function EmpresaTarefasCard({ group, onOpen }: { group: EmpresaVisualGroup; onOpen: (key: string) => void }) {
+  const resumo = resumoGrupoEmpresa(group)
+  const sc = statusCfg(resumo.aggregateStatus)
+  const pc = prioridadeCfg(resumo.prioridade)
+  const Icon = sc.icon
+  const progressWidth = resumo.total > 0 ? Math.max(6, Math.round((resumo.feitos / resumo.total) * 100)) : 0
+  const statusLabel = resumo.aguardandoAprovacao > 0
+    ? `${resumo.aguardandoAprovacao} para aprovação`
+    : resumo.emExecucao > 0
+      ? `${resumo.emExecucao} em execução`
+      : resumo.ativas.length > 0
+        ? `${resumo.ativas.length} ${resumo.ativas.length === 1 ? 'lista ativa' : 'listas ativas'}`
+        : `${resumo.historico.length} no histórico`
+
+  return (
+    <article className="task-report-row task-company-row" onClick={() => onOpen(group.key)} title="Abrir a área de tarefas desta empresa">
+      <div className="task-report-main">
+        <button className="task-report-title task-company-title" type="button" onClick={() => onOpen(group.key)}>
+          <span className="task-company-icon"><Building2 size={16} /></span>
+          <span>{resumo.nome}</span>
+          <span className="task-company-source">Destrava</span>
+        </button>
+        <div className="task-report-meta">
+          <span><FileText size={12} /> {resumo.ativas.length} {resumo.ativas.length === 1 ? 'lista aberta' : 'listas abertas'}</span>
+          {resumo.responsaveis.length > 0 && <span><User size={12} /> {resumo.responsaveis.slice(0, 2).join(', ')}{resumo.responsaveis.length > 2 ? ` +${resumo.responsaveis.length - 2}` : ''}</span>}
+          {resumo.proximoPrazo && <span className={resumo.atrasadas ? 'danger' : undefined}><Calendar size={12} /> Próximo prazo {fmtDate(resumo.proximoPrazo)}</span>}
+          {resumo.historico.length > 0 && <span><History size={12} /> {resumo.historico.length} no histórico</span>}
+        </div>
+        <div className="task-report-team-line">Cada lista mantém seu próprio checklist, responsável, prazo e aprovação.</div>
+      </div>
+
+      <div className="task-report-cell task-report-status">
+        <span style={{ color: sc.color, background: sc.bg }}><Icon size={12} /> {statusLabel}</span>
+        {resumo.atrasadas > 0 && <em style={{ color: '#EF4444', background: 'rgba(239,68,68,.1)', borderColor: 'rgba(239,68,68,.2)' }}>{resumo.atrasadas} atrasada{resumo.atrasadas > 1 ? 's' : ''}</em>}
+      </div>
+
+      <div className="task-report-cell task-report-priority">
+        <span style={{ color: pc.color, background: `${pc.color}18` }}>{pc.label}</span>
+      </div>
+
+      <div className="task-report-cell task-report-progress">
+        <strong>{resumo.feitos}/{resumo.total || 0} ações</strong>
+        {resumo.total > 0 && <div className="task-progress-line compact"><span style={{ width: `${progressWidth}%` }} /></div>}
+      </div>
+
+      <div className="task-report-actions">
+        <button className="btn btn-primary btn-sm task-action-btn task-company-open" type="button" onClick={() => onOpen(group.key)}>
+          Ver empresa <ChevronRight size={13} />
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function EmpresaTarefasBoardCard({ group, onOpen }: { group: EmpresaVisualGroup; onOpen: (key: string) => void }) {
+  const resumo = resumoGrupoEmpresa(group)
+  const sc = statusCfg(resumo.aggregateStatus)
+  const progressWidth = resumo.total > 0 ? Math.max(6, Math.round((resumo.feitos / resumo.total) * 100)) : 0
+  return (
+    <article className="task-board-card task-company-board-card" role="button" tabIndex={0} onClick={() => onOpen(group.key)} onKeyDown={event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen(group.key) }
+    }}>
+      <div className="task-board-card-top">
+        <span className="badge task-board-scope task-company-board-source"><Building2 size={11} /> Destrava</span>
+        <span className="task-board-card-priority">{resumo.ativas.length} ativa{resumo.ativas.length !== 1 ? 's' : ''}</span>
+      </div>
+      <h4 className="task-board-card-title">{resumo.nome}</h4>
+      <div className="task-board-card-progress">
+        <div className="task-board-card-progress-bar"><div className="task-board-card-progress-fill" style={{ width: `${progressWidth}%`, background: sc.color }} /></div>
+        <span>{resumo.feitos}/{resumo.total}</span>
+      </div>
+      <div className="task-company-board-meta">
+        {resumo.responsaveis.length > 0 && <span><User size={11} /> {resumo.responsaveis.slice(0, 2).join(', ')}</span>}
+        {resumo.proximoPrazo && <span><Calendar size={11} /> {fmtDate(resumo.proximoPrazo)}</span>}
+      </div>
+      <div className="task-board-card-tags">
+        <span className="task-board-card-status" style={{ color: sc.color, background: sc.bg }}>{resumo.aguardandoAprovacao ? `${resumo.aguardandoAprovacao} para aprovar` : `${resumo.ativas.length || resumo.historico.length} lista(s)`}</span>
+        {resumo.historico.length > 0 && <span className="task-board-card-flag">Histórico {resumo.historico.length}</span>}
+      </div>
+    </article>
+  )
+}
+
 const MEDALHAS = ['🥇', '🥈', '🥉']
 
 function TarefaBoardCard({ tarefa, userId, isGestor, onOpen }: {
@@ -4664,6 +4848,12 @@ export default function Tarefas() {
   }, [load])
 
   const tarefasVisiveis = useMemo(() => consolidateVisualTasks(tarefas), [tarefas])
+  // Finalizadas/aprovadas vindas do Destrava deixam a operação diária e
+  // permanecem acessíveis no histórico recolhido da respectiva empresa.
+  const tarefasOperacionais = useMemo(
+    () => tarefasVisiveis.filter(tarefa => !tarefaDestravaArquivada(tarefa)),
+    [tarefasVisiveis],
+  )
 
   const isPersonalTask = useCallback((t: Tarefa) => {
     const uid = user?.id || ''
@@ -4735,6 +4925,8 @@ export default function Tarefas() {
   }, [tarefasVisiveis])
 
   const filtered = useMemo(() => scoped.filter(t => {
+    const exibindoHistoricoDaEmpresa = statusTab === 'concluidas' || ['concluida', 'aprovada', 'cancelada'].includes(status)
+    if (!exibindoHistoricoDaEmpresa && tarefaDestravaArquivada(t)) return false
     if (statusTab === 'pendentes' && !['pendente', 'devolvida', 'reenviada'].includes(String(t.status))) return false
     if (statusTab === 'execucao' && String(t.status) !== 'em_progresso') return false
     if (statusTab === 'concluidas' && !['concluida', 'aprovada'].includes(String(t.status))) return false
@@ -4754,18 +4946,26 @@ export default function Tarefas() {
     return true
   }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, statusTab, prioridade, membroFiltro, mesFiltro, anoFiltro, recentesIds])
 
-  const pessoalCount = useMemo(() => tarefasVisiveis.filter(t => isPersonalTask(t) || isAssignedToMeInTeam(t)).length, [tarefasVisiveis, isPersonalTask, isAssignedToMeInTeam])
-  const equipeCount = useMemo(() => tarefasVisiveis.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasVisiveis, isTeamAssignedTask])
-  const recentesCount = recentesIds.size
-  const disponiveisCount = useMemo(() => tarefasVisiveis.filter(isAvailableFreeTask).length, [tarefasVisiveis])
+  const visualEntries = useMemo(
+    () => modoSelecao
+      ? filtered.map(tarefa => ({ kind: 'tarefa' as const, tarefa }))
+      : agruparTarefasPorEmpresa(filtered),
+    [filtered, modoSelecao],
+  )
+
+  const pessoalCount = useMemo(() => tarefasOperacionais.filter(t => isPersonalTask(t) || isAssignedToMeInTeam(t)).length, [tarefasOperacionais, isPersonalTask, isAssignedToMeInTeam])
+  const equipeCount = useMemo(() => tarefasOperacionais.filter(t => isTeamAssignedTask(t) || isAvailableFreeTask(t)).length, [tarefasOperacionais, isTeamAssignedTask])
+  const recentesCount = tarefasOperacionais.filter(tarefa => recentesIds.has(tarefa.id)).length
+  const disponiveisCount = useMemo(() => tarefasOperacionais.filter(isAvailableFreeTask).length, [tarefasOperacionais])
+  const scopedOperacional = useMemo(() => scoped.filter(tarefa => !tarefaDestravaArquivada(tarefa)), [scoped])
   const quickCounts = useMemo(() => ({
-    todos: scoped.length,
-    pendentes: scoped.filter(t => ['pendente', 'devolvida', 'reenviada'].includes(String(t.status))).length,
-    execucao: scoped.filter(t => t.status === 'em_progresso').length,
+    todos: scopedOperacional.length,
+    pendentes: scopedOperacional.filter(t => ['pendente', 'devolvida', 'reenviada'].includes(String(t.status))).length,
+    execucao: scopedOperacional.filter(t => t.status === 'em_progresso').length,
     concluidas: scoped.filter(t => ['concluida', 'aprovada'].includes(String(t.status))).length,
-    atrasadas: scoped.filter(t => isOverdue(t.prazo, t.status)).length,
-    ultimas: scoped.filter(t => recentesIds.has(t.id)).length,
-  }), [scoped, recentesIds])
+    atrasadas: scopedOperacional.filter(t => isOverdue(t.prazo, t.status)).length,
+    ultimas: scopedOperacional.filter(t => recentesIds.has(t.id)).length,
+  }), [scoped, scopedOperacional, recentesIds])
 
   const stats = [
     ['Total', scoped.length, 'var(--text)'],
@@ -5075,7 +5275,7 @@ export default function Tarefas() {
           { id: 'equipe',      label: 'Equipe',   count: equipeCount,       hint: 'Time' },
           { id: 'disponiveis', label: 'Livres',   count: disponiveisCount,  hint: 'Assumir' },
           { id: 'ranking',     label: 'Ranking',  count: Array.isArray(ranking?.ranking) ? ranking!.ranking.length : 0, hint: 'Pontos' },
-          { id: 'todas',       label: 'Todas',    count: tarefasVisiveis.length, hint: 'Geral' },
+          { id: 'todas',       label: 'Todas',    count: tarefasOperacionais.length, hint: 'Geral' },
         ] as const).map(tab => (
           <button
             key={tab.id}
@@ -5166,7 +5366,7 @@ export default function Tarefas() {
         <div className="tarefas-loading"><Loader size={26} className="spin-icon" /></div>
       ) : escopo === 'ranking' ? (
         <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} />
-      ) : filtered.length === 0 ? (
+      ) : visualEntries.length === 0 ? (
         <div className="tarefas-empty">
           <div className="tarefas-empty-icon">📋</div>
           <strong>Nenhuma lista encontrada</strong>
@@ -5189,7 +5389,9 @@ export default function Tarefas() {
             { id: 'revisao', label: 'Aguardando aprovação', statuses: ['concluida'], color: '#8B5CF6' },
             { id: 'concluida', label: 'Concluída', statuses: ['aprovada', 'cancelada'], color: '#10B981' },
           ].map(coluna => {
-            const tarefasColuna = filtered.filter(t => coluna.statuses.includes(String(t.status || 'pendente')))
+            const entriesColuna = visualEntries.filter(entry => entry.kind === 'empresa'
+              ? colunaDoGrupoEmpresa(entry) === coluna.id
+              : coluna.statuses.includes(String(entry.tarefa.status || 'pendente')))
             const colapsada = colunasColapsadas.includes(coluna.id)
             return (
               <div key={coluna.id} className={colapsada ? 'task-board-column task-board-column--collapsed' : 'task-board-column'} style={{ '--column-accent': coluna.color } as CSSProperties}>
@@ -5207,18 +5409,22 @@ export default function Tarefas() {
                     <ChevronRight size={14} className="task-board-column-chevron" />
                     <strong>{coluna.label}</strong>
                   </span>
-                  <span className="tab-count">{tarefasColuna.length}</span>
+                  <span className="tab-count">{entriesColuna.length}</span>
                 </button>
                 {!colapsada && (
                   <div className="task-board-column-body">
-                    {tarefasColuna.length === 0 ? (
+                    {entriesColuna.length === 0 ? (
                       <div className="task-board-empty">Nada aqui.</div>
-                    ) : tarefasColuna.map((t, idx) => (
-                      <div key={t.id} className="task-board-card-enter" style={{ '--enter-delay': `${Math.min(idx, 8) * 25}ms` } as CSSProperties}>
-                        <TarefaBoardCard
-                          tarefa={t} userId={user?.id || ''} isGestor={!!isGestor}
-                          onOpen={setDetalhe}
-                        />
+                    ) : entriesColuna.map((entry, idx) => (
+                      <div key={entry.kind === 'empresa' ? entry.key : entry.tarefa.id} className="task-board-card-enter" style={{ '--enter-delay': `${Math.min(idx, 8) * 25}ms` } as CSSProperties}>
+                        {entry.kind === 'empresa' ? (
+                          <EmpresaTarefasBoardCard group={entry} onOpen={setEmpresaTarefasId} />
+                        ) : (
+                          <TarefaBoardCard
+                            tarefa={entry.tarefa} userId={user?.id || ''} isGestor={!!isGestor}
+                            onOpen={setDetalhe}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -5229,13 +5435,15 @@ export default function Tarefas() {
         </div>
       ) : (
         <div className="task-report-list">
-          {filtered.map(t => (
+          {visualEntries.map(entry => entry.kind === 'empresa' ? (
+            <EmpresaTarefasCard key={entry.key} group={entry} onOpen={setEmpresaTarefasId} />
+          ) : (
             <TarefaCard
-              key={t.id} tarefa={t} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === t.id}
-              helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(t.id)}
-              helpRequestedByMe={minhasAjudasPorTarefa.get(t.id) || null}
+              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
+              helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(entry.tarefa.id)}
+              helpRequestedByMe={minhasAjudasPorTarefa.get(entry.tarefa.id) || null}
               selectMode={modoSelecao}
-              selected={selecionadas.has(t.id)}
+              selected={selecionadas.has(entry.tarefa.id)}
               onToggleSelect={toggleSelecao}
               onOpen={setDetalhe}
               onEdit={(x) => { setEdit(x); setModalOpen(true) }}
