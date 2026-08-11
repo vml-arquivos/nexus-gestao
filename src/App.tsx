@@ -13,6 +13,7 @@ import TaskWorkflowEffects from './components/TaskWorkflowEffects'
 // em vez de baixar o app inteiro (20 páginas) de uma vez só.
 const Dashboard      = lazy(() => import('./pages/Dashboard'))
 const MeuDia         = lazy(() => import('./pages/MeuDia'))
+const CentralGestao  = lazy(() => import('./pages/CentralGestao'))
 const Inteligencia   = lazy(() => import('./pages/Inteligencia'))
 const Pessoas        = lazy(() => import('./pages/Pessoas'))
 const Equipe         = lazy(() => import('./pages/Equipe'))
@@ -62,6 +63,10 @@ export default function App() {
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index            element={<Dashboard />} />
         <Route path="meu-dia" element={<MeuDia />} />
+        <Route
+          path="central-gestao"
+          element={user && ['admin', 'dev', 'gestor', 'sub_gestor'].includes(user.role) ? <CentralGestao /> : <Navigate to="/meu-dia" replace />}
+        />
         <Route path="inteligencia" element={<Inteligencia />} />
         {/* Pessoas são privadas por usuário; membros também podem usar seus próprios contatos */}
         <Route path="pessoas"   element={<Pessoas />} />

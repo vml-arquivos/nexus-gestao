@@ -13,6 +13,7 @@ export const DEFAULT_VISUAL_TEXTS = {
 
   'nav.home': 'Início',
   'nav.myDay': 'Meu Dia',
+  'nav.management': 'Central de Gestão',
   'nav.intelligence': 'Inteligência',
   'nav.team': 'Equipe',
   'nav.teams': 'Equipes',
@@ -161,7 +162,7 @@ export const VISUAL_TEXT_GROUPS: { title: string; description: string; keys: Vis
   {
     title: 'Sistema e menu',
     description: 'Nome do sistema e nomes que aparecem na navegação.',
-    keys: ['app.name', 'app.subtitle', 'nav.home', 'nav.myDay', 'nav.team', 'nav.teams', 'nav.tasks', 'nav.agenda', 'nav.finance', 'nav.people', 'nav.files', 'nav.reports', 'nav.users', 'nav.settings'],
+    keys: ['app.name', 'app.subtitle', 'nav.home', 'nav.myDay', 'nav.management', 'nav.team', 'nav.teams', 'nav.tasks', 'nav.agenda', 'nav.finance', 'nav.people', 'nav.files', 'nav.reports', 'nav.users', 'nav.settings'],
   },
   {
     title: 'Página inicial',
