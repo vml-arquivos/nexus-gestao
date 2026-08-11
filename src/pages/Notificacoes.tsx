@@ -113,8 +113,8 @@ export default function Notificacoes() {
   }
 
   return (
-    <div style={{ maxWidth: 760, margin: '0 auto', padding: '24px 16px 48px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+    <div className="premium-module-page premium-notifications-page" style={{ maxWidth: 760, margin: '0 auto', padding: '24px 16px 48px' }}>
+      <div className="premium-module-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text)', margin: 0 }}>Notificações</h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text3)', margin: '4px 0 0' }}>

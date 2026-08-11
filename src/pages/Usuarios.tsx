@@ -339,8 +339,8 @@ export default function Usuarios() {
   }
 
   return (
-    <div className="page-container" style={{ maxWidth:980 }}>
-      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:22, flexWrap:'wrap' }}>
+    <div className="page-container premium-module-page premium-users-page" style={{ maxWidth:980 }}>
+      <div className="premium-module-header" style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, marginBottom:22, flexWrap:'wrap' }}>
         <div><h1 style={{ fontFamily:'var(--font-heading)', fontWeight:900 }}>{t('users.pageTitle')}</h1><p style={{ color:'var(--text3)' }}>{t('users.pageSubtitle')}</p></div>
         {canCreate && <button className="btn btn-primary" onClick={()=>setOpen(true)}><UserPlus size={16}/> {t('users.newButton')}</button>}
       </div>

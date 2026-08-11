@@ -769,7 +769,7 @@ export default function PessoaDetalhe() {
   const TIPO_COR:   Record<string, string> = { funcionario: '#2563EB', prestador: '#06B6D4', credor: '#EF4444', devedor: '#F59E0B', cliente: '#10B981' }
 
   return (
-    <div style={{ padding: '16px 16px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)', maxWidth: 800, margin: '0 auto', boxSizing: 'border-box' as const }}>
+    <div className="premium-module-page premium-person-detail-page" style={{ padding: '16px 16px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 20px)', maxWidth: 800, margin: '0 auto', boxSizing: 'border-box' as const }}>
       {/* ── voltar ── */}
       <button className="btn btn-ghost btn-sm" onClick={() => navigate('/pessoas')} style={{ marginBottom: 12 }}>
         <ArrowLeft size={13} /> Pessoas

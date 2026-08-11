@@ -11275,3 +11275,158 @@ tbody td { border-color: var(--border) !important; font-size: 11.5px; }
   .tarefas-page-header > div:last-child { display:grid !important; }
   .dash-hero { align-items:flex-start !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIX71 — módulos legados incluídos na identidade premium
+   As classes premium-module-* são marcadores exclusivamente visuais.
+   ═══════════════════════════════════════════════════════════════════════ */
+.premium-module-page {
+  width:min(100% - 34px,1500px) !important;
+  max-width:1500px !important;
+  margin-inline:auto !important;
+  padding-top:18px !important;
+}
+
+.premium-module-header {
+  position:relative;
+  isolation:isolate;
+  min-height:88px;
+  overflow:hidden;
+  padding:17px 20px !important;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:20px;
+  color:#fff;
+  background:var(--premium-header);
+  box-shadow:0 14px 34px rgba(23,55,120,.15);
+}
+.premium-module-header::after {
+  content:'';
+  position:absolute;
+  z-index:-1;
+  right:-44px;
+  bottom:-82px;
+  width:190px;
+  height:190px;
+  border:1px solid rgba(255,255,255,.13);
+  border-radius:50%;
+}
+.premium-module-header h1 { margin:0 !important; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:680 !important; letter-spacing:-.03em !important; }
+.premium-module-header p { margin-top:4px !important; color:rgba(226,236,252,.78) !important; font-size:11.5px !important; }
+.premium-module-header .btn-primary { color:#173778 !important; border-color:#fff !important; background:#fff !important; box-shadow:0 7px 18px rgba(7,23,58,.18) !important; }
+.premium-module-header .btn-secondary,
+.premium-module-header .btn-ghost { color:#fff !important; border-color:rgba(255,255,255,.22) !important; background:rgba(255,255,255,.10) !important; }
+
+/* Converte cartões criados por estilos inline antigos para a superfície comum. */
+.premium-module-page > div[style*="background: var(--bg2)"],
+.premium-module-page > section,
+.premium-module-page > div > div[style*="background: var(--bg2)"],
+.premium-module-page > div > div > div[style*="background: var(--bg2)"] {
+  border-color:var(--premium-border) !important;
+  border-radius:17px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+.premium-module-page h2 { font-size:14px !important; font-weight:680 !important; letter-spacing:-.015em; }
+.premium-module-page .tabs { border-radius:13px !important; background:rgba(220,230,242,.58) !important; }
+.premium-module-page .tab-btn.active { background:var(--premium-blue) !important; color:#fff !important; }
+
+/* Agenda. */
+.premium-agenda-page > div[style*="rgba(108,59,255"] {
+  color:#31527f !important;
+  border-color:rgba(36,87,230,.20) !important;
+  background:linear-gradient(135deg,rgba(36,87,230,.08),rgba(56,189,248,.045)) !important;
+}
+.premium-agenda-page > div[style*="flex-direction: column"] { gap:14px !important; }
+.premium-agenda-page > div[style*="flex-direction: column"] > div {
+  border-color:var(--premium-border) !important;
+  border-radius:18px !important;
+  box-shadow:0 8px 24px rgba(20,43,79,.05);
+}
+.premium-agenda-page button[style*="background: var(--primary)"] { background:var(--premium-blue) !important; box-shadow:0 6px 14px rgba(36,87,230,.20); }
+
+/* Financeiro: KPIs e filtros passam a ocupar a largura útil e a mesma malha. */
+.premium-finance-page > div[style*="grid-template-columns"] { gap:12px !important; }
+.premium-finance-page > div[style*="grid-template-columns"] > div {
+  min-height:108px;
+  border-radius:17px !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045);
+}
+.premium-finance-page > div[style*="rgba(245,158,11"] { border-radius:15px !important; }
+.premium-finance-page .tabs { width:max-content; max-width:100%; padding:4px !important; }
+.premium-finance-page [style*="fontSize: 19"] { font-size:21px !important; font-weight:680 !important; }
+
+/* Pessoas, documentos, relatórios, usuários e equipes. */
+.premium-people-page > div[style*="flex-direction: column"],
+.premium-files-page > div[style*="flex-direction: column"],
+.premium-users-page > div[style*="display: grid"],
+.premium-teams-page > div[style*="display: grid"] { gap:12px !important; }
+.premium-people-page > div[style*="flex-direction: column"] > div,
+.premium-files-page > div[style*="flex-direction: column"] > div,
+.premium-users-page section > div > div,
+.premium-teams-page > div:not(.premium-module-header) > div {
+  border-color:var(--premium-border) !important;
+  border-radius:16px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 6px 20px rgba(20,43,79,.045) !important;
+}
+.premium-files-page img { transition:transform .25s ease; }
+.premium-files-page img:hover { transform:scale(1.025); }
+.premium-reports-page > div[style*="grid-template-columns"] { gap:12px !important; }
+.premium-reports-page > div[style*="grid-template-columns"] > div,
+.premium-reports-page > div[style*="flex-direction: column"] > div {
+  border-color:var(--premium-border) !important;
+  border-radius:17px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+
+/* Configurações e editor de tema também seguem a identidade atual. */
+.premium-settings-page { max-width:1100px !important; }
+.premium-settings-page > div[style*="flex-direction: column"] > div {
+  border-color:var(--premium-border) !important;
+  border-radius:17px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+.design-editor-root,
+.design-editor-sidebar,
+.design-editor-main,
+.design-editor-preview-pane { border-color:var(--premium-border) !important; background:var(--premium-surface) !important; }
+.design-editor-sidebar { box-shadow:6px 0 24px rgba(20,43,79,.045); }
+.design-editor-preview-stage { border:1px solid var(--premium-border) !important; border-radius:18px !important; background:var(--bg3) !important; box-shadow:var(--premium-shadow); }
+
+/* Inteligência possuía outro hero e outra paleta. */
+.intel-hero {
+  min-height:108px !important;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12) !important;
+  border-radius:20px !important;
+  color:#fff !important;
+  background:var(--premium-header) !important;
+  box-shadow:0 14px 34px rgba(23,55,120,.15) !important;
+}
+.intel-hero h1, .intel-hero h2, .intel-hero .eyebrow { color:#fff !important; }
+.intel-hero p { color:rgba(226,236,252,.78) !important; }
+.intel-card, .intel-action-card, .gemini-box, .notify-intel-box {
+  border-color:var(--premium-border) !important;
+  border-radius:17px !important;
+  background:var(--premium-surface) !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+
+/* Perfil e notificações. */
+.premium-person-detail-page > div[style*="background: var(--bg2)"],
+.premium-notifications-page > div:not(.premium-module-header) {
+  border-color:var(--premium-border) !important;
+  border-radius:17px !important;
+  box-shadow:0 7px 22px rgba(20,43,79,.045) !important;
+}
+
+@media (max-width:760px) {
+  .premium-module-page { width:100% !important; padding:12px 10px calc(var(--bottom-nav-h,62px) + 22px) !important; }
+  .premium-module-header { min-height:auto; padding:15px !important; border-radius:16px !important; align-items:flex-start !important; flex-wrap:wrap; }
+  .premium-module-header > div:last-child { width:100%; display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .premium-module-header .btn { width:100%; }
+  .premium-finance-page > div[style*="grid-template-columns"],
+  .premium-reports-page > div[style*="grid-template-columns"] { grid-template-columns:1fr !important; }
+}

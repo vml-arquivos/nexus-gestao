@@ -213,8 +213,8 @@ export default function Configuracoes() {
   const roleColor = user?.role === 'admin' || user?.role === 'dev' || user?.role === 'gestor' ? '#2563EB' : user?.role === 'sub_gestor' ? '#3B82F6' : '#06B6D4'
 
   return (
-    <div style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
-      <div style={{ marginBottom: 24 }}>
+    <div className="premium-module-page premium-settings-page" style={{ padding: '20px 20px calc(var(--bottom-nav-h, 62px) + env(safe-area-inset-bottom, 0px) + 24px)', maxWidth: 580, margin: '0 auto', boxSizing: 'border-box' as const }}>
+      <div className="premium-module-header" style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontWeight: 500, fontSize: 16 }}>{t('settings.pageTitle')}</h1>
         <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 2 }}>Gerencie seu perfil e preferências</p>
       </div>
