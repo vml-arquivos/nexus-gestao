@@ -63,3 +63,22 @@ A correção visual reproduzível foi aplicada em commit isolado, validada nos d
 [1] `pasted_content_4.txt`. Prompt de missão e regras de não regressão para correções visuais, anexado pelo usuário em 18 ago. 2026.
 
 [2] `Nexus-Relatorio-Diagnostico.docx` e `Nexus-Screenshots-Baseline.zip`. Pacote de diagnóstico e referências visuais fornecido pelo usuário.
+
+
+## 7. Rodada adicional — correção do modal `Nova lista de tarefas`
+
+Após o feedback visual acompanhado da captura em viewport alta, a reprodução foi feita diretamente em `/tarefas`. O problema não era apenas a altura do card: uma regra global de responsividade convertia grids do formulário em coluna única em tablet, enquanto o overlay permanecia preso a um containing block animado do shell. Isso explicava a coluna estreita, a grande área vazia e os múltiplos scrolls aparentes.
+
+A correção foi somente CSS e foi aplicada em `src/app-styles.css`: overlays passaram a escapar do containing block animado quando abertos; o modal longo de tarefas usa fluxo de conteúdo com limite de viewport e uma única região de rolagem; modais genéricos curtos usam altura natural no mobile; o checklist de tarefas mantém duas colunas em tablet/desktop e uma coluna em mobile. Nenhum JSX, handler, rota, estado, API ou seletor funcional foi alterado.
+
+Também foi corrigida a aparência do bloco de frequência em `src/task-workflow-fixes.css`. As cores fixas azul-claro foram substituídas por tokens do tema (`--bg2`, `--border`, `--primary`, `--text` e `--text3`), evitando o painel claro destoante no tema escuro. A altura computada do builder de frequência ficou natural, aproximadamente 133 px no desktop/tablet, sem `min-height` ou `overflow` vertical artificial.
+
+| Evidência | Resultado |
+|---|---|
+| Modal de tarefas, 390×844 claro/escuro | Uma coluna, conteúdo proporcional e rolagem única |
+| Modal de tarefas, 905×2048 escuro | Largura útil da viewport, checklist distribuído e sem painel preto vazio |
+| Modal de tarefas, 1440×900 claro/escuro | Card limitado à viewport, ações visíveis após o conteúdo |
+| Modal genérico de Equipes | Altura natural no mobile e centralização preservada no desktop |
+| Matriz de rotas | Root renderizado, sem error boundary e sem overflow horizontal nos estados capturados |
+
+Os commits isolados foram criados após a validação técnica e a conferência do diff CSS-only: `4daf2f5` (`fix(visual): modais — corrigir overlay, altura e responsividade`) contém somente `src/app-styles.css`; `9e5450c` (`fix(visual): tarefas — adaptar recorrencia aos temas`) contém somente `src/task-workflow-fixes.css`. A tipagem (`npx tsc -b`), o build (`npm run build`) e o `git diff --check` passaram. O `npm run lint` permanece bloqueado pelos 669 problemas preexistentes do repositório, sem relação com os arquivos CSS alterados.
