@@ -6386,15 +6386,34 @@ button:disabled,
 @media (max-width: 640px) {
   .push-permission-banner { flex-direction: column; align-items: stretch; bottom: calc(88px + env(safe-area-inset-bottom)); }
   .push-permission-banner .btn { width: 100%; }
+  /* O aviso sem ação deve ficar fora da área de leitura inicial no celular. */
+  .push-permission-banner-warning {
+    top: calc(var(--topbar-h) + 8px);
+    bottom: auto;
+    max-height: calc(100dvh - var(--topbar-h) - var(--bottom-nav-h) - 24px);
+    overflow-y: auto;
+  }
+  .app-shell:has(.push-permission-banner-warning) .page-scroll {
+    padding-top: 112px !important;
+  }
   /* Reserva espaço no conteúdo rolável quando o banner de push está visível,
      para o banner nunca ficar sobreposto a texto/cards do fim da página. */
-  .push-banner-active .page-scroll { padding-bottom: calc(190px + env(safe-area-inset-bottom)); }
+  .push-banner-active .page-scroll,
+  .app-shell:has(.push-permission-banner-warning) .page-scroll {
+    padding-bottom: calc(190px + env(safe-area-inset-bottom)) !important;
+  }
 }
 @media (min-width: 641px) and (max-width: 1023px) {
-  .push-banner-active .page-scroll { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  .push-banner-active .page-scroll,
+  .app-shell:has(.push-permission-banner-warning) .page-scroll {
+    padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+  }
 }
 @media (min-width: 1024px) {
-  .push-banner-active .page-scroll { padding-bottom: 110px; }
+  .push-banner-active .page-scroll,
+  .app-shell:has(.push-permission-banner-warning) .page-scroll {
+    padding-bottom: 110px !important;
+  }
 }
 
 /* ── FIX CRÍTICO: Date/datetime picker nativo ─────────────────────────────── */
