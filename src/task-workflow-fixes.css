@@ -745,9 +745,9 @@
 .task-item-recurrence-builder {
   grid-column: 1 / -1;
   padding: 12px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
   border-radius: 12px;
-  background: #eff6ff;
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg2));
 }
 
 .task-item-recurrence-controls {
@@ -769,26 +769,26 @@
   gap: 2px;
   min-height: 58px;
   padding: 9px 10px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
   border-radius: 10px;
-  color: #1e3a8a;
-  background: #fff;
+  color: var(--text2);
+  background: var(--bg2);
   text-align: left;
   cursor: pointer;
   transition: border-color .15s ease, background .15s ease, box-shadow .15s ease, transform .15s ease;
 }
 
-.task-item-recurrence-option:hover { border-color: #60a5fa; transform: translateY(-1px); }
-.task-item-recurrence-option:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
+.task-item-recurrence-option:hover { border-color: var(--primary); transform: translateY(-1px); }
+.task-item-recurrence-option:focus-visible { outline: 3px solid var(--primary-dim); outline-offset: 2px; }
 .task-item-recurrence-option strong { font-size: 13px; color: inherit; }
-.task-item-recurrence-option span { color: #64748b; font-size: 10px; line-height: 1.25; }
+.task-item-recurrence-option span { color: var(--text3); font-size: 10px; line-height: 1.25; }
 .task-item-recurrence-option.active {
-  border-color: #1d4ed8;
-  color: #fff;
-  background: linear-gradient(120deg, #1e3a8a, #1d4ed8);
-  box-shadow: 0 6px 18px rgba(29, 78, 216, .2);
+  border-color: var(--primary);
+  color: var(--text-on-primary);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 78%, #111827), var(--primary));
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--primary) 20%, transparent);
 }
-.task-item-recurrence-option.active span { color: #dbeafe; }
+.task-item-recurrence-option.active span { color: color-mix(in srgb, var(--text-on-primary) 82%, transparent); }
 
 .task-item-recurrence-editor {
   display: grid;
@@ -797,13 +797,13 @@
   align-items: center;
   padding: 10px 12px;
   border-radius: 11px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg2));
 }
 
 .task-item-recurrence-editor > div { display: grid; gap: 2px; }
-.task-item-recurrence-editor strong { font-size: 12px; color: #172554; }
-.task-item-recurrence-editor small { font-size: 11px; color: #64748b; }
+.task-item-recurrence-editor strong { font-size: 12px; color: var(--text); }
+.task-item-recurrence-editor small { font-size: 11px; color: var(--text3); }
 
 .task-recurrence-badge {
   display: inline-flex;
@@ -811,8 +811,8 @@
   gap: 5px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--primary-dim);
+  color: var(--primary);
   font-size: 11px;
   font-style: normal;
   font-weight: 750;
