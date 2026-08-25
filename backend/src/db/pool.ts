@@ -26,7 +26,7 @@ const needsSsl =
   dbUrl.includes('sslmode=require') ||
   dbUrl.includes('ssl=true')
 
-function boundedInteger(raw: string | undefined, fallback: number, min: number, max: number) {
+export function boundedInteger(raw: string | undefined, fallback: number, min: number, max: number) {
   const parsed = Number(raw)
   if (!Number.isFinite(parsed)) return fallback
   return Math.max(min, Math.min(max, Math.trunc(parsed)))

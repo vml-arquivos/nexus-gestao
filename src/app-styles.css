@@ -1660,6 +1660,13 @@ body:has([aria-modal="true"]) .bottom-nav {
 .task-progress-line { height: 6px; border-radius: 999px; background: var(--bg3); overflow: hidden; margin-top: 10px; }
 .task-progress-line > span { display: block; height: 100%; border-radius: inherit; background: var(--success); transition: width .2s ease; }
 .task-detail-modal { display: grid; gap: 14px; min-width: 0; }
+/* Botão "Voltar para a lista" -- só aparece quando a tarefa foi aberta a
+   partir do modal agregador de empresa. Herda o tamanho/estados de .btn e
+   .btn-ghost já testados nos outros modais; só ajustamos o alinhamento do
+   conteúdo para a esquerda, já que as regras existentes de
+   `.task-detail-modal > *` forçam largura total neste e em todos os outros
+   itens diretos do modal. */
+.task-detail-back-btn { justify-content: flex-start !important; align-self: flex-start; }
 .task-detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; border: 1px solid var(--border); background: var(--bg3); border-radius: 16px; padding: 14px; }
 .task-detail-hero h2 { margin: 0 0 8px; font-size: clamp(18px, 3vw, 24px); line-height: 1.18; overflow-wrap: anywhere; }
 .task-detail-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; color: var(--text3); font-size: 12px; font-weight: 500; }
@@ -3266,7 +3273,9 @@ body,
 .task-checklist-run,
 .task-checklist-date-group,
 .task-upload-block,
-.task-detail-actions {
+.task-detail-actions,
+.company-task-modal,
+.company-task-modal > * {
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
@@ -5353,7 +5362,9 @@ button:disabled,
 .tarefa-modal-box .task-checklist-date-group,
 .tarefa-modal-box .task-check-item,
 .tarefa-modal-box .task-check-main-button,
-.tarefa-modal-box .task-check-content {
+.tarefa-modal-box .task-check-content,
+.tarefa-modal-box .company-task-modal,
+.tarefa-modal-box .company-task-modal > * {
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
@@ -5582,7 +5593,11 @@ button:disabled,
 .task-checklist-date-group,
 .task-check-item,
 .task-check-main-button,
-.task-check-content {
+.task-check-content,
+.company-task-modal,
+.company-task-hero,
+.company-task-section,
+.company-task-list {
   min-width: 0 !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
@@ -6902,7 +6917,10 @@ div[style*="overflow-y: auto"][style*="border-radius: 24px"] {
 .tarefa-modal-box .task-inline-checklist-row,
 .tarefa-modal-box .task-detail-modal,
 .tarefa-modal-box .task-detail-section,
-.tarefa-modal-box .task-detail-hero {
+.tarefa-modal-box .task-detail-hero,
+.tarefa-modal-box .company-task-modal,
+.tarefa-modal-box .company-task-section,
+.tarefa-modal-box .company-task-hero {
   min-width: 0 !important;
   max-width: 100% !important;
   overflow-x: hidden !important;
@@ -8705,7 +8723,8 @@ textarea.form-input,
 .task-form-modal,
 .task-detail-modal,
 .finance-modal,
-.financeiro-modal {
+.financeiro-modal,
+.company-task-modal {
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
@@ -8718,7 +8737,8 @@ textarea.form-input,
 .task-form-modal > *,
 .task-detail-modal > *,
 .finance-modal > *,
-.financeiro-modal > * {
+.financeiro-modal > *,
+.company-task-modal > * {
   flex: 0 0 auto !important;
   width: 100% !important;
   max-width: 100% !important;
@@ -8948,7 +8968,8 @@ textarea.form-input,
   .task-form-modal,
   .task-detail-modal,
   .finance-modal,
-  .financeiro-modal {
+  .financeiro-modal,
+  .company-task-modal {
     display: flex !important;
     flex-direction: column !important;
     gap: 12px !important;

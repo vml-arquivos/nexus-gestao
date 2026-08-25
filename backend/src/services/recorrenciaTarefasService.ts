@@ -255,5 +255,12 @@ export function iniciarRecorrenciaTarefas(): void {
     void runClusterSingletonJob("tarefas-recorrentes", avaliarRecorrenciaTarefas);
   };
   setInterval(rodar, intervaloMs);
-  setTimeout(rodar, 300_000);
+  // 360s (não 300s) de propósito: o job de arquivamento de notificações
+  // (lib/notifHelper.ts) também dispara sua primeira execução aos 300s do
+  // boot. Rodar os dois no mesmo instante, logo após o container subir --
+  // quando o cache do Postgres ainda está frio --, soma trabalho concorrente
+  // bem no momento mais sensível do startup. Um minuto de intervalo entre os
+  // dois é suficiente para não colidirem, sem atrasar nenhum dos dois de
+  // forma perceptível.
+  setTimeout(rodar, 360_000);
 }

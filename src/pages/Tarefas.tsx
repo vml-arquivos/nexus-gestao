@@ -5,6 +5,7 @@ import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle, ChevronRight,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,
+  ChevronLeft,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
@@ -2529,7 +2530,7 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
       <button
         key={t.id}
         type="button"
-        onClick={() => { onAbrirTarefa(t); onClose() }}
+        onClick={() => onAbrirTarefa(t)}
         className="company-task-item"
       >
         <span className="company-task-state" style={{ color: cfg.color, background: cfg.bg }}><Icon size={16} /></span>
@@ -2612,13 +2613,17 @@ function EmpresaTarefasModal({ origemId, onClose, onAbrirTarefa }: {
 }
 
 
-function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda, onEmpresaDestrava }: {
+function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], onClose, onVoltar, onSaved, onAnexos, onResponder, onApprove, onReturn, onComplemento, onReminder, onPedirAjuda, onPainelAjuda, onEmpresaDestrava }: {
   tarefa: Tarefa
   membros: MembroEquipe[]
   isGestor: boolean
   userId: string
   allTasks?: Tarefa[]
   onClose: () => void
+  // Presente somente quando esta tarefa foi aberta a partir de uma lista
+  // agregada (ex.: modal "Tarefas da empresa"). Permite voltar para essa
+  // lista sem fechar e reabrir o modal do zero.
+  onVoltar?: () => void
   onSaved: (t: Tarefa) => void
   onAnexos: (t: Tarefa) => void
   onResponder: (t: Tarefa) => void
@@ -3246,6 +3251,11 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   return (
     <ModalBase title="Tarefa" onClose={onClose}>
       <div className="task-detail-modal">
+        {onVoltar && (
+          <button type="button" className="btn btn-ghost task-detail-back-btn" onClick={onVoltar}>
+            <ChevronLeft size={16} /> Voltar para a lista
+          </button>
+        )}
         <section className="task-detail-hero">
           <div>
             <h2>{tarefa.titulo}</h2>
@@ -5546,7 +5556,13 @@ export default function Tarefas() {
           const query = params.toString()
           navigate(`${location.pathname}${query ? `?${query}` : ''}`, { replace: true })
         }
-      }} onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
+      }}
+      // Só oferece "voltar" quando a tarefa foi aberta a partir do modal
+      // agregador de empresa (que continua montado atrás, sem ter sido
+      // fechado) -- clicar aqui apenas fecha esta camada e revela a lista já
+      // aberta, sem precisar fechar tudo e reabrir a empresa de novo.
+      onVoltar={empresaTarefasId ? () => setDetalhe(null) : undefined}
+      onSaved={(t) => { updateSaved(t); setDetalhe(prev => prev?.id === t.id ? t : prev) }} onAnexos={setAnexos} onResponder={setDetalhe} onApprove={approve} onReturn={devolver} onComplemento={setComplemento} onReminder={enviarLembreteManual} onPedirAjuda={setAjuda} onPainelAjuda={setPainelAjuda} onEmpresaDestrava={setEmpresaDestrava} />}
       {complemento && <ComplementoModal key={complemento.id} tarefa={complemento} membros={membros} onClose={() => setComplemento(null)} onSaved={(t) => { updateSaved(t); setComplemento(null); setDetalhe(prev => prev?.id === t.id ? t : prev) }} />}
       {ajuda && <PedirAjudaModal key={ajuda.id} tarefa={ajuda} membros={membros} userId={user?.id || ''} onClose={() => setAjuda(null)} onSent={atualizarAjudas} />}
       {painelAjuda && <PainelAjudaModal key={painelAjuda.id} tarefa={painelAjuda} userId={user?.id || ''} isGestor={!!isGestor} onClose={() => setPainelAjuda(null)} onChanged={atualizarAjudas} />}

@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { createHash } from "crypto";
-import pool, { getPoolStatus, query, queryOne } from "../db/pool";
+import pool, { getPoolStatus, query, queryOne, boundedInteger } from "../db/pool";
 import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";
 import { criarNotificacao } from "../lib/notifHelper";
 import {
@@ -1114,6 +1114,29 @@ function maskSurpriseChecklistItem(item: any, userId: string, task: any) {
   };
 }
 
+/** Vínculo ATUAL do usuário com a tarefa (não apenas histórico de execução).
+ * `userCanAccessTask`/`canListTaskForUser` continuam de propósito mais
+ * permissivos (incluem quem já executou algo no passado, para não sumir do
+ * ranking/histórico de quem contribuiu) — mas comentários, anexos e
+ * histórico completos da lista não são filtráveis item a item como o
+ * checklist (ver `filterChecklistForUser`), então não podem usar o mesmo
+ * critério amplo sem continuar expondo o conteúdo atual de uma lista já
+ * reatribuída para outra pessoa. */
+function userHasCurrentStakeInTask(task: any, user: NonNullable<Request["user"]>) {
+  const { userId, role } = user;
+  if (canDeleteOrgRecords(role)) return true;
+  if (isPersonalScope(task)) return isTaskPersonalOwner(task, userId);
+  if (
+    task?.criado_por === userId ||
+    task?.responsavel_id === userId ||
+    task?.aceita_por === userId
+  )
+    return true;
+  return parseChecklistItems(task?.checklist).some(
+    (item) => checklistItemAssignmentId(item) === userId,
+  );
+}
+
 function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
   const { userId, role } = user;
   const items = parseChecklistItems(task?.checklist);
@@ -1130,11 +1153,26 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
   // único definido no nível da tarefa) e concluir um item não pode esconder os
   // demais itens dessa mesma lista.
   const hasPerItemAssignment = items.some((item) => !!checklistItemAssignmentId(item));
+  const souPrincipalDaLista = task?.aceita_por === userId || task?.responsavel_id === userId
+    || (!task?.responsavel_id && task?.criado_por === userId);
   if (!hasPerItemAssignment) {
-    return items.map((item) => maskSurpriseChecklistItem(item, userId, task));
+    // CORREÇÃO (vazamento de dados pós-reatribuição): "souPrincipalDaLista" só é
+    // verdadeiro para quem é ATUALMENTE responsável/aceitante da lista. Alguém que
+    // já foi responsável no passado (e por isso tem concluido_por/feito_por num
+    // item, o que já bastava para canListTaskForUser continuar exibindo a lista
+    // para ele) não é mais o "único executor" desta lista depois de reatribuída —
+    // sem este bloqueio, essa pessoa continuava recebendo o checklist inteiro,
+    // incluindo itens e textos que passaram a pertencer só ao novo responsável.
+    // Mantemos visível apenas o que ela mesma concluiu, preservando o próprio
+    // histórico de execução/pontuação sem expor o conteúdo atual de outra pessoa.
+    if (souPrincipalDaLista) {
+      return items.map((item) => maskSurpriseChecklistItem(item, userId, task));
+    }
+    return items
+      .filter((item) => checklistItemBelongsToUser(item, userId))
+      .map((item) => maskSurpriseChecklistItem(item, userId, task));
   }
 
-  const souPrincipalDaLista = task?.aceita_por === userId || task?.responsavel_id === userId;
   const assignedToMe = items.filter(
     (item) =>
       checklistItemBelongsToUser(item, userId) ||
@@ -1442,11 +1480,19 @@ const taskListCache = new SingleFlightTtlCache<string, any[]>(2_000, 128);
 // cancelando a requisição depois de ~20s, sem nenhuma mensagem útil. Agora
 // as 3 rotas que dependem dela cortam em 8s e devolvem o mesmo 503
 // recuperável já usado para outras indisponibilidades transitórias do banco.
+// Configurável (DB_TASK_LIST_TIMEOUT_MS) para permitir alívio imediato via
+// variável de ambiente -- sem redeploy -- caso um servidor específico esteja
+// mais lento (disco/cache frio logo após subir o container, ex.: VPS nova
+// recém-migrada) e precise de mais margem antes de responder 503. O padrão
+// continua 8s, o mesmo valor de sempre; quem não configurar a variável não
+// tem nenhuma mudança de comportamento.
+const taskListDeadlineMs = boundedInteger(process.env.DB_TASK_LIST_TIMEOUT_MS, 8_000, 3_000, 30_000);
+
 async function listTasksForUserComLimite(user: NonNullable<Request["user"]>) {
   return Promise.race([
     listTasksForUser(user),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(Object.assign(new Error("Consulta de tarefas excedeu o tempo limite."), { code: "57014" })), 8_000)
+      setTimeout(() => reject(Object.assign(new Error("Consulta de tarefas excedeu o tempo limite."), { code: "57014" })), taskListDeadlineMs)
     ),
   ]);
 }
@@ -3774,6 +3820,14 @@ router.get(
         res.status(403).json({ error: "Acesso negado." });
         return;
       }
+      // Vínculo apenas histórico (ex.: lista já reatribuída para outra pessoa)
+      // não dá direito ao histórico completo da lista — só o checklist é
+      // filtrável item a item; aqui devolvemos vazio em vez de erro, para não
+      // quebrar a tela de quem só está vendo seu próprio registro antigo.
+      if (!userHasCurrentStakeInTask(task, req.user!)) {
+        res.json({ historico: [] });
+        return;
+      }
       const historico = await query(
         `SELECT h.*, p.nome AS usuario_nome
        FROM tarefas_historico h
@@ -3804,6 +3858,12 @@ router.get(
       }
       if (!(await userCanAccessTask(task, req.user!))) {
         res.status(403).json({ error: "Acesso negado." });
+        return;
+      }
+      // Mesmo critério do histórico: vínculo só histórico não dá acesso aos
+      // anexos atuais de uma lista já reatribuída para outra pessoa.
+      if (!userHasCurrentStakeInTask(task, req.user!)) {
+        res.json({ anexos: [] });
         return;
       }
 
@@ -5242,6 +5302,13 @@ router.get("/:id/comentarios", async (req: Request, res: Response): Promise<void
     const tarefa = await getTaskForAccess(req.params.id, orgId);
     if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) {
       res.status(404).json({ error: "Tarefa não encontrada." }); return;
+    }
+    // Mesmo critério do histórico/anexos: vínculo só histórico (já teve algo
+    // atribuído no passado, mas a lista foi reatribuída) não dá acesso aos
+    // comentários atuais de uma lista que não é mais dele.
+    if (!userHasCurrentStakeInTask(tarefa, req.user!)) {
+      res.json({ comentarios: [] });
+      return;
     }
     const checklistId = String(req.query.checklist_id || "").trim();
     const comentarios = await query<any>(

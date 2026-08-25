@@ -1280,6 +1280,31 @@ async function migrate() {
     console.warn('[MIGRATE] Verificação de FORCE_RELOGIN_ON_DEPLOY pulada (não essencial):', err)
   }
 
+  // Estatísticas atualizadas para o planner (best-effort, nunca trava o
+  // startup). Cenário observado: banco migrado/restaurado para um servidor
+  // novo, com dados carregados em lote pouco antes do primeiro boot -- se o
+  // autovacuum ainda não alcançou uma tabela quente (ex.: tarefas,
+  // notificacoes) nesse momento, o planner pode escolher um plano ruim para
+  // as primeiras consultas logo após o deploy, batendo nos timeouts curtos
+  // das rotas HTTP mesmo com o Postgres saudável e sem nenhum lock real. Um
+  // ANALYZE explícito aqui garante estatísticas frescas em todo boot, sem
+  // depender de o autovacuum já ter rodado. ANALYZE não bloqueia leituras
+  // nem escritas concorrentes (lock leve, compatível com tráfego normal).
+  try {
+    const client = await pool.connect()
+    try {
+      const analyzeTimeoutMs = positiveIntEnv(process.env.DB_MIGRATION_ANALYZE_TIMEOUT_MS, 60_000)
+      await client.query(`SET statement_timeout = '${analyzeTimeoutMs}ms'`)
+      const startedAt = Date.now()
+      await client.query('ANALYZE')
+      console.log(`[MIGRATE] ANALYZE concluído em ${Date.now() - startedAt}ms.`)
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    console.warn('[MIGRATE] ANALYZE pulado (não essencial):', err instanceof Error ? err.message : err)
+  }
+
   await pool.end()
 }
 
