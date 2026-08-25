@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express'
 import pool, { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
-import { criarNotificacao } from '../lib/notifHelper'
+import {
+  criarNotificacao,
+  resolverNotificacoesRecorrentesPorReferencia,
+} from '../lib/notifHelper'
 import { respondRouteError } from '../lib/httpErrors'
 
 const router = Router()
@@ -556,6 +559,11 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
         : 'Pontuação única liberada para o executor da lista.'],
     ).catch(() => undefined)
     await client.query('COMMIT')
+    await resolverNotificacoesRecorrentesPorReferencia({
+      orgId,
+      referenciaId: task.id,
+      referenciaTipo: 'tarefa',
+    })
 
     const recipients = new Set<string>(
       [task.responsavel_id, task.aceita_por, ...Array.from(executorIds(task))]

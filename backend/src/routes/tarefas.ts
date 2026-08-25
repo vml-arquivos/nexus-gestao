@@ -3,7 +3,10 @@ import { v4 as uuidv4 } from "uuid";
 import { createHash } from "crypto";
 import pool, { getPoolStatus, query, queryOne, boundedInteger } from "../db/pool";
 import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";
-import { criarNotificacao } from "../lib/notifHelper";
+import {
+  criarNotificacao,
+  resolverNotificacoesRecorrentesPorReferencia,
+} from "../lib/notifHelper";
 import {
   createSecureMulterUpload,
   buildUploadUrl,
@@ -3384,6 +3387,11 @@ router.patch(
        WHERE id = $2 AND org_id = $3 RETURNING *`,
         [userId, req.params.id, orgId],
       );
+      await resolverNotificacoesRecorrentesPorReferencia({
+        orgId,
+        referenciaId: req.params.id,
+        referenciaTipo: "tarefa",
+      });
       if (existing.conta_ranking !== false) {
         const items = parseChecklistItems(existing.checklist);
         const periodo = periodMonth();
@@ -5048,6 +5056,11 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       if (deleted.length === 0)
         throw new Error("Tarefa não encontrada para exclusão.");
       await query("COMMIT");
+      await resolverNotificacoesRecorrentesPorReferencia({
+        orgId,
+        referenciaId: req.params.id,
+        referenciaTipo: "tarefa",
+      });
     } catch (cleanupErr) {
       await query("ROLLBACK").catch(() => {});
       throw cleanupErr;

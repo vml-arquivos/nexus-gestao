@@ -15,6 +15,7 @@ import {
 } from '../lib/checklistRecurrence'
 import { resolveTaskListTitle } from '../lib/taskContextTitle'
 import { creatorCanEnableTaskRanking, removeChecklistScoringForMember } from '../lib/taskCreationPolicy'
+import { resolverNotificacoesRecorrentesPorReferencia } from '../lib/notifHelper'
 
 const router = Router()
 
@@ -829,6 +830,14 @@ router.patch('/destrava/tarefas/:id/status', requireWebhookSignature, async (req
       status,
       `Status atualizado no Destrava por ${executado_por_nome || executado_por_email || 'usuário'}.`
     )
+
+    if (status === 'concluida' || status === 'cancelada') {
+      await resolverNotificacoesRecorrentesPorReferencia({
+        orgId: existing.org_id,
+        referenciaId: req.params.id,
+        referenciaTipo: 'tarefa',
+      })
+    }
 
     res.json({ tarefa })
   } catch (err) {

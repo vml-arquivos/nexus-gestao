@@ -55,8 +55,26 @@ export interface CriarNotifOpts {
   body?: string
   referenciaId?: string   // id da tarefa
   referenciaTipo?: string // 'tarefa'
-  /** Em alertas de cadência diária, reenvia o push mesmo atualizando a mesma notificação. */
-  reenviarPush?: boolean
+  /** Chave estável do lifecycle da pendência; quando omitida, é inferida pelo domínio. */
+  chaveRecorrencia?: string
+}
+
+export const CHAVE_RECORRENCIA_TAREFA_PRAZO = 'tarefa_prazo'
+export const CHAVE_RECORRENCIA_TAREFA_LEMBRETE = 'tarefa_lembrete_diario'
+export const CHAVE_RECORRENCIA_CHECKLIST = 'checklist_recorrente'
+export const CHAVE_RECORRENCIA_FINANCEIRO_PRAZO = 'financeiro_prazo'
+
+function chaveRecorrenciaPadrao(opts: CriarNotifOpts): string | null {
+  const explicita = String(opts.chaveRecorrencia || '').trim()
+  if (explicita) return explicita
+  if (opts.referenciaTipo === 'pagamento') return CHAVE_RECORRENCIA_FINANCEIRO_PRAZO
+  if (opts.referenciaTipo !== 'tarefa') return null
+  if (opts.tipo === 'lembrete_diario_tarefa') return CHAVE_RECORRENCIA_TAREFA_LEMBRETE
+  if (opts.tipo === 'lembrete_recorrente_checklist') return CHAVE_RECORRENCIA_CHECKLIST
+  if (['tarefa_atrasada', 'tarefa_prazo_hoje', 'tarefa_vencida'].includes(opts.tipo)) {
+    return CHAVE_RECORRENCIA_TAREFA_PRAZO
+  }
+  return opts.tipo || null
 }
 
 export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
@@ -89,44 +107,46 @@ export async function criarNotificacao(opts: CriarNotifOpts): Promise<void> {
 
 
 
-// ── Criar/atualizar notificação RECORRENTE (vencimentos, financeiro, agenda) ──
-// Diferente de criarNotificacao (usada para eventos únicos como "tarefa
-// concluída"), esta função é para alertas que os jobs reemitem periodicamente
-// enquanto a pendência persistir. Em vez de inserir uma linha nova a cada
-// execução -- o que fez a contagem de não lidas passar de 18 mil em produção
-// -- ela atualiza a notificação ainda não lida da mesma referência/tipo,
-// incrementando "ocorrencias" e atualizando o texto para o estado atual
-// (ex.: "atrasada há 3 dias" -> "atrasada há 4 dias"). Nenhum histórico é
-// perdido: a notificação anterior já lida permanece intacta, e uma nova só
-// é criada quando a pendência atual ainda não tem alerta em aberto.
+// ── Lifecycle de notificações recorrentes ─────────────────────────────────────
+// Uma pendência recorrente possui uma única linha ativa por organização,
+// usuário, referência e chave de lifecycle. `lida` descreve apenas a leitura
+// pelo usuário e nunca participa da deduplicação ou do encerramento.
 export async function criarOuAtualizarNotificacaoRecorrente(opts: CriarNotifOpts): Promise<void> {
   if (!opts.referenciaId) {
-    // Sem referência não há como agrupar ocorrências; cai para o INSERT simples.
+    await criarNotificacao(opts)
+    return
+  }
+  const chaveRecorrencia = chaveRecorrenciaPadrao(opts)
+  if (!chaveRecorrencia) {
     await criarNotificacao(opts)
     return
   }
   try {
     const row = await query(
       `INSERT INTO notificacoes
-         (org_id, user_id, tipo, titulo, body, referencia_id, referencia_tipo, ocorrencias, atualizada_em)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,1,NOW())
-       ON CONFLICT (org_id, user_id, referencia_id, tipo) WHERE lida = FALSE AND referencia_id IS NOT NULL
+         (org_id, user_id, tipo, titulo, body, referencia_id, referencia_tipo,
+          recorrente, ativa, chave_recorrencia, ocorrencias, atualizada_em)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,TRUE,$8,1,NOW())
+       ON CONFLICT (org_id, user_id, referencia_id, chave_recorrencia)
+       WHERE recorrente = TRUE
+         AND ativa = TRUE
+         AND referencia_id IS NOT NULL
+         AND chave_recorrencia IS NOT NULL
        DO UPDATE SET
+         tipo = EXCLUDED.tipo,
          titulo = EXCLUDED.titulo,
          body = EXCLUDED.body,
-         ocorrencias = notificacoes.ocorrencias + 1,
-         atualizada_em = NOW()
-       RETURNING id, tipo, titulo, body, referencia_id, referencia_tipo, created_at, ocorrencias`,
+         atualizada_em = NOW(),
+         ocorrencias = notificacoes.ocorrencias + 1
+       RETURNING id, tipo, titulo, body, referencia_id, referencia_tipo,
+                 created_at, ocorrencias, lida, recorrente, ativa,
+                 chave_recorrencia, atualizada_em`,
       [opts.orgId, opts.userId, opts.tipo, opts.titulo, opts.body || null,
-       opts.referenciaId, opts.referenciaTipo || null]
+       opts.referenciaId, opts.referenciaTipo || null, chaveRecorrencia]
     )
     const notif = Array.isArray(row) ? row[0] : row
-    // Só soa/empurra push quando é de fato uma ocorrência nova (ocorrencias
-    // volta a 1 no INSERT); numa atualização de contador, evita repetir som
-    // e Web Push a cada execução do job -- o intervalo de notificacaoRecente
-    // já decide a cadência de reemissão.
     const ehNova = Number((notif as { ocorrencias?: number })?.ocorrencias) === 1
-    if (ehNova || opts.reenviarPush) {
+    if (ehNova) {
       pushSse(opts.userId, 'notificacao', notif)
       sendPushToUser({
         orgId: opts.orgId,
@@ -138,7 +158,7 @@ export async function criarOuAtualizarNotificacaoRecorrente(opts: CriarNotifOpts
         referenciaTipo: opts.referenciaTipo,
       }).catch((err) => console.warn('[PUSH] Falha no push da notificação:', (err as Error)?.message || err))
     } else {
-      // Atualiza o sino em tempo real mesmo sem tocar som/push novamente.
+      // Atualiza silenciosamente a mesma linha no feed; não cria tempestade de push.
       pushSse(opts.userId, 'notificacao_atualizada', notif)
     }
   } catch (err) {
@@ -146,21 +166,76 @@ export async function criarOuAtualizarNotificacaoRecorrente(opts: CriarNotifOpts
   }
 }
 
-async function notificacaoRecente(input: { orgId: string; userId: string; referenciaId: string; tipo: string; minutos: number }) {
-  // Usa atualizada_em (não created_at) porque a notificação recorrente é
-  // atualizada no lugar em vez de recriada: created_at fica fixo na primeira
-  // ocorrência, então checar created_at faria esta função "esquecer" o
-  // alerta após o primeiro intervalo e disparar a cada execução do job.
+export async function resolverNotificacoesRecorrentesPorReferencias(opts: {
+  orgId: string
+  referenciaIds: string[]
+  referenciaTipo?: string
+  chaveRecorrencia?: string
+}): Promise<number> {
+  const referenciaIds = Array.from(new Set(opts.referenciaIds.map(String).filter(Boolean)))
+  if (!referenciaIds.length) return 0
+  try {
+    const filtros = [
+      'org_id = $1',
+      'referencia_id = ANY($2::uuid[])',
+      'recorrente = TRUE',
+      'ativa = TRUE',
+    ]
+    const params: unknown[] = [opts.orgId, referenciaIds]
+    if (opts.referenciaTipo) {
+      filtros.push(`referencia_tipo = $${params.length + 1}`)
+      params.push(opts.referenciaTipo)
+    }
+    if (opts.chaveRecorrencia) {
+      filtros.push(`chave_recorrencia = $${params.length + 1}`)
+      params.push(opts.chaveRecorrencia)
+    }
+    const rows = await query<{ id: string }>(
+      `UPDATE notificacoes
+          SET ativa = FALSE,
+              resolvida_em = COALESCE(resolvida_em, NOW()),
+              arquivada = TRUE,
+              arquivada_em = COALESCE(arquivada_em, NOW()),
+              atualizada_em = NOW()
+        WHERE ${filtros.join(' AND ')}
+        RETURNING id`,
+      params,
+    )
+    return Array.isArray(rows) ? rows.length : 0
+  } catch (err) {
+    // A resolução é uma proteção adicional; nunca deve desfazer a operação de origem.
+    console.error('[NOTIF] Erro ao resolver notificações recorrentes:', err)
+    return 0
+  }
+}
+
+export async function resolverNotificacoesRecorrentesPorReferencia(opts: {
+  orgId: string
+  referenciaId: string
+  referenciaTipo?: string
+  chaveRecorrencia?: string
+}): Promise<number> {
+  return resolverNotificacoesRecorrentesPorReferencias({
+    ...opts,
+    referenciaIds: [opts.referenciaId],
+  })
+}
+
+async function notificacaoRecente(input: { orgId: string; userId: string; referenciaId: string; chaveRecorrencia: string; tipo?: string; minutos: number }) {
+  // A cadência consulta a mesma linha ativa pelo timestamp de atualização.
+  // `lida` não participa porque ler não resolve a pendência.
   const row = await query<{ id: string }>(
     `SELECT id FROM notificacoes
      WHERE org_id = $1
        AND user_id = $2
        AND referencia_id = $3
-       AND tipo = $4
-       AND lida = FALSE
-       AND atualizada_em >= NOW() - ($5::text || ' minutes')::interval
+       AND recorrente = TRUE
+       AND ativa = TRUE
+       AND chave_recorrencia = $4
+       AND ($5::text IS NULL OR tipo = $5)
+       AND atualizada_em >= NOW() - ($6::text || ' minutes')::interval
      LIMIT 1`,
-    [input.orgId, input.userId, input.referenciaId, input.tipo, input.minutos]
+    [input.orgId, input.userId, input.referenciaId, input.chaveRecorrencia, input.tipo || null, input.minutos]
   ).catch(() => [])
   return Array.isArray(row) && row.length > 0
 }
@@ -227,7 +302,7 @@ async function jobVencimentos() {
       const recipients = await destinatariosTarefa(t)
 
       for (const userId of recipients) {
-        if (await notificacaoRecente({ orgId: t.org_id, userId, referenciaId: t.id, tipo, minutos: intervaloMinutos })) continue
+        if (await notificacaoRecente({ orgId: t.org_id, userId, referenciaId: t.id, chaveRecorrencia: CHAVE_RECORRENCIA_TAREFA_PRAZO, tipo, minutos: intervaloMinutos })) continue
         await criarOuAtualizarNotificacaoRecorrente({
           orgId: t.org_id,
           userId,
@@ -272,7 +347,7 @@ async function jobLembreteDiario() {
     for (const tarefa of tarefasDiarias) {
       const recipients = await destinatariosTarefa(tarefa)
       for (const userId of recipients) {
-        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, tipo: 'lembrete_diario_tarefa', minutos: 20 * 60 })) continue
+        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, chaveRecorrencia: CHAVE_RECORRENCIA_TAREFA_LEMBRETE, tipo: 'lembrete_diario_tarefa', minutos: 20 * 60 })) continue
         await criarOuAtualizarNotificacaoRecorrente({
           orgId: tarefa.org_id,
           userId,
@@ -281,7 +356,7 @@ async function jobLembreteDiario() {
           body: `"${tarefa.titulo}" permanece ativa até ser finalizada e aprovada. É a mesma lista: nenhum registro novo foi criado.`,
           referenciaId: tarefa.id,
           referenciaTipo: 'tarefa',
-          reenviarPush: true,
+          chaveRecorrencia: CHAVE_RECORRENCIA_TAREFA_LEMBRETE,
         })
         lembretesDeLista++
       }
@@ -337,7 +412,7 @@ async function jobLembreteDiario() {
 
       for (const [userId, items] of byRecipient) {
         const tipo = 'lembrete_recorrente_checklist'
-        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, tipo, minutos: 20 * 60 })) continue
+        if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, chaveRecorrencia: CHAVE_RECORRENCIA_CHECKLIST, tipo, minutos: 20 * 60 })) continue
         const names = items.slice(0, 3).map(item => `“${String(item?.texto || 'Ação').slice(0, 90)}”`).join(', ')
         const remaining = items.length > 3 ? ` e mais ${items.length - 3}` : ''
         await criarOuAtualizarNotificacaoRecorrente({
@@ -348,7 +423,7 @@ async function jobLembreteDiario() {
           body: `${tarefa.titulo}: ${names}${remaining}. É o mesmo checklist e o mesmo histórico; nenhuma tarefa foi duplicada.`,
           referenciaId: tarefa.id,
           referenciaTipo: 'tarefa',
-          reenviarPush: true,
+          chaveRecorrencia: CHAVE_RECORRENCIA_CHECKLIST,
         })
         lembretesDeItem++
       }
@@ -476,7 +551,7 @@ async function jobFinanceiroVencimento() {
         ? (vencido ? 'financeiro_cobranca' : 'financeiro_vencimento')
         : (vencido ? 'financeiro_vencido' : 'financeiro_vencimento')
       const intervaloMinutos = vencido ? 30 : venceHoje ? 120 : 24 * 60
-      if (await notificacaoRecente({ orgId: p.org_id, userId: p.criado_por, referenciaId: p.id, tipo, minutos: intervaloMinutos })) continue
+      if (await notificacaoRecente({ orgId: p.org_id, userId: p.criado_por, referenciaId: p.id, chaveRecorrencia: CHAVE_RECORRENCIA_FINANCEIRO_PRAZO, tipo, minutos: intervaloMinutos })) continue
       const titulo = isRecebimento
         ? (vencido ? `🚨 Cobrar devedor: ${p.titulo}` : `💰 Recebimento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
         : (vencido ? `🚨 Pagamento vencido: ${p.titulo}` : `💰 Pagamento ${venceHoje ? 'vence hoje' : 'vence amanhã'}: ${p.titulo}`)
@@ -495,6 +570,7 @@ async function jobFinanceiroVencimento() {
         body,
         referenciaId: p.id,
         referenciaTipo: 'pagamento',
+        chaveRecorrencia: CHAVE_RECORRENCIA_FINANCEIRO_PRAZO,
       })
       enviados++
     }
@@ -547,6 +623,63 @@ async function jobAgendaLembrete() {
   }
 }
 
+// ── Reconciliação barata do lifecycle ─────────────────────────────────────────
+// Segunda linha de defesa: se uma transição de origem ocorreu fora do caminho
+// HTTP principal, encerra somente notificações recorrentes que ainda apontam
+// para uma tarefa fechada ou pagamento já resolvido. Não faz varredura sem
+// referência, não remove histórico e não marca linhas legadas como ativas.
+async function reconciliarNotificacoesRecorrentes() {
+  let total = 0
+  try {
+    const tarefas = await query<{ id: string }>(
+      `UPDATE notificacoes n
+          SET ativa = FALSE,
+              resolvida_em = COALESCE(n.resolvida_em, NOW()),
+              arquivada = TRUE,
+              arquivada_em = COALESCE(n.arquivada_em, NOW()),
+              atualizada_em = NOW()
+         FROM tarefas t
+        WHERE n.org_id = t.org_id
+          AND n.referencia_id = t.id
+          AND n.referencia_tipo = 'tarefa'
+          AND n.recorrente = TRUE
+          AND n.ativa = TRUE
+          AND (
+            t.status IN ('aprovada', 'cancelada')
+            OR (
+              t.status = 'concluida'
+              AND (t.status_gestor = 'aprovada' OR n.chave_recorrencia = 'tarefa_prazo')
+            )
+          )
+        RETURNING n.id`,
+      [],
+    )
+    total += Array.isArray(tarefas) ? tarefas.length : 0
+
+    const pagamentos = await query<{ id: string }>(
+      `UPDATE notificacoes n
+          SET ativa = FALSE,
+              resolvida_em = COALESCE(n.resolvida_em, NOW()),
+              arquivada = TRUE,
+              arquivada_em = COALESCE(n.arquivada_em, NOW()),
+              atualizada_em = NOW()
+         FROM pagamentos p
+        WHERE n.org_id = p.org_id
+          AND n.referencia_id = p.id
+          AND n.referencia_tipo = 'pagamento'
+          AND n.recorrente = TRUE
+          AND n.ativa = TRUE
+          AND p.status IN ('pago', 'cancelado')
+        RETURNING n.id`,
+      [],
+    )
+    total += Array.isArray(pagamentos) ? pagamentos.length : 0
+    if (total > 0) console.log(`[NOTIF] Reconciliação encerrou ${total} notificação(ões) recorrente(s).`)
+  } catch (err) {
+    console.error('[NOTIF] Erro na reconciliação de lifecycle:', err)
+  }
+}
+
 // ── Job: arquivar notificações antigas (preserva os dados) ───────────────────
 // Substitui a limpeza manual por exclusão: por padrão nenhuma notificação é
 // apagada. Notificações lidas com mais de 30 dias são marcadas como
@@ -584,6 +717,7 @@ async function jobArquivarNotificacoesAntigas() {
            SELECT id FROM notificacoes
             WHERE arquivada = FALSE
               AND lida = TRUE
+              AND NOT (COALESCE(recorrente, FALSE) AND COALESCE(ativa, FALSE))
               AND created_at < NOW() - INTERVAL '30 days'
             ORDER BY created_at ASC
             LIMIT $1
@@ -641,10 +775,14 @@ export function iniciarJobsNotificacao() {
   // Lembretes de agenda: verifica a cada 5 minutos
   setInterval(() => { void run('agenda', jobAgendaLembrete) }, 5 * 60 * 1000)
 
+  // Reconciliação seletiva: encerra apenas referências já resolvidas.
+  setInterval(() => { void run('reconciliacao', reconciliarNotificacoesRecorrentes) }, 10 * 60 * 1000)
+
   // Arquivamento automático: uma vez por dia basta (não é uma rota urgente).
   setInterval(() => { void run('arquivamento', jobArquivarNotificacoesAntigas) }, 24 * 60 * 60 * 1000)
 
   // Dá prioridade ao tráfego de login/tarefas após deploy.
+  setTimeout(() => { void run('reconciliacao', reconciliarNotificacoesRecorrentes) }, 330_000)
   setTimeout(() => { void run('vencimentos', jobVencimentos) }, 180_000)
   setTimeout(() => { void run('lembretes', jobLembretes) }, 210_000)
   setTimeout(() => { void run('financeiro', jobFinanceiroVencimento) }, 240_000)

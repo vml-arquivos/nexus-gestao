@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
 import { PaymentService } from '../services/paymentService'
+import { resolverNotificacoesRecorrentesPorReferencia, resolverNotificacoesRecorrentesPorReferencias } from '../lib/notifHelper'
 import { randomUUID } from 'crypto'
 
 const router = Router()
@@ -657,6 +658,13 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ error: 'Pagamento não encontrado.' })
       return
     }
+    if (pag.status === 'pago' || pag.status === 'cancelado') {
+      await resolverNotificacoesRecorrentesPorReferencia({
+        orgId,
+        referenciaId: req.params.id,
+        referenciaTipo: 'pagamento',
+      })
+    }
     res.json({ pagamento: pag })
   } catch (err) {
     console.error('[PAG] Erro ao atualizar:', err)
@@ -692,6 +700,13 @@ router.delete('/grupo/:grupo_id', async (req: Request, res: Response): Promise<v
         [orgId, rawGrupoId]
       )
 
+      if (deleted.length > 0) {
+        await resolverNotificacoesRecorrentesPorReferencias({
+          orgId,
+          referenciaIds: deleted.map((row: any) => row.id),
+          referenciaTipo: 'pagamento',
+        })
+      }
       res.json({ ok: true, deletados: deleted.length })
       return
     }
@@ -749,6 +764,11 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     ) as any[]
     if (deleted.length === 0) { res.status(404).json({ error: 'Pagamento não encontrado ou sem permissão.' }); return }
     await query('DELETE FROM pagamentos_historico WHERE org_id = $1 AND pagamento_id = $2', [orgId, req.params.id]).catch(() => {})
+    await resolverNotificacoesRecorrentesPorReferencia({
+      orgId,
+      referenciaId: req.params.id,
+      referenciaTipo: 'pagamento',
+    })
     res.json({ ok: true })
   } catch (err) {
     console.error('[PAG] Erro ao excluir:', err)

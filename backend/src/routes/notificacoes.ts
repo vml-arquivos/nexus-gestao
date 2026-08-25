@@ -349,6 +349,7 @@ router.delete('/antigas', async (req: Request, res: Response): Promise<void> => 
        WHERE id IN (
          SELECT id FROM notificacoes
           WHERE user_id=$1 AND org_id=$2 AND lida=true AND arquivada=false
+            AND NOT (COALESCE(recorrente, FALSE) AND COALESCE(ativa, FALSE))
             AND created_at < NOW() - INTERVAL '30 days'
           LIMIT 2000
        )

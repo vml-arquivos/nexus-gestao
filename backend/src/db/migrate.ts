@@ -11,6 +11,7 @@ import type { PoolClient } from 'pg'
 // Ao adicionar uma nova alteração de schema no futuro, crie um novo ID. O
 // registro só é gravado depois que TODO o SCHEMA termina com sucesso.
 const SCHEMA_MIGRATION_ID = '2026-08-03-fix54-startup-db-priority'
+const NOTIFICATION_LIFECYCLE_MIGRATION_ID = '2026-08-25-notification-lifecycle'
 
 const SCHEMA = `
 -- ============================================================
@@ -496,7 +497,15 @@ CREATE TABLE IF NOT EXISTS notificacoes (
   referencia_id   UUID,
   referencia_tipo TEXT CHECK (referencia_tipo IN ('tarefa','pagamento','agenda','pessoa') OR referencia_tipo IS NULL),
   lida            BOOLEAN DEFAULT FALSE NOT NULL,
-  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  created_at      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  recorrente      BOOLEAN NOT NULL DEFAULT FALSE,
+  ativa           BOOLEAN NOT NULL DEFAULT FALSE,
+  chave_recorrencia TEXT,
+  resolvida_em    TIMESTAMPTZ,
+  ocorrencias     INT NOT NULL DEFAULT 1,
+  atualizada_em   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  arquivada       BOOLEAN NOT NULL DEFAULT FALSE,
+  arquivada_em    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notificacoes(user_id, lida, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_org  ON notificacoes(org_id, created_at DESC);
@@ -966,47 +975,25 @@ UPDATE tarefas
    AND external_key LIKE 'destrava:%'
    AND COALESCE(escopo, 'pessoal') <> 'equipe';
 
--- ── NOTIFICAÇÕES — agregação e arquivamento (FIX52) ──────────────────────────
--- Antes, cada tique do job de vencimento/financeiro/agenda inserida uma nova
--- linha para a mesma referência. Em produção isso já havia acumulado 18k+
--- notificações não lidas. Agora um mesmo alerta ainda não lido é atualizado
--- (ocorrencias incrementa, titulo/body refletem o estado atual) em vez de
--- duplicado. Nenhuma linha existente é apagada por esta migração.
+-- ── NOTIFICAÇÕES — lifecycle recorrente explícito ─────────────────────────────
+-- lida é somente o estado de leitura do usuário. A autoridade para impedir
+-- duplicidades recorrentes é a combinação recorrente/ativa/chave_recorrencia.
+-- A migração é aditiva e não faz backfill nem limpeza histórica.
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS recorrente BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS ativa BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS chave_recorrencia TEXT;
+ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS resolvida_em TIMESTAMPTZ;
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS ocorrencias INT NOT NULL DEFAULT 1;
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS atualizada_em TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada_em TIMESTAMPTZ;
 
--- Produção já tinha várias notificações não lidas duplicadas para a mesma
--- org/usuário/referência/tipo -- exatamente o bug que este FIX52 corrige.
--- CREATE UNIQUE INDEX abaixo falha se dados existentes já violam a
--- unicidade, então este passo roda antes e resolve isso sem apagar nada:
--- por grupo duplicado, a linha mais recente continua não lida (somando as
--- ocorrências do grupo) e as demais são arquivadas como já lidas. Todo o
--- histórico permanece no banco, só sai da contagem de "não lidas".
-CREATE TEMP TABLE IF NOT EXISTS notif_dedup_fix52 AS
-SELECT id, ocorrencias,
-       ROW_NUMBER() OVER (
-         PARTITION BY org_id, user_id, referencia_id, tipo
-         ORDER BY atualizada_em DESC, created_at DESC, id DESC
-       ) AS rn,
-       SUM(ocorrencias) OVER (PARTITION BY org_id, user_id, referencia_id, tipo) AS total_ocorrencias
-FROM notificacoes
-WHERE lida = FALSE AND referencia_id IS NOT NULL;
-
-UPDATE notificacoes n SET ocorrencias = d.total_ocorrencias, atualizada_em = NOW()
-FROM notif_dedup_fix52 d WHERE n.id = d.id AND d.rn = 1 AND d.total_ocorrencias <> n.ocorrencias;
-
-UPDATE notificacoes n SET lida = TRUE, arquivada = TRUE, arquivada_em = NOW()
-FROM notif_dedup_fix52 d WHERE n.id = d.id AND d.rn > 1;
-
-DROP TABLE IF EXISTS notif_dedup_fix52;
-
--- Uma única notificação "ativa" (não lida) por org/usuário/referência/tipo.
--- É o alvo do ON CONFLICT usado pela função de upsert dos jobs recorrentes.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_notif_ativa_por_referencia
-  ON notificacoes(org_id, user_id, referencia_id, tipo)
-  WHERE lida = FALSE AND referencia_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notif_recorrente_ativa
+  ON notificacoes(org_id, user_id, referencia_id, chave_recorrencia)
+  WHERE recorrente = TRUE
+    AND ativa = TRUE
+    AND referencia_id IS NOT NULL
+    AND chave_recorrencia IS NOT NULL;
 
 -- Consulta padrão da lista (exclui arquivadas) e do job de arquivamento.
 CREATE INDEX IF NOT EXISTS idx_notif_user_ativas
@@ -1022,6 +1009,12 @@ CREATE INDEX IF NOT EXISTS idx_notif_user_unread_active
   ON notificacoes(user_id, org_id) WHERE lida = FALSE AND arquivada = FALSE;
 CREATE INDEX IF NOT EXISTS idx_notif_referencia_tipo
   ON notificacoes(referencia_id, tipo) WHERE referencia_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notif_recorrente_referencia
+  ON notificacoes(org_id, referencia_id, chave_recorrencia)
+  WHERE recorrente = TRUE AND ativa = TRUE AND referencia_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notif_recorrente_usuario
+  ON notificacoes(org_id, user_id, ativa, atualizada_em DESC)
+  WHERE recorrente = TRUE;
 CREATE INDEX IF NOT EXISTS idx_agenda_lembretes_pendentes
   ON agenda(data_inicio) WHERE lembrete_enviado = FALSE;
 
@@ -1084,7 +1077,10 @@ async function hasCurrentSchemaBaseline(client: PoolClient): Promise<boolean> {
       to_regclass('public.destrava_empresas_cache') IS NOT NULL AS destrava_empresas_cache,
       to_regclass('public.automation_events') IS NOT NULL AS automation_events,
       to_regclass('public.ux_tarefas_org_external_key') IS NOT NULL AS ux_tarefas_external,
-      to_regclass('public.uq_notif_ativa_por_referencia') IS NOT NULL AS uq_notif_ativa,
+      (
+        to_regclass('public.uq_notif_recorrente_ativa') IS NOT NULL
+        OR to_regclass('public.uq_notif_ativa_por_referencia') IS NOT NULL
+      ) AS uq_notif_ativa,
       to_regclass('public.ux_agenda_org_sync_key') IS NOT NULL AS ux_agenda_sync,
       EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -1105,6 +1101,38 @@ async function hasCurrentSchemaBaseline(client: PoolClient): Promise<boolean> {
   `)
   const state = result.rows[0] || {}
   return Object.values(state).every(Boolean)
+}
+
+async function applyNotificationLifecycleMigration(client: PoolClient): Promise<void> {
+  // Migration separada do schema histórico: pode ser aplicada a um banco já
+  // atualizado sem repetir backfills, deduplicações ou qualquer limpeza.
+  const statements = [
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS recorrente BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS ativa BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS chave_recorrencia TEXT`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS resolvida_em TIMESTAMPTZ`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS ocorrencias INT NOT NULL DEFAULT 1`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS atualizada_em TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE notificacoes ADD COLUMN IF NOT EXISTS arquivada_em TIMESTAMPTZ`,
+    `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_notif_recorrente_ativa
+       ON notificacoes(org_id, user_id, referencia_id, chave_recorrencia)
+       WHERE recorrente = TRUE
+         AND ativa = TRUE
+         AND referencia_id IS NOT NULL
+         AND chave_recorrencia IS NOT NULL`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notif_recorrente_referencia
+       ON notificacoes(org_id, referencia_id, chave_recorrencia)
+       WHERE recorrente = TRUE AND ativa = TRUE AND referencia_id IS NOT NULL`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notif_recorrente_usuario
+       ON notificacoes(org_id, user_id, ativa, atualizada_em DESC)
+       WHERE recorrente = TRUE`,
+    // O índice novo é criado antes de retirar a autoridade do legado.
+    `DROP INDEX CONCURRENTLY IF EXISTS uq_notif_ativa_por_referencia`,
+  ]
+  for (const text of statements) {
+    await client.query({ text, query_timeout: MIGRATION_QUERY_TIMEOUT_MS } as any)
+  }
 }
 
 async function applyFix54PerformanceIndexes(client: PoolClient): Promise<void> {
@@ -1171,8 +1199,12 @@ async function runSchemaOnce(): Promise<void> {
       'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
       [SCHEMA_MIGRATION_ID],
     )
-    if (aplicado.rows[0]?.aplicado) {
-      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID} já aplicado; nenhuma DDL repetida.`)
+    const lifecycleAplicado = await client.query<{ aplicado: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
+      [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
+    )
+    if (aplicado.rows[0]?.aplicado && lifecycleAplicado.rows[0]?.aplicado) {
+      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID} e lifecycle ${NOTIFICATION_LIFECYCLE_MIGRATION_ID} já aplicados; nenhuma DDL repetida.`)
       return
     }
 
@@ -1184,14 +1216,32 @@ async function runSchemaOnce(): Promise<void> {
     await client.query(`SET lock_timeout = '${MIGRATION_LOCK_TIMEOUT_MS}ms'`)
     await client.query(`SET statement_timeout = '${MIGRATION_STATEMENT_TIMEOUT_MS}ms'`)
 
+    if (aplicado.rows[0]?.aplicado && !lifecycleAplicado.rows[0]?.aplicado) {
+      console.log(`[MIGRATE] Aplicando apenas ${NOTIFICATION_LIFECYCLE_MIGRATION_ID} ao banco existente…`)
+      await applyNotificationLifecycleMigration(client)
+      await client.query(
+        'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+        [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
+      )
+      console.log('[MIGRATE] ✅ Lifecycle de notificações aplicado.')
+      return
+    }
+
     if (await hasCurrentSchemaBaseline(client)) {
-      console.log('[MIGRATE] Banco atual detectado; aplicando apenas índices FIX54 sem correção histórica de dados…')
+      console.log('[MIGRATE] Banco atual detectado; aplicando índices FIX54 e lifecycle de notificações sem correção histórica de dados…')
       await applyFix54PerformanceIndexes(client)
+      if (!lifecycleAplicado.rows[0]?.aplicado) {
+        await applyNotificationLifecycleMigration(client)
+        await client.query(
+          'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+          [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
+        )
+      }
       await client.query(
         'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
         [SCHEMA_MIGRATION_ID],
       )
-      console.log('[MIGRATE] ✅ Banco atual registrado e índices FIX54 aplicados.')
+      console.log('[MIGRATE] ✅ Banco atual registrado, índices FIX54 e lifecycle aplicados.')
       return
     }
 
@@ -1203,11 +1253,16 @@ async function runSchemaOnce(): Promise<void> {
       text: SCHEMA,
       query_timeout: MIGRATION_QUERY_TIMEOUT_MS,
     } as any)
+    await applyNotificationLifecycleMigration(client)
     await client.query(
       'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       [SCHEMA_MIGRATION_ID],
     )
-    console.log('[MIGRATE] ✅ Schema aplicado com sucesso!')
+    await client.query(
+      'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+      [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
+    )
+    console.log('[MIGRATE] ✅ Schema e lifecycle de notificações aplicados com sucesso!')
   } finally {
     if (advisoryLockObtido) {
       await client

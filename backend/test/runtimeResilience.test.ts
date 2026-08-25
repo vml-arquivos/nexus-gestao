@@ -69,11 +69,11 @@ describe('proteções de runtime FIX54', () => {
   it('mantém a recorrência visível e configurável em cada item do checklist', () => {
     const tarefasPage = read('src/pages/Tarefas.tsx')
     const styles = read('src/task-workflow-fixes.css')
-    expect(tarefasPage).toContain('Recorrência por item ativa')
-    expect(tarefasPage).toContain("option.value === 'diaria' ? 'Lembrar todos os dias'")
-    expect(tarefasPage).toContain('task-item-recurrence-option')
-    expect(tarefasPage).toContain('recorrencia: option.value')
-    expect(styles).toContain('.task-item-recurrence-option.active')
+    expect(tarefasPage).toContain('Frequência desta tarefa')
+    expect(tarefasPage).toContain('CHECKLIST_RECURRENCE_OPTIONS.map')
+    expect(tarefasPage).toContain('task-item-recurrence-editor')
+    expect(tarefasPage).toContain('recorrencia: recurrence')
+    expect(styles).toContain('.task-item-recurrence-editor')
     expect(styles).toContain('.tarefa-create-modal-box > .modal-header')
   })
 
