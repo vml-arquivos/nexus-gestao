@@ -1474,6 +1474,43 @@ async function getTaskForAccess(id: string, orgId: string) {
 // Bancos antigos podem ter tarefas.checklist como JSON, JSONB, texto ou até nulo.
 // Por isso a filtragem por executor de checklist é feita em TypeScript, depois de
 // buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
+// Algumas tarefas históricas carregam checklists patológicos de dezenas de MB.
+// Nunca materializar esses payloads em endpoints de lista protege o event loop,
+// o pool e o navegador; a rota de detalhe continua usando getTaskForAccess() e
+// entrega o checklist completo quando ele é realmente solicitado.
+const TASK_LIST_MAX_CHECKLIST_BYTES = 1_000_000;
+const TASK_LIST_SELECT = `
+         SELECT t.id, t.org_id, t.criado_por, t.responsavel_id, t.responsavel_nome,
+                t.titulo, t.descricao, t.data, t.prazo, t.prioridade, t.status,
+                CASE
+                  WHEN t.checklist IS NULL OR pg_column_size(t.checklist) <= ${TASK_LIST_MAX_CHECKLIST_BYTES}
+                    THEN COALESCE(t.checklist, '[]'::jsonb)
+                  ELSE '[]'::jsonb
+                END AS checklist,
+                (COALESCE(pg_column_size(t.checklist), 0) > ${TASK_LIST_MAX_CHECKLIST_BYTES}) AS checklist_truncado,
+                COALESCE(pg_column_size(t.checklist), 0) AS checklist_bytes,
+                t.obs, t.resposta_status, t.resposta_obs, t.resposta_em,
+                t.created_at, t.updated_at, t.resposta_membro, t.motivo_nao_conclusao,
+                t.observacao_conclusao, t.status_gestor, t.escopo,
+                t.origem_sistema, t.origem_tipo, t.origem_id, t.origem_nome,
+                t.origem_url, t.origem_payload, t.external_key, t.devolvida_em,
+                t.data_inicio, t.data_conclusao, t.reenviada_em, t.data_reabertura,
+                t.reaberta_por, t.motivo_reabertura, t.reaberto_por,
+                t.pedido_ajuda_pendente, t.modo_distribuicao, t.aceita_por,
+                t.aceita_em, t.pontuacao, t.conta_ranking,
+                t.bloquear_nova_livre_ate_concluir, t.recorrencia,
+                t.recorrencia_dia_mes, t.recorrencia_dia_semana, t.recorrencia_fim,
+                t.grupo_recorrencia_id, t.competencia, t.projeto_grupo_id,
+                t.workflow_tipo, t.contexto_tipo, t.lembrete_diario_ate_aprovacao,
+                p.nome AS responsavel_nome_perfil,
+                p.cargo AS responsavel_cargo,
+                c.nome AS criado_por_nome,
+                ap.nome AS aceita_por_nome
+           FROM tarefas t
+           LEFT JOIN profiles p ON p.id = t.responsavel_id
+           LEFT JOIN profiles c ON c.id = t.criado_por
+           LEFT JOIN profiles ap ON ap.id = t.aceita_por
+          WHERE t.org_id = $1`;
 const taskListCache = new SingleFlightTtlCache<string, any[]>(2_000, 128);
 
 // Proteção direta contra travamento silencioso: antes, se listTasksForUser
@@ -1512,16 +1549,7 @@ async function listTasksForUser(user: NonNullable<Request["user"]>) {
       // rota isolada; um lock, schema antigo ou volume alto nessa tabela não
       // pode mais manter a página inteira aguardando até o timeout do browser.
       rows = await query<any>(
-        `SELECT t.*,
-                p.nome  AS responsavel_nome_perfil,
-                p.cargo AS responsavel_cargo,
-                c.nome  AS criado_por_nome,
-                ap.nome AS aceita_por_nome
-         FROM tarefas t
-         LEFT JOIN profiles p ON p.id = t.responsavel_id
-         LEFT JOIN profiles c ON c.id = t.criado_por
-         LEFT JOIN profiles ap ON ap.id = t.aceita_por
-         WHERE t.org_id = $1
+        `${TASK_LIST_SELECT}
          ORDER BY COALESCE(t.data_reabertura, t.updated_at, t.created_at) DESC, t.created_at DESC`,
         [orgId],
       );
@@ -1532,11 +1560,7 @@ async function listTasksForUser(user: NonNullable<Request["user"]>) {
       if (!["42703", "42P01"].includes(String(err?.code || ""))) throw err;
       console.warn("[TAREFAS] Schema auxiliar desatualizado; usando listagem básica:", err?.message || err);
       rows = await query<any>(
-        `SELECT t.*, p.nome AS responsavel_nome_perfil, c.nome AS criado_por_nome
-           FROM tarefas t
-           LEFT JOIN profiles p ON p.id = t.responsavel_id
-           LEFT JOIN profiles c ON c.id = t.criado_por
-          WHERE t.org_id = $1
+        `${TASK_LIST_SELECT}
           ORDER BY t.updated_at DESC NULLS LAST, t.created_at DESC`,
         [orgId],
       );

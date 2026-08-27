@@ -602,9 +602,14 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
       [orgId],
     )
     const tasks = await query<any>(
-      `SELECT id, titulo, checklist, responsavel_id, aceita_por, status,
-              aprovada_em, aprovada_por, updated_at, pontuacao,
-              origem_payload
+      `SELECT id, titulo,
+              CASE
+                WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                  THEN COALESCE(checklist, '[]'::jsonb)
+                ELSE '[]'::jsonb
+              END AS checklist,
+              responsavel_id, aceita_por, status, aprovada_em, aprovada_por,
+              updated_at, pontuacao, origem_payload
        FROM tarefas
        WHERE org_id = $1
          AND COALESCE(escopo, 'pessoal') = 'equipe'

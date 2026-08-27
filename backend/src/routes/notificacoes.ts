@@ -186,8 +186,13 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(String(role || ''))
 
     const tarefasRows = await query<any>(
-      `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por, checklist, escopo,
-              COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao, origem_nome,
+      `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por,
+              CASE
+                WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                  THEN COALESCE(checklist, '[]'::jsonb)
+                ELSE '[]'::jsonb
+              END AS checklist,
+              escopo, COALESCE(modo_distribuicao, 'normal') AS modo_distribuicao, origem_nome,
               (CURRENT_DATE - prazo::date)::int AS dias_atraso
        FROM tarefas
        WHERE org_id = $1
