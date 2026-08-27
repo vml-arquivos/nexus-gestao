@@ -238,9 +238,24 @@
   min-width: 0;
 }
 
+.projects-page-groups {
+  width: 100%;
+}
+
+.projects-page-groups--single {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
 .projects-page-groups > article {
+  width: 100%;
   min-width: 0;
   overflow: hidden;
+}
+
+.projects-group-task-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
 }
 
 .projects-page-groups article a,
@@ -356,6 +371,10 @@
 
   .task-graph-canvas-inner {
     min-width: 720px;
+  }
+
+  .projects-group-task-list {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

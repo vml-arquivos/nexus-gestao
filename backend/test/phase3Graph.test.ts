@@ -124,6 +124,7 @@ describe('Fase 3 — mapa mental e Projetos', () => {
   it('expõe o modo grafo, o agrupamento Projeto e a rota dedicada', () => {
     const tarefasSource = readFileSync(resolve(process.cwd(), '../src/pages/Tarefas.tsx'), 'utf8')
     const projetosSource = readFileSync(resolve(process.cwd(), '../src/pages/Projetos.tsx'), 'utf8')
+    const layoutFixesSource = readFileSync(resolve(process.cwd(), '../src/layout-fixes.css'), 'utf8')
     const appSource = readFileSync(resolve(process.cwd(), '../src/App.tsx'), 'utf8')
     expect(tarefasSource).toContain("viewMode === 'grafo'")
     expect(tarefasSource).toContain('<TaskGraphView')
@@ -136,6 +137,9 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(tarefasSource).toContain('routeGraphTask')
     expect(tarefasSource).toContain('graphRouteState === \'invalid\'')
     expect(tarefasSource).toContain("navigate('/tarefas?view=grafo')")
+    expect(projetosSource).toContain('projects-page-groups--${groups.length === 1 ? \'single\' : \'multi\'}')
+    expect(projetosSource).toContain('projects-group-task-list')
+    expect(layoutFixesSource).toContain('.projects-page-groups--single')
     expect(appSource).toContain('path="projetos"')
   })
 })

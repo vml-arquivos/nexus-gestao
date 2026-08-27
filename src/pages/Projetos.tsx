@@ -82,7 +82,7 @@ export default function Projetos() {
 
       {error && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-300" role="alert">{error}</div>}
       {loading ? <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-300 py-16 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400"><Loader2 className="mr-2 animate-spin" size={18} /> Carregando tarefas e agrupamentos…</div> : groups.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-16 text-center dark:border-slate-700"><FolderKanban className="mx-auto mb-2 text-slate-400" size={26} /><strong className="block text-sm text-slate-700 dark:text-slate-200">Nenhuma tarefa visível</strong><span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">Os projetos aparecem automaticamente quando as tarefas possuem um grupo operacional.</span></div> : (
-        <section className="projects-page-groups grid gap-4 xl:grid-cols-2" aria-label="Projetos e tarefas agrupadas">
+        <section className={`projects-page-groups projects-page-groups--${groups.length === 1 ? 'single' : 'multi'} grid gap-4 xl:grid-cols-2`} aria-label="Projetos e tarefas agrupadas">
           {groups.map(group => {
             const firstTask = group.tasks[0]
             const openCount = group.tasks.filter(task => !['concluida', 'aprovada', 'cancelada'].includes(String(task.status))).length
@@ -91,7 +91,7 @@ export default function Projetos() {
                 <div className="min-w-0"><div className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-slate-100"><FolderKanban size={18} className="shrink-0 text-violet-600" /> <span className="truncate">{group.label}</span></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{group.tasks.length} tarefa(s) · {openCount} em aberto{group.id === 'sem-projeto' ? ' · agrupamento sem projeto' : ''}</p></div>
                 <Link to={`/tarefas?view=grafo&graphTask=${encodeURIComponent(firstTask.id)}`} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-700 active:scale-95"><GitBranch size={14} /> Abrir mapa</Link>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="projects-group-task-list mt-4 space-y-2">
                 {group.tasks.slice(0, 5).map(task => <Link key={task.id} to={`/tarefas?view=grafo&graphTask=${encodeURIComponent(task.id)}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2 transition hover:border-violet-200 hover:bg-violet-50/60 dark:border-slate-800 dark:hover:border-violet-900 dark:hover:bg-violet-950/20"><span className="flex min-w-0 items-center gap-2"><ListChecks size={14} className="shrink-0 text-slate-400" /><span className="truncate text-xs font-medium text-slate-700 dark:text-slate-200">{task.titulo}</span></span><span className="flex shrink-0 items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">{statusLabel(String(task.status))}<ArrowRight size={12} /></span></Link>)}
                 {group.tasks.length > 5 && <Link to={`/tarefas?view=grafo&graphTask=${encodeURIComponent(firstTask.id)}`} className="block px-3 pt-1 text-[11px] font-medium text-violet-600 dark:text-violet-300">+{group.tasks.length - 5} tarefa(s) no mapa</Link>}
               </div>
