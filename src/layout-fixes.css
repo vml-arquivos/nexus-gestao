@@ -139,30 +139,45 @@
 
 /* Grafo: toolbar organizada e canvas previsível, inclusive com muitos itens. */
 .task-graph-view {
+  display: flex;
   width: 100%;
   min-width: 0;
   margin-top: 16px;
-  overflow: hidden;
+  padding: 16px !important;
+  flex-direction: column;
+  overflow: visible;
 }
 
 .task-graph-header {
   display: flex;
+  width: 100%;
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  overflow: visible;
 }
 
 .task-graph-header-copy {
   min-width: 0;
-  flex: 1 1 300px;
+  flex: 1 1 360px;
+}
+
+.task-graph-header-copy p {
+  max-width: 100% !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  line-height: 1.45;
 }
 
 .task-graph-toolbar {
   display: flex;
+  width: min(100%, 620px);
   min-width: min(100%, 300px);
-  flex: 0 1 auto;
+  max-width: 100%;
+  flex: 1 1 520px;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -173,6 +188,7 @@
   display: flex;
   min-width: 0;
   max-width: min(100%, 360px);
+  flex: 1 1 260px;
   align-items: center;
   gap: 8px;
 }
@@ -186,7 +202,9 @@
 .task-graph-canvas {
   width: 100%;
   max-width: 100%;
+  min-height: 0;
   max-height: min(70dvh, 680px);
+  flex: 0 0 auto;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
@@ -218,8 +236,47 @@
 
 .task-graph-footer,
 .task-graph-source {
+  width: 100%;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.task-graph-footer {
+  display: flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.task-graph-footer > span {
+  min-width: 0;
+  flex: 1 1 240px;
+  line-height: 1.35;
+}
+
+.task-graph-footer > button {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.task-graph-source {
+  flex: 0 0 auto;
+  margin-top: 8px !important;
+  padding: 10px 0 0 !important;
+  border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent) !important;
+  border-right: 0 !important;
+  border-bottom: 0 !important;
+  border-left: 0 !important;
+}
+
+.task-graph-source > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 
 .task-graph-loose-form {
@@ -365,9 +422,11 @@
     flex: 1 1 auto;
   }
 
-  .task-graph-toolbar > button {
-    flex: 1 1 140px;
-  }
+.task-graph-toolbar > button {
+  flex: 0 1 auto;
+  min-height: 36px;
+  white-space: nowrap;
+}
 
   .task-graph-canvas {
     max-height: min(62dvh, 560px);

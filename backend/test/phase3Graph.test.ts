@@ -46,7 +46,7 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(new Set(items.map(node => node.y)).size).toBe(1)
     expect(new Set(items.map(node => node.x)).size).toBe(3)
     expect(graph.width).toBeGreaterThan(900)
-    expect(graph.height).toBe(220)
+    expect(graph.height).toBe(160)
   })
 
   it('limita a altura de listas grandes distribuindo itens em uma grade', () => {
@@ -142,6 +142,9 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(layoutFixesSource).toContain('.projects-page-groups--single')
     expect(layoutFixesSource).toContain('max-width: none !important;')
     expect(layoutFixesSource).toContain('margin: 0 !important;')
+    expect(layoutFixesSource).toContain('padding: 16px !important;')
+    expect(layoutFixesSource).toContain('.task-graph-footer > button')
+    expect(layoutFixesSource).toContain('overflow: visible;')
     expect(appSource).toContain('path="projetos"')
   })
 })

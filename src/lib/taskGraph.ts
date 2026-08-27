@@ -155,6 +155,8 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
     }).filter(Boolean) as GraphEdge[]
     : [])
   const maxX = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 24))
-  const maxY = Math.max(220, ...nodes.map(node => node.y + 104 + 24))
+  // Um Grafo curto não deve reservar um painel vazio; listas grandes continuam
+  // crescendo pela quantidade real de linhas da grade.
+  const maxY = Math.max(160, ...nodes.map(node => node.y + 104 + 24))
   return { nodes, edges, width: maxX, height: maxY }
 }
