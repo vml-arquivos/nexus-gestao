@@ -254,8 +254,12 @@
 
 .projects-group-task-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+.projects-group-task-list > a {
+  min-height: 44px;
 }
 
 .projects-page-groups article a,
