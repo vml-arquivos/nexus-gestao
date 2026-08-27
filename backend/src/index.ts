@@ -11,6 +11,7 @@ import pool, { getPoolStatus } from './db/pool'
 import authRoutes       from './routes/auth'
 import tarefasScoringRoutes from './routes/tarefasScoring'
 import tarefasRoutes    from './routes/tarefas'
+import iaChecklistRoutes from './routes/iaChecklist'
 import equipeRoutes     from './routes/equipe'
 import agendaRoutes     from './routes/agenda'
 import pagamentosRoutes from './routes/pagamentos'
@@ -175,6 +176,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth',        authRoutes)
 app.use('/api/tarefas',     tarefasScoringRoutes)
 app.use('/api/tarefas',     tarefasRoutes)
+app.use('/api/tarefas',     iaChecklistRoutes)
 app.use('/api/equipe',      equipeRoutes)
 app.use('/api/agenda',      agendaRoutes)
 app.use('/api/pagamentos',  pagamentosRoutes)

@@ -16,6 +16,19 @@ export interface GeminiInsightResult {
   erro?: string
 }
 
+export interface ChecklistSuggestionItem {
+  texto: string
+  descricao?: string
+}
+
+export interface ChecklistSuggestionResult {
+  enabled: boolean
+  provider: string
+  model: string
+  itens: ChecklistSuggestionItem[]
+  erro?: string
+}
+
 function normalizeGeminiModel(modelValue?: string) {
   const raw = (modelValue || '').trim()
   if (!raw) return 'gemini-3.5-flash'
@@ -53,6 +66,60 @@ function sanitizeGeminiError(status: number, body: string) {
     return `Gemini HTTP ${status}${statusText}: ${String(message).slice(0, 500)}`
   } catch {
     return `Gemini HTTP ${status}: ${body.slice(0, 500)}`
+  }
+}
+
+export async function gerarSugestaoChecklist(input: { titulo: string; descricao?: string }): Promise<ChecklistSuggestionResult> {
+  const { apiKey, model } = getGeminiConfig()
+  const titulo = String(input.titulo || '').trim().slice(0, 240)
+  const descricao = String(input.descricao || '').trim().slice(0, 1800)
+
+  if (!titulo) {
+    return { enabled: Boolean(apiKey), provider: 'gemini', model, itens: [], erro: 'Informe um título para sugerir o checklist.' }
+  }
+  if (!apiKey) {
+    return { enabled: false, provider: 'gemini', model, itens: [], erro: 'Gemini ainda não está configurado.' }
+  }
+
+  const prompt = `Você é um assistente de operações empresariais. Gere uma sugestão de checklist em português do Brasil para uma tarefa, sem inventar nomes, documentos, prazos ou regras específicas que não estejam no texto. Retorne SOMENTE JSON válido no formato {"itens":[{"texto":"...","descricao":"..."}]}. Crie de 3 a 8 itens concretos, ordenados pela sequência natural de execução. Cada texto deve ter no máximo 140 caracteres e cada descrição no máximo 240 caracteres. Não inclua numeração, checkbox, pontuação, responsável ou prazo.\n\nTÍTULO:\n${titulo}\n\nDESCRIÇÃO:\n${descricao || '(não informada)'}`
+
+  try {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+    const response = await (globalThis as any).fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          topP: 0.8,
+          maxOutputTokens: 900,
+          responseMimeType: 'application/json',
+        },
+      }),
+    })
+    if (!response.ok) {
+      const body = await response.text().catch(() => '')
+      const erro = sanitizeGeminiError(response.status, body)
+      console.error('[Gemini] Falha ao sugerir checklist:', { model, erro })
+      return { enabled: true, provider: 'gemini', model, itens: [], erro }
+    }
+
+    const data = await response.json()
+    const texto = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text || '').join('').trim() || ''
+    const parsed = JSON.parse(texto.replace(/^```json\\s*/i, '').replace(/\\s*```$/i, ''))
+    const itens = Array.isArray(parsed?.itens)
+      ? parsed.itens.map((item: any) => ({
+          texto: String(item?.texto || '').trim().slice(0, 140),
+          descricao: String(item?.descricao || '').trim().slice(0, 240) || undefined,
+        })).filter((item: ChecklistSuggestionItem) => item.texto).slice(0, 8)
+      : []
+    if (!itens.length) return { enabled: true, provider: 'gemini', model, itens: [], erro: 'Gemini não retornou itens utilizáveis.' }
+    return { enabled: true, provider: 'gemini', model, itens }
+  } catch (err: any) {
+    const erro = err?.message || String(err)
+    console.error('[Gemini] Erro ao sugerir checklist:', { model, erro })
+    return { enabled: true, provider: 'gemini', model, itens: [], erro: 'Não foi possível interpretar a sugestão do Gemini.' }
   }
 }
 

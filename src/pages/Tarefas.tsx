@@ -5,10 +5,13 @@ import {
   Plus, Search, Calendar, User, CheckCircle2, Clock, AlertCircle, XCircle, ChevronRight,
   RotateCcw, Trash2, Edit3, X, Loader, MessageSquare, History, Send,
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,
-  ChevronLeft,
+  ChevronLeft, Sparkles,
 } from 'lucide-react'
 import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
+import { TaskCalendarView } from '../components/TaskCalendarView'
+import { TaskTableView } from '../components/TaskTableView'
+import { parseNaturalDate, type NaturalDateSuggestion } from '../lib/naturalLanguageDate'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
@@ -827,6 +830,10 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
   const [novoItemDificuldade, setNovoItemDificuldade] = useState<ChecklistDifficulty>('nivel_3')
   const [novoItemSurpresa, setNovoItemSurpresa] = useState(false)
   const [acoesListaTexto, setAcoesListaTexto] = useState('')
+  const [iaChecklistLoading, setIaChecklistLoading] = useState(false)
+  const [iaChecklistSuggestions, setIaChecklistSuggestions] = useState<Array<{ texto: string; descricao?: string }>>([])
+  const [iaChecklistSelected, setIaChecklistSelected] = useState<boolean[]>([])
+  const [prazoSugestao, setPrazoSugestao] = useState<NaturalDateSuggestion | null>(null)
   const [obs, setObs] = useState(tarefa?.obs || '')
   const [destravaBusca, setDestravaBusca] = useState('')
   const [destravaTipo, setDestravaTipo] = useState<'empresa' | 'pessoa_fisica'>(() => {
@@ -962,6 +969,80 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
     if (Number.isNaN(parsed.getTime())) return
     setNovoItemRecorrenciaDiaSemana(String(parsed.getDay()))
     setNovoItemRecorrenciaDiaMes(String(parsed.getDate()))
+  }
+
+  function atualizarSugestaoPrazo(texto: string) {
+    const sugestao = parseNaturalDate(texto)
+    if (!sugestao || sugestao.isoDate === prazo || (!tarefa?.id && sugestao.isoDate < todayIso())) {
+      setPrazoSugestao(null)
+      return
+    }
+    setPrazoSugestao(sugestao)
+  }
+
+  function alterarTitulo(value: string) {
+    setTitulo(value)
+    atualizarSugestaoPrazo(`${value}\\n${descricao}`)
+  }
+
+  function alterarDescricao(value: string) {
+    setDescricao(value)
+    atualizarSugestaoPrazo(`${titulo}\\n${value}`)
+  }
+
+  async function sugerirChecklistComIA() {
+    const tituloParaIA = tituloResolvido.trim()
+    if (!tituloParaIA) {
+      toast('Informe o título da lista antes de pedir uma sugestão.', 'error')
+      return
+    }
+    setIaChecklistLoading(true)
+    setIaChecklistSuggestions([])
+    setIaChecklistSelected([])
+    try {
+      const result = await tarefasApi.sugerirChecklist({ titulo: tituloParaIA, descricao: descricao.trim() || undefined })
+      const itens = Array.isArray(result.itens) ? result.itens.filter(item => String(item.texto || '').trim()) : []
+      setIaChecklistSuggestions(itens)
+      setIaChecklistSelected(itens.map(() => true))
+      if (!itens.length) toast('A IA não retornou itens utilizáveis. Você pode continuar pelo gerador manual.', 'error')
+      else toast(`${itens.length} sugestão(ões) gerada(s). Revise e escolha o que deseja adicionar.`)
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Não foi possível gerar sugestões agora.', 'error')
+    } finally {
+      setIaChecklistLoading(false)
+    }
+  }
+
+  function adicionarSugestoesIA() {
+    const selected = iaChecklistSuggestions.filter((_item, index) => iaChecklistSelected[index])
+    if (!selected.length) {
+      toast('Selecione pelo menos uma sugestão para adicionar.', 'error')
+      return
+    }
+    const existing = new Set(checklist.map(item => String(item.texto || '').trim().toLocaleLowerCase('pt-BR')))
+    const executorLivreLote = tipoTarefa !== 'pessoal' && novoItemResponsavelId === '__livre__'
+    const novosItens: ChecklistItem[] = selected
+      .filter(item => !existing.has(String(item.texto).trim().toLocaleLowerCase('pt-BR')))
+      .map(item => ({
+        id: nanoid(),
+        texto: String(item.texto).trim(),
+        descricao: String(item.descricao || '').trim() || undefined,
+        data: undefined,
+        recorrencia: 'unica',
+        responsavel_id: tipoTarefa === 'pessoal' ? (user?.id || undefined) : (executorLivreLote ? undefined : (novoItemResponsavelId || undefined)),
+        responsavel_nome: tipoTarefa === 'pessoal' ? (user?.nome || undefined) : (executorLivreLote ? undefined : checklistResponsibleName(novoItemResponsavelId)),
+        livre: executorLivreLote || undefined,
+        dificuldade: tipoTarefa === 'pessoal' || !isGestor ? 'nivel_1' : novoItemDificuldade,
+        pontuacao: tipoTarefa === 'pessoal' || !isGestor ? 0 : Math.max(0, Math.min(SCORE_MAX, Number(novoItemPontuacao || difficultyPoints(novoItemDificuldade)))),
+        subtarefas: [],
+        revelar_apos_assumir: tipoTarefa === 'equipe' && isGestor && tarefaSurpresa ? true : false,
+        criado_em: new Date().toISOString(),
+        feito: false,
+      }))
+    setChecklist(prev => [...prev, ...novosItens])
+    setIaChecklistSuggestions([])
+    setIaChecklistSelected([])
+    toast(novosItens.length ? `${novosItens.length} item(ns) adicionado(s) ao checklist para revisão final.` : 'Os itens selecionados já estavam no checklist.')
   }
 
   function limparPesquisaDestrava() {
@@ -1239,7 +1320,7 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
           <input
             className="form-input"
             value={tituloAutomaticoBloqueado ? tituloAutomatico : titulo}
-            onChange={e => setTitulo(e.target.value)}
+            onChange={e => alterarTitulo(e.target.value)}
             placeholder={contextoVinculado ? 'Gerado ao selecionar o cadastro' : 'Ex.: Documentos de agosto'}
             readOnly={tituloAutomaticoBloqueado}
             required
@@ -1250,7 +1331,16 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
         </div>
         <div className="form-group">
           <label className="form-label">Descrição da lista</label>
-          <textarea className="form-input" rows={3} value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes e instruções" />
+          <textarea className="form-input" rows={3} value={descricao} onChange={e => alterarDescricao(e.target.value)} placeholder="Detalhes e instruções" />
+          {prazoSugestao && (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-100" role="status">
+              <span>Detectamos “{prazoSugestao.phrase}”. Sugerir prazo para <strong>{new Date(`${prazoSugestao.isoDate}T12:00:00`).toLocaleDateString('pt-BR')}</strong>?</span>
+              <div className="flex gap-2">
+                <button type="button" className="rounded-lg bg-violet-700 px-3 py-1.5 font-medium text-white transition hover:bg-violet-800 active:scale-95" onClick={() => { setPrazo(prazoSugestao.isoDate); setPrazoSugestao(null) }}>Usar esta data</button>
+                <button type="button" className="rounded-lg px-2 py-1.5 text-violet-700 transition hover:bg-violet-100 active:scale-95 dark:text-violet-200 dark:hover:bg-violet-900/40" onClick={() => setPrazoSugestao(null)}>Agora não</button>
+              </div>
+            </div>
+          )}
         </div>
         {(contextoTipo === 'empresa' || contextoTipo === 'pessoa_fisica') && (
           <div className="form-group">
@@ -1569,9 +1659,33 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
             />
             <div className="task-smart-actions-footer">
               <span>{tipoTarefa === 'pessoal' ? 'As tarefas pessoais ficam privadas, sem pontuação e podem ser marcadas por você a qualquer momento.' : (pontuacaoIncluiSubtarefas(pontuacaoEscopo) ? 'As ações geradas podem ter nível/pontos pela escala oficial.' : 'Como a pontuação é somente pela lista, as ações serão checklist de execução sem pontos individuais visíveis.')}</span>
-              <button className="btn btn-secondary" type="button" onClick={gerarChecklistAutomatico}><Plus size={16} /> Gerar checklist</button>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn btn-secondary" type="button" onClick={gerarChecklistAutomatico}><Plus size={16} /> Gerar checklist</button>
+                <button className="btn btn-secondary" type="button" onClick={() => { void sugerirChecklistComIA() }} disabled={iaChecklistLoading} title="A IA apenas sugere itens; nada é salvo sem sua revisão.">
+                  {iaChecklistLoading ? <Loader size={16} className="spin" /> : <Sparkles size={16} />} {iaChecklistLoading ? 'Gerando...' : 'Sugerir com IA'}
+                </button>
+              </div>
             </div>
           </div>
+          {iaChecklistSuggestions.length > 0 && (
+            <div className="mt-3 rounded-2xl border border-violet-200 bg-violet-50/70 p-3 dark:border-violet-900/60 dark:bg-violet-950/20" aria-live="polite">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <strong className="text-sm text-violet-950 dark:text-violet-100">Sugestões da IA para revisar</strong>
+                  <p className="mt-0.5 text-xs text-violet-800/80 dark:text-violet-200/80">Selecione os itens úteis. Eles só serão adicionados ao rascunho após sua confirmação.</p>
+                </div>
+                <button type="button" className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-violet-800 active:scale-95" onClick={adicionarSugestoesIA}>Adicionar selecionados</button>
+              </div>
+              <div className="grid gap-2">
+                {iaChecklistSuggestions.map((item, index) => (
+                  <label key={`${item.texto}-${index}`} className="flex cursor-pointer items-start gap-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-800 dark:bg-slate-900/70 dark:text-slate-100">
+                    <input type="checkbox" className="mt-0.5" checked={iaChecklistSelected[index] !== false} onChange={event => setIaChecklistSelected(current => current.map((selected, position) => position === index ? event.target.checked : selected))} />
+                    <span><strong>{item.texto}</strong>{item.descricao && <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{item.descricao}</span>}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="task-checklist-builder">
             <div className="task-checklist-builder-fields">
               <div className="form-group">
@@ -4737,9 +4851,12 @@ export default function Tarefas() {
   const [modoSelecao, setModoSelecao] = useState(false)
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [aprovandoLote, setAprovandoLote] = useState(false)
-  const [viewMode, setViewMode] = useState<'lista' | 'quadro'>(() =>
-    (localStorage.getItem('nexus:tarefas-view') as 'lista' | 'quadro') || 'lista'
-  )
+  const [viewMode, setViewMode] = useState<'lista' | 'quadro' | 'calendario' | 'tabela'>(() => {
+    const saved = localStorage.getItem('nexus:tarefas-view')
+    return ['lista', 'quadro', 'calendario', 'tabela'].includes(saved || '')
+      ? saved as 'lista' | 'quadro' | 'calendario' | 'tabela'
+      : 'lista'
+  })
   const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('nexus:tarefas-quadro-colapsadas') || '[]') } catch { return [] }
   })
@@ -5401,6 +5518,20 @@ export default function Tarefas() {
             >
               Quadro
             </button>
+            <button
+              type="button"
+              className={viewMode === 'calendario' ? 'active' : ''}
+              onClick={() => { setViewMode('calendario'); localStorage.setItem('nexus:tarefas-view', 'calendario') }}
+            >
+              Calendário
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'tabela' ? 'active' : ''}
+              onClick={() => { setViewMode('tabela'); localStorage.setItem('nexus:tarefas-view', 'tabela') }}
+            >
+              Tabela
+            </button>
           </div>
           {isGestor && (
             <FilterPanel
@@ -5437,6 +5568,15 @@ export default function Tarefas() {
             <button className="btn btn-ghost" type="button" onClick={limparFiltros}>Limpar filtros</button>
           )}
         </div>
+      ) : viewMode === 'calendario' ? (
+        <TaskCalendarView tasks={filtered} getDate={taskReferenceDate} onOpen={setDetalhe} />
+      ) : viewMode === 'tabela' ? (
+        <TaskTableView
+          tasks={filtered}
+          getDate={taskReferenceDate}
+          onOpen={setDetalhe}
+          onEdit={task => { setEdit(task); setModalOpen(true) }}
+        />
       ) : viewMode === 'quadro' ? (
         <div className="task-board">
           {[

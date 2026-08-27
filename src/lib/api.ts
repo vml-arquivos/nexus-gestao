@@ -987,6 +987,10 @@ export const tarefasApi = {
     return apiJson(`/tarefas/ranking${qs}`)
   },
 
+  async sugerirChecklist(payload: { titulo: string; descricao?: string }): Promise<{ itens: Array<{ texto: string; descricao?: string }>; provider?: string; model?: string }> {
+    return apiJson('/tarefas/ia-checklist', { method: 'POST', body: JSON.stringify(payload) })
+  },
+
   async aprovar(id: string): Promise<Tarefa> {
     const data = await apiJson<{ tarefa: Tarefa }>(`/tarefas/${id}/aprovar`, { method: 'PATCH' })
     return data.tarefa
