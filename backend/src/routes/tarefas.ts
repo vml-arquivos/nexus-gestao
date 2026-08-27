@@ -5123,8 +5123,32 @@ router.post(
 
 // ── EXCLUIR TAREFA ───────────────────────────────────────────────────────────
 router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
+  let client: import("pg").PoolClient | null = null;
+  let transactionStarted = false;
   try {
     const { orgId, userId, role } = req.user!;
+
+    // O DELETE nunca materializa um checklist histórico gigante. Os três
+    // registros conhecidos acima de 1 MB ficam deliberadamente protegidos até
+    // existir um procedimento específico de backup/rollback para eles.
+    const sizeRow = await queryOne<{ checklist_bytes: number }>(
+      `SELECT COALESCE(pg_column_size(checklist), 0)::int AS checklist_bytes
+         FROM tarefas
+        WHERE id = $1 AND org_id = $2`,
+      [req.params.id, orgId],
+    );
+    if (!sizeRow) {
+      res.status(404).json({ error: "Tarefa não encontrada." });
+      return;
+    }
+    if (Number(sizeRow.checklist_bytes || 0) > 1_000_000) {
+      res.status(409).json({
+        error: "Esta tarefa possui checklist histórico protegido acima de 1 MB e não pode ser excluída por este fluxo.",
+        checklist_protegido: true,
+      });
+      return;
+    }
+
     const existing = await getTaskForAccess(req.params.id, orgId);
     if (!existing) {
       res.status(404).json({ error: "Tarefa não encontrada." });
@@ -5151,85 +5175,91 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       "SELECT arquivo_url FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2",
       [req.params.id, orgId],
     );
-    await query("BEGIN");
-    try {
-      await query(
-        "DELETE FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2",
-        [req.params.id, orgId],
-      ).catch(() => {});
-      await query(
-        "DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2",
-        [req.params.id, orgId],
-      ).catch(() => {});
-      await query(
-        "DELETE FROM tarefas_historico WHERE tarefa_id = $1 AND org_id = $2",
-        [req.params.id, orgId],
-      ).catch(() => {});
-      await query(
-        "DELETE FROM tarefa_historico WHERE tarefa_id = $1 AND org_id = $2",
-        [req.params.id, orgId],
-      ).catch(() => {});
-      // Pontuação aprovada é um registro histórico imutável.
-      // Ao excluir a tarefa, preservamos os pontos e uma fotografia do que gerou a pontuação.
-      await query(
-        `UPDATE tarefas_pontuacao tp
-            SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, $3),
-                escopo_snapshot = COALESCE(tp.escopo_snapshot, $4),
-                conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, $5),
-                tarefa_excluida_em = COALESCE(tp.tarefa_excluida_em, NOW())
-          WHERE tp.tarefa_id = $1 AND tp.org_id = $2`,
+
+    // Todas as etapas destrutivas usam o mesmo PoolClient. O helper `query`
+    // abre/libera uma conexão por chamada e não pode ser usado entre BEGIN e
+    // COMMIT, pois isso deixa a exclusão parcialmente fora da transação.
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+    await client.query(
+      "DELETE FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2",
+      [req.params.id, orgId],
+    );
+    await client.query(
+      "DELETE FROM tarefa_checklist WHERE tarefa_id = $1 AND org_id = $2",
+      [req.params.id, orgId],
+    );
+    await client.query(
+      "DELETE FROM tarefas_historico WHERE tarefa_id = $1 AND org_id = $2",
+      [req.params.id, orgId],
+    );
+    await client.query(
+      "DELETE FROM tarefa_historico WHERE tarefa_id = $1 AND org_id = $2",
+      [req.params.id, orgId],
+    );
+    // Pontuação aprovada é um registro histórico imutável.
+    // Ao excluir a tarefa, preservamos os pontos e uma fotografia do que gerou a pontuação.
+    await client.query(
+      `UPDATE tarefas_pontuacao tp
+          SET tarefa_titulo_snapshot = COALESCE(tp.tarefa_titulo_snapshot, $3),
+              escopo_snapshot = COALESCE(tp.escopo_snapshot, $4),
+              conta_ranking_snapshot = COALESCE(tp.conta_ranking_snapshot, $5),
+              tarefa_excluida_em = COALESCE(tp.tarefa_excluida_em, NOW())
+        WHERE tp.tarefa_id = $1 AND tp.org_id = $2`,
+      [
+        req.params.id,
+        orgId,
+        existing.titulo || "Tarefa excluída",
+        normalizeTaskScope(existing.escopo),
+        existing.conta_ranking !== false,
+      ],
+    );
+    const itensHistoricos = parseChecklistItems(existing.checklist);
+    for (const item of itensHistoricos) {
+      const checklistKey = rankingChecklistKey(item);
+      if (!checklistKey) continue;
+      await client.query(
+        `UPDATE tarefas_pontuacao
+            SET item_titulo_snapshot = COALESCE(item_titulo_snapshot, $4)
+          WHERE tarefa_id = $1
+            AND org_id = $2
+            AND (checklist_id = $3 OR motivo = $5)`,
         [
           req.params.id,
           orgId,
-          existing.titulo || "Tarefa excluída",
-          normalizeTaskScope(existing.escopo),
-          existing.conta_ranking !== false,
+          checklistKey,
+          item.texto || "Tarefa da lista aprovada",
+          `checklist_aprovado:${item.id || item.texto}`,
         ],
-      ).catch(() => {});
-      const itensHistoricos = parseChecklistItems(existing.checklist);
-      for (const item of itensHistoricos) {
-        const checklistKey = rankingChecklistKey(item);
-        if (!checklistKey) continue;
-        await query(
-          `UPDATE tarefas_pontuacao
-              SET item_titulo_snapshot = COALESCE(item_titulo_snapshot, $4)
-            WHERE tarefa_id = $1
-              AND org_id = $2
-              AND (checklist_id = $3 OR motivo = $5)`,
-          [
-            req.params.id,
-            orgId,
-            checklistKey,
-            item.texto || "Tarefa da lista aprovada",
-            `checklist_aprovado:${item.id || item.texto}`,
-          ],
-        ).catch(() => {});
-      }
-      await query(
-        "DELETE FROM agenda WHERE org_id = $2 AND origem_id = $1 AND origem_tipo IN ('tarefa','checklist')",
-        [req.params.id, orgId],
-      ).catch(() => {});
-      const deleted = (await query(
-        "DELETE FROM tarefas WHERE id = $1 AND org_id = $2 RETURNING id",
-        [req.params.id, orgId],
-      )) as any[];
-      if (deleted.length === 0)
-        throw new Error("Tarefa não encontrada para exclusão.");
-      await query("COMMIT");
-      await resolverNotificacoesRecorrentesPorReferencia({
-        orgId,
-        referenciaId: req.params.id,
-        referenciaTipo: "tarefa",
-      });
-    } catch (cleanupErr) {
-      await query("ROLLBACK").catch(() => {});
-      throw cleanupErr;
+      );
     }
+    await client.query(
+      "DELETE FROM agenda WHERE org_id = $2 AND origem_id = $1 AND origem_tipo IN ('tarefa','checklist')",
+      [req.params.id, orgId],
+    );
+    const deleted = await client.query(
+      "DELETE FROM tarefas WHERE id = $1 AND org_id = $2 RETURNING id",
+      [req.params.id, orgId],
+    );
+    if (deleted.rowCount !== 1) {
+      throw new Error("Tarefa não encontrada para exclusão.");
+    }
+    await client.query("COMMIT");
+    transactionStarted = false;
+    await resolverNotificacoesRecorrentesPorReferencia({
+      orgId,
+      referenciaId: req.params.id,
+      referenciaTipo: "tarefa",
+    });
     for (const anexo of anexos) removeUploadByUrl(anexo.arquivo_url);
     res.json({ ok: true });
   } catch (err) {
+    if (client && transactionStarted) await client.query("ROLLBACK").catch(() => {});
     console.error("[TAREFAS] Erro ao excluir:", err);
     res.status(500).json({ error: "Erro ao excluir tarefa." });
+  } finally {
+    client?.release();
   }
 });
 
