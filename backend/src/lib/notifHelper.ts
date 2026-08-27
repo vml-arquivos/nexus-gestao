@@ -332,9 +332,16 @@ async function jobLembreteDiario() {
     // concluída + aprovada e cancelada encerram o lembrete.
     const tarefasDiarias = await query<{
       id: string; org_id: string; titulo: string; responsavel_id: string | null
-      criado_por: string | null; aceita_por: string | null; modo_distribuicao: string | null; checklist: unknown
+      criado_por: string | null; aceita_por: string | null; modo_distribuicao: string | null
+      checklist: unknown; checklist_truncado: boolean
     }>(
-      `SELECT id, org_id, titulo, responsavel_id, criado_por, aceita_por, modo_distribuicao, checklist
+      `SELECT id, org_id, titulo, responsavel_id, criado_por, aceita_por, modo_distribuicao,
+              CASE
+                WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                  THEN COALESCE(checklist, '[]'::jsonb)
+                ELSE '[]'::jsonb
+              END AS checklist,
+              (COALESCE(pg_column_size(checklist), 0) > 1000000) AS checklist_truncado
          FROM tarefas
         WHERE lembrete_diario_ate_aprovacao = TRUE
           AND status <> 'cancelada'
@@ -345,6 +352,10 @@ async function jobLembreteDiario() {
     )
     let lembretesDeLista = 0
     for (const tarefa of tarefasDiarias) {
+      if (tarefa.checklist_truncado) {
+        console.warn(`[NOTIF] Lembrete diário ignorado: checklist acima de 1 MB na tarefa ${tarefa.id}.`)
+        continue
+      }
       const recipients = await destinatariosTarefa(tarefa)
       for (const userId of recipients) {
         if (await notificacaoRecente({ orgId: tarefa.org_id, userId, referenciaId: tarefa.id, chaveRecorrencia: CHAVE_RECORRENCIA_TAREFA_LEMBRETE, tipo: 'lembrete_diario_tarefa', minutos: 20 * 60 })) continue
@@ -369,10 +380,16 @@ async function jobLembreteDiario() {
     const tarefasComChecklist = await query<{
       id: string; org_id: string; titulo: string; responsavel_id: string | null
       criado_por: string | null; aceita_por: string | null; modo_distribuicao: string | null
-      escopo: string | null; checklist: unknown
+      escopo: string | null; checklist: unknown; checklist_truncado: boolean
     }>(
       `SELECT id, org_id, titulo, responsavel_id, criado_por, aceita_por,
-              modo_distribuicao, escopo, checklist
+              modo_distribuicao, escopo,
+              CASE
+                WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                  THEN COALESCE(checklist, '[]'::jsonb)
+                ELSE '[]'::jsonb
+              END AS checklist,
+              (COALESCE(pg_column_size(checklist), 0) > 1000000) AS checklist_truncado
          FROM tarefas
         WHERE status NOT IN ('cancelada', 'aprovada')
           AND checklist IS NOT NULL
@@ -383,6 +400,10 @@ async function jobLembreteDiario() {
     )
     let lembretesDeItem = 0
     for (const tarefa of tarefasComChecklist) {
+      if (tarefa.checklist_truncado) {
+        console.warn(`[NOTIF] Recorrência de checklist ignorada: payload acima de 1 MB na tarefa ${tarefa.id}.`)
+        continue
+      }
       const checklist = Array.isArray(tarefa.checklist)
         ? tarefa.checklist
         : typeof tarefa.checklist === 'string'

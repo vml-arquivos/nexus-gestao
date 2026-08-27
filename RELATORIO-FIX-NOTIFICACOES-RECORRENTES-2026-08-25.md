@@ -1,87 +1,92 @@
-# Relatório — Lifecycle de notificações recorrentes
+# Relatório — Lifecycle de notificações recorrentes e resiliência de leituras
 
 **Sistema:** Nexus Gestão
-**Data:** 2026-08-25
-**Autor:** Manus AI
-**Status antes do deploy:** implementação validada localmente; deploy real aguardando acesso manual ao Coolify.
+**Período de execução:** 25–27 de agosto de 2026
+**Responsável:** Manus AI
+**Escopo:** aplicação Nexus no recurso Coolify `k68e0wa0djtqiqzgivruoe81`
+**Status:** validação técnica concluída no container `90f788f`; redeploy final das proteções auxiliares pendente de registrar neste documento.
 
-## 1. Diagnóstico confirmado
+## 1. Diagnóstico e correção do lifecycle recorrente
 
-A implementação anterior usava `lida = FALSE` como parte do índice parcial e do `ON CONFLICT` do upsert recorrente. Como `lida` representa somente se o usuário visualizou a notificação, a leitura fazia a linha deixar de participar da deduplicação. O job seguinte podia então inserir uma nova linha para a mesma pendência, repetindo o processo a cada ciclo.
+A implementação anterior usava `lida = FALSE` como parte do índice parcial e do `ON CONFLICT` do upsert recorrente. Como `lida` representa apenas se o usuário visualizou a notificação, a leitura fazia a linha deixar de participar da deduplicação. O job seguinte podia inserir outra linha para a mesma pendência, repetindo o processo a cada ciclo.
 
-O problema também atingia a transição de subtipo, por exemplo `tarefa_prazo_hoje` para `tarefa_atrasada`, e permitia reemissão de Web Push em atualizações da mesma pendência. A correção preserva o histórico legado e impede novo crescimento por esse mecanismo; ela não executa a restauração ou limpeza histórica descrita no prompt.
+A correção separa leitura de lifecycle. A identidade recorrente passou a ser `org_id + user_id + referencia_id + chave_recorrencia`, com estado explícito em `recorrente`, `ativa`, `resolvida_em`, `ocorrencias`, `atualizada_em`, `arquivada` e `arquivada_em`. Mudanças de subtipo, como `tarefa_prazo_hoje` para `tarefa_atrasada`, atualizam a mesma linha. O primeiro INSERT pode disparar Web Push; atualizações posteriores são silenciosas via SSE. A resolução marca a ocorrência como inativa, resolvida e arquivada, preservando o histórico.
 
-## 2. Arquitetura anterior e nova
+A migration `2026-08-25-notification-lifecycle` usa `ADD COLUMN IF NOT EXISTS`, índices idempotentes e criação concorrente fora de transação explícita. A chave única parcial `uq_notif_recorrente_ativa` cobre exclusivamente notificações recorrentes ativas com referência e chave válidas. Nenhum backfill destrutivo, `DELETE FROM notificacoes`, `TRUNCATE`, `DROP TABLE`, reset ou restauração de banco foi realizado.
 
-| Aspecto | Antes | Depois |
+## 2. Correções de performance identificadas na validação
+
+A primeira validação real encontrou timeouts em Agenda, Tarefas, ranking e atrasos. A Agenda possuía aproximadamente 1,97 milhão de linhas; sua consulta precisava ordenar uma janela grande. A migration `2026-08-27-agenda-query-performance` criou o índice composto `idx_agenda_org_data_inicio_created_at`, incluindo a organização, a data de início e `created_at`, e executou `ANALYZE`. Depois do deploy, `/api/agenda?sync=false` respondeu HTTP 200 com 2.000 eventos em aproximadamente 2,24 segundos e a consulta mensal respondeu HTTP 200 com 43 eventos em aproximadamente 2,21 segundos.
+
+O segundo gargalo não era a quantidade de tarefas: havia 67 tarefas e 67 registros de pontuação. Três checklists históricos tinham aproximadamente 30 MB cada, totalizando 90.164.768 bytes. As listas usavam `SELECT t.*`, o ranking selecionava `checklist` integral e `/atrasos-pendentes` também transferia esses objetos. A correção mantém a rota de detalhe completa, mas as leituras em massa aplicam projeção explícita: checklists até 1 MB são retornados normalmente; payloads acima desse limite retornam `[]` com `checklist_truncado=true` e `checklist_bytes`, sem modificar o registro original. Os jobs de recorrência e lembrete diário também pulam payloads patológicos com aviso conciso, em vez de gerar ocorrência vazia ou incorreta.
+
+Os três registros preservados são `d8fff8a8-cc73-4ff7-a090-39581888f143`, `6c6d416c-5af3-456a-b288-3ef43de90bda` e `4168afbf-8c99-4293-a187-443321515b9a`. Nenhum deles foi apagado, reduzido ou regravado.
+
+## 3. Arquivos e commits
+
+| Commit | Conteúdo | Estado |
 |---|---|---|
-| Estado de leitura | Participava da chave de deduplicação | Continua independente do lifecycle |
-| Identidade recorrente | `org_id + user_id + referencia_id + tipo` | `org_id + user_id + referencia_id + chave_recorrencia` |
-| Estado da pendência | Implícito em `lida` | Explícito em `recorrente`, `ativa` e `resolvida_em` |
-| Mudança de subtipo | Podia criar nova linha | Atualiza a mesma linha e preserva o ID |
-| Concorrência | Índice parcial dependente de não lida | UNIQUE parcial somente para recorrentes ativas |
-| Repetição de push | Jobs podiam reemitir push | Primeiro INSERT envia; UPDATE usa SSE silencioso |
-| Encerramento | Sem helper de origem | `ativa=false`, `resolvida_em` preenchida e arquivamento sem DELETE |
+| `e517414b2c997ce260c3b6fc55415dea2e75b43c` | Lifecycle único de notificações recorrentes, migration, helper, resolução, push e testes | Publicado em `main` e deployado |
+| `d88ac7637b524ad460488bfbedd1503876804a77` | Índice composto e migration de performance da Agenda | Publicado em `main` e deployado |
+| `90f788f287a256d0b87e93c10677587d142b7431` | Projeção de checklist limitada em Tarefas, ranking e atrasos | Publicado em `main`, container healthy validado |
+| **A preencher** | Proteção dos leitores auxiliares e jobs de background, teste estático de regressão e este relatório atualizado | Em validação local antes do redeploy final |
 
-## 3. Implementação
+A proteção final abrange `backend/src/routes/tarefas.ts`, `backend/src/routes/tarefasScoring.ts`, `backend/src/routes/notificacoes.ts`, `backend/src/lib/notifHelper.ts`, `backend/src/services/recorrenciaTarefasService.ts` e `backend/test/oversizedChecklistProtection.test.ts`. O Shop PermuPay, seu banco, seu recurso Coolify e o Destrava não foram tocados.
 
-Foi criada a migration `2026-08-25-notification-lifecycle`, independente da migration histórica, com as colunas `recorrente`, `ativa`, `chave_recorrencia`, `resolvida_em`, `ocorrencias`, `atualizada_em`, `arquivada` e `arquivada_em` usando `ADD COLUMN IF NOT EXISTS`. O índice `uq_notif_recorrente_ativa` é criado antes da remoção do legado `uq_notif_ativa_por_referencia`; ambos os passos são idempotentes e o uso de `CONCURRENTLY` ocorre fora de transação explícita.
+## 4. Backup lógico de produção
 
-As chaves de lifecycle implementadas são `tarefa_prazo`, `financeiro_prazo`, `tarefa_lembrete_diario` e `checklist_recorrente`. O helper `criarOuAtualizarNotificacaoRecorrente` faz upsert na mesma linha, atualiza título, tipo, corpo, timestamp e contador, sem alterar `lida`. A resolução filtra por origem e marca a linha como inativa, resolvida e arquivada, preservando o registro.
+O backup foi criado antes da aplicação das migrations no PostgreSQL Nexus, usando dump lógico custom. O arquivo está em `/var/lib/postgresql/data/backups/nexus_pre_notification_lifecycle_20260827T012618Z.dump`, tem 190.397.340 bytes e SHA-256 `19142c6f04dcbb1de0611b13825bdf470f883f6263bbc4558205e3d65a4b64d1`. `pg_restore -l` confirmou que o dump é válido. Credenciais e valores secretos não foram registrados neste relatório.
 
-A reconciliação seletiva percorre somente notificações recorrentes ativas com referência relacionada a tarefas fechadas ou pagamentos pagos/cancelados. O arquivamento automático e a rota manual excluem recorrentes ainda ativas. Os fluxos de aprovação, exclusão/cancelamento de tarefa, pagamento resolvido/excluído e webhook de status do Destrava chamam a resolução imediata quando aplicável. O Destrava não foi modificado; apenas o endpoint Nexus que recebe o webhook foi ajustado.
+## 5. Evidências de schema e banco após o deploy
 
-## 4. Arquivos alterados
-
-| Caminho | Motivo |
+| Verificação | Resultado observado |
 |---|---|
-| `backend/src/db/migrate.ts` | Schema aditivo, migration independente, índices e remoção segura do índice legado |
-| `backend/src/lib/notifHelper.ts` | Chaves estáveis, upsert explícito, resolução, reconciliação, push silencioso e arquivamento seguro |
-| `backend/src/routes/notificacoes.ts` | Arquivamento manual não toca recorrente ativa |
-| `backend/src/routes/pagamentos.ts` | Resolução em pagamento pago/cancelado e exclusão |
-| `backend/src/routes/tarefas.ts` | Resolução em aprovação e exclusão |
-| `backend/src/routes/tarefasScoring.ts` | Resolução no handler de aprovação de scoring |
-| `backend/src/routes/integracoes.ts` | Resolução quando webhook Nexus recebe conclusão/cancelamento do Destrava |
-| `backend/test/notificationLifecycle.test.ts` | Testes novos de upsert, leitura, transição, resolução, push, migration e arquivamento |
-| `backend/test/runtimeResilience.test.ts` | Alinhamento de duas asserções textuais obsoletas à implementação atual de recorrência por item |
-| `RELATORIO-FIX-NOTIFICACOES-RECORRENTES-2026-08-25.md` | Evidências e procedimento de rollback |
+| `2026-08-25-notification-lifecycle` | Aplicada em `2026-08-27T01:32:36.554Z` |
+| `2026-08-27-agenda-query-performance` | Aplicada em `2026-08-27T01:50:05.265Z` |
+| Índices de lifecycle | `uq_notif_recorrente_ativa`, `idx_notif_recorrente_referencia` e `idx_notif_recorrente_usuario` presentes |
+| Índice de Agenda | `idx_agenda_org_data_inicio_created_at` presente |
+| Checklists acima de 1 MB | 3 registros, máximo 30.044.115 bytes, total 90.164.768 bytes; preservados |
+| Locks aguardando | 0 |
+| Atividade não ociosa na consulta de diagnóstico | 0 |
+| Estado do recurso | Running e healthy no Coolify |
 
-## 5. Testes e build locais
+Antes da primeira migration, o banco tinha 183.810 notificações, 67 tarefas e 185.556.992 bytes estimados na tabela de notificações. Após a aplicação do lifecycle, foram observadas 184.014 notificações e 204 notificações recorrentes ativas, todas com chave válida. O crescimento histórico não foi limpo, conforme exigência de preservação.
+
+## 6. Deploys e validação real
+
+| Deployment | Commit | Resultado |
+|---|---|---|
+| `v14ow86pk40opzdoglmq29zz` | `e517414` | Success, migration do lifecycle aplicada |
+| `qb4izx2wbqubepg2k29b96t7` | `d88ac76` | Success, migration da Agenda aplicada e `ANALYZE` concluído |
+| `ammy223hhq9sdv3y2h9aq89o` | `90f788f` | Container `k68e0wa0djtqiqzgivruoe81-020329968585` iniciou, API/DB healthy e projeção validada |
+| **A preencher** | Commit final | Redeploy final das proteções auxiliares |
+
+No container baseado em `90f788f`, o health endpoint retornou `status=ok` e `db=connected`. A renovação de sessão pelo fluxo oficial de refresh foi bem-sucedida. A bateria autenticada retornou HTTP 200 em todos os endpoints críticos: Tarefas em 121 ms, ranking em 228 ms, atrasos em 597 ms, Agenda em 502 ms, pagamentos em 277 ms, equipe em 280 ms e notificações em 556 ms.
+
+A resposta de Tarefas continha 25 tarefas, maior checklist normal de 12.466 bytes e os três IDs patológicos como lista vazia, com `checklist_truncado=true` e tamanho declarado entre 30.038.526 e 30.044.115 bytes. Ranking retornou quatro linhas sem checklist gigante. Atrasos retornou nove tarefas, também sem materializar payload patológico.
+
+A navegação autenticada carregou Dashboard, Agenda com 43 eventos, Tarefas com 21 listas, uma tarefa normal de três itens, Financeiro com 430 movimentos, Equipe com cinco membros e Notificações com 210 não lidas. Nenhum item foi criado, alterado, pago, aprovado, marcado como lido, arquivado ou excluído. O console do navegador não registrou exceções durante a abertura da tarefa normal.
+
+## 7. Testes e build local
 
 | Comando | Resultado |
 |---|---|
-| `cd backend && npm test -- --run test/notificationLifecycle.test.ts --reporter=verbose` | 7/7 testes aprovados |
-| `cd backend && npm test -- --reporter=dot` | 21 arquivos e 90 testes aprovados |
+| `cd backend && npm test -- --run` | 22 arquivos e 92 testes aprovados |
 | `cd backend && npm run build` | TypeScript aprovado |
 | `npm run build` | Frontend compilado com sucesso |
 | `git diff --check` | Sem erro de whitespace |
-| `npm run lint` | Falha preexistente no frontend: 706 problemas em arquivos já existentes, fora do escopo desta correção |
+| `npm run lint` | Falha preexistente no frontend, com 706 problemas fora do escopo; não foi alterado para mascarar esses avisos |
 
-## 6. Backup pré-migration
+O teste `oversizedChecklistProtection.test.ts` garante por inspeção estática que a projeção de tarefas usa `pg_column_size`, devolve lista vazia para payloads acima do limite, mantém os metadados de truncamento, não reintroduz `SELECT t.*` na projeção e preserva a rota de detalhe. O segundo caso verifica a proteção em ranking, atrasos e jobs de background.
 
-Ainda não executado no PostgreSQL de produção. Deve ser gerado no recurso Nexus do Coolify imediatamente antes da aplicação da migration, em formato custom lógico (`pg_dump -Fc --no-owner --no-acl`), com caminho, tamanho e SHA-256 registrados sem expor credenciais. Nenhum banco foi restaurado, substituído, resetado ou limpo por esta correção.
+## 8. Rollback e limites conhecidos
 
-## 7. Git e deploy
+O rollback da aplicação pode ser feito selecionando no Coolify a imagem saudável anterior ou revertendo o commit correspondente, sem remover colunas nem substituir o banco. As migrations são aditivas e os índices podem permanecer durante rollback de código. O dump lógico pré-migration deve ser mantido como proteção adicional e somente restaurado por procedimento operacional autorizado, nunca como limpeza automática.
 
-| Item | Evidência |
-|---|---|
-| Branch | `main` |
-| Commit anterior | `b058058ca9607df7160f26b0ea55ed4185295426` |
-| Commit novo | A preencher após commit |
-| Push | A confirmar após publicação |
-| Recurso Coolify Nexus | `k68e0wa0djtqiqzgivruoe81` |
-| Recurso Shop PermuPay | Não tocado |
-| Aplicação da migration | Pendente de acesso ao Coolify/PostgreSQL |
-| Redeploy e healthcheck | Pendente de acesso ao Coolify |
+Os três checklists patológicos continuam no banco por decisão explícita de preservação. Eles devem ser investigados e corrigidos manualmente em uma missão separada, com backup próprio e validação do conteúdo. A lista, ranking, atrasos e jobs não os materializam mais. O endpoint de detalhe continua deliberadamente completo para permitir tratamento manual de uma tarefa específica.
 
-## 8. Rollback
+A integração Qualify não foi configurada porque não há conector habilitado, URL, documentação e credencial fornecidos; o usuário fará a conexão manual. Não foi criada integração aproximada.
 
-O rollback da aplicação é feito revertendo o commit desta correção ou selecionando a imagem anterior no recurso Nexus. A migration é aditiva e não exige remoção de colunas para voltar o código. O índice novo deve permanecer no banco durante um rollback de aplicação; não há operação destrutiva prevista. O dump pré-migration, quando gerado, será mantido como proteção adicional.
+## 9. Status de aprovação
 
-## 9. Itens preservados
-
-A agenda não foi limpa nem sua sincronização automática foi habilitada. O Shop PermuPay, seu banco e seu recurso Coolify não foram alterados. O Destrava não foi alterado. Nenhum `DELETE FROM notificacoes`, `TRUNCATE`, `DROP TABLE`, restauração de dump ou reset de banco foi executado.
-
-## 10. Status
-
-**BLOQUEADO para declarar conclusão de produção** até que o usuário forneça acesso manual ao Coolify ou a URL/sessão autenticada correspondente, permitindo gerar o backup, aplicar a migration, acompanhar o redeploy, consultar logs/saúde, confirmar o schema PostgreSQL e executar a navegação real sem alterar dados de negócio desnecessariamente.
+A correção do lifecycle recorrente, a performance da Agenda e a proteção principal de payloads foram implementadas, testadas, publicadas e validadas em produção. O status final desta versão será marcado como **APROVADO** somente após o redeploy do commit final contendo também os leitores auxiliares e os jobs de background, a confirmação do SHA no Coolify e uma repetição dos endpoints críticos e da verificação de locks.

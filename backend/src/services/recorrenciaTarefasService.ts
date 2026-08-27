@@ -14,6 +14,7 @@ type TarefaRecorrenteRow = {
   created_at: string;
   prioridade: string;
   checklist: unknown;
+  checklist_truncado: boolean;
   escopo: string;
   modo_distribuicao: string;
   pontuacao: number;
@@ -227,7 +228,14 @@ export async function avaliarRecorrenciaTarefas(): Promise<void> {
   const hoje = new Date();
   const { rows } = await pool.query<TarefaRecorrenteRow>(
     `SELECT id, org_id, criado_por, responsavel_id, responsavel_nome, titulo, descricao, prazo, created_at,
-            prioridade, checklist, escopo, modo_distribuicao, pontuacao, conta_ranking, status,
+            prioridade,
+            CASE
+              WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                THEN COALESCE(checklist, '[]'::jsonb)
+              ELSE '[]'::jsonb
+            END AS checklist,
+            (COALESCE(pg_column_size(checklist), 0) > 1000000) AS checklist_truncado,
+            escopo, modo_distribuicao, pontuacao, conta_ranking, status,
             origem_sistema, origem_tipo, origem_id, origem_nome, origem_url, origem_payload,
             recorrencia, recorrencia_dia_mes, recorrencia_dia_semana, recorrencia_fim, grupo_recorrencia_id
      FROM tarefas
@@ -241,6 +249,10 @@ export async function avaliarRecorrenciaTarefas(): Promise<void> {
       // foi criada -- evita duplicar a primeira instância recém-criada pelo gestor.
       const criadaHoje = new Date(t.created_at).toDateString() === hoje.toDateString();
       if (criadaHoje) continue;
+      if (t.checklist_truncado) {
+        console.warn(`[RECORRENCIA] Checklist acima de 1 MB; ocorrência ${t.id} não gerada até correção manual.`);
+        continue;
+      }
       if (!deveGerarHoje(t, hoje)) continue;
       await gerarProximaOcorrencia(t, hoje);
     } catch (err) {

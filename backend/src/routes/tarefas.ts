@@ -892,7 +892,13 @@ async function possuiAtrasoSemJustificativaHoje(
 ): Promise<{ bloqueado: boolean; tituloTarefa?: string; itemTexto?: string }> {
   const hoje = new Date().toISOString().slice(0, 10);
   const rows = await query<any>(
-    `SELECT id, titulo, prazo, aceita_por, responsavel_id, checklist
+    `SELECT id, titulo, prazo, aceita_por, responsavel_id,
+            CASE
+              WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                THEN COALESCE(checklist, '[]'::jsonb)
+              ELSE '[]'::jsonb
+            END AS checklist,
+            (COALESCE(pg_column_size(checklist), 0) > 1000000) AS checklist_truncado
      FROM tarefas
      WHERE org_id = $1
        AND escopo = 'equipe'
@@ -900,6 +906,7 @@ async function possuiAtrasoSemJustificativaHoje(
     [orgId],
   );
   for (const task of rows) {
+    if (task.checklist_truncado) continue;
     const items = parseChecklistItems(task.checklist);
     for (const item of items) {
       if (item.feito) continue;
@@ -2296,7 +2303,14 @@ async function findOpenChecklistAssignedToUser(
   excludeTaskId?: string,
 ) {
   const rows = await query<any>(
-    `SELECT id, titulo, checklist, status
+    `SELECT id, titulo,
+            CASE
+              WHEN checklist IS NULL OR pg_column_size(checklist) <= 1000000
+                THEN COALESCE(checklist, '[]'::jsonb)
+              ELSE '[]'::jsonb
+            END AS checklist,
+            status,
+            (COALESCE(pg_column_size(checklist), 0) > 1000000) AS checklist_truncado
        FROM tarefas
       WHERE org_id = $1
         AND COALESCE(escopo, 'pessoal') = 'equipe'
@@ -2305,6 +2319,7 @@ async function findOpenChecklistAssignedToUser(
     [orgId, excludeTaskId || null],
   );
   for (const row of rows) {
+    if (row.checklist_truncado) continue;
     const item = parseChecklistItems(row.checklist).find(
       (check) => checklistItemBelongsToUser(check, userId) && !check.feito,
     );
