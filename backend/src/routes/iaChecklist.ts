@@ -17,7 +17,7 @@ router.post('/ia-checklist', async (req, res) => {
       available: result.enabled,
     })
   }
-  return res.json({ itens: result.itens, provider: result.provider, model: result.model })
+  return res.json({ itens: result.itens, provider: result.provider, model: result.model, fallback: Boolean(result.fallback) })
 })
 
 export default router

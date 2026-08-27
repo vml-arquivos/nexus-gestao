@@ -1004,8 +1004,8 @@ function TarefaModal({ tarefa, membros, onClose, onSaved }: {
       const itens = Array.isArray(result.itens) ? result.itens.filter(item => String(item.texto || '').trim()) : []
       setIaChecklistSuggestions(itens)
       setIaChecklistSelected(itens.map(() => true))
-      if (!itens.length) toast('A IA não retornou itens utilizáveis. Você pode continuar pelo gerador manual.', 'error')
-      else toast(`${itens.length} sugestão(ões) gerada(s). Revise e escolha o que deseja adicionar.`)
+      if (!itens.length) toast('Não foi possível gerar itens utilizáveis. Você pode continuar pelo gerador manual.', 'error')
+      else toast(`${itens.length} sugestão(ões) ${result.fallback ? 'locais' : 'de IA'} gerada(s). Revise e escolha o que deseja adicionar.`)
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Não foi possível gerar sugestões agora.', 'error')
     } finally {

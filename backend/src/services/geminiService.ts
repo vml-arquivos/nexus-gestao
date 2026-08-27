@@ -26,7 +26,23 @@ export interface ChecklistSuggestionResult {
   provider: string
   model: string
   itens: ChecklistSuggestionItem[]
+  fallback?: boolean
   erro?: string
+}
+
+function gerarSugestaoLocal(titulo: string, descricao: string): ChecklistSuggestionItem[] {
+  const objetivo = titulo.replace(/[.!?]+$/, '').trim()
+  const itens: ChecklistSuggestionItem[] = [
+    { texto: `Definir o resultado esperado para: ${objetivo}`, descricao: 'Alinhar o objetivo e o critério de conclusão antes de iniciar.' },
+    { texto: 'Reunir os dados, documentos e acessos necessários', descricao: 'Confirmar que os insumos estão disponíveis e registrar eventuais pendências.' },
+    { texto: `Executar a atividade principal de ${objetivo}`, descricao: 'Realizar a operação conforme as orientações da lista e registrar evidências.' },
+    { texto: 'Revisar o resultado e corrigir pendências', descricao: 'Conferir os critérios de conclusão e ajustar qualquer inconsistência encontrada.' },
+    { texto: 'Registrar evidências e comunicar a conclusão', descricao: 'Anexar comprovantes relevantes e informar os envolvidos sobre o resultado.' },
+  ]
+  if (descricao && /document|comprov|anex|contrat|certid|nota|arquivo/i.test(descricao)) {
+    itens.splice(2, 0, { texto: 'Anexar os documentos e comprovantes relacionados', descricao: 'Guardar os arquivos na tarefa para manter o histórico auditável.' })
+  }
+  return itens.slice(0, 8)
 }
 
 function normalizeGeminiModel(modelValue?: string) {
@@ -78,7 +94,13 @@ export async function gerarSugestaoChecklist(input: { titulo: string; descricao?
     return { enabled: Boolean(apiKey), provider: 'gemini', model, itens: [], erro: 'Informe um título para sugerir o checklist.' }
   }
   if (!apiKey) {
-    return { enabled: false, provider: 'gemini', model, itens: [], erro: 'Gemini ainda não está configurado.' }
+    return {
+      enabled: true,
+      provider: 'nexus-local',
+      model: 'heuristic-checklist-v1',
+      fallback: true,
+      itens: gerarSugestaoLocal(titulo, descricao),
+    }
   }
 
   const prompt = `Você é um assistente de operações empresariais. Gere uma sugestão de checklist em português do Brasil para uma tarefa, sem inventar nomes, documentos, prazos ou regras específicas que não estejam no texto. Retorne SOMENTE JSON válido no formato {"itens":[{"texto":"...","descricao":"..."}]}. Crie de 3 a 8 itens concretos, ordenados pela sequência natural de execução. Cada texto deve ter no máximo 140 caracteres e cada descrição no máximo 240 caracteres. Não inclua numeração, checkbox, pontuação, responsável ou prazo.\n\nTÍTULO:\n${titulo}\n\nDESCRIÇÃO:\n${descricao || '(não informada)'}`

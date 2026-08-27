@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseNaturalDate } from '../../src/lib/naturalLanguageDate'
+import { gerarSugestaoChecklist } from '../src/services/geminiService'
 
 const fixedNow = new Date('2026-08-27T12:00:00-03:00')
 
@@ -19,6 +20,29 @@ describe('Fase 1 — produtividade e navegação', () => {
   it('valida datas explícitas e rejeita datas impossíveis', () => {
     expect(parseNaturalDate('protocolar em 15/09', fixedNow)?.isoDate).toBe('2026-09-15')
     expect(parseNaturalDate('prazo em 31/02', fixedNow)).toBeNull()
+  })
+
+  it('mantém fallback local quando Gemini não está configurado', async () => {
+    const previous = process.env.GEMINI_API_KEY
+    const previousGoogle = process.env.GOOGLE_GEMINI_API_KEY
+    const previousLegacy = process.env.GOOGLE_API_KEY
+    delete process.env.GEMINI_API_KEY
+    delete process.env.GOOGLE_GEMINI_API_KEY
+    delete process.env.GOOGLE_API_KEY
+    try {
+      const result = await gerarSugestaoChecklist({ titulo: 'Organizar documentação', descricao: 'Reunir e anexar comprovantes.' })
+      expect(result.provider).toBe('nexus-local')
+      expect(result.fallback).toBe(true)
+      expect(result.itens.length).toBeGreaterThanOrEqual(5)
+      expect(result.itens.every(item => item.texto.length <= 140)).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.GEMINI_API_KEY
+      else process.env.GEMINI_API_KEY = previous
+      if (previousGoogle === undefined) delete process.env.GOOGLE_GEMINI_API_KEY
+      else process.env.GOOGLE_GEMINI_API_KEY = previousGoogle
+      if (previousLegacy === undefined) delete process.env.GOOGLE_API_KEY
+      else process.env.GOOGLE_API_KEY = previousLegacy
+    }
   })
 
   it('mantém a Fase 1 sobre os dados e contratos existentes', () => {
