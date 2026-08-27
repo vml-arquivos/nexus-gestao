@@ -76,6 +76,7 @@ describe('Fase 1 — produtividade e navegação', () => {
     const calendar = source('src/components/TaskCalendarView.tsx')
     const table = source('src/components/TaskTableView.tsx')
     const api = source('src/lib/api.ts')
+    const dashboard = source('src/pages/Dashboard.tsx')
 
     expect(tarefas).toContain("'calendario' | 'tabela'")
     expect(tarefas).toContain('<TaskCalendarView tasks={filtered}')
@@ -85,5 +86,7 @@ describe('Fase 1 — produtividade e navegação', () => {
     expect(calendar).toContain('tasks: Tarefa[]')
     expect(table).toContain('onOpen: (task: Tarefa) => void')
     expect(api).toContain("'/tarefas/ia-checklist'")
+    expect(dashboard).toContain('agendaApi.list(...mesFiltro.split')
+    expect(dashboard).not.toContain('agendaApi.list(),')
   })
 })

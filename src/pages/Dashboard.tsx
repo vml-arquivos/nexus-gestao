@@ -292,16 +292,14 @@ export default function Dashboard() {
       // mais derrubar tarefas, financeiro e equipe junto. Cada seção carrega
       // e falha de forma independente, e o usuário vê o que deu certo em vez
       // de uma tela zerada sem explicação.
-      // agendaApi.list() sem mes/ano continua de propósito: o seletor de mês
-      // deste painel (mesFiltro, mais abaixo) navega entre meses usando os
-      // dados já carregados aqui, sem nova requisição. Deixar sem argumentos
-      // preserva esse comportamento. A correção real é no backend
-      // (backend/src/routes/agenda.ts): sem mes/ano, o servidor agora aplica
-      // uma janela padrão (45 dias atrás a 120 dias à frente) em vez de
-      // devolver o histórico inteiro da tabela agenda sem filtro nem limite.
+      // A Agenda é carregada somente para o mês selecionado. O Dashboard
+      // combina tarefas, pagamentos e eventos no mesmo painel, mas não precisa
+      // materializar uma janela ampla da tabela agenda para depois descartar
+      // quase tudo no cliente. Isso evita concorrência desnecessária com o
+      // pool/ANALYZE e mantém a troca de mês determinística.
       const [t, a, p, m, r] = await Promise.allSettled([
         tarefasApi.list(),
-        agendaApi.list(),
+        agendaApi.list(...mesFiltro.split('-').map(Number) as [number, number]),
         pagamentosApi.list(),
         isGestorLike(user?.role) ? equipeApi.membros() : Promise.resolve([]),
         tarefasApi.ranking('todos'),
@@ -327,7 +325,7 @@ export default function Dashboard() {
     }
     load()
     return () => { cancelado = true }
-  }, [user, reloadKey])
+  }, [user, reloadKey, mesFiltro])
 
   const tentarNovamente = () => setReloadKey(k => k + 1)
   const algumErro = erros.tarefas || erros.agenda || erros.pagamentos || erros.membros
