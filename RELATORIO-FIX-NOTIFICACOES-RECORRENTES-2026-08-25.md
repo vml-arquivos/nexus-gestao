@@ -29,7 +29,8 @@ Os três registros preservados são `d8fff8a8-cc73-4ff7-a090-39581888f143`, `6c6
 | `e517414b2c997ce260c3b6fc55415dea2e75b43c` | Lifecycle único de notificações recorrentes, migration, helper, resolução, push e testes | Publicado em `main` e deployado |
 | `d88ac7637b524ad460488bfbedd1503876804a77` | Índice composto e migration de performance da Agenda | Publicado em `main` e deployado |
 | `90f788f287a256d0b87e93c10677587d142b7431` | Projeção de checklist limitada em Tarefas, ranking e atrasos | Publicado em `main`, container healthy validado |
-| `4a2ff37ef6807ebe1191051f10f2b4952ff3d43b` | Proteção dos leitores auxiliares e jobs de background, teste estático de regressão e este relatório atualizado | Publicado em `main` e deployado |
+| `4a2ff37ef6807ebe1191051f10f2b4952ff3d43b` | Proteção dos leitores auxiliares e jobs de background e teste estático de regressão | Publicado em `main` e deployado |
+| `1e16d4bf5b010f97320389a647614afb6a4dab54` | Atualização documental com o deployment final e a validação autenticada | Publicado em `main`; não altera código implantado |
 
 A proteção final abrange `backend/src/routes/tarefas.ts`, `backend/src/routes/tarefasScoring.ts`, `backend/src/routes/notificacoes.ts`, `backend/src/lib/notifHelper.ts`, `backend/src/services/recorrenciaTarefasService.ts` e `backend/test/oversizedChecklistProtection.test.ts`. O Shop PermuPay, seu banco, seu recurso Coolify e o Destrava não foram tocados.
 
@@ -91,4 +92,4 @@ A integração Qualify não foi configurada porque não há conector habilitado,
 
 ## 9. Status de aprovação
 
-A correção do lifecycle recorrente, a performance da Agenda e a proteção de payloads — incluindo leitores auxiliares e jobs de background — foram implementadas, testadas, publicadas e validadas em produção. O deployment final `qrbsap5ant0bpxyfdxs7u9ge` confirmou o SHA `4a2ff37` no Coolify, o recurso permaneceu Running e healthy, e a repetição dos endpoints críticos confirmou HTTP 200 sem timeout. **Status: APROVADO.**
+A correção do lifecycle recorrente, a performance da Agenda e a proteção de payloads — incluindo leitores auxiliares e jobs de background — foram implementadas, testadas, publicadas e validadas em produção. O deployment final `qrbsap5ant0bpxyfdxs7u9ge` confirmou o SHA de código `4a2ff37` no Coolify, o recurso permaneceu Running e healthy, e a repetição dos endpoints críticos confirmou HTTP 200 sem timeout. O commit posterior `1e16d4b` atualizou somente este relatório e não requer novo redeploy. **Status: APROVADO.**
