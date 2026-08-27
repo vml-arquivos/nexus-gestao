@@ -12,6 +12,7 @@ import type { PoolClient } from 'pg'
 // registro só é gravado depois que TODO o SCHEMA termina com sucesso.
 const SCHEMA_MIGRATION_ID = '2026-08-03-fix54-startup-db-priority'
 const NOTIFICATION_LIFECYCLE_MIGRATION_ID = '2026-08-25-notification-lifecycle'
+const AGENDA_PERFORMANCE_MIGRATION_ID = '2026-08-27-agenda-query-performance'
 
 const SCHEMA = `
 -- ============================================================
@@ -1135,6 +1136,17 @@ async function applyNotificationLifecycleMigration(client: PoolClient): Promise<
   }
 }
 
+async function applyAgendaPerformanceMigration(client: PoolClient): Promise<void> {
+  // A consulta padrão da Agenda filtra por organização e janela de data e
+  // ordena por data/hora de criação. O índice anterior cobria apenas
+  // (org_id, data_inicio), obrigando o planner a ordenar uma fração enorme do
+  // histórico antes de devolver LIMIT 2000. Este índice aditivo permite manter
+  // a ordem no próprio B-tree e não apaga nem reescreve dados.
+  const text = `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_agenda_org_data_inicio_created_at
+    ON agenda(org_id, data_inicio, created_at)`
+  await client.query({ text, query_timeout: MIGRATION_QUERY_TIMEOUT_MS } as any)
+}
+
 async function applyFix54PerformanceIndexes(client: PoolClient): Promise<void> {
   // Banco já atualizado recebe somente índices novos, sem reexecutar o schema
   // histórico ou suas correções de dados. CONCURRENTLY mantém leitura/escrita
@@ -1203,8 +1215,12 @@ async function runSchemaOnce(): Promise<void> {
       'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
       [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
     )
-    if (aplicado.rows[0]?.aplicado && lifecycleAplicado.rows[0]?.aplicado) {
-      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID} e lifecycle ${NOTIFICATION_LIFECYCLE_MIGRATION_ID} já aplicados; nenhuma DDL repetida.`)
+    const agendaPerformanceAplicado = await client.query<{ aplicado: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
+      [AGENDA_PERFORMANCE_MIGRATION_ID],
+    )
+    if (aplicado.rows[0]?.aplicado && lifecycleAplicado.rows[0]?.aplicado && agendaPerformanceAplicado.rows[0]?.aplicado) {
+      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID}, lifecycle ${NOTIFICATION_LIFECYCLE_MIGRATION_ID} e performance ${AGENDA_PERFORMANCE_MIGRATION_ID} já aplicados; nenhuma DDL repetida.`)
       return
     }
 
@@ -1223,7 +1239,12 @@ async function runSchemaOnce(): Promise<void> {
         'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
         [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
       )
-      console.log('[MIGRATE] ✅ Lifecycle de notificações aplicado.')
+      await applyAgendaPerformanceMigration(client)
+      await client.query(
+        'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+        [AGENDA_PERFORMANCE_MIGRATION_ID],
+      )
+      console.log('[MIGRATE] ✅ Lifecycle de notificações e índice de Agenda aplicados.')
       return
     }
 
@@ -1237,11 +1258,18 @@ async function runSchemaOnce(): Promise<void> {
           [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
         )
       }
+      if (!agendaPerformanceAplicado.rows[0]?.aplicado) {
+        await applyAgendaPerformanceMigration(client)
+        await client.query(
+          'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+          [AGENDA_PERFORMANCE_MIGRATION_ID],
+        )
+      }
       await client.query(
         'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
         [SCHEMA_MIGRATION_ID],
       )
-      console.log('[MIGRATE] ✅ Banco atual registrado, índices FIX54 e lifecycle aplicados.')
+      console.log('[MIGRATE] ✅ Banco atual registrado, índices FIX54, lifecycle e performance da Agenda aplicados.')
       return
     }
 
@@ -1254,6 +1282,7 @@ async function runSchemaOnce(): Promise<void> {
       query_timeout: MIGRATION_QUERY_TIMEOUT_MS,
     } as any)
     await applyNotificationLifecycleMigration(client)
+    await applyAgendaPerformanceMigration(client)
     await client.query(
       'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       [SCHEMA_MIGRATION_ID],
@@ -1262,7 +1291,11 @@ async function runSchemaOnce(): Promise<void> {
       'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       [NOTIFICATION_LIFECYCLE_MIGRATION_ID],
     )
-    console.log('[MIGRATE] ✅ Schema e lifecycle de notificações aplicados com sucesso!')
+    await client.query(
+      'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+      [AGENDA_PERFORMANCE_MIGRATION_ID],
+    )
+    console.log('[MIGRATE] ✅ Schema, lifecycle de notificações e performance da Agenda aplicados com sucesso!')
   } finally {
     if (advisoryLockObtido) {
       await client
