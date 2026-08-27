@@ -98,16 +98,25 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
     grouped.set(level, bucket)
   })
 
-  // Mantém as dependências em níveis horizontais, mas limita a altura do
-  // canvas. Listas legadas com dezenas de itens não devem virar uma coluna
-  // interminável; as colunas extras de um mesmo nível rolam horizontalmente.
+  // Mantém as dependências em níveis horizontais e distribui cada nível em
+  // uma grade balanceada. Até quatro itens ficam na mesma linha, evitando o
+  // empilhamento vertical que tornava listas curtas difíceis de ler; níveis
+  // maiores usam no máximo cinco linhas e expandem horizontalmente no canvas.
   const maxRowsPerLevel = 5
+  const nodeWidth = 224
+  const columnStep = 248
+  const rowStep = 118
+  const rowsForLevel = (count: number) => count <= 4 ? 1 : Math.min(maxRowsPerLevel, Math.ceil(Math.sqrt(count)))
   const levelStarts = new Map<number, number>()
-  let nextLevelX = 300
+  const levelRows = new Map<number, number>()
+  let nextLevelX = 280
   Array.from(grouped.keys()).sort((a, b) => a - b).forEach(level => {
+    const count = grouped.get(level)?.length || 0
+    const rowCount = rowsForLevel(count)
     levelStarts.set(level, nextLevelX)
-    const columnCount = Math.max(1, Math.ceil((grouped.get(level)?.length || 0) / maxRowsPerLevel))
-    nextLevelX += columnCount * 270
+    levelRows.set(level, rowCount)
+    const columnCount = Math.max(1, Math.ceil(count / rowCount))
+    nextLevelX += columnCount * columnStep + 24
   })
 
   const root: GraphNode = {
@@ -122,15 +131,16 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
   const nodes: GraphNode[] = [root]
   Array.from(grouped.keys()).sort((a, b) => a - b).forEach(level => {
     ;(grouped.get(level) || []).forEach((item, index) => {
-      const column = Math.floor(index / maxRowsPerLevel)
-      const row = index % maxRowsPerLevel
+      const rowCount = levelRows.get(level) || 1
+      const column = Math.floor(index / rowCount)
+      const row = index % rowCount
       nodes.push({
         id: String(item.id),
         label: item.texto,
         kind: 'item',
         done: Boolean(item.feito),
-        x: (levelStarts.get(level) || 300) + column * 270,
-        y: 24 + row * 118,
+        x: (levelStarts.get(level) || 280) + column * columnStep,
+        y: 24 + row * rowStep,
         dependencies: dependencyIds(item),
         item,
       })
@@ -144,7 +154,7 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
       return from ? { from, to } : null
     }).filter(Boolean) as GraphEdge[]
     : [])
-  const maxX = Math.max(760, ...nodes.map(node => node.x + 236))
-  const maxY = Math.max(220, ...nodes.map(node => node.y + 104))
+  const maxX = Math.max(760, ...nodes.map(node => node.x + nodeWidth + 24))
+  const maxY = Math.max(220, ...nodes.map(node => node.y + 104 + 24))
   return { nodes, edges, width: maxX, height: maxY }
 }

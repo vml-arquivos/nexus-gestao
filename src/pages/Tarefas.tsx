@@ -4882,6 +4882,16 @@ export default function Tarefas() {
     }
   }, [location.search])
 
+  // A seleção em lote existe somente na Lista, onde os checkboxes são
+  // renderizados. Ao mudar para Quadro, Calendário, Tabela ou Grafo, não
+  // deixamos um estado invisível alterar o cabeçalho nem a seleção visual.
+  useEffect(() => {
+    if (viewMode !== 'lista' && (modoSelecao || selecionadas.size > 0)) {
+      setModoSelecao(false)
+      setSelecionadas(new Set())
+    }
+  }, [modoSelecao, selecionadas.size, viewMode])
+
   const loadRanking = useCallback(async (periodo: string) => {
     try {
       const rk = await tarefasApi.ranking(periodo).catch(() => null)
@@ -5381,9 +5391,16 @@ export default function Tarefas() {
             <button
               className="btn btn-secondary"
               type="button"
-              onClick={() => (modoSelecao ? cancelarSelecao() : setModoSelecao(true))}
+              aria-pressed={modoSelecao && viewMode === 'lista'}
+              onClick={() => {
+                if (viewMode !== 'lista') {
+                  navigate('/tarefas?view=lista')
+                  return
+                }
+                modoSelecao ? cancelarSelecao() : setModoSelecao(true)
+              }}
             >
-              {modoSelecao ? 'Cancelar seleção' : 'Selecionar'}
+              {modoSelecao && viewMode === 'lista' ? 'Cancelar seleção' : 'Selecionar'}
             </button>
           )}
         </div>
