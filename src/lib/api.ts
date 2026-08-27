@@ -1451,3 +1451,62 @@ export const usersApi = {
     return data.users
   },
 }
+
+
+// ── AUTOMAÇÕES CONFIGURÁVEIS ───────────────────────────────────────────────────
+export type AutomacaoGatilho = 'tarefa_criada' | 'status_alterado' | 'prazo_vencendo' | 'checklist_concluido'
+export type AutomacaoOperador = 'igual' | 'diferente' | 'contem' | 'vazio' | 'nao_vazio'
+export type AutomacaoCampo = 'titulo' | 'status' | 'prioridade' | 'responsavel_id' | 'projeto_grupo_id' | 'status_anterior' | 'status_novo' | 'checklist_item_texto'
+export type AutomacaoAcaoTipo = 'notificar_pessoa' | 'notificar_equipe' | 'mover_status' | 'adicionar_checklist' | 'webhook'
+export type AutomacaoCondicao = { field: AutomacaoCampo; operator: AutomacaoOperador; value?: string }
+export type AutomacaoAcao = { type: AutomacaoAcaoTipo; user_id?: string; equipe_id?: string; status?: string; texto?: string; url?: string }
+export type AutomacaoRegra = {
+  id: string
+  org_id: string
+  created_by: string
+  name: string
+  description: string | null
+  trigger_type: AutomacaoGatilho
+  conditions: { mode: 'AND' | 'OR'; items: AutomacaoCondicao[] }
+  actions: AutomacaoAcao[]
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+export type AutomacaoPessoa = { id: string; nome: string; email: string; role: string }
+export type AutomacaoEquipe = { id: string; nome: string; members_count: number }
+export type AutomacaoAuditoria = {
+  id: string
+  event_id: string | null
+  evento: string
+  executado_em: string
+  tempo_ms: number | null
+  resultado: 'sucesso' | 'falha' | 'ignorado_duplicado'
+  erro: string | null
+  detalhe: Record<string, unknown> | null
+}
+
+export const automacoesApi = {
+  async list(): Promise<AutomacaoRegra[]> {
+    const data = await apiJson<{ regras: AutomacaoRegra[] }>('/automation/rules')
+    return data.regras || []
+  },
+  async catalogo(): Promise<{ pessoas: AutomacaoPessoa[]; equipes: AutomacaoEquipe[] }> {
+    return apiJson('/automation/rules/catalogo')
+  },
+  async auditoria(limit = 50): Promise<AutomacaoAuditoria[]> {
+    const data = await apiJson<{ auditoria: AutomacaoAuditoria[] }>(`/automation/rules/auditoria?limit=${limit}`)
+    return data.auditoria || []
+  },
+  async create(payload: { name: string; description?: string; trigger_type: AutomacaoGatilho; conditions: { mode: 'AND' | 'OR'; items: AutomacaoCondicao[] }; actions: AutomacaoAcao[]; active?: boolean }): Promise<AutomacaoRegra> {
+    const data = await apiJson<{ regra: AutomacaoRegra }>('/automation/rules', { method: 'POST', body: JSON.stringify(payload) })
+    return data.regra
+  },
+  async update(id: string, payload: Partial<{ name: string; description: string; trigger_type: AutomacaoGatilho; conditions: { mode: 'AND' | 'OR'; items: AutomacaoCondicao[] }; actions: AutomacaoAcao[]; active: boolean }>): Promise<AutomacaoRegra> {
+    const data = await apiJson<{ regra: AutomacaoRegra }>(`/automation/rules/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return data.regra
+  },
+  async deactivate(id: string): Promise<void> {
+    await apiJson(`/automation/rules/${id}`, { method: 'DELETE' })
+  },
+}

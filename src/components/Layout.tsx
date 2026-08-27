@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, CheckCircle2, Calendar, DollarSign,
   BrainCircuit,
   FileText, BarChart3, Bell, Menu, Zap, Plus, Grid3X3, X,
-  LogOut, Settings, Sun, Moon, UserCog, ChevronRight,
+  LogOut, Settings, Sun, Moon, UserCog, ChevronRight, GitBranch,
   CheckCircle, XCircle, AlertTriangle, Search, Target, Gauge,
 } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
@@ -31,6 +31,7 @@ const NAV: { path: string; icon: typeof LayoutDashboard; labelKey: VisualTextKey
   { path: '/equipes',      icon: Grid3X3,          labelKey: 'nav.teams',       section: 'Equipe' },
   { path: '/pessoas',      icon: Users,           labelKey: 'nav.people',       section: 'Equipe' },
   { path: '/relatorios',   icon: BarChart3,       labelKey: 'nav.reports',      section: 'Gestão' },
+  { path: '/automacoes',   icon: GitBranch,       labelKey: 'nav.automations',   section: 'Gestão' },
   { path: '/usuarios',     icon: UserCog,         labelKey: 'nav.users',        section: 'Gestão' },
   { path: '/documentos',   icon: FileText,        labelKey: 'nav.files',        section: 'Gestão' },
   { path: '/configuracoes',icon: Settings,        labelKey: 'nav.settings',     section: 'Sistema' },

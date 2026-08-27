@@ -13,6 +13,7 @@ import type { PoolClient } from 'pg'
 const SCHEMA_MIGRATION_ID = '2026-08-03-fix54-startup-db-priority'
 const NOTIFICATION_LIFECYCLE_MIGRATION_ID = '2026-08-25-notification-lifecycle'
 const AGENDA_PERFORMANCE_MIGRATION_ID = '2026-08-27-agenda-query-performance'
+const USER_AUTOMATION_MIGRATION_ID = '2026-08-27-user-automation-rules'
 
 const SCHEMA = `
 -- ============================================================
@@ -1147,6 +1148,31 @@ async function applyAgendaPerformanceMigration(client: PoolClient): Promise<void
   await client.query({ text, query_timeout: MIGRATION_QUERY_TIMEOUT_MS } as any)
 }
 
+async function applyUserAutomationMigration(client: PoolClient): Promise<void> {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS automation_user_rules (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       org_id UUID NOT NULL,
+       created_by UUID NOT NULL,
+       name VARCHAR(120) NOT NULL,
+       description VARCHAR(500),
+       trigger_type VARCHAR(40) NOT NULL,
+       conditions JSONB NOT NULL DEFAULT '{"mode":"AND","items":[]}'::jsonb,
+       actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+       active BOOLEAN NOT NULL DEFAULT TRUE,
+       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_automation_user_rules_org_trigger
+       ON automation_user_rules(org_id, trigger_type, active, created_at DESC)`,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_automation_user_rules_created_by
+       ON automation_user_rules(org_id, created_by, created_at DESC)`,
+  ]
+  for (const text of statements) {
+    await client.query({ text, query_timeout: MIGRATION_QUERY_TIMEOUT_MS } as any)
+  }
+}
+
 async function applyFix54PerformanceIndexes(client: PoolClient): Promise<void> {
   // Banco já atualizado recebe somente índices novos, sem reexecutar o schema
   // histórico ou suas correções de dados. CONCURRENTLY mantém leitura/escrita
@@ -1219,8 +1245,12 @@ async function runSchemaOnce(): Promise<void> {
       'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
       [AGENDA_PERFORMANCE_MIGRATION_ID],
     )
-    if (aplicado.rows[0]?.aplicado && lifecycleAplicado.rows[0]?.aplicado && agendaPerformanceAplicado.rows[0]?.aplicado) {
-      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID}, lifecycle ${NOTIFICATION_LIFECYCLE_MIGRATION_ID} e performance ${AGENDA_PERFORMANCE_MIGRATION_ID} já aplicados; nenhuma DDL repetida.`)
+    const userAutomationAplicado = await client.query<{ aplicado: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM nexus_schema_migrations WHERE id = $1) AS aplicado',
+      [USER_AUTOMATION_MIGRATION_ID],
+    )
+    if (aplicado.rows[0]?.aplicado && lifecycleAplicado.rows[0]?.aplicado && agendaPerformanceAplicado.rows[0]?.aplicado && userAutomationAplicado.rows[0]?.aplicado) {
+      console.log(`[MIGRATE] Schema ${SCHEMA_MIGRATION_ID}, lifecycle ${NOTIFICATION_LIFECYCLE_MIGRATION_ID}, performance ${AGENDA_PERFORMANCE_MIGRATION_ID} e automação do usuário ${USER_AUTOMATION_MIGRATION_ID} já aplicados; nenhuma DDL repetida.`)
       return
     }
 
@@ -1244,7 +1274,14 @@ async function runSchemaOnce(): Promise<void> {
         'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
         [AGENDA_PERFORMANCE_MIGRATION_ID],
       )
-      console.log('[MIGRATE] ✅ Lifecycle de notificações e índice de Agenda aplicados.')
+      if (!userAutomationAplicado.rows[0]?.aplicado) {
+        await applyUserAutomationMigration(client)
+        await client.query(
+          'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+          [USER_AUTOMATION_MIGRATION_ID],
+        )
+      }
+      console.log('[MIGRATE] ✅ Lifecycle de notificações, índice de Agenda e automação do usuário aplicados.')
       return
     }
 
@@ -1265,11 +1302,18 @@ async function runSchemaOnce(): Promise<void> {
           [AGENDA_PERFORMANCE_MIGRATION_ID],
         )
       }
+      if (!userAutomationAplicado.rows[0]?.aplicado) {
+        await applyUserAutomationMigration(client)
+        await client.query(
+          'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+          [USER_AUTOMATION_MIGRATION_ID],
+        )
+      }
       await client.query(
         'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
         [SCHEMA_MIGRATION_ID],
       )
-      console.log('[MIGRATE] ✅ Banco atual registrado, índices FIX54, lifecycle e performance da Agenda aplicados.')
+      console.log('[MIGRATE] ✅ Banco atual registrado, índices FIX54, lifecycle, performance da Agenda e automação do usuário aplicados.')
       return
     }
 
@@ -1283,6 +1327,7 @@ async function runSchemaOnce(): Promise<void> {
     } as any)
     await applyNotificationLifecycleMigration(client)
     await applyAgendaPerformanceMigration(client)
+    await applyUserAutomationMigration(client)
     await client.query(
       'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       [SCHEMA_MIGRATION_ID],
@@ -1295,7 +1340,11 @@ async function runSchemaOnce(): Promise<void> {
       'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
       [AGENDA_PERFORMANCE_MIGRATION_ID],
     )
-    console.log('[MIGRATE] ✅ Schema, lifecycle de notificações e performance da Agenda aplicados com sucesso!')
+    await client.query(
+      'INSERT INTO nexus_schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING',
+      [USER_AUTOMATION_MIGRATION_ID],
+    )
+    console.log('[MIGRATE] ✅ Schema, lifecycle de notificações, performance da Agenda e automação do usuário aplicados com sucesso!')
   } finally {
     if (advisoryLockObtido) {
       await client

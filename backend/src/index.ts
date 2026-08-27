@@ -23,6 +23,7 @@ import convitesRoutes       from './routes/convites'
 import notificacoesRoutes  from './routes/notificacoes'
 import integracoesRoutes   from './routes/integracoes'
 import automationRoutes, { opsRouter as automationOpsRoutes } from './routes/automation'
+import automationRulesRoutes from './routes/automationRules'
 import inteligenciaRoutes  from './routes/inteligencia'
 import adminRoutes         from './routes/admin'
 import { iniciarJobsNotificacao } from './lib/notifHelper'
@@ -189,6 +190,7 @@ app.use('/api/notificacoes',  notificacoesRoutes)
 app.use('/api/integracoes',   integracoesRoutes)
 app.use('/api/integracoes',   automationRoutes)
 app.use('/api/automation',    automationOpsRoutes)
+app.use('/api/automation/rules', automationRulesRoutes)
 app.use('/api/inteligencia',  inteligenciaRoutes)
 app.use('/api/admin',        adminRoutes)
 

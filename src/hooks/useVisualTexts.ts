@@ -23,6 +23,7 @@ export const DEFAULT_VISUAL_TEXTS = {
   'nav.people': 'Pessoas',
   'nav.files': 'Arquivos',
   'nav.reports': 'Relatórios',
+  'nav.automations': 'Automação',
   'nav.users': 'Usuários',
   'nav.settings': 'Config.',
 
@@ -162,7 +163,7 @@ export const VISUAL_TEXT_GROUPS: { title: string; description: string; keys: Vis
   {
     title: 'Sistema e menu',
     description: 'Nome do sistema e nomes que aparecem na navegação.',
-    keys: ['app.name', 'app.subtitle', 'nav.home', 'nav.myDay', 'nav.management', 'nav.team', 'nav.teams', 'nav.tasks', 'nav.agenda', 'nav.finance', 'nav.people', 'nav.files', 'nav.reports', 'nav.users', 'nav.settings'],
+    keys: ['app.name', 'app.subtitle', 'nav.home', 'nav.myDay', 'nav.management', 'nav.team', 'nav.teams', 'nav.tasks', 'nav.agenda', 'nav.finance', 'nav.people', 'nav.files', 'nav.reports', 'nav.automations', 'nav.users', 'nav.settings'],
   },
   {
     title: 'Página inicial',

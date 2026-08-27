@@ -18,6 +18,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { publicarTarefaConcluidaSeAutomacao } from "./automationHandlers/publish";
+import { checklistItemsConcluidos, publicarEventosRegras } from "../services/automation/userRules";
 import { SingleFlightTtlCache } from "../lib/singleFlightTtlCache";
 import { respondRouteError } from "../lib/httpErrors";
 import {
@@ -2672,6 +2673,16 @@ router.patch(
         () => updated.rows[0],
       );
       publicarTarefaConcluidaSeAutomacao(tarefa || updated.rows[0]);
+      if (nextDone) {
+        for (const item of checklistItemsConcluidos(existing.checklist, tarefa?.checklist || updated.rows[0]?.checklist)) {
+          void publicarEventosRegras({
+            orgId,
+            trigger: 'checklist_concluido',
+            tarefa: tarefa || updated.rows[0],
+            context: { checklist_item_id: item.id, checklist_item_texto: item.texto, checklist_item_enviado_em: item.enviado_em },
+          });
+        }
+      }
       res.json({ tarefa: sanitizeTaskForUser(tarefa || updated.rows[0], req.user!) });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
@@ -2943,6 +2954,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     await enviarEventoDestrava(tarefa, "tarefa.criada", {
       observacao: obs || null,
     });
+    void publicarEventosRegras({ orgId, trigger: 'tarefa_criada', tarefa, context: {} });
 
     if (
       modoFinal !== "livre_equipe" &&
@@ -3111,6 +3123,13 @@ router.patch(
           observacao_conclusao ||
           resposta_membro ||
           null,
+      });
+
+      void publicarEventosRegras({
+        orgId,
+        trigger: 'status_alterado',
+        tarefa,
+        context: { status_anterior: statusAnterior, status_novo: status },
       });
 
       if (
@@ -4917,6 +4936,22 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
     }
 
     publicarTarefaConcluidaSeAutomacao(tarefa);
+    if (existing.status !== tarefa.status) {
+      void publicarEventosRegras({
+        orgId,
+        trigger: 'status_alterado',
+        tarefa,
+        context: { status_anterior: existing.status, status_novo: tarefa.status },
+      });
+    }
+    for (const item of checklistItemsConcluidos(existing.checklist, tarefa.checklist)) {
+      void publicarEventosRegras({
+        orgId,
+        trigger: 'checklist_concluido',
+        tarefa,
+        context: { checklist_item_id: item.id, checklist_item_texto: item.texto, checklist_item_enviado_em: item.enviado_em },
+      });
+    }
     res.json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
   } catch (err) {
     console.error("[TAREFAS] Erro ao atualizar:", err);

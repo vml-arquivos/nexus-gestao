@@ -294,6 +294,7 @@ async function jobVencimentos() {
     )
 
     let enviados = 0
+    const { publicarEventosRegras } = await import('../services/automation/userRules')
     for (const t of tarefas) {
       const dias = parseInt(t.dias || '0', 10)
       const atrasada = dias < 0
@@ -316,6 +317,12 @@ async function jobVencimentos() {
         })
         enviados++
       }
+      await publicarEventosRegras({
+        orgId: t.org_id,
+        trigger: 'prazo_vencendo',
+        tarefa: t,
+        context: { hoje: new Date().toISOString().slice(0, 10) },
+      }).catch((err) => console.error('[AUTOMATION-RULES] Falha no gatilho de prazo:', err))
     }
     if (enviados > 0) {
       console.log(`[NOTIF] ${enviados} lembrete(s) automático(s) de tarefa enviados.`)
@@ -323,6 +330,20 @@ async function jobVencimentos() {
   } catch (err) {
     console.error('[NOTIF] Erro no job de vencimentos:', err)
   }
+}
+
+async function jobRegrasUsuario() {
+  try {
+    const { processarEventosRegrasPendentes } = await import('../services/automation/userRules')
+    await processarEventosRegrasPendentes()
+  } catch (err) {
+    console.error('[AUTOMATION-RULES] Erro no retry periódico:', err)
+  }
+}
+
+async function jobLembretesERegrasUsuario() {
+  await jobLembretes()
+  await jobRegrasUsuario()
 }
 
 async function jobLembreteDiario() {
@@ -787,8 +808,9 @@ export function iniciarJobsNotificacao() {
     }
   }, 5 * 60 * 1000)
 
-  // Lembretes personalizados: verifica a cada 2 minutos
-  setInterval(() => { void run('lembretes', jobLembretes) }, 2 * 60 * 1000)
+  // Lembretes personalizados e retry das regras do usuário: um único ciclo
+  // existente, sem timer/worker paralelo.
+  setInterval(() => { void run('lembretes', jobLembretesERegrasUsuario) }, 2 * 60 * 1000)
 
   // Vencimentos financeiros: verifica a cada 30 minutos
   setInterval(() => { void run('financeiro', jobFinanceiroVencimento) }, 30 * 60 * 1000)

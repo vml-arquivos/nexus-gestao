@@ -17,6 +17,7 @@ import {
 import { enviarWebhookDestrava, destravaConfigurado } from './webhookClient'
 
 const ENDPOINT_EVENTOS_DESTRAVA = '/api/nexus/eventos'
+const EVENTOS_LOCAIS_NEXUS = new Set(['NexusUserRule'])
 
 function construirEnvelope(evento: AutomationEventRow) {
   return {
@@ -36,6 +37,23 @@ function construirEnvelope(evento: AutomationEventRow) {
 async function tentarDespachar(client: import('pg').PoolClient, evento: AutomationEventRow): Promise<boolean> {
   const inicio = Date.now()
   const orgId = evento.org_id
+
+  // Regras configuráveis do Nexus usam o mesmo outbox/auditoria, mas não
+  // pertencem ao contrato outbound do Destrava. O executor local já aplica as
+  // ações antes de marcar o evento; esta guarda evita reenvio externo em caso
+  // de uma varredura genérica encontrar o evento local.
+  if (EVENTOS_LOCAIS_NEXUS.has(evento.event_type)) {
+    await marcarDespachado(client, evento.id)
+    await registrarAuditoria({
+      eventId: evento.id,
+      evento: evento.event_type,
+      orgId,
+      resultado: 'sucesso',
+      tempoMs: Date.now() - inicio,
+      detalhe: { destino: 'nexus-local', motivo: 'evento já executado pelo motor de regras' },
+    }, client)
+    return true
+  }
 
   if (!destravaConfigurado()) {
     await marcarFalha(client, evento.id, 'Integração Destrava não configurada (DESTRAVA_API_URL/segredo ausente)', evento.attempts + 1)
