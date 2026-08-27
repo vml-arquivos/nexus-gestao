@@ -5137,6 +5137,22 @@ export default function Tarefas() {
     return true
   }).sort((a, b) => new Date(taskReferenceDate(b) || 0).getTime() - new Date(taskReferenceDate(a) || 0).getTime()), [scoped, search, status, statusTab, prioridade, membroFiltro, mesFiltro, anoFiltro, recentesIds])
 
+  const routeGraphTask = useMemo(
+    () => graphTaskId ? tarefas.find(tarefa => tarefa.id === graphTaskId) || null : null,
+    [graphTaskId, tarefas],
+  )
+  const graphRouteState: 'none' | 'pending' | 'valid' | 'invalid' = !graphTaskId
+    ? 'none'
+    : loading || erroCarregamento
+      ? 'pending'
+      : routeGraphTask
+        ? 'valid'
+        : 'invalid'
+  const graphTasks = useMemo(() => {
+    if (viewMode !== 'grafo' || !routeGraphTask || filtered.some(tarefa => tarefa.id === routeGraphTask.id)) return filtered
+    return [routeGraphTask, ...filtered]
+  }, [filtered, routeGraphTask, viewMode])
+
   const visualEntries = useMemo(
     () => modoSelecao
       ? filtered.map(tarefa => ({ kind: 'tarefa' as const, tarefa }))
@@ -5586,6 +5602,13 @@ export default function Tarefas() {
         <div className="tarefas-loading"><Loader size={26} className="spin-icon" /></div>
       ) : escopo === 'ranking' ? (
         <RankingEquipe ranking={ranking} onChangePeriodo={p => { setPeriodoRanking(p); localStorage.setItem('nexus:ranking-periodo', p); loadRanking(p) }} />
+      ) : viewMode === 'grafo' && graphRouteState === 'invalid' ? (
+        <div className="tarefas-empty task-route-empty" role="status">
+          <div className="tarefas-empty-icon">⌁</div>
+          <strong>Essa tarefa não está disponível nesta organização</strong>
+          <span>O link do Grafo aponta para uma tarefa que não está mais na seleção atual ou não existe. Nenhuma outra tarefa foi aberta automaticamente.</span>
+          <button className="btn btn-ghost" type="button" onClick={() => navigate('/tarefas?view=grafo')}>Abrir Grafo geral</button>
+        </div>
       ) : visualEntries.length === 0 ? (
         <div className="tarefas-empty">
           <div className="tarefas-empty-icon">📋</div>
@@ -5612,7 +5635,7 @@ export default function Tarefas() {
         />
       ) : viewMode === 'grafo' ? (
         <TaskGraphView
-          tasks={filtered}
+          tasks={graphTasks}
           members={membros}
           onOpen={setDetalhe}
           onTaskUpdated={task => { void updateSaved(task) }}
