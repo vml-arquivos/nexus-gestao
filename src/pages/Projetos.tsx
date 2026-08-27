@@ -62,17 +62,19 @@ export default function Projetos() {
   const checklistCount = tasks.reduce((total, task) => total + (task.checklist?.length || 0), 0)
 
   return (
-    <main className="space-y-5 pb-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+    <main className="projects-page space-y-5 pb-8">
+      <header className="projects-page-header flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-violet-600 dark:text-violet-300"><FolderKanban size={15} /> Projetos</div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Tarefas agrupadas em projetos</h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">Uma visão sobre o agrupador operacional que o Nexus já usa. Nada é copiado para uma tabela de projetos: a fonte continua sendo a tarefa existente.</p>
         </div>
-        <button type="button" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => void load()} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
+        <div className="projects-page-actions">
+          <button type="button" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 active:scale-95 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => void load()} disabled={loading}><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
+        </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="projects-page-stats grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"><div className="text-xs text-slate-500 dark:text-slate-400">Projetos com grupo</div><strong className="mt-1 block text-2xl text-slate-900 dark:text-slate-100">{projectCount}</strong></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"><div className="text-xs text-slate-500 dark:text-slate-400">Tarefas visíveis</div><strong className="mt-1 block text-2xl text-slate-900 dark:text-slate-100">{tasks.length}</strong></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900"><div className="text-xs text-slate-500 dark:text-slate-400">Itens de checklist</div><strong className="mt-1 block text-2xl text-slate-900 dark:text-slate-100">{checklistCount}</strong></div>
@@ -80,7 +82,7 @@ export default function Projetos() {
 
       {error && <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-300" role="alert">{error}</div>}
       {loading ? <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-300 py-16 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400"><Loader2 className="mr-2 animate-spin" size={18} /> Carregando tarefas e agrupamentos…</div> : groups.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-16 text-center dark:border-slate-700"><FolderKanban className="mx-auto mb-2 text-slate-400" size={26} /><strong className="block text-sm text-slate-700 dark:text-slate-200">Nenhuma tarefa visível</strong><span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">Os projetos aparecem automaticamente quando as tarefas possuem um grupo operacional.</span></div> : (
-        <section className="grid gap-4 xl:grid-cols-2" aria-label="Projetos e tarefas agrupadas">
+        <section className="projects-page-groups grid gap-4 xl:grid-cols-2" aria-label="Projetos e tarefas agrupadas">
           {groups.map(group => {
             const firstTask = group.tasks[0]
             const openCount = group.tasks.filter(task => !['concluida', 'aprovada', 'cancelada'].includes(String(task.status))).length

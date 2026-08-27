@@ -98,6 +98,18 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
     grouped.set(level, bucket)
   })
 
+  // Mantém as dependências em níveis horizontais, mas limita a altura do
+  // canvas. Listas legadas com dezenas de itens não devem virar uma coluna
+  // interminável; as colunas extras de um mesmo nível rolam horizontalmente.
+  const maxRowsPerLevel = 5
+  const levelStarts = new Map<number, number>()
+  let nextLevelX = 300
+  Array.from(grouped.keys()).sort((a, b) => a - b).forEach(level => {
+    levelStarts.set(level, nextLevelX)
+    const columnCount = Math.max(1, Math.ceil((grouped.get(level)?.length || 0) / maxRowsPerLevel))
+    nextLevelX += columnCount * 270
+  })
+
   const root: GraphNode = {
     id: `task:${task.id}`,
     label: task.titulo,
@@ -110,13 +122,15 @@ export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: Graph
   const nodes: GraphNode[] = [root]
   Array.from(grouped.keys()).sort((a, b) => a - b).forEach(level => {
     ;(grouped.get(level) || []).forEach((item, index) => {
+      const column = Math.floor(index / maxRowsPerLevel)
+      const row = index % maxRowsPerLevel
       nodes.push({
         id: String(item.id),
         label: item.texto,
         kind: 'item',
         done: Boolean(item.feito),
-        x: 300 + level * 270,
-        y: 24 + index * 118,
+        x: (levelStarts.get(level) || 300) + column * 270,
+        y: 24 + row * 118,
         dependencies: dependencyIds(item),
         item,
       })

@@ -5368,22 +5368,23 @@ export default function Tarefas() {
               : 'Todas as listas de tarefas'}
           </p>
         </div>
-        <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
-          <Plus size={17} /> Nova lista
-        </button>
-        <button className="btn btn-secondary" onClick={() => navigate('/painel-offline/')} type="button" title="Abrir a carga diária que funciona sem internet ou servidor">
-          <Download size={17} /> Painel offline
-        </button>
-        {isGestor && (
-          <button
-            className="btn btn-secondary"
-            type="button"
-            onClick={() => (modoSelecao ? cancelarSelecao() : setModoSelecao(true))}
-            style={{ marginLeft: 8 }}
-          >
-            {modoSelecao ? 'Cancelar seleção' : 'Selecionar'}
+        <div className="tarefas-page-actions">
+          <button className="btn btn-primary tarefas-new-btn" onClick={() => { setEdit(null); setModalOpen(true) }} type="button">
+            <Plus size={17} /> Nova lista
           </button>
-        )}
+          <button className="btn btn-secondary" onClick={() => navigate('/painel-offline/')} type="button" title="Abrir a carga diária que funciona sem internet ou servidor">
+            <Download size={17} /> Painel offline
+          </button>
+          {isGestor && (
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => (modoSelecao ? cancelarSelecao() : setModoSelecao(true))}
+            >
+              {modoSelecao ? 'Cancelar seleção' : 'Selecionar'}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* ── OFFLINE BANNER ────────────────────────────────── */}

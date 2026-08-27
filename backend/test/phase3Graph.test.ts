@@ -36,6 +36,18 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(graph.nodes.find(node => node.id === 'a')?.done).toBe(true)
   })
 
+  it('limita a altura de listas grandes distribuindo itens em colunas', () => {
+    const graph = buildTaskGraph(tarefaBase(Array.from({ length: 32 }, (_, index) => ({
+      id: `item-${index}`,
+      texto: `Item ${index}`,
+      feito: false,
+    }))))
+    expect(graph.nodes).toHaveLength(33)
+    expect(graph.height).toBeLessThan(900)
+    expect(graph.width).toBeGreaterThan(graph.height)
+    expect(new Set(graph.nodes.slice(1).map(node => node.y)).size).toBeLessThan(32)
+  })
+
   it('preserva metadados do item ao editar somente suas dependências', () => {
     const item: ChecklistItem = {
       id: 'item-1',
