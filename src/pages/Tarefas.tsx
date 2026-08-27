@@ -11,6 +11,7 @@ import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type
 import { DateFieldBR } from '../components/DateFieldBR'
 import { TaskCalendarView } from '../components/TaskCalendarView'
 import { TaskTableView } from '../components/TaskTableView'
+import { TaskGraphView } from '../components/TaskGraphView'
 import { parseNaturalDate, type NaturalDateSuggestion } from '../lib/naturalLanguageDate'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -4851,10 +4852,10 @@ export default function Tarefas() {
   const [modoSelecao, setModoSelecao] = useState(false)
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [aprovandoLote, setAprovandoLote] = useState(false)
-  const [viewMode, setViewMode] = useState<'lista' | 'quadro' | 'calendario' | 'tabela'>(() => {
+  const [viewMode, setViewMode] = useState<'lista' | 'quadro' | 'calendario' | 'tabela' | 'grafo'>(() => {
     const saved = localStorage.getItem('nexus:tarefas-view')
-    return ['lista', 'quadro', 'calendario', 'tabela'].includes(saved || '')
-      ? saved as 'lista' | 'quadro' | 'calendario' | 'tabela'
+    return ['lista', 'quadro', 'calendario', 'tabela', 'grafo'].includes(saved || '')
+      ? saved as 'lista' | 'quadro' | 'calendario' | 'tabela' | 'grafo'
       : 'lista'
   })
   const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
@@ -4871,6 +4872,10 @@ export default function Tarefas() {
     const tab = params.get('tab') || params.get('escopo')
     if (tab === 'ranking') {
       setEscopo('ranking')
+    }
+    if (params.get('view') === 'grafo') {
+      setViewMode('grafo')
+      localStorage.setItem('nexus:tarefas-view', 'grafo')
     }
   }, [location.search])
 
@@ -5532,6 +5537,13 @@ export default function Tarefas() {
             >
               Tabela
             </button>
+            <button
+              type="button"
+              className={viewMode === 'grafo' ? 'active' : ''}
+              onClick={() => { setViewMode('grafo'); localStorage.setItem('nexus:tarefas-view', 'grafo') }}
+            >
+              Grafo
+            </button>
           </div>
           {isGestor && (
             <FilterPanel
@@ -5576,6 +5588,14 @@ export default function Tarefas() {
           getDate={taskReferenceDate}
           onOpen={setDetalhe}
           onEdit={task => { setEdit(task); setModalOpen(true) }}
+        />
+      ) : viewMode === 'grafo' ? (
+        <TaskGraphView
+          tasks={filtered}
+          members={membros}
+          onOpen={setDetalhe}
+          onTaskUpdated={task => { void updateSaved(task) }}
+          onTaskCreated={task => { void updateSaved(task) }}
         />
       ) : viewMode === 'quadro' ? (
         <div className="task-board">

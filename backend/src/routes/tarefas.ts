@@ -539,6 +539,8 @@ function parseChecklistItems(
   devolvido_em?: string;
   ressalva_gestor?: string;
   subtarefas?: Array<{ id: string; texto: string; feito?: boolean }>;
+  depende_de?: string;
+  depende_de_todos?: string[];
 }> {
   const raw = (() => {
     if (Array.isArray(value)) return value;
@@ -643,6 +645,10 @@ function parseChecklistItems(
         devolvido_por: isUuid(item?.devolvido_por) ? item.devolvido_por : undefined,
         devolvido_em: item?.devolvido_em || undefined,
         ressalva_gestor: String(item?.ressalva_gestor || "").trim() || undefined,
+        depende_de: String(item?.depende_de || "").trim() || undefined,
+        depende_de_todos: Array.isArray(item?.depende_de_todos)
+          ? Array.from(new Set(item.depende_de_todos.map((id: unknown) => String(id || "").trim()).filter(Boolean)))
+          : undefined,
       };
     })
     .filter((item: { texto: string }) => item.texto);

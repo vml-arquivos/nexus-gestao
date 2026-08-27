@@ -32,6 +32,7 @@ const AceitarConvite = lazy(() => import('./pages/AceitarConvite'))
 const DesignEditor   = lazy(() => import('./pages/DesignEditor'))
 const Notificacoes   = lazy(() => import('./pages/Notificacoes'))
 const Automacoes      = lazy(() => import('./pages/Automacoes'))
+const Projetos        = lazy(() => import('./pages/Projetos'))
 const PainelOffline  = lazy(() => import('./pages/PainelOffline'))
 
 function FullScreenLoader() {
@@ -126,6 +127,7 @@ export default function App() {
         {/* Notificações: página com todas as notificações (paginada), além do dropdown do sininho */}
         <Route path="notificacoes" element={<Notificacoes />} />
         <Route path="automacoes" element={<Automacoes />} />
+        <Route path="projetos" element={<Projetos />} />
         <Route path="painel-offline/*" element={<PainelOffline />} />
         {/* Usuários: todos acessam; a tela e o backend limitam criação/listagem por hierarquia */}
         <Route path="usuarios" element={<Usuarios />} />

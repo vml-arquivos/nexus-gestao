@@ -251,6 +251,9 @@ export interface Tarefa {
   origem_id?: string
   origem_nome?: string
   origem_url?: string
+  /** Agrupador de projeto já existente no schema, sem entidade paralela. */
+  projeto_grupo_id?: string | null
+  workflow_tipo?: string | null
   origem_payload?: Record<string, unknown>
   tarefa_surpresa?: boolean
   external_key?: string
