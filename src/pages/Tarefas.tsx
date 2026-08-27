@@ -17,6 +17,7 @@ import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 import { isGestorLike } from '../lib/roles'
 import { localTodayIso, nanoid } from '../lib/utils'
+import { taskViewFromSearch, type TaskViewMode } from '../lib/taskView'
 import {
   CHECKLIST_RECURRENCE_OPTIONS,
   checklistRecurrenceLabel,
@@ -4853,10 +4854,10 @@ export default function Tarefas() {
   const [modoSelecao, setModoSelecao] = useState(false)
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set())
   const [aprovandoLote, setAprovandoLote] = useState(false)
-  const [viewMode, setViewMode] = useState<'lista' | 'quadro' | 'calendario' | 'tabela' | 'grafo'>(() => {
+  const [viewMode, setViewMode] = useState<TaskViewMode>(() => {
     const saved = localStorage.getItem('nexus:tarefas-view')
-    return ['lista', 'quadro', 'calendario', 'tabela', 'grafo'].includes(saved || '')
-      ? saved as 'lista' | 'quadro' | 'calendario' | 'tabela' | 'grafo'
+    return saved && ['lista', 'quadro', 'calendario', 'tabela', 'grafo'].includes(saved)
+      ? saved as TaskViewMode
       : 'lista'
   })
   const [colunasColapsadas, setColunasColapsadas] = useState<string[]>(() => {
@@ -4874,9 +4875,10 @@ export default function Tarefas() {
     if (tab === 'ranking') {
       setEscopo('ranking')
     }
-    if (params.get('view') === 'grafo') {
-      setViewMode('grafo')
-      localStorage.setItem('nexus:tarefas-view', 'grafo')
+    const requestedView = taskViewFromSearch(location.search)
+    if (requestedView) {
+      setViewMode(requestedView)
+      localStorage.setItem('nexus:tarefas-view', requestedView)
     }
   }, [location.search])
 

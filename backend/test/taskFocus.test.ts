@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Tarefa, UserProfile } from '../../src/lib/api'
 import { buildFocusTasks, daysBetweenIso, userCanActOnTask } from '../../src/lib/taskFocus'
+import { taskViewFromSearch } from '../../src/lib/taskView'
 
 const member: UserProfile = { id: 'member-1', nome: 'Membro', email: 'membro@nexus.test', role: 'membro', orgId: 'org-1' }
 const manager: UserProfile = { id: 'manager-1', nome: 'Gestor', email: 'gestor@nexus.test', role: 'gestor', orgId: 'org-1' }
@@ -31,6 +32,16 @@ describe('Meu Dia — foco sem alterar permissões', () => {
 
   it('não oferece entrega aguardando aprovação novamente ao executor', () => {
     expect(userCanActOnTask(task({ status: 'concluida', responsavel_id: member.id }), member)).toBe(false)
+  })
+
+  it('interpreta todos os modos válidos da URL e rejeita valores desconhecidos', () => {
+    expect(taskViewFromSearch('?view=lista')).toBe('lista')
+    expect(taskViewFromSearch('?view=quadro')).toBe('quadro')
+    expect(taskViewFromSearch('?view=calendario')).toBe('calendario')
+    expect(taskViewFromSearch('?view=tabela')).toBe('tabela')
+    expect(taskViewFromSearch('?view=grafo&graphTask=task-1')).toBe('grafo')
+    expect(taskViewFromSearch('?view=desconhecido')).toBeNull()
+    expect(taskViewFromSearch('')).toBeNull()
   })
 
   it('prioriza devolução, aprovação, atraso e vencimento do dia nessa ordem', () => {

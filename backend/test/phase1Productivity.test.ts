@@ -78,7 +78,8 @@ describe('Fase 1 — produtividade e navegação', () => {
     const api = source('src/lib/api.ts')
     const dashboard = source('src/pages/Dashboard.tsx')
 
-    expect(tarefas).toContain("'calendario' | 'tabela'")
+    expect(tarefas).toContain("type TaskViewMode")
+    expect(tarefas).toContain("taskViewFromSearch(location.search)")
     expect(tarefas).toContain('<TaskCalendarView tasks={filtered}')
     expect(tarefas).toContain('<TaskTableView')
     expect(palette).toContain("titulo: 'Abrir Agenda'")
