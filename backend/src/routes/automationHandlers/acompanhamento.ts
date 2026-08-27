@@ -102,23 +102,57 @@ export async function handleAcompanhamentoCriado(payload: Record<string, unknown
  * diretamente por nexus_tarefa_id (a tarefa já existe -- isto não cria nada).
  */
 export async function handleSemanaConcluida(payload: Record<string, unknown>): Promise<void> {
-  const nexusTarefaId = String(payload.nexus_tarefa_id || '')
+  const nexusTarefaId = String(payload.nexus_tarefa_id || '').trim()
+  const orgId = String(payload.nexus_org_id || payload.org_id || '').trim()
   if (!nexusTarefaId) throw new Error('SemanaConcluida: nexus_tarefa_id é obrigatório.')
+  if (!orgId) throw new Error('SemanaConcluida: contexto organizacional é obrigatório.')
 
-  const existing = await pool.query(`SELECT * FROM tarefas WHERE id = $1`, [nexusTarefaId])
-  const tarefa = existing.rows[0]
-  if (!tarefa) throw new Error(`SemanaConcluida: tarefa ${nexusTarefaId} não encontrada no Nexus.`)
-
-  const status = typeof payload.status === 'string' ? payload.status : tarefa.status
-  const checklist = Array.isArray(payload.checklist) ? payload.checklist : tarefa.checklist
-
-  await pool.query(
-    `UPDATE tarefas SET status = $1, checklist = $2, updated_at = NOW() WHERE id = $3`,
-    [status, JSON.stringify(checklist), nexusTarefaId]
+  const acompanhamentoId = String(
+    payload.acompanhamento_id || payload.projeto_grupo_id || payload.nexus_aggregate_id || '',
+  ).trim()
+  const externalKey = String(payload.external_key || '').trim()
+  const existing = await pool.query(
+    `SELECT * FROM tarefas
+      WHERE id = $1
+        AND org_id = $2
+        AND origem_sistema = 'destrava'
+        AND workflow_tipo = 'acompanhamento_bancario'
+        AND ($3 = '' OR projeto_grupo_id::text = $3 OR origem_id = $3)
+        AND ($4 = '' OR external_key = $4)
+      LIMIT 1`,
+    [nexusTarefaId, orgId, acompanhamentoId, externalKey],
   )
+  const tarefa = existing.rows[0]
+  if (!tarefa) throw new Error(`SemanaConcluida: tarefa ${nexusTarefaId} não pertence ao contexto autorizado.`)
+
+  const validStatuses = new Set(['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'cancelada', 'aprovada'])
+  const status = typeof payload.status === 'string' && payload.status.trim()
+    ? payload.status.trim()
+    : tarefa.status
+  if (!validStatuses.has(status)) throw new Error(`SemanaConcluida: status inválido (${status}).`)
+
+  const hasChecklist = Array.isArray(payload.checklist)
+  const checklist = hasChecklist ? payload.checklist : null
+  if (hasChecklist && Buffer.byteLength(JSON.stringify(checklist), 'utf8') > 1_000_000) {
+    throw new Error('SemanaConcluida: checklist acima de 1 MB deve ser tratada por fluxo específico.')
+  }
+
+  if (hasChecklist) {
+    await pool.query(
+      `UPDATE tarefas SET status = $1, checklist = $2, updated_at = NOW()
+        WHERE id = $3 AND org_id = $4 AND workflow_tipo = 'acompanhamento_bancario'`,
+      [status, JSON.stringify(checklist), nexusTarefaId, orgId],
+    )
+  } else {
+    await pool.query(
+      `UPDATE tarefas SET status = $1, updated_at = NOW()
+        WHERE id = $2 AND org_id = $3 AND workflow_tipo = 'acompanhamento_bancario'`,
+      [status, nexusTarefaId, orgId],
+    )
+  }
 
   await addHistorico(
-    tarefa.org_id,
+    orgId,
     nexusTarefaId,
     tarefa.criado_por,
     'atualizada_automacao_retry',

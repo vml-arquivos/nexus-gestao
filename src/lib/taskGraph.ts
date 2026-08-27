@@ -30,6 +30,47 @@ export function withDependencies(item: ChecklistItem, dependencies: string[]): C
   return next
 }
 
+export type TaskDependencyValidation =
+  | { ok: true }
+  | { ok: false; message: string }
+
+export function validateTaskDependencies(items: ChecklistItem[]): TaskDependencyValidation {
+  const ids = items.map(item => String(item.id || '').trim())
+  if (new Set(ids).size !== ids.length || ids.some(id => !id)) {
+    return { ok: false, message: 'Os itens do checklist precisam ter IDs únicos.' }
+  }
+  const idSet = new Set(ids)
+  const dependencies = new Map<string, string[]>()
+  for (const item of items) {
+    const itemId = String(item.id).trim()
+    const deps = dependencyIds(item)
+    if (deps.some(dep => !idSet.has(dep))) {
+      return { ok: false, message: 'Toda dependência deve apontar para outro item da mesma lista.' }
+    }
+    if (deps.includes(itemId)) {
+      return { ok: false, message: 'Um item não pode depender de si mesmo.' }
+    }
+    dependencies.set(itemId, deps)
+  }
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return false
+    if (visited.has(id)) return true
+    visiting.add(id)
+    for (const dependency of dependencies.get(id) || []) {
+      if (!visit(dependency)) return false
+    }
+    visiting.delete(id)
+    visited.add(id)
+    return true
+  }
+  for (const id of ids) {
+    if (!visit(id)) return { ok: false, message: 'Dependências cíclicas não são permitidas.' }
+  }
+  return { ok: true }
+}
+
 export function buildTaskGraph(task: Tarefa): { nodes: GraphNode[]; edges: GraphEdge[]; width: number; height: number } {
   const items = Array.isArray(task.checklist) ? task.checklist : []
   const itemById = new Map(items.map(item => [String(item.id), item]))

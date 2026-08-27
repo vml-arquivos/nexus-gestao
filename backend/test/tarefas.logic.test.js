@@ -306,3 +306,21 @@ test('responsável principal da lista continua vendo os próprios itens sem dono
   assert.equal(visivelParaRaissa[0].id, 'i8')
 })
 
+
+test('parser preserva metadados operacionais do checklist', () => {
+  const parsed = utils.parseChecklistItems([{
+    id: 'item-meta',
+    texto: 'Conferir retorno',
+    feito: false,
+    livre: true,
+    atualizacoes_atraso: [{ data: '2026-08-26', nota: 'Aguardando retorno', autor: 'Equipe' }],
+    aprovacao_status: 'aguardando',
+    depende_de: 'item-anterior',
+    criado_em: '2026-08-20T12:00:00.000Z',
+  }])[0]
+  assert.equal(parsed.livre, true)
+  assert.deepEqual(parsed.atualizacoes_atraso, [{ data: '2026-08-26', nota: 'Aguardando retorno', autor: 'Equipe' }])
+  assert.equal(parsed.aprovacao_status, 'aguardando')
+  assert.equal(parsed.depende_de, 'item-anterior')
+  assert.equal(parsed.criado_em, '2026-08-20T12:00:00.000Z')
+})

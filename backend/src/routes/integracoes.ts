@@ -287,7 +287,10 @@ async function inferExistingDestravaOrgId(payload: any): Promise<string | null> 
 }
 
 export async function resolveIntegrationUser(payload: any): Promise<NexusUser | null> {
-  const configuredOrgId = String(process.env.NEXUS_DESTRAVA_ORG_ID || '').trim() || null
+  const payloadOrgId = String(
+    payload?.nexus_org_id || payload?.org_id || payload?.organizacao_id || '',
+  ).trim() || null
+  const configuredOrgId = payloadOrgId || String(process.env.NEXUS_DESTRAVA_ORG_ID || '').trim() || null
   const candidates = [
     payload?.criadoPorEmail,
     payload?.responsavelEmail,
@@ -343,6 +346,17 @@ export async function resolveIntegrationUser(payload: any): Promise<NexusUser | 
       ORDER BY CASE role WHEN 'dev' THEN 1 WHEN 'admin' THEN 2 WHEN 'gestor' THEN 3 ELSE 4 END, created_at ASC
       LIMIT 1`
   )
+}
+
+async function resolveSignedIntegrationOrg(payload: any): Promise<string | null> {
+  const user = await resolveIntegrationUser(payload || {})
+  return user?.org_id || null
+}
+
+function integrationOrgError(res: Response, action: string) {
+  res.status(400).json({
+    error: `Não foi possível determinar com segurança a organização para ${action}. Envie o contexto do usuário/cliente ou configure NEXUS_DESTRAVA_ORG_ID.`,
+  })
 }
 
 export async function addHistorico(orgId: string, tarefaId: string, userId: string, acao: string, observacao?: string | null) {
@@ -724,20 +738,25 @@ router.post('/destrava/destinatarios', async (req: Request, res: Response): Prom
 // assinatura ser consistente -- e `fetch()` no Node rejeita corpo em GET.
 router.post('/destrava/tarefas/:id', requireWebhookSignature, async (req: Request, res: Response): Promise<void> => {
   try {
-    const tarefa = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1`, [req.params.id])
+    const orgId = await resolveSignedIntegrationOrg(req.body || {})
+    if (!orgId) {
+      integrationOrgError(res, 'buscar a tarefa')
+      return
+    }
+    const tarefa = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1 AND org_id = $2`, [req.params.id, orgId])
     if (!tarefa) {
       res.status(404).json({ error: 'Tarefa não encontrada.' })
       return
     }
     const historico = await query(
-      `SELECT * FROM tarefas_historico WHERE tarefa_id = $1 ORDER BY created_at DESC LIMIT 30`,
-      [req.params.id]
+      `SELECT * FROM tarefas_historico WHERE tarefa_id = $1 AND org_id = $2 ORDER BY created_at DESC LIMIT 30`,
+      [req.params.id, orgId]
     ).catch(() => [])
     const comentarios = await query(
-      `SELECT * FROM tarefas_comentarios WHERE tarefa_id = $1 ORDER BY created_at ASC`,
-      [req.params.id]
+      `SELECT * FROM tarefas_comentarios WHERE tarefa_id = $1 AND org_id = $2 ORDER BY created_at ASC`,
+      [req.params.id, orgId]
     ).catch(() => [])
-    const anexos = await query(`SELECT * FROM tarefa_anexos WHERE tarefa_id = $1 ORDER BY created_at ASC`, [req.params.id]).catch(() => [])
+    const anexos = await query(`SELECT * FROM tarefa_anexos WHERE tarefa_id = $1 AND org_id = $2 ORDER BY created_at ASC`, [req.params.id, orgId]).catch(() => [])
     res.json({ tarefa, historico, comentarios, anexos })
   } catch (err) {
     console.error('[INTEGRACOES] Erro ao buscar tarefa para Destrava:', err)
@@ -749,13 +768,18 @@ router.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async (
   const client = await pool.connect()
   try {
     const { item_id, feito, executado_por_nome, executado_por_email } = req.body || {}
+    const orgId = await resolveSignedIntegrationOrg(req.body || {})
+    if (!orgId) {
+      integrationOrgError(res, 'atualizar o checklist')
+      return
+    }
     if (!item_id || typeof feito !== 'boolean') {
       res.status(400).json({ error: 'item_id e feito (booleano) são obrigatórios.' })
       return
     }
 
     await client.query('BEGIN')
-    const locked = await client.query(`SELECT * FROM tarefas WHERE id = $1 FOR UPDATE`, [req.params.id])
+    const locked = await client.query(`SELECT * FROM tarefas WHERE id = $1 AND org_id = $2 FOR UPDATE`, [req.params.id, orgId])
     const existing = locked.rows[0]
     if (!existing) {
       await client.query('ROLLBACK')
@@ -779,8 +803,8 @@ router.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async (
     }
 
     const updated = await client.query(
-      `UPDATE tarefas SET checklist = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [JSON.stringify(items), req.params.id]
+      `UPDATE tarefas SET checklist = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [JSON.stringify(items), req.params.id, orgId]
     )
     await client.query('COMMIT')
 
@@ -805,13 +829,18 @@ router.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async (
 router.patch('/destrava/tarefas/:id/status', requireWebhookSignature, async (req: Request, res: Response): Promise<void> => {
   try {
     const { status, executado_por_nome, executado_por_email } = req.body || {}
+    const orgId = await resolveSignedIntegrationOrg(req.body || {})
+    if (!orgId) {
+      integrationOrgError(res, 'atualizar o status')
+      return
+    }
     const validos = ['pendente', 'em_progresso', 'concluida', 'nao_concluida', 'cancelada']
     if (!validos.includes(status)) {
       res.status(400).json({ error: `Status inválido. Valores aceitos: ${validos.join(', ')}` })
       return
     }
 
-    const existing = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1`, [req.params.id])
+    const existing = await queryOne<any>(`SELECT * FROM tarefas WHERE id = $1 AND org_id = $2`, [req.params.id, orgId])
     if (!existing) {
       res.status(404).json({ error: 'Tarefa não encontrada.' })
       return
@@ -819,8 +848,8 @@ router.patch('/destrava/tarefas/:id/status', requireWebhookSignature, async (req
 
     const tarefa = await queryOne<any>(
       `UPDATE tarefas SET status = $1, data_conclusao = CASE WHEN $1 IN ('concluida','nao_concluida') THEN NOW() ELSE data_conclusao END, updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [status, req.params.id]
+       WHERE id = $2 AND org_id = $3 RETURNING *`,
+      [status, req.params.id, orgId]
     )
 
     await addHistorico(
@@ -862,16 +891,23 @@ router.get('/destrava/tarefas', async (req: Request, res: Response): Promise<voi
       return
     }
 
+    const orgId = await resolveSignedIntegrationOrg({ externalId, external_id: externalId })
+    if (!orgId) {
+      integrationOrgError(res, 'listar tarefas integradas')
+      return
+    }
+
     const tarefas = await query(
       `SELECT t.id, t.titulo, t.descricao, t.prazo, t.prioridade, t.status, t.status_gestor,
               t.responsavel_nome, t.origem_sistema, t.origem_tipo, t.origem_id, t.origem_nome,
               t.origem_url, t.created_at, t.updated_at
          FROM tarefas t
-        WHERE t.origem_sistema = 'destrava'
+        WHERE t.org_id = $3
+          AND t.origem_sistema = 'destrava'
           AND t.origem_id = $2
           AND (t.origem_tipo = $1 OR t.origem_tipo = 'cliente_pj' OR t.origem_tipo = 'clientes_pj')
         ORDER BY COALESCE(t.prazo, t.created_at::date) DESC, t.created_at DESC`,
-      [externalType, externalId]
+      [externalType, externalId, orgId]
     )
     res.json({ tarefas })
   } catch (err) {

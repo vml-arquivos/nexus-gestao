@@ -13,7 +13,7 @@
  */
 import { Router, Request, Response } from 'express'
 import { authMiddleware, adminOrDevOnly } from '../middleware/auth'
-import { requireIntegrationSecret } from './integracoes'
+import { requireIntegrationSecret, resolveIntegrationUser } from './integracoes'
 import { requireWebhookSignature } from '../middleware/webhookAuth'
 import { inserirEvento, buscarEventoPorId, buscarEventoPorChave, pool, type AutomationEventRow } from '../services/automation/outboxRepository'
 import { despacharAgora } from '../services/automation/dispatcher'
@@ -46,7 +46,12 @@ async function processarEvento(evento: AutomationEventRow, eventType: string, pa
     return { ok: true, aviso: `event_type '${eventType}' recebido, sem handler implementado.` }
   }
   try {
-    const resultado = await handler(payload, evento.id)
+    const handlerPayload = {
+      ...payload,
+      ...(evento.org_id ? { nexus_org_id: evento.org_id } : {}),
+      ...(evento.aggregate_id ? { nexus_aggregate_id: evento.aggregate_id } : {}),
+    }
+    const resultado = await handler(handlerPayload, evento.id)
     await pool.query(`UPDATE automation_events SET status = 'dispatched', dispatched_at = NOW() WHERE id = $1`, [evento.id])
     return { ok: true, resultado: resultado ?? undefined }
   } catch (err: any) {
@@ -76,6 +81,15 @@ router.post(
         return
       }
 
+      let eventoOrgId = String(body.org_id || payload.org_id || payload.nexus_org_id || '').trim() || null
+      if (eventType === 'SemanaConcluida' && !eventoOrgId) {
+        eventoOrgId = (await resolveIntegrationUser(payload))?.org_id || null
+      }
+      if (eventType === 'SemanaConcluida' && !eventoOrgId) {
+        res.status(400).json({ error: 'SemanaConcluida exige contexto organizacional inequívoco.' })
+        return
+      }
+
       // Ledger de idempotência: se já processamos esse evento antes (mesma
       // chave) COM SUCESSO, não reprocessa -- responde sucesso para o
       // Destrava parar de reentregar, sem rodar o handler de novo. Mas se a
@@ -87,6 +101,7 @@ router.post(
       // mesmo depois da causa raiz ser corrigida, porque toda reentrega
       // seguinte do Destrava seria silenciosamente descartada como "já visto".
       let evento = await inserirEvento({
+        orgId: eventoOrgId,
         eventType,
         aggregateType: String(body.aggregate_type || ''),
         aggregateId: body.aggregate_id ? String(body.aggregate_id) : undefined,

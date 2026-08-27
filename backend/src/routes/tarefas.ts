@@ -28,6 +28,7 @@ import {
 } from "../lib/checklistRecurrence";
 import { resolveTaskListTitle, type TaskContextType } from "../lib/taskContextTitle";
 import { creatorCanEnableTaskRanking, removeChecklistScoringForMember } from "../lib/taskCreationPolicy";
+import { validateChecklistDependencies } from "../lib/checklistDependencies";
 
 const router = Router();
 router.use(authMiddleware);
@@ -541,6 +542,11 @@ function parseChecklistItems(
   subtarefas?: Array<{ id: string; texto: string; feito?: boolean }>;
   depende_de?: string;
   depende_de_todos?: string[];
+  livre?: boolean;
+  atualizacoes_atraso?: Array<{ data: string; nota: string; autor?: string }>;
+  criado_em?: string;
+  feito_por_destrava?: string;
+  responsavel_email?: string;
 }> {
   const raw = (() => {
     if (Array.isArray(value)) return value;
@@ -620,6 +626,8 @@ function parseChecklistItems(
           : undefined,
         responsavel_nome:
           String(item?.responsavel_nome || "").trim() || undefined,
+        responsavel_email:
+          String(item?.responsavel_email || "").trim() || undefined,
         concluido_por: isUuid(item?.concluido_por)
           ? item.concluido_por
           : undefined,
@@ -637,6 +645,22 @@ function parseChecklistItems(
           item?.surpresa ||
           item?.ocultar_ate_assumir,
         ),
+        oculta_ate_assumir: typeof item?.oculta_ate_assumir === "boolean"
+          ? item.oculta_ate_assumir
+          : undefined,
+        livre: typeof item?.livre === "boolean" ? item.livre : undefined,
+        atualizacoes_atraso: Array.isArray(item?.atualizacoes_atraso)
+          ? item.atualizacoes_atraso
+              .filter((entry: any) => entry && typeof entry === "object")
+              .map((entry: any) => ({
+                data: String(entry.data || ""),
+                nota: String(entry.nota || ""),
+                autor: String(entry.autor || "").trim() || undefined,
+              }))
+              .filter((entry: { data: string; nota: string }) => entry.data || entry.nota)
+          : undefined,
+        criado_em: item?.criado_em || undefined,
+        feito_por_destrava: String(item?.feito_por_destrava || "").trim() || undefined,
         feito: !!item?.feito,
         enviado_em: item?.enviado_em || undefined,
         aprovacao_status: ["aguardando", "aprovada", "devolvida"].includes(String(item?.aprovacao_status || "")) ? item.aprovacao_status : undefined,
@@ -1468,6 +1492,45 @@ async function getTaskReminderRecipients(task: any) {
   return Array.from(recipients).filter(Boolean);
 }
 
+const TASK_READ_MAX_CHECKLIST_BYTES = 1_000_000;
+const TASK_SAFE_ACCESS_SELECT = `
+         SELECT t.id, t.org_id, t.criado_por, t.responsavel_id, t.responsavel_nome,
+                t.titulo, t.descricao, t.data, t.prazo, t.prioridade, t.status,
+                t.ressalva_gestor, t.aprovada_em, t.aprovada_por,
+                CASE
+                  WHEN t.checklist IS NULL OR pg_column_size(t.checklist) <= ${TASK_READ_MAX_CHECKLIST_BYTES}
+                    THEN COALESCE(t.checklist, '[]'::jsonb)
+                  ELSE '[]'::jsonb
+                END AS checklist,
+                (COALESCE(pg_column_size(t.checklist), 0) > ${TASK_READ_MAX_CHECKLIST_BYTES}) AS checklist_truncado,
+                COALESCE(pg_column_size(t.checklist), 0) AS checklist_bytes,
+                t.obs, t.resposta_status, t.resposta_obs, t.resposta_em,
+                t.created_at, t.updated_at, t.resposta_membro, t.motivo_nao_conclusao,
+                t.observacao_conclusao, t.status_gestor, t.escopo,
+                t.origem_sistema, t.origem_tipo, t.origem_id, t.origem_nome,
+                t.origem_url, t.origem_payload, t.external_key, t.devolvida_em,
+                t.data_inicio, t.data_conclusao, t.reenviada_em, t.data_reabertura,
+                t.reaberta_por, t.motivo_reabertura, t.reaberto_por,
+                t.pedido_ajuda_pendente, t.modo_distribuicao, t.aceita_por,
+                t.aceita_em, t.pontuacao, t.conta_ranking,
+                t.bloquear_nova_livre_ate_concluir, t.recorrencia,
+                t.recorrencia_dia_mes, t.recorrencia_dia_semana, t.recorrencia_fim,
+                t.grupo_recorrencia_id, t.competencia, t.projeto_grupo_id,
+                t.workflow_tipo, t.contexto_tipo, t.lembrete_diario_ate_aprovacao,
+                p.nome AS responsavel_nome_perfil,
+                p.cargo AS responsavel_cargo,
+                c.nome AS criado_por_nome,
+                ap.nome AS aceita_por_nome
+           FROM tarefas t
+           LEFT JOIN profiles p ON p.id = t.responsavel_id AND p.org_id = t.org_id
+           LEFT JOIN profiles c ON c.id = t.criado_por AND c.org_id = t.org_id
+           LEFT JOIN profiles ap ON ap.id = t.aceita_por AND ap.org_id = t.org_id
+          WHERE t.id = $1 AND t.org_id = $2`;
+
+async function getSafeTaskForAccess(id: string, orgId: string) {
+  return queryOne<any>(TASK_SAFE_ACCESS_SELECT, [id, orgId]);
+}
+
 async function getTaskForAccess(id: string, orgId: string) {
   return queryOne<any>(
     `SELECT t.*, p.nome AS responsavel_nome_perfil, p.cargo AS responsavel_cargo,
@@ -1476,9 +1539,9 @@ async function getTaskForAccess(id: string, orgId: string) {
             COALESCE((SELECT COUNT(*)::int FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id), 0) AS anexos_count,
             (SELECT MAX(a.created_at) FROM tarefa_anexos a WHERE a.tarefa_id = t.id AND a.org_id = t.org_id) AS ultima_evidencia_em
      FROM tarefas t
-     LEFT JOIN profiles p ON p.id = t.responsavel_id
-     LEFT JOIN profiles c ON c.id = t.criado_por
-     LEFT JOIN profiles ap ON ap.id = t.aceita_por
+     LEFT JOIN profiles p ON p.id = t.responsavel_id AND p.org_id = t.org_id
+     LEFT JOIN profiles c ON c.id = t.criado_por AND c.org_id = t.org_id
+     LEFT JOIN profiles ap ON ap.id = t.aceita_por AND ap.org_id = t.org_id
      WHERE t.id = $1 AND t.org_id = $2`,
     [id, orgId],
   );
@@ -1489,9 +1552,9 @@ async function getTaskForAccess(id: string, orgId: string) {
 // Por isso a filtragem por executor de checklist é feita em TypeScript, depois de
 // buscar os registros da organização. Isso elimina 500 por jsonb_array_elements.
 // Algumas tarefas históricas carregam checklists patológicos de dezenas de MB.
-// Nunca materializar esses payloads em endpoints de lista protege o event loop,
-// o pool e o navegador; a rota de detalhe continua usando getTaskForAccess() e
-// entrega o checklist completo quando ele é realmente solicitado.
+// Nunca materializar esses payloads em endpoints de leitura protege o event loop,
+// o pool e o navegador; detalhe, histórico, anexos e relatório retornam apenas
+// a marcação `checklist_truncado` quando o payload excede o limite seguro.
 const TASK_LIST_MAX_CHECKLIST_BYTES = 1_000_000;
 const TASK_LIST_SELECT = `
          SELECT t.id, t.org_id, t.criado_por, t.responsavel_id, t.responsavel_nome,
@@ -1521,9 +1584,9 @@ const TASK_LIST_SELECT = `
                 c.nome AS criado_por_nome,
                 ap.nome AS aceita_por_nome
            FROM tarefas t
-           LEFT JOIN profiles p ON p.id = t.responsavel_id
-           LEFT JOIN profiles c ON c.id = t.criado_por
-           LEFT JOIN profiles ap ON ap.id = t.aceita_por
+           LEFT JOIN profiles p ON p.id = t.responsavel_id AND p.org_id = t.org_id
+           LEFT JOIN profiles c ON c.id = t.criado_por AND c.org_id = t.org_id
+           LEFT JOIN profiles ap ON ap.id = t.aceita_por AND ap.org_id = t.org_id
           WHERE t.org_id = $1`;
 const taskListCache = new SingleFlightTtlCache<string, any[]>(2_000, 128);
 
@@ -2844,8 +2907,8 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         )
       : null;
     const criador = await queryOne<{ nome: string }>(
-      "SELECT nome FROM profiles WHERE id = $1",
-      [userId],
+      "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
+      [userId, orgId],
     );
     // Compatibilidade de deploy: se uma versão anterior do frontend ainda
     // enviar recorrência na lista, converte a intenção para cada item. Novas
@@ -3199,8 +3262,8 @@ router.post(
       const mensagem = String(req.body?.mensagem || "").trim();
       const recipients = await getTaskReminderRecipients(existing);
       const autor = await queryOne<{ nome: string }>(
-        "SELECT nome FROM profiles WHERE id = $1",
-        [userId],
+        "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
+        [userId, orgId],
       ).catch(() => null);
       let enviados = 0;
       for (const destinatario of recipients) {
@@ -3371,8 +3434,8 @@ router.post(
 
       if (existing.criado_por && existing.criado_por !== userId) {
         const autor = await queryOne<{ nome: string }>(
-          "SELECT nome FROM profiles WHERE id = $1",
-          [userId],
+          "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
+          [userId, orgId],
         );
         await criarNotificacao({
           orgId,
@@ -3855,8 +3918,8 @@ router.patch(
 
       if (existing.criado_por && existing.criado_por !== userId) {
         const autor = await queryOne<{ nome: string }>(
-          "SELECT nome FROM profiles WHERE id = $1",
-          [userId],
+          "SELECT nome FROM profiles WHERE id = $1 AND org_id = $2",
+          [userId, orgId],
         );
         await criarNotificacao({
           orgId,
@@ -3883,7 +3946,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { orgId } = req.user!;
-      const task = await getTaskForAccess(req.params.id, orgId);
+      const task = await getSafeTaskForAccess(req.params.id, orgId);
       if (!task) {
         res.status(404).json({ error: "Tarefa não encontrada." });
         return;
@@ -3903,8 +3966,9 @@ router.get(
       const historico = await query(
         `SELECT h.*, p.nome AS usuario_nome
        FROM tarefas_historico h
-       LEFT JOIN profiles p ON p.id = h.user_id
-       WHERE h.tarefa_id = $1 AND h.org_id = $2
+               LEFT JOIN profiles p ON p.id = h.user_id AND p.org_id = h.org_id
+        WHERE h.tarefa_id = $1 AND h.org_id = $2
+
        ORDER BY h.created_at DESC`,
         [req.params.id, orgId],
       ).catch(() => []);
@@ -3923,7 +3987,7 @@ router.get(
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { orgId } = req.user!;
-      const task = await getTaskForAccess(req.params.id, orgId);
+      const task = await getSafeTaskForAccess(req.params.id, orgId);
       if (!task) {
         res.status(404).json({ error: "Tarefa não encontrada." });
         return;
@@ -3942,7 +4006,7 @@ router.get(
       const anexos = await query(
         `SELECT a.*, p.nome AS enviado_por_nome
        FROM tarefa_anexos a
-       LEFT JOIN profiles p ON p.id = a.enviado_por
+       LEFT JOIN profiles p ON p.id = a.enviado_por AND p.org_id = a.org_id
        WHERE a.tarefa_id = $1 AND a.org_id = $2
        ORDER BY a.created_at DESC`,
         [req.params.id, orgId],
@@ -4382,7 +4446,7 @@ router.delete(
 router.get("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!;
-    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    const tarefa = await getSafeTaskForAccess(req.params.id, orgId);
     if (!tarefa) {
       res.status(404).json({ error: "Tarefa não encontrada." });
       return;
@@ -4464,8 +4528,8 @@ router.post(
       // A tarefa está bloqueada nesta transação. Consultar pelo pool abriria uma
       // segunda conexão e poderia recriar o deadlock corrigido no FIX49.
       const profileResult = await client.query<any>(
-        `SELECT nome FROM profiles WHERE id = $1`,
-        [userId],
+        `SELECT nome FROM profiles WHERE id = $1 AND org_id = $2`,
+        [userId, orgId],
       );
       const profile = profileResult.rows[0] ?? null;
       const entrada = { data: hoje, nota, autor: profile?.nome || "Membro" };
@@ -4788,6 +4852,22 @@ router.patch("/:id", async (req: Request, res: Response): Promise<void> => {
                 userId,
                 role,
               );
+        const dependencyValidation = validateChecklistDependencies(parseChecklistItems(nextChecklist));
+        if (!dependencyValidation.ok) {
+          const detail = dependencyValidation.dependencyId
+            ? ` (${dependencyValidation.itemId || "item"} → ${dependencyValidation.dependencyId})`
+            : dependencyValidation.itemId
+              ? ` (${dependencyValidation.itemId})`
+              : "";
+          const messages = {
+            duplicate_item_id: "IDs de itens do checklist devem ser únicos.",
+            invalid_reference: "Toda dependência deve apontar para outro item da mesma lista.",
+            self_dependency: "Um item não pode depender de si mesmo.",
+            cycle: "Dependências cíclicas não são permitidas.",
+          } as const;
+          res.status(400).json({ error: `${messages[dependencyValidation.reason]}${detail}` });
+          return;
+        }
         nextChecklistForSync = nextChecklist;
         setValue("checklist", nextChecklist);
 
@@ -5210,7 +5290,7 @@ router.post("/:id/ajuda", async (req: Request, res: Response): Promise<void> => 
 
     // Notificar destinatário com mensagem curta e objetiva, como solicitado pela operação:
     // "Nome do membro precisa da sua ajuda". Os detalhes ficam dentro do painel da lista.
-    const solicitante = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
+    const solicitante = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1 AND org_id = $2", [userId, orgId]).catch(() => null);
     await criarNotificacao({
       orgId, userId: destinatario_id,
       tipo: "pedido_ajuda",
@@ -5249,8 +5329,8 @@ router.get("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
       ajudas = await query(
         `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome
          FROM tarefas_ajuda ta
-         JOIN profiles ps ON ps.id = ta.solicitante_id
-         JOIN profiles pd ON pd.id = ta.destinatario_id
+         JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id
          WHERE ta.tarefa_id = $1 AND ta.org_id = $2
          ORDER BY ta.created_at DESC`,
         [req.params.id, orgId]
@@ -5260,8 +5340,8 @@ router.get("/:id/ajuda", async (req: Request, res: Response): Promise<void> => {
       ajudas = await query(
         `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome
          FROM tarefas_ajuda ta
-         JOIN profiles ps ON ps.id = ta.solicitante_id
-         JOIN profiles pd ON pd.id = ta.destinatario_id
+         JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id
+         JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id
          WHERE ta.tarefa_id = $1 AND ta.org_id = $2
            AND (ta.solicitante_id = $3 OR ta.destinatario_id = $3)
          ORDER BY ta.created_at DESC`,
@@ -5283,9 +5363,9 @@ router.get("/ajuda/pendentes", async (req: Request, res: Response): Promise<void
     const ajudas = await query(
       `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
        FROM tarefas_ajuda ta
-       JOIN profiles ps ON ps.id = ta.solicitante_id
-       JOIN profiles pd ON pd.id = ta.destinatario_id
-       JOIN tarefas t ON t.id = ta.tarefa_id
+       JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id
+       JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id
+       JOIN tarefas t ON t.id = ta.tarefa_id AND t.org_id = ta.org_id
        WHERE ta.org_id = $1 AND ta.status = 'pendente' AND ta.destinatario_id = $2
        ORDER BY ta.created_at DESC LIMIT 50`,
       [orgId, userId]
@@ -5307,9 +5387,9 @@ router.get("/ajuda/minhas", async (req: Request, res: Response): Promise<void> =
     const ajudas = await query(
       `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
        FROM tarefas_ajuda ta
-       JOIN profiles ps ON ps.id = ta.solicitante_id
-       JOIN profiles pd ON pd.id = ta.destinatario_id
-       JOIN tarefas t ON t.id = ta.tarefa_id
+       JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id
+       JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id
+       JOIN tarefas t ON t.id = ta.tarefa_id AND t.org_id = ta.org_id
        WHERE ta.org_id = $1 AND ta.solicitante_id = $2 AND ta.status IN ('pendente','respondida')
        ORDER BY ta.updated_at DESC NULLS LAST, ta.respondida_em DESC NULLS LAST, ta.created_at DESC
        LIMIT 50`,
@@ -5344,7 +5424,7 @@ router.patch("/ajuda/:ajudaId", async (req: Request, res: Response): Promise<voi
       [resposta.trim(), req.params.ajudaId, orgId]
     );
     // Notificar solicitante para ele abrir a mesma conversa e ver a resposta.
-    const respondedor = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1", [userId]).catch(() => null);
+    const respondedor = await queryOne<{ nome: string }>("SELECT nome FROM profiles WHERE id = $1 AND org_id = $2", [userId, orgId]).catch(() => null);
     await criarNotificacao({
       orgId, userId: ajuda.solicitante_id,
       tipo: "ajuda_respondida",
@@ -5505,13 +5585,17 @@ router.patch("/:id/checklist/:itemId/revisao", async (req: Request, res: Respons
 router.get("/:id/relatorio", async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId } = req.user!;
-    const tarefa = await getTaskForAccess(req.params.id, orgId);
+    const tarefa = await getSafeTaskForAccess(req.params.id, orgId);
     if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) { res.status(404).json({ error:"Tarefa não encontrada." }); return; }
     const [comentarios, historico, pontuacoes, anexos] = await Promise.all([
-      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c JOIN profiles p ON p.id=c.autor_id WHERE c.org_id=$1 AND c.tarefa_id=$2 ORDER BY c.criado_em`,[orgId,tarefa.id]),
-      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h LEFT JOIN profiles p ON p.id=h.user_id WHERE h.org_id=$1 AND h.tarefa_id=$2 ORDER BY h.created_at`,[orgId,tarefa.id]).catch(()=>[]),
-      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp JOIN profiles p ON p.id=tp.usuario_id LEFT JOIN profiles a ON a.id=tp.aprovado_por WHERE tp.org_id=$1 AND tp.tarefa_id=$2 ORDER BY tp.aprovado_em`,[orgId,tarefa.id]),
-      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta LEFT JOIN profiles p ON p.id=ta.enviado_por WHERE ta.org_id=$1 AND ta.tarefa_id=$2 ORDER BY ta.created_at`,[orgId,tarefa.id]).catch(()=>[]),
+      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c        JOIN profiles p ON p.id=c.autor_id AND p.org_id=c.org_id WHERE c.org_id=$1 AND c.tarefa_id=$2
+ ORDER BY c.criado_em`,[orgId,tarefa.id]),
+      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h        LEFT JOIN profiles p ON p.id=h.user_id AND p.org_id=h.org_id WHERE h.org_id=$1 AND h.tarefa_id=$2
+ ORDER BY h.created_at`,[orgId,tarefa.id]).catch(()=>[]),
+      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp        JOIN profiles p ON p.id=tp.usuario_id AND p.org_id=tp.org_id LEFT JOIN profiles a ON a.id=tp.aprovado_por AND a.org_id=tp.org_id WHERE tp.org_id=$1 AND tp.tarefa_id=$2
+ ORDER BY tp.aprovado_em`,[orgId,tarefa.id]),
+      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta        LEFT JOIN profiles p ON p.id=ta.enviado_por AND p.org_id=ta.org_id WHERE ta.org_id=$1 AND ta.tarefa_id=$2
+ ORDER BY ta.created_at`,[orgId,tarefa.id]).catch(()=>[]),
     ]);
     res.json({ gerado_em:new Date().toISOString(), tarefa:{...tarefa, checklist:parseChecklistItems(tarefa.checklist)}, comentarios, historico, pontuacoes, anexos });
   } catch(err) { console.error("[TAREFAS] Erro relatório:",err); res.status(500).json({error:"Erro ao gerar relatório."}); }
@@ -5532,6 +5616,7 @@ export const __taskChecklistTestUtils = {
   isFreeTeamTask,
   sanitizeTaskForUser,
   canListTaskForUser,
+  validateChecklistDependencies,
 };
 
 export default router;

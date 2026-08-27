@@ -4807,6 +4807,7 @@ export default function Tarefas() {
   const { t } = useVisualTexts()
   const location = useLocation()
   const navigate = useNavigate()
+  const graphTaskId = useMemo(() => new URLSearchParams(location.search).get('graphTask') || undefined, [location.search])
   const isGestor = isGestorLike(user?.role)
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [membros, setMembros] = useState<MembroEquipe[]>([])
@@ -5596,6 +5597,7 @@ export default function Tarefas() {
           onOpen={setDetalhe}
           onTaskUpdated={task => { void updateSaved(task) }}
           onTaskCreated={task => { void updateSaved(task) }}
+          focusTaskId={graphTaskId}
         />
       ) : viewMode === 'quadro' ? (
         <div className="task-board">

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { buildTaskGraph, dependencyIds, withDependencies } from '../../src/lib/taskGraph'
+import { buildTaskGraph, dependencyIds, validateTaskDependencies, withDependencies } from '../../src/lib/taskGraph'
+import { validateChecklistDependencies } from '../src/lib/checklistDependencies'
 import type { ChecklistItem, Tarefa } from '../../src/lib/api'
 
 const tarefaBase = (checklist: ChecklistItem[]): Tarefa => ({
@@ -44,6 +45,9 @@ describe('Fase 3 — mapa mental e Projetos', () => {
       data: '2026-09-01',
       pontuacao: 5,
       descricao: 'Revisar anexos',
+      livre: true,
+      atualizacoes_atraso: [{ data: '2026-08-26', nota: 'Aguardando retorno', autor: 'Equipe' }],
+      aprovacao_status: 'aguardando',
     }
     const updated = withDependencies(item, ['item-0'])
     expect(updated).toMatchObject({
@@ -53,8 +57,33 @@ describe('Fase 3 — mapa mental e Projetos', () => {
       data: '2026-09-01',
       pontuacao: 5,
       descricao: 'Revisar anexos',
+      livre: true,
+      atualizacoes_atraso: [{ data: '2026-08-26', nota: 'Aguardando retorno', autor: 'Equipe' }],
+      aprovacao_status: 'aguardando',
       depende_de: 'item-0',
     })
+  })
+
+  it('rejeita referências inválidas e ciclos antes da gravação', () => {
+    expect(validateTaskDependencies([
+      { id: 'a', texto: 'A', feito: false, depende_de: 'missing' },
+    ]).ok).toBe(false)
+    expect(validateTaskDependencies([
+      { id: 'a', texto: 'A', feito: false, depende_de: 'b' },
+      { id: 'b', texto: 'B', feito: false, depende_de: 'a' },
+    ]).ok).toBe(false)
+    expect(validateChecklistDependencies([
+      { id: 'a', depende_de: 'b' },
+      { id: 'b', depende_de: 'a' },
+    ]).ok).toBe(false)
+  })
+
+  it('aceita dependências válidas e IDs únicos no backend', () => {
+    expect(validateChecklistDependencies([
+      { id: 'a' },
+      { id: 'b', depende_de: 'a' },
+      { id: 'c', depende_de_todos: ['a', 'b'] },
+    ]).ok).toBe(true)
   })
 
   it('mantém a fonte do grafo no JSONB da tarefa e a edição no PATCH oficial', () => {
@@ -75,6 +104,10 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(tarefasSource).toContain('<TaskGraphView')
     expect(projetosSource).toContain('projeto_grupo_id')
     expect(projetosSource).toContain('/tarefas?view=grafo')
+    expect(projetosSource).toContain('graphTask=')
+    expect(projetosSource).not.toContain('&task=')
+    expect(tarefasSource).toContain("get('graphTask')")
+    expect(tarefasSource).toContain("get('task')")
     expect(appSource).toContain('path="projetos"')
   })
 })

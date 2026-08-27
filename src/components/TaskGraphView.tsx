@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Circle, GitBranch, Loader2, Plus, X } from 'lucide-react'
 import { tarefasApi, type ChecklistItem, type MembroEquipe, type Tarefa } from '../lib/api'
-import { buildTaskGraph, dependencyIds, withDependencies } from '../lib/taskGraph'
+import { buildTaskGraph, dependencyIds, validateTaskDependencies, withDependencies } from '../lib/taskGraph'
 
 type Props = {
   tasks: Tarefa[]
@@ -9,6 +9,7 @@ type Props = {
   onOpen: (task: Tarefa) => void
   onTaskUpdated: (task: Tarefa) => void
   onTaskCreated: (task: Tarefa) => void
+  focusTaskId?: string
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -26,9 +27,10 @@ function createNodeId() {
   return globalThis.crypto?.randomUUID?.() || `graph-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function TaskGraphView({ tasks, members, onOpen, onTaskUpdated, onTaskCreated }: Props) {
+export function TaskGraphView({ tasks, members, onOpen, onTaskUpdated, onTaskCreated, focusTaskId }: Props) {
   const graphTasks = useMemo(() => tasks.filter(task => Array.isArray(task.checklist) && task.checklist.length > 0), [tasks])
   const [selectedTaskId, setSelectedTaskId] = useState(() => graphTasks[0]?.id || tasks[0]?.id || '')
+  const appliedFocusRef = useRef<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -41,9 +43,19 @@ export function TaskGraphView({ tasks, members, onOpen, onTaskUpdated, onTaskCre
   const [looseMember, setLooseMember] = useState('')
 
   useEffect(() => {
+    if (focusTaskId && appliedFocusRef.current !== focusTaskId) {
+      if (tasks.some(task => task.id === focusTaskId)) {
+        setSelectedTaskId(focusTaskId)
+        appliedFocusRef.current = focusTaskId
+        setConnectingFrom(null)
+        clearMessages()
+        return
+      }
+    }
+    if (!focusTaskId) appliedFocusRef.current = null
     if (selectedTaskId && tasks.some(task => task.id === selectedTaskId)) return
     setSelectedTaskId(graphTasks[0]?.id || tasks[0]?.id || '')
-  }, [graphTasks, selectedTaskId, tasks])
+  }, [focusTaskId, graphTasks, selectedTaskId, tasks])
 
   const selectedTask = tasks.find(task => task.id === selectedTaskId) || null
   const graph = selectedTask ? buildTaskGraph(selectedTask) : null
@@ -55,6 +67,12 @@ export function TaskGraphView({ tasks, members, onOpen, onTaskUpdated, onTaskCre
 
   async function saveChecklist(nextChecklist: ChecklistItem[], message: string) {
     if (!selectedTask || saving) return
+    const dependencyValidation = validateTaskDependencies(nextChecklist)
+    if (!dependencyValidation.ok) {
+      setError(dependencyValidation.message)
+      setConnectingFrom(null)
+      return
+    }
     clearMessages()
     setSaving(true)
     try {
