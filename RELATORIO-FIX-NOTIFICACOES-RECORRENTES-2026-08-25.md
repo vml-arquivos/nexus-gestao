@@ -4,7 +4,7 @@
 **Período de execução:** 25–27 de agosto de 2026
 **Responsável:** Manus AI
 **Escopo:** aplicação Nexus no recurso Coolify `k68e0wa0djtqiqzgivruoe81`
-**Status:** validação técnica concluída no container `90f788f`; redeploy final das proteções auxiliares pendente de registrar neste documento.
+**Status:** validação técnica e redeploy final concluídos no container `k68e0wa0djtqiqzgivruoe81-021655457644`; todos os endpoints críticos autenticados responderam HTTP 200 sem timeout.
 
 ## 1. Diagnóstico e correção do lifecycle recorrente
 
@@ -29,7 +29,7 @@ Os três registros preservados são `d8fff8a8-cc73-4ff7-a090-39581888f143`, `6c6
 | `e517414b2c997ce260c3b6fc55415dea2e75b43c` | Lifecycle único de notificações recorrentes, migration, helper, resolução, push e testes | Publicado em `main` e deployado |
 | `d88ac7637b524ad460488bfbedd1503876804a77` | Índice composto e migration de performance da Agenda | Publicado em `main` e deployado |
 | `90f788f287a256d0b87e93c10677587d142b7431` | Projeção de checklist limitada em Tarefas, ranking e atrasos | Publicado em `main`, container healthy validado |
-| **A preencher** | Proteção dos leitores auxiliares e jobs de background, teste estático de regressão e este relatório atualizado | Em validação local antes do redeploy final |
+| `4a2ff37ef6807ebe1191051f10f2b4952ff3d43b` | Proteção dos leitores auxiliares e jobs de background, teste estático de regressão e este relatório atualizado | Publicado em `main` e deployado |
 
 A proteção final abrange `backend/src/routes/tarefas.ts`, `backend/src/routes/tarefasScoring.ts`, `backend/src/routes/notificacoes.ts`, `backend/src/lib/notifHelper.ts`, `backend/src/services/recorrenciaTarefasService.ts` e `backend/test/oversizedChecklistProtection.test.ts`. O Shop PermuPay, seu banco, seu recurso Coolify e o Destrava não foram tocados.
 
@@ -59,9 +59,11 @@ Antes da primeira migration, o banco tinha 183.810 notificações, 67 tarefas e 
 | `v14ow86pk40opzdoglmq29zz` | `e517414` | Success, migration do lifecycle aplicada |
 | `qb4izx2wbqubepg2k29b96t7` | `d88ac76` | Success, migration da Agenda aplicada e `ANALYZE` concluído |
 | `ammy223hhq9sdv3y2h9aq89o` | `90f788f` | Container `k68e0wa0djtqiqzgivruoe81-020329968585` iniciou, API/DB healthy e projeção validada |
-| **A preencher** | Commit final | Redeploy final das proteções auxiliares |
+| `qrbsap5ant0bpxyfdxs7u9ge` | `4a2ff37` | Success; iniciado às 02:16:55 UTC, encerrado às 02:20:49 UTC, duração 03m54s; recurso Running e healthy |
 
-No container baseado em `90f788f`, o health endpoint retornou `status=ok` e `db=connected`. A renovação de sessão pelo fluxo oficial de refresh foi bem-sucedida. A bateria autenticada retornou HTTP 200 em todos os endpoints críticos: Tarefas em 121 ms, ranking em 228 ms, atrasos em 597 ms, Agenda em 502 ms, pagamentos em 277 ms, equipe em 280 ms e notificações em 556 ms.
+No container baseado em `90f788f`, o health endpoint retornou `status=ok` e `db=connected`. A renovação de sessão pelo fluxo oficial de refresh foi bem-sucedida. A bateria autenticada inicial retornou HTTP 200 em todos os endpoints críticos: Tarefas em 121 ms, ranking em 228 ms, atrasos em 597 ms, Agenda em 502 ms, pagamentos em 277 ms, equipe em 280 ms e notificações em 556 ms.
+
+Após o redeploy final de `4a2ff37`, o health endpoint continuou com `status=ok` e `db=connected`. A rodada final autenticada confirmou HTTP 200 em Tarefas (239 ms), ranking (191 ms), atrasos (163 ms), Agenda (338 ms), pagamentos (69 ms), equipe (62 ms) e notificações (64 ms), sem timeout.
 
 A resposta de Tarefas continha 25 tarefas, maior checklist normal de 12.466 bytes e os três IDs patológicos como lista vazia, com `checklist_truncado=true` e tamanho declarado entre 30.038.526 e 30.044.115 bytes. Ranking retornou quatro linhas sem checklist gigante. Atrasos retornou nove tarefas, também sem materializar payload patológico.
 
@@ -89,4 +91,4 @@ A integração Qualify não foi configurada porque não há conector habilitado,
 
 ## 9. Status de aprovação
 
-A correção do lifecycle recorrente, a performance da Agenda e a proteção principal de payloads foram implementadas, testadas, publicadas e validadas em produção. O status final desta versão será marcado como **APROVADO** somente após o redeploy do commit final contendo também os leitores auxiliares e os jobs de background, a confirmação do SHA no Coolify e uma repetição dos endpoints críticos e da verificação de locks.
+A correção do lifecycle recorrente, a performance da Agenda e a proteção de payloads — incluindo leitores auxiliares e jobs de background — foram implementadas, testadas, publicadas e validadas em produção. O deployment final `qrbsap5ant0bpxyfdxs7u9ge` confirmou o SHA `4a2ff37` no Coolify, o recurso permaneceu Running e healthy, e a repetição dos endpoints críticos confirmou HTTP 200 sem timeout. **Status: APROVADO.**
