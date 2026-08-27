@@ -156,6 +156,7 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  margin-bottom: 12px !important;
   overflow: visible;
 }
 
@@ -245,7 +246,9 @@
   display: flex !important;
   flex: 0 0 auto;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  margin-top: 12px !important;
   padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent);
 }
