@@ -25,8 +25,8 @@
 /* Cabeçalhos com uma área de ações explícita, sem botões soltos na flexbox. */
 .tarefas-page-shell {
   width: 100% !important;
-  max-width: 1500px !important;
-  margin-inline: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
   padding: clamp(16px, 2vw, 28px) clamp(14px, 2.4vw, 34px) 32px !important;
 }
 
@@ -228,8 +228,8 @@
 
 .projects-page {
   width: 100%;
-  max-width: 1500px;
-  margin-inline: auto;
+  max-width: none;
+  margin: 0;
   padding: 18px clamp(14px, 2.4vw, 34px) 32px;
 }
 

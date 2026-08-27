@@ -140,6 +140,8 @@ describe('Fase 3 — mapa mental e Projetos', () => {
     expect(projetosSource).toContain('projects-page-groups--${groups.length === 1 ? \'single\' : \'multi\'}')
     expect(projetosSource).toContain('projects-group-task-list')
     expect(layoutFixesSource).toContain('.projects-page-groups--single')
+    expect(layoutFixesSource).toContain('max-width: none !important;')
+    expect(layoutFixesSource).toContain('margin: 0 !important;')
     expect(appSource).toContain('path="projetos"')
   })
 })
