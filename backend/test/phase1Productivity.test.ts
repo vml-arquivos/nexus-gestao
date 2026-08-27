@@ -45,6 +45,31 @@ describe('Fase 1 — produtividade e navegação', () => {
     }
   })
 
+  it('usa fallback local quando Gemini responde por quota esgotada', async () => {
+    const previous = process.env.GEMINI_API_KEY
+    const previousGoogle = process.env.GOOGLE_GEMINI_API_KEY
+    const previousLegacy = process.env.GOOGLE_API_KEY
+    const previousFetch = globalThis.fetch
+    process.env.GEMINI_API_KEY = 'test-only-placeholder'
+    delete process.env.GOOGLE_GEMINI_API_KEY
+    delete process.env.GOOGLE_API_KEY
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED', message: 'quota exhausted' } }), { status: 429 })) as typeof fetch
+    try {
+      const result = await gerarSugestaoChecklist({ titulo: 'Validar quota do provedor' })
+      expect(result.provider).toBe('nexus-local')
+      expect(result.fallback).toBe(true)
+      expect(result.itens.length).toBeGreaterThanOrEqual(5)
+    } finally {
+      globalThis.fetch = previousFetch
+      if (previous === undefined) delete process.env.GEMINI_API_KEY
+      else process.env.GEMINI_API_KEY = previous
+      if (previousGoogle === undefined) delete process.env.GOOGLE_GEMINI_API_KEY
+      else process.env.GOOGLE_GEMINI_API_KEY = previousGoogle
+      if (previousLegacy === undefined) delete process.env.GOOGLE_API_KEY
+      else process.env.GOOGLE_API_KEY = previousLegacy
+    }
+  })
+
   it('mantém a Fase 1 sobre os dados e contratos existentes', () => {
     const tarefas = source('src/pages/Tarefas.tsx')
     const palette = source('src/components/GlobalSearch.tsx')

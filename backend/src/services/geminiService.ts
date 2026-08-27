@@ -45,6 +45,17 @@ function gerarSugestaoLocal(titulo: string, descricao: string): ChecklistSuggest
   return itens.slice(0, 8)
 }
 
+function checklistFallbackResult(titulo: string, descricao: string, erro?: string): ChecklistSuggestionResult {
+  return {
+    enabled: true,
+    provider: 'nexus-local',
+    model: 'heuristic-checklist-v1',
+    fallback: true,
+    itens: gerarSugestaoLocal(titulo, descricao),
+    erro,
+  }
+}
+
 function normalizeGeminiModel(modelValue?: string) {
   const raw = (modelValue || '').trim()
   if (!raw) return 'gemini-3.5-flash'
@@ -93,15 +104,7 @@ export async function gerarSugestaoChecklist(input: { titulo: string; descricao?
   if (!titulo) {
     return { enabled: Boolean(apiKey), provider: 'gemini', model, itens: [], erro: 'Informe um título para sugerir o checklist.' }
   }
-  if (!apiKey) {
-    return {
-      enabled: true,
-      provider: 'nexus-local',
-      model: 'heuristic-checklist-v1',
-      fallback: true,
-      itens: gerarSugestaoLocal(titulo, descricao),
-    }
-  }
+  if (!apiKey) return checklistFallbackResult(titulo, descricao)
 
   const prompt = `Você é um assistente de operações empresariais. Gere uma sugestão de checklist em português do Brasil para uma tarefa, sem inventar nomes, documentos, prazos ou regras específicas que não estejam no texto. Retorne SOMENTE JSON válido no formato {"itens":[{"texto":"...","descricao":"..."}]}. Crie de 3 a 8 itens concretos, ordenados pela sequência natural de execução. Cada texto deve ter no máximo 140 caracteres e cada descrição no máximo 240 caracteres. Não inclua numeração, checkbox, pontuação, responsável ou prazo.\n\nTÍTULO:\n${titulo}\n\nDESCRIÇÃO:\n${descricao || '(não informada)'}`
 
@@ -124,7 +127,7 @@ export async function gerarSugestaoChecklist(input: { titulo: string; descricao?
       const body = await response.text().catch(() => '')
       const erro = sanitizeGeminiError(response.status, body)
       console.error('[Gemini] Falha ao sugerir checklist:', { model, erro })
-      return { enabled: true, provider: 'gemini', model, itens: [], erro }
+      return checklistFallbackResult(titulo, descricao, erro)
     }
 
     const data = await response.json()
@@ -141,7 +144,7 @@ export async function gerarSugestaoChecklist(input: { titulo: string; descricao?
   } catch (err: any) {
     const erro = err?.message || String(err)
     console.error('[Gemini] Erro ao sugerir checklist:', { model, erro })
-    return { enabled: true, provider: 'gemini', model, itens: [], erro: 'Não foi possível interpretar a sugestão do Gemini.' }
+    return checklistFallbackResult(titulo, descricao, 'Não foi possível interpretar a sugestão do Gemini.')
   }
 }
 
