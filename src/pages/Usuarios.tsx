@@ -42,7 +42,7 @@ function roleOptionsFor(currentRole?: string | null): Array<{ value: CriavelRole
 
 function roleLabel(role: UserProfile['role']) {
   if (role === 'admin') return 'Admin'
-  if (role === 'dev') return 'Dev'
+  if (role === 'dev') return 'Super Admin'
   if (role === 'gestor') return 'Gestor'
   if (role === 'sub_gestor') return 'Subgestor'
   return 'Membro'

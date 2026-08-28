@@ -8,6 +8,20 @@ const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 const TOKEN_KEY   = 'nx_access_token'
 const REFRESH_KEY = 'nx_refresh_token'
 
+export class ApiError extends Error {
+  readonly status: number
+  readonly body: Record<string, unknown>
+
+  constructor(status: number, message: string, body: unknown = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : {}
+  }
+}
+
 export function getAccessToken(): string | null  { return localStorage.getItem(TOKEN_KEY) }
 export function getRefreshToken(): string | null { return localStorage.getItem(REFRESH_KEY) }
 
@@ -732,7 +746,7 @@ export async function apiJson<T>(path: string, options?: RequestInit): Promise<T
     const res = await apiFetch(path, options)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      throw new Error(body.error || `Erro ${res.status}`)
+      throw new ApiError(res.status, body?.error || `Erro ${res.status}`, body)
     }
     const data = await res.json()
     if (method === 'GET') cacheGetResponse(path, data)

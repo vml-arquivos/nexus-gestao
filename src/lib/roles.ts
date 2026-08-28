@@ -18,7 +18,7 @@ export function isMembro(role: Role): boolean {
 
 export function roleLabel(role: Role): string {
   if (role === 'admin') return 'Admin'
-  if (role === 'dev') return 'Dev'
+  if (role === 'dev') return 'Super Admin'
   if (role === 'gestor') return 'Gestor'
   if (role === 'sub_gestor') return 'Sub-Gestor'
   if (role === 'membro') return 'Membro'

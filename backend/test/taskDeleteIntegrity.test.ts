@@ -11,8 +11,13 @@ describe('exclusão segura de tarefas', () => {
     const end = source.indexOf('// ── PEDIR AJUDA', start)
     const block = source.slice(start, end)
 
-    expect(block).toContain('pg_column_size(checklist)')
+    expect(block).toContain('getSafeTaskForAccess(req.params.id, orgId)')
+    expect(block).toContain('checklist_bytes')
     expect(block).toContain('checklist_protegido: true')
+    expect(block).not.toContain('getTaskForAccess(req.params.id, orgId)')
+    expect(block.indexOf('const existing = await getSafeTaskForAccess(req.params.id, orgId)')).toBeLessThan(
+      block.indexOf('if (Number(existing.checklist_bytes || 0) > 1_000_000)')
+    )
     expect(block).toContain('client = await pool.connect()')
     expect(block).toContain('await client.query("BEGIN")')
     expect(block).toContain('await client.query("COMMIT")')

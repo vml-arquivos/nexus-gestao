@@ -7,7 +7,7 @@ import {
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,
   ChevronLeft, Sparkles,
 } from 'lucide-react'
-import { tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
+import { ApiError, tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
 import { TaskCalendarView } from '../components/TaskCalendarView'
 import { TaskTableView } from '../components/TaskTableView'
@@ -37,9 +37,10 @@ function automaticTaskListTitle(context: TaskContextType, entityName?: string) {
   return 'Pessoal'
 }
 
-function canDeleteTarefa(tarefa: Tarefa, userId: string, isGestor: boolean) {
-  if (isGestor) return true
-  return tarefa.criado_por === userId
+function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string) {
+  if (role === 'admin' || role === 'dev' || role === 'gestor') return true
+  if (role === 'membro') return tarefa.criado_por === userId
+  return tarefa.criado_por === userId || tarefa.responsavel_id === userId
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any }> = {
@@ -4177,9 +4178,10 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
+function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
   tarefa: Tarefa
   userId: string
+  role?: string
   isGestor: boolean
   actionBusy?: boolean
   helpPendingForMe?: boolean
@@ -4385,7 +4387,7 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
         {isPersonal ? (
           <>
             <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
-            {canDeleteTarefa(tarefa, userId, isGestor) && (
+            {canDeleteTarefa(tarefa, userId, role) && (
               <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
             )}
           </>
@@ -4420,7 +4422,7 @@ function TarefaCard({ tarefa, userId, isGestor, actionBusy = false, helpPendingF
                 )}
               </>
             )}
-            {canDeleteTarefa(tarefa, userId, isGestor) && (
+            {canDeleteTarefa(tarefa, userId, role) && (
               <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
             )}
           </>
@@ -5325,8 +5327,19 @@ export default function Tarefas() {
 
   async function remove(id: string) {
     if (!confirm('Apagar esta tarefa definitivamente?')) return
-    try { await tarefasApi.remove(id); setTarefas(prev => prev.filter(t => t.id !== id)); toast('Tarefa apagada.') }
-    catch (e) { toast(e instanceof Error ? e.message : 'Erro ao apagar.', 'error') }
+    try {
+      await tarefasApi.remove(id)
+      setTarefas(prev => prev.filter(t => t.id !== id))
+      toast('Tarefa apagada.')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.body.checklist_protegido === true) {
+        toast('Exclusão protegida: o checklist histórico desta tarefa é grande e foi preservado. Nenhum dado foi apagado.', 'error')
+      } else if (e instanceof ApiError && e.status === 403) {
+        toast('Você não tem permissão para excluir esta tarefa.', 'error')
+      } else {
+        toast(e instanceof Error ? e.message : 'Erro ao apagar.', 'error')
+      }
+    }
   }
 
   const atualizarAjudas = useCallback(async () => {
@@ -5700,7 +5713,7 @@ export default function Tarefas() {
             <EmpresaTarefasCard key={entry.key} group={entry} onOpen={setEmpresaTarefasId} />
           ) : (
             <TarefaCard
-              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
+              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(entry.tarefa.id)}
               helpRequestedByMe={minhasAjudasPorTarefa.get(entry.tarefa.id) || null}
               selectMode={modoSelecao}

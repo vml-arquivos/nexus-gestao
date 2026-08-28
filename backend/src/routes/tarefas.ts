@@ -5128,28 +5128,10 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId, role } = req.user!;
 
-    // O DELETE nunca materializa um checklist histórico gigante. Os três
-    // registros conhecidos acima de 1 MB ficam deliberadamente protegidos até
-    // existir um procedimento específico de backup/rollback para eles.
-    const sizeRow = await queryOne<{ checklist_bytes: number }>(
-      `SELECT COALESCE(pg_column_size(checklist), 0)::int AS checklist_bytes
-         FROM tarefas
-        WHERE id = $1 AND org_id = $2`,
-      [req.params.id, orgId],
-    );
-    if (!sizeRow) {
-      res.status(404).json({ error: "Tarefa não encontrada." });
-      return;
-    }
-    if (Number(sizeRow.checklist_bytes || 0) > 1_000_000) {
-      res.status(409).json({
-        error: "Esta tarefa possui checklist histórico protegido acima de 1 MB e não pode ser excluída por este fluxo.",
-        checklist_protegido: true,
-      });
-      return;
-    }
-
-    const existing = await getTaskForAccess(req.params.id, orgId);
+    // O DELETE nunca materializa um checklist histórico gigante. Primeiro
+    // confirma a existência e aplica o RBAC usando o SELECT seguro, que troca
+    // o checklist acima do limite por [] e informa apenas seu tamanho.
+    const existing = await getSafeTaskForAccess(req.params.id, orgId);
     if (!existing) {
       res.status(404).json({ error: "Tarefa não encontrada." });
       return;
@@ -5168,6 +5150,16 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       existing.responsavel_id !== userId
     ) {
       res.status(403).json({ error: "Acesso negado." });
+      return;
+    }
+
+    // Checklists acima de 1 MB continuam deliberadamente protegidos até existir
+    // um procedimento específico de backup/rollback para esses históricos.
+    if (Number(existing.checklist_bytes || 0) > 1_000_000) {
+      res.status(409).json({
+        error: "Esta tarefa possui checklist histórico protegido acima de 1 MB e não pode ser excluída por este fluxo.",
+        checklist_protegido: true,
+      });
       return;
     }
 
