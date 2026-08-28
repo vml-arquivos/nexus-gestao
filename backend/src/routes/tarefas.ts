@@ -1268,6 +1268,14 @@ function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
   return { ...protectedTask, checklist, possui_itens_atribuidos: possuiItensAtribuidos };
 }
 
+async function comandadosDoSubGestor(orgId: string, userId: string): Promise<Set<string>> {
+  const subs = await query<{ id: string }>(
+    "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
+    [orgId, userId],
+  );
+  return new Set(subs.map((s) => s.id));
+}
+
 function canListTaskForUser(
   task: any,
   user: NonNullable<Request["user"]>,
@@ -1660,14 +1668,9 @@ async function listTasksForUser(user: NonNullable<Request["user"]>) {
       });
     }
 
-    let comandados = new Set<string>();
-    if (role === "sub_gestor") {
-      const subs = await query<{ id: string }>(
-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
-        [orgId, userId],
-      );
-      comandados = new Set(subs.map((s) => s.id));
-    }
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
 
     return rows
       .filter((task) => canListTaskForUser(task, user, comandados))
@@ -1893,14 +1896,9 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
       [orgId, origemId, contextoTipo],
     );
 
-    let comandados = new Set<string>();
-    if (role === "sub_gestor") {
-      const subs = await query<{ id: string }>(
-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
-        [orgId, userId],
-      );
-      comandados = new Set(subs.map((s) => s.id));
-    }
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
 
     const tarefas = rows
       .filter((task) => canListTaskForUser(task, req.user!, comandados))
@@ -5137,6 +5135,13 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       return;
     }
     const canDeleteAny = canDeleteOrgRecords(role);
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
+    const canDeleteAsSubGestor =
+      role === "sub_gestor" &&
+      !!existing.responsavel_id &&
+      comandados.has(existing.responsavel_id);
     if (role === "membro" && existing.criado_por !== userId) {
       res
         .status(403)
@@ -5145,6 +5150,7 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
     }
     if (
       !canDeleteAny &&
+      !canDeleteAsSubGestor &&
       role !== "membro" &&
       existing.criado_por !== userId &&
       existing.responsavel_id !== userId

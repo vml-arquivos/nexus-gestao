@@ -8,8 +8,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 
     <!-- ═══ PWA / App-like meta tags ═══ -->
-    <meta name="theme-color" content="#0F0A1E" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#0F0A1E" />
+    <meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f7fb" />
     <meta name="description" content="Gestão de equipe, tarefas, agenda e financeiro em um só lugar" />
 
     <!-- iOS: faz o app parecer instalado como app nativo -->
@@ -62,7 +62,7 @@
       #splash {
         position: fixed;
         inset: 0;
-        background: #0F0A1E;
+        background: var(--bg, #f6f7fb);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -73,28 +73,25 @@
       #splash.hide { opacity: 0; pointer-events: none; }
       #splash-logo {
         width: 72px; height: 72px;
-        background: linear-gradient(135deg, #6C3BFF, #06B6D4);
+        background: var(--primary, #2457e6);
         border-radius: 20px;
         display: flex; align-items: center; justify-content: center;
-        box-shadow: 0 8px 32px rgba(108,59,255,0.5);
+        box-shadow: 0 8px 32px var(--primary-glow, rgba(36,87,230,0.25));
         margin-bottom: 20px;
         animation: splashPulse 1.5s ease-in-out infinite;
       }
-      #splash-logo svg { width: 36px; height: 36px; fill: none; stroke: white; stroke-width: 2; }
+      #splash-logo svg { width: 36px; height: 36px; fill: none; stroke: var(--text-on-primary, #fff); stroke-width: 2; }
       #splash-name {
-        font-family: 'Montserrat', sans-serif;
-        font-weight: 900;
+        font-family: var(--font-heading, 'Inter', system-ui, sans-serif);
+        font-weight: 700;
         font-size: 28px;
         letter-spacing: -0.04em;
-        background: linear-gradient(135deg, #6C3BFF, #06B6D4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: var(--text1, #0a0c10);
       }
       #splash-sub {
-        font-family: 'Poppins', sans-serif;
+        font-family: var(--font-body, 'Inter', system-ui, sans-serif);
         font-size: 12px;
-        color: #8B7EC8;
+        color: var(--text2, #515c72);
         margin-top: 4px;
         font-weight: 500;
       }
@@ -102,7 +99,7 @@
         position: absolute;
         bottom: calc(40px + env(safe-area-inset-bottom));
         width: 120px; height: 3px;
-        background: rgba(108,59,255,0.2);
+        background: var(--primary-dim, rgba(36,87,230,0.12));
         border-radius: 99px;
         overflow: hidden;
       }
@@ -111,13 +108,13 @@
         display: block;
         height: 100%;
         width: 40%;
-        background: linear-gradient(90deg, #6C3BFF, #06B6D4);
+        background: var(--primary, #2457e6);
         border-radius: 99px;
         animation: loaderSlide 1.2s ease-in-out infinite;
       }
       @keyframes splashPulse {
-        0%, 100% { transform: scale(1); box-shadow: 0 8px 32px rgba(108,59,255,0.5); }
-        50% { transform: scale(1.05); box-shadow: 0 12px 48px rgba(108,59,255,0.7); }
+        0%, 100% { transform: scale(1); box-shadow: 0 8px 32px var(--primary-glow, rgba(36,87,230,0.25)); }
+        50% { transform: scale(1.05); box-shadow: 0 12px 48px var(--primary-glow, rgba(36,87,230,0.25)); }
       }
       @keyframes loaderSlide {
         0% { transform: translateX(-100%); }

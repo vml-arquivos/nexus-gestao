@@ -37,9 +37,10 @@ function automaticTaskListTitle(context: TaskContextType, entityName?: string) {
   return 'Pessoal'
 }
 
-function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string) {
+function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string, comandados: ReadonlySet<string> = new Set<string>()) {
   if (role === 'admin' || role === 'dev' || role === 'gestor') return true
   if (role === 'membro') return tarefa.criado_por === userId
+  if (role === 'sub_gestor' && tarefa.responsavel_id && comandados.has(tarefa.responsavel_id)) return true
   return tarefa.criado_por === userId || tarefa.responsavel_id === userId
 }
 
@@ -4178,10 +4179,11 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
+function TarefaCard({ tarefa, userId, role, comandados = new Set<string>(), isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
   tarefa: Tarefa
   userId: string
   role?: string
+  comandados?: ReadonlySet<string>
   isGestor: boolean
   actionBusy?: boolean
   helpPendingForMe?: boolean
@@ -4387,7 +4389,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
         {isPersonal ? (
           <>
             <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
-            {canDeleteTarefa(tarefa, userId, role) && (
+            {canDeleteTarefa(tarefa, userId, role, comandados) && (
               <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
             )}
           </>
@@ -4422,7 +4424,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
                 )}
               </>
             )}
-            {canDeleteTarefa(tarefa, userId, role) && (
+            {canDeleteTarefa(tarefa, userId, role, comandados) && (
               <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
             )}
           </>
@@ -5093,6 +5095,15 @@ export default function Tarefas() {
     return true
   }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds])
 
+  const comandados = useMemo(() => {
+    if (user?.role !== 'sub_gestor' || !user.id) return new Set<string>()
+    return new Set(
+      membros
+        .filter(membro => membro.ativo !== false && membro.criado_por === user.id)
+        .map(membro => membro.id),
+    )
+  }, [membros, user?.id, user?.role])
+
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
     if (user?.id) map.set(user.id, { id: user.id, nome: user.nome || 'Eu', role: user.role })
@@ -5713,7 +5724,7 @@ export default function Tarefas() {
             <EmpresaTarefasCard key={entry.key} group={entry} onOpen={setEmpresaTarefasId} />
           ) : (
             <TarefaCard
-              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
+              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} comandados={comandados} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(entry.tarefa.id)}
               helpRequestedByMe={minhasAjudasPorTarefa.get(entry.tarefa.id) || null}
               selectMode={modoSelecao}
