@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { query, queryOne } from '../db/pool'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
+import { buildPrivateFileUrl } from '../lib/privateFile'
 
 const router = Router()
 router.use(authMiddleware)
@@ -23,7 +24,7 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
         COALESCE(stats.tarefas_nao_concluidas, 0)::int AS tarefas_nao_concluidas,
         COALESCE(stats.tarefas_devolvidas, 0)::int AS tarefas_devolvidas
       FROM profiles p
-      LEFT JOIN profiles c ON c.id = p.criado_por
+      LEFT JOIN profiles c ON c.id = p.criado_por AND c.org_id = p.org_id
       LEFT JOIN (
         -- Antes eram 4 subconsultas correlacionadas por linha (uma
         -- COUNT(*) por membro para cada status). Com M membros isso virava
@@ -62,7 +63,10 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
         WHERE p.org_id = $1 AND p.ativo = TRUE
         ORDER BY p.role, p.nome
       `, [orgId])
-      res.json({ membros })
+      res.json({ membros: membros.map((membro: any) => ({
+        ...membro,
+        avatar_url: buildPrivateFileUrl(req, membro.avatar_url, 'avatar', String(membro.id)),
+      })) })
       return
     } else if (role === 'gestor' || role === 'sub_gestor') {
       // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.
@@ -84,7 +88,10 @@ router.get('/membros', async (req: Request, res: Response): Promise<void> => {
 
     sql += ' ORDER BY p.role, p.nome'
     const membros = await query(sql, params)
-    res.json({ membros })
+    res.json({ membros: membros.map((membro: any) => ({
+      ...membro,
+      avatar_url: buildPrivateFileUrl(req, membro.avatar_url, 'avatar', String(membro.id)),
+    })) })
   } catch (err) {
     console.error('[EQUIPE] Erro ao listar membros:', err)
     res.status(500).json({ error: 'Erro ao buscar membros.' })

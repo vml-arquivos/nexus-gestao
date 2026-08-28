@@ -28,6 +28,7 @@ import { pagamentosApi, equipeApi, destravaApi, type Pagamento, type Pessoa, typ
 import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import { isSuperAdmin } from '../lib/roles'
 
 type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'
 
@@ -2377,7 +2378,7 @@ export default function Financeiro() {
       toast('Você não tem permissão para apagar este registro financeiro.', 'error')
       return
     }
-    if (!confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return
     try { await pagamentosApi.remove(id); load(); toast('Registro financeiro apagado') }
     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }
@@ -2388,7 +2389,7 @@ export default function Financeiro() {
       return
     }
     const total = g.parcelas?.length || 0
-    if (!confirm(`Apagar definitivamente este registro financeiro completo${total > 1 ? ` com ${total} parcelas` : ''}? Esta ação não pode ser desfeita.`)) return
+    if (!isSuperAdmin(user?.role) && !confirm(`Apagar definitivamente este registro financeiro completo${total > 1 ? ` com ${total} parcelas` : ''}? Esta ação não pode ser desfeita.`)) return
     try {
       if (g.grupo_id) {
         await pagamentosApi.removeGrupo(g.grupo_id)

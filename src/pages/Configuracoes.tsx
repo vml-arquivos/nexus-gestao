@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Settings, Save, Bell, BellOff, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone, CheckCircle2, Loader } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
-import { isGestorLike, roleLabel } from '../lib/roles'
+import { isGestorLike, isSuperAdmin, roleLabel } from '../lib/roles'
 import { api } from '../lib/api'
 import { useTheme } from '../lib/ThemeContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
@@ -163,7 +163,7 @@ export default function Configuracoes() {
   }
 
   async function apagarPontuacaoItem(id: string) {
-    if (!confirm('Apagar este lançamento de pontuação? Essa ação não pode ser desfeita.')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Apagar este lançamento de pontuação? Essa ação não pode ser desfeita.')) return
     try {
       await api.delete(`/admin/pontuacao/${id}`)
       setPontuacaoItens(prev => prev.filter(item => item.id !== id))
@@ -174,8 +174,8 @@ export default function Configuracoes() {
   }
 
   async function limparRankingCompleto() {
-    if (!confirm('Isso apaga TODO o histórico de pontuação e zera o ranking da organização inteira. Essa ação não pode ser desfeita. Confirma?')) return
-    if (!confirm('Tem certeza mesmo? Todos os pontos de todos os membros serão perdidos, inclusive de trabalho real, não só de teste.')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Isso apaga TODO o histórico de pontuação e zera o ranking da organização inteira. Essa ação não pode ser desfeita. Confirma?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Tem certeza mesmo? Todos os pontos de todos os membros serão perdidos, inclusive de trabalho real, não só de teste.')) return
     try {
       await api.delete('/admin/limpar/pontuacao')
       setPontuacaoItens([])

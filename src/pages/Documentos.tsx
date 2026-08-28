@@ -4,6 +4,7 @@ import { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search, 
 import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import { isSuperAdmin } from '../lib/roles'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -262,7 +263,7 @@ export default function Documentos() {
   useEffect(() => { const h = () => setUploadOpen(true); window.addEventListener('nexus:open-new', h); return () => window.removeEventListener('nexus:open-new', h) }, [])
 
   async function handleDelete(id: string) {
-    if (!confirm('Excluir este arquivo?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Excluir este arquivo?')) return
     try { await documentosApi.remove(id); setDocumentos(p => p.filter(d => d.id !== id)); toast('Arquivo excluído') }
     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }

@@ -4,6 +4,7 @@ import { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, W
 import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import { isSuperAdmin } from '../lib/roles'
 
 // O componente Pessoas unifica todos os tipos de pessoas cadastradas no sistema:
 // membros da equipe, prestadores de serviço, credores, devedores e clientes.
@@ -263,7 +264,7 @@ export default function Pessoas() {
   }, [])
 
   async function handleDelete(id: string) {
-    if (!confirm('Excluir este contato?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Excluir este contato?')) return
     try {
       await equipeApi.removePessoa(id)
       setPessoas(p => p.filter(x => x.id !== id))

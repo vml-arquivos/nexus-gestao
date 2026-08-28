@@ -4,7 +4,7 @@
  * Cada operação é transacional e restrita à própria organização.
  */
 import { Router, Request, Response } from 'express'
-import { authMiddleware, gestorOnly } from '../middleware/auth'
+import { authMiddleware, gestorOnly, isSuperAdmin } from '../middleware/auth'
 import { query } from '../db/pool'
 import { executarBackupAutomatico, getBackupAutoStatus } from '../services/backupAutoService'
 import { getAgendaSyncStatus, sincronizarAgendaOperacional } from '../services/agendaSyncService'
@@ -304,12 +304,12 @@ router.delete('/limpar/documentos', async (req: Request, res: Response): Promise
 
 /* ── DELETE /api/admin/limpar/usuarios ───────────────────────── */
 router.delete('/limpar/usuarios', async (req: Request, res: Response): Promise<void> => {
-  const { orgId, userId } = req.user!
+  const { orgId, userId, role } = req.user!
   try {
     const rows = await query<{ id: string }>(
       `SELECT id FROM profiles
        WHERE org_id = $1 AND id != $2
-         AND role IN ('membro','sub_gestor')`,
+         ${isSuperAdmin(role) ? '' : "AND role IN ('membro','sub_gestor')"}`,
       [orgId, userId]
     )
     const alvos = Array.isArray(rows) ? (rows as { id: string }[]) : []
@@ -352,7 +352,7 @@ router.delete('/limpar/usuarios', async (req: Request, res: Response): Promise<v
 
 /* ── DELETE /api/admin/limpar/tudo ────────────────────────────── */
 router.delete('/limpar/tudo', async (req: Request, res: Response): Promise<void> => {
-  const { orgId, userId } = req.user!
+  const { orgId, userId, role } = req.user!
   try {
     await runInTransaction([
       safeQuery('DELETE FROM notificacoes         WHERE org_id = $1',                         [orgId]),
@@ -375,7 +375,7 @@ router.delete('/limpar/tudo', async (req: Request, res: Response): Promise<void>
                  WHERE org_id = $1 AND id != $2`,                                             [orgId, userId]),
       safeQuery(`DELETE FROM profiles
                  WHERE org_id = $1 AND id != $2
-                   AND role NOT IN ('admin','dev')`,                                          [orgId, userId]),
+                   ${isSuperAdmin(role) ? '' : "AND role NOT IN ('admin','dev')"}`,              [orgId, userId]),
     ])
     res.json({ ok: true, mensagem: 'Todos os dados da organização foram apagados.' })
   } catch (err) {

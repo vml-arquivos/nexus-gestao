@@ -46,14 +46,13 @@ export function generateTokens(payload: JwtPayload): { accessToken: string; refr
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization
-  const queryToken = typeof req.query._t === 'string' ? req.query._t : null
 
-  if (!authHeader?.startsWith('Bearer ') && !queryToken) {
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token de autenticação não fornecido.' })
     return
   }
 
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken!
+  const token = authHeader.slice(7)
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
@@ -133,13 +132,18 @@ export const gestorOrSubGestorOnly = requireRoles(['admin','dev','gestor','sub_g
 export const canManageTeam = requireRoles(['admin','dev','gestor'], 'Acesso restrito para gerenciar equipes.')
 export const canDelegateTask = requireRoles(['admin','dev','gestor','sub_gestor'], 'Acesso restrito para delegar tarefas.')
 
+export function isSuperAdmin(role: string | undefined): boolean {
+  // No modelo atual, `dev` é o papel exibido na interface como Super Admin.
+  return role === 'dev'
+}
+
 export function isAdminOrDev(role: string | undefined): boolean {
-  return role === 'admin' || role === 'dev'
+  return role === 'admin' || isSuperAdmin(role)
 }
 
 export const adminOrDevOnly = requireRoles(['admin','dev'], 'Acesso restrito ao administrador ou desenvolvedor.')
 
 
 export function canDeleteOrgRecords(role: string | undefined): boolean {
-  return role === 'admin' || role === 'dev' || role === 'gestor'
+  return role === 'admin' || isSuperAdmin(role) || role === 'gestor'
 }

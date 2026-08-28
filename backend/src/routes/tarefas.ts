@@ -2,11 +2,12 @@ import { Router, Request, Response, NextFunction } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { createHash } from "crypto";
 import pool, { getPoolStatus, query, queryOne, boundedInteger } from "../db/pool";
-import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";
+import { authMiddleware, canDeleteOrgRecords, isSuperAdmin } from "../middleware/auth";
 import {
   criarNotificacao,
   resolverNotificacoesRecorrentesPorReferencia,
 } from "../lib/notifHelper";
+import { buildPrivateFileUrl } from "../lib/privateFile";
 import {
   createSecureMulterUpload,
   buildUploadUrl,
@@ -55,6 +56,19 @@ const uploadEvidenceFile = (
 
 interface MulterTaskRequest extends Request {
   file?: Express.Multer.File;
+}
+
+function serializeTaskAttachment(req: Request, taskId: string, attachment: any) {
+  return {
+    ...attachment,
+    arquivo_url: buildPrivateFileUrl(
+      req,
+      attachment?.arquivo_url,
+      "tarefa_anexo",
+      String(attachment?.id || ""),
+      taskId,
+    ),
+  };
 }
 
 function destravaApiBase(): string {
@@ -1235,7 +1249,7 @@ function filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {
     .map((item) => maskSurpriseChecklistItem(item, userId, task));
 }
 
-function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
+export function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
   const checklist = filterChecklistForUser(task, user);
   // Calculado sobre o checklist BRUTO (antes do filtro de privacidade acima),
   // para que "está livre para assumir?" nunca dependa de quanto deste
@@ -1268,7 +1282,15 @@ function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {
   return { ...protectedTask, checklist, possui_itens_atribuidos: possuiItensAtribuidos };
 }
 
-function canListTaskForUser(
+export async function comandadosDoSubGestor(orgId: string, userId: string): Promise<Set<string>> {
+  const subs = await query<{ id: string }>(
+    "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
+    [orgId, userId],
+  );
+  return new Set(subs.map((s) => s.id));
+}
+
+export function canListTaskForUser(
   task: any,
   user: NonNullable<Request["user"]>,
   comandados = new Set<string>(),
@@ -1660,14 +1682,9 @@ async function listTasksForUser(user: NonNullable<Request["user"]>) {
       });
     }
 
-    let comandados = new Set<string>();
-    if (role === "sub_gestor") {
-      const subs = await query<{ id: string }>(
-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
-        [orgId, userId],
-      );
-      comandados = new Set(subs.map((s) => s.id));
-    }
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
 
     return rows
       .filter((task) => canListTaskForUser(task, user, comandados))
@@ -1893,14 +1910,9 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
       [orgId, origemId, contextoTipo],
     );
 
-    let comandados = new Set<string>();
-    if (role === "sub_gestor") {
-      const subs = await query<{ id: string }>(
-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",
-        [orgId, userId],
-      );
-      comandados = new Set(subs.map((s) => s.id));
-    }
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
 
     const tarefas = rows
       .filter((task) => canListTaskForUser(task, req.user!, comandados))
@@ -1911,7 +1923,13 @@ router.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo
       .filter(tarefaEstaFechada)
       .sort((a: any, b: any) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
 
-    const referencia = rows[0];
+    // Nunca use `rows[0]` como referência: ele pode pertencer a outra pessoa
+    // e revelar nome/url da empresa mesmo quando nenhuma tarefa foi autorizada.
+    const referencia = tarefas[0];
+    if (!referencia) {
+      res.status(404).json({ error: "Tarefa não encontrada." });
+      return;
+    }
     res.json({
       empresa: {
         origem_id: origemId,
@@ -1942,7 +1960,7 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
     const periodoFim = range.fim;
 
     const membros = await query<any>(
-      `SELECT id, nome, email, role
+      `SELECT id, nome
        FROM profiles
        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'
        ORDER BY nome ASC`,
@@ -1954,8 +1972,6 @@ router.get("/ranking", async (req: Request, res: Response): Promise<void> => {
       rankingMap.set(m.id, {
         id: m.id,
         nome: m.nome,
-        email: m.email,
-        role: m.role,
         pontos: 0,
         tarefas_aprovadas: 0,
         subtarefas_executadas: 0,
@@ -2965,7 +2981,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
         [orgId, userId, clientRequestId],
       );
       if (duplicate) {
-        res.status(200).json({ tarefa: duplicate });
+        res.status(200).json({ tarefa: sanitizeTaskForUser(duplicate, req.user!) });
         return;
       }
     }
@@ -3061,7 +3077,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
       }).catch(() => {});
     }
 
-    res.status(201).json({ tarefa });
+    res.status(201).json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });
   } catch (err) {
     console.error("[TAREFAS] Erro ao criar:", err);
     const statusCode = Number((err as any)?.statusCode || 0);
@@ -4012,7 +4028,7 @@ router.get(
         [req.params.id, orgId],
       );
 
-      res.json({ anexos });
+      res.json({ anexos: anexos.map((anexo: any) => serializeTaskAttachment(req, req.params.id, anexo)) });
     } catch (err) {
       console.error("[TAREFAS] Erro ao listar anexos:", err);
       res.status(500).json({ error: "Erro ao buscar anexos da tarefa." });
@@ -4100,7 +4116,7 @@ router.post(
       }
 
       res.status(201).json({
-        anexo,
+        anexo: serializeTaskAttachment(req, req.params.id, anexo),
         sincronizacao_destrava: sincronizarComDestrava
           ? await sincronizarAnexoComDestrava(
               task,
@@ -4209,7 +4225,9 @@ router.get(
         "Content-Disposition",
         `${disposition}; filename="${encodeURIComponent(originalName)}"; filename*=UTF-8''${encodeURIComponent(originalName)}`,
       );
-      res.setHeader("Cache-Control", "private, max-age=60");
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Referrer-Policy", "no-referrer");
       res.sendFile(filePath);
     } catch (err) {
       console.error("[TAREFAS] Erro ao abrir arquivo da tarefa:", err);
@@ -5137,6 +5155,13 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       return;
     }
     const canDeleteAny = canDeleteOrgRecords(role);
+    const comandados = role === "sub_gestor"
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>();
+    const canDeleteAsSubGestor =
+      role === "sub_gestor" &&
+      !!existing.responsavel_id &&
+      comandados.has(existing.responsavel_id);
     if (role === "membro" && existing.criado_por !== userId) {
       res
         .status(403)
@@ -5145,6 +5170,7 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
     }
     if (
       !canDeleteAny &&
+      !canDeleteAsSubGestor &&
       role !== "membro" &&
       existing.criado_por !== userId &&
       existing.responsavel_id !== userId
@@ -5153,9 +5179,10 @@ router.delete("/:id", async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Checklists acima de 1 MB continuam deliberadamente protegidos até existir
-    // um procedimento específico de backup/rollback para esses históricos.
-    if (Number(existing.checklist_bytes || 0) > 1_000_000) {
+    // Checklists acima de 1 MB continuam protegidos para os perfis comuns.
+    // O Super Admin pode removê-los, pois a exclusão usa a mesma transação e
+    // remove também os anexos, histórico e vínculos derivados.
+    if (Number(existing.checklist_bytes || 0) > 1_000_000 && !isSuperAdmin(role)) {
       res.status(409).json({
         error: "Esta tarefa possui checklist histórico protegido acima de 1 MB e não pode ser excluída por este fluxo.",
         checklist_protegido: true,
@@ -5477,8 +5504,8 @@ router.patch("/ajuda/:ajudaId/resolver", async (req: Request, res: Response): Pr
     );
     // Verificar se ainda há pedidos pendentes na tarefa para atualizar o badge
     const pendentes = await queryOne<{ count: string }>(
-      "SELECT COUNT(*)::text AS count FROM tarefas_ajuda WHERE tarefa_id = $1 AND status = 'pendente'",
-      [ajuda.tarefa_id]
+      "SELECT COUNT(*)::text AS count FROM tarefas_ajuda WHERE tarefa_id = $1 AND org_id = $2 AND status = 'pendente'",
+      [ajuda.tarefa_id, orgId]
     ).catch(() => null);
     if (Number(pendentes?.count || 0) === 0) {
       await query("UPDATE tarefas SET pedido_ajuda_pendente = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2", [ajuda.tarefa_id, orgId]).catch(() => {});
@@ -5606,21 +5633,82 @@ router.patch("/:id/checklist/:itemId/revisao", async (req: Request, res: Respons
 
 router.get("/:id/relatorio", async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orgId } = req.user!;
+    const { orgId, userId, role } = req.user!;
     const tarefa = await getSafeTaskForAccess(req.params.id, orgId);
-    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) { res.status(404).json({ error:"Tarefa não encontrada." }); return; }
+    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) {
+      res.status(404).json({ error: "Tarefa não encontrada." });
+      return;
+    }
+
+    const tarefaSegura = sanitizeTaskForUser(tarefa, req.user!);
+    const gestorLike = canDeleteOrgRecords(role);
+    if (!userHasCurrentStakeInTask(tarefa, req.user!)) {
+      // Vínculo histórico não dá acesso ao relatório atual, que agregava
+      // comentários, pontuações e anexos de outros executores.
+      res.json({
+        gerado_em: new Date().toISOString(),
+        tarefa: tarefaSegura,
+        comentarios: [],
+        historico: [],
+        pontuacoes: [],
+        anexos: [],
+      });
+      return;
+    }
+
     const [comentarios, historico, pontuacoes, anexos] = await Promise.all([
-      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c        JOIN profiles p ON p.id=c.autor_id AND p.org_id=c.org_id WHERE c.org_id=$1 AND c.tarefa_id=$2
- ORDER BY c.criado_em`,[orgId,tarefa.id]),
-      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h        LEFT JOIN profiles p ON p.id=h.user_id AND p.org_id=h.org_id WHERE h.org_id=$1 AND h.tarefa_id=$2
- ORDER BY h.created_at`,[orgId,tarefa.id]).catch(()=>[]),
-      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp        JOIN profiles p ON p.id=tp.usuario_id AND p.org_id=tp.org_id LEFT JOIN profiles a ON a.id=tp.aprovado_por AND a.org_id=tp.org_id WHERE tp.org_id=$1 AND tp.tarefa_id=$2
- ORDER BY tp.aprovado_em`,[orgId,tarefa.id]),
-      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta        LEFT JOIN profiles p ON p.id=ta.enviado_por AND p.org_id=ta.org_id WHERE ta.org_id=$1 AND ta.tarefa_id=$2
- ORDER BY ta.created_at`,[orgId,tarefa.id]).catch(()=>[]),
+      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c
+        JOIN profiles p ON p.id=c.autor_id AND p.org_id=c.org_id
+       WHERE c.org_id=$1 AND c.tarefa_id=$2
+       ORDER BY c.criado_em`, [orgId, tarefa.id]),
+      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h
+        LEFT JOIN profiles p ON p.id=h.user_id AND p.org_id=h.org_id
+       WHERE h.org_id=$1 AND h.tarefa_id=$2
+       ORDER BY h.created_at`, [orgId, tarefa.id]).catch(() => []),
+      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp
+        JOIN profiles p ON p.id=tp.usuario_id AND p.org_id=tp.org_id
+        LEFT JOIN profiles a ON a.id=tp.aprovado_por AND a.org_id=tp.org_id
+       WHERE tp.org_id=$1 AND tp.tarefa_id=$2
+       ORDER BY tp.aprovado_em`, [orgId, tarefa.id]),
+      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta
+        LEFT JOIN profiles p ON p.id=ta.enviado_por AND p.org_id=ta.org_id
+       WHERE ta.org_id=$1 AND ta.tarefa_id=$2
+       ORDER BY ta.created_at`, [orgId, tarefa.id]).catch(() => []),
     ]);
-    res.json({ gerado_em:new Date().toISOString(), tarefa:{...tarefa, checklist:parseChecklistItems(tarefa.checklist)}, comentarios, historico, pontuacoes, anexos });
-  } catch(err) { console.error("[TAREFAS] Erro relatório:",err); res.status(500).json({error:"Erro ao gerar relatório."}); }
+
+    const visibleChecklistIds = new Set(
+      parseChecklistItems(tarefaSegura.checklist).map((item: any) => String(item.id || "")),
+    );
+    const comentariosSeguros = gestorLike
+      ? comentarios
+      : comentarios.filter((comentario: any) =>
+        !comentario.checklist_id ||
+        visibleChecklistIds.has(String(comentario.checklist_id)) ||
+        comentario.autor_id === userId,
+      );
+    const historicoSeguro = gestorLike
+      ? historico
+      : historico.filter((item: any) => item.user_id === userId);
+    const pontuacoesSeguras = gestorLike
+      ? pontuacoes
+      : pontuacoes.filter((item: any) => item.usuario_id === userId);
+    const anexosSeguros = (gestorLike
+      ? anexos
+      : anexos.filter((item: any) => item.enviado_por === userId || item.enviado_por === tarefa.criado_por)
+    ).map((anexo: any) => serializeTaskAttachment(req, tarefa.id, anexo));
+
+    res.json({
+      gerado_em: new Date().toISOString(),
+      tarefa: tarefaSegura,
+      comentarios: comentariosSeguros,
+      historico: historicoSeguro,
+      pontuacoes: pontuacoesSeguras,
+      anexos: anexosSeguros,
+    });
+  } catch(err) {
+    console.error("[TAREFAS] Erro relatório:", err);
+    res.status(500).json({ error: "Erro ao gerar relatório." });
+  }
 });
 
 // Exportado somente para testes de regressão da regra de checklist/pontuação.

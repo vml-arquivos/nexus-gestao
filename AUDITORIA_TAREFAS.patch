@@ -1,0 +1,2629 @@
+[1mdiff --git a/backend/src/index.ts b/backend/src/index.ts[m
+[1mindex 1124622..4094eb9 100644[m
+[1m--- a/backend/src/index.ts[m
+[1m+++ b/backend/src/index.ts[m
+[36m@@ -107,19 +107,10 @@[m [mapp.use(express.json({[m
+ }))[m
+ app.use(express.urlencoded({ extended: true, limit: '10mb' }))[m
+ [m
+[31m-// ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────[m
+[31m-// Servir arquivos de upload publicamente via /uploads/:filename[m
+[31m-app.use('/uploads', express.static(UPLOADS_DIR, {[m
+[31m-  maxAge: '7d',[m
+[31m-  etag: true,[m
+[31m-  setHeaders: (res, filePath) => {[m
+[31m-    // Permite visualização inline de imagens e PDFs[m
+[31m-    const ext = path.extname(filePath).toLowerCase()[m
+[31m-    if (['.jpg','.jpeg','.png','.webp','.gif','.pdf'].includes(ext)) {[m
+[31m-      res.setHeader('Content-Disposition', 'inline')[m
+[31m-    }[m
+[31m-  },[m
+[31m-}))[m
+[32m+[m[32m// ── ARQUIVOS ────────────────────────────────────────────────────────────────────[m
+[32m+[m[32m// Uploads não são expostos como conteúdo estático. A rota autenticada[m
+[32m+[m[32m// /api/uploads/file/:filename valida ticket, organização, recurso e registro[m
+[32m+[m[32m// antes de abrir o arquivo físico.[m
+ [m
+ // ── VERSÃO / HEALTH CHECK ─────────────────────────────────────────────────────[m
+ const versionPayload = () => ({[m
+[1mdiff --git a/backend/src/middleware/auth.ts b/backend/src/middleware/auth.ts[m
+[1mindex a117da7..3fe8d2e 100644[m
+[1m--- a/backend/src/middleware/auth.ts[m
+[1m+++ b/backend/src/middleware/auth.ts[m
+[36m@@ -46,14 +46,13 @@[m [mexport function generateTokens(payload: JwtPayload): { accessToken: string; refr[m
+ [m
+ export function authMiddleware(req: Request, res: Response, next: NextFunction): void {[m
+   const authHeader = req.headers.authorization[m
+[31m-  const queryToken = typeof req.query._t === 'string' ? req.query._t : null[m
+ [m
+[31m-  if (!authHeader?.startsWith('Bearer ') && !queryToken) {[m
+[32m+[m[32m  if (!authHeader?.startsWith('Bearer ')) {[m
+     res.status(401).json({ error: 'Token de autenticação não fornecido.' })[m
+     return[m
+   }[m
+ [m
+[31m-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken![m
+[32m+[m[32m  const token = authHeader.slice(7)[m
+ [m
+   try {[m
+     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload[m
+[36m@@ -133,13 +132,18 @@[m [mexport const gestorOrSubGestorOnly = requireRoles(['admin','dev','gestor','sub_g[m
+ export const canManageTeam = requireRoles(['admin','dev','gestor'], 'Acesso restrito para gerenciar equipes.')[m
+ export const canDelegateTask = requireRoles(['admin','dev','gestor','sub_gestor'], 'Acesso restrito para delegar tarefas.')[m
+ [m
+[32m+[m[32mexport function isSuperAdmin(role: string | undefined): boolean {[m
+[32m+[m[32m  // No modelo atual, `dev` é o papel exibido na interface como Super Admin.[m
+[32m+[m[32m  return role === 'dev'[m
+[32m+[m[32m}[m
+[32m+[m
+ export function isAdminOrDev(role: string | undefined): boolean {[m
+[31m-  return role === 'admin' || role === 'dev'[m
+[32m+[m[32m  return role === 'admin' || isSuperAdmin(role)[m
+ }[m
+ [m
+ export const adminOrDevOnly = requireRoles(['admin','dev'], 'Acesso restrito ao administrador ou desenvolvedor.')[m
+ [m
+ [m
+ export function canDeleteOrgRecords(role: string | undefined): boolean {[m
+[31m-  return role === 'admin' || role === 'dev' || role === 'gestor'[m
+[32m+[m[32m  return role === 'admin' || isSuperAdmin(role) || role === 'gestor'[m
+ }[m
+[1mdiff --git a/backend/src/routes/admin.ts b/backend/src/routes/admin.ts[m
+[1mindex 1583b3b..8290ab7 100644[m
+[1m--- a/backend/src/routes/admin.ts[m
+[1m+++ b/backend/src/routes/admin.ts[m
+[36m@@ -4,7 +4,7 @@[m
+  * Cada operação é transacional e restrita à própria organização.[m
+  */[m
+ import { Router, Request, Response } from 'express'[m
+[31m-import { authMiddleware, gestorOnly } from '../middleware/auth'[m
+[32m+[m[32mimport { authMiddleware, gestorOnly, isSuperAdmin } from '../middleware/auth'[m
+ import { query } from '../db/pool'[m
+ import { executarBackupAutomatico, getBackupAutoStatus } from '../services/backupAutoService'[m
+ import { getAgendaSyncStatus, sincronizarAgendaOperacional } from '../services/agendaSyncService'[m
+[36m@@ -304,12 +304,12 @@[m [mrouter.delete('/limpar/documentos', async (req: Request, res: Response): Promise[m
+ [m
+ /* ── DELETE /api/admin/limpar/usuarios ───────────────────────── */[m
+ router.delete('/limpar/usuarios', async (req: Request, res: Response): Promise<void> => {[m
+[31m-  const { orgId, userId } = req.user![m
+[32m+[m[32m  const { orgId, userId, role } = req.user![m
+   try {[m
+     const rows = await query<{ id: string }>([m
+       `SELECT id FROM profiles[m
+        WHERE org_id = $1 AND id != $2[m
+[31m-         AND role IN ('membro','sub_gestor')`,[m
+[32m+[m[32m         ${isSuperAdmin(role) ? '' : "AND role IN ('membro','sub_gestor')"}`,[m
+       [orgId, userId][m
+     )[m
+     const alvos = Array.isArray(rows) ? (rows as { id: string }[]) : [][m
+[36m@@ -352,7 +352,7 @@[m [mrouter.delete('/limpar/usuarios', async (req: Request, res: Response): Promise<v[m
+ [m
+ /* ── DELETE /api/admin/limpar/tudo ────────────────────────────── */[m
+ router.delete('/limpar/tudo', async (req: Request, res: Response): Promise<void> => {[m
+[31m-  const { orgId, userId } = req.user![m
+[32m+[m[32m  const { orgId, userId, role } = req.user![m
+   try {[m
+     await runInTransaction([[m
+       safeQuery('DELETE FROM notificacoes         WHERE org_id = $1',                         [orgId]),[m
+[36m@@ -375,7 +375,7 @@[m [mrouter.delete('/limpar/tudo', async (req: Request, res: Response): Promise<void>[m
+                  WHERE org_id = $1 AND id != $2`,                                             [orgId, userId]),[m
+       safeQuery(`DELETE FROM profiles[m
+                  WHERE org_id = $1 AND id != $2[m
+[31m-                   AND role NOT IN ('admin','dev')`,                                          [orgId, userId]),[m
+[32m+[m[32m                   ${isSuperAdmin(role) ? '' : "AND role NOT IN ('admin','dev')"}`,              [orgId, userId]),[m
+     ])[m
+     res.json({ ok: true, mensagem: 'Todos os dados da organização foram apagados.' })[m
+   } catch (err) {[m
+[1mdiff --git a/backend/src/routes/auth.ts b/backend/src/routes/auth.ts[m
+[1mindex d6f4463..27a1bad 100644[m
+[1m--- a/backend/src/routes/auth.ts[m
+[1m+++ b/backend/src/routes/auth.ts[m
+[36m@@ -3,6 +3,7 @@[m [mimport bcrypt from 'bcryptjs'[m
+ import { v4 as uuidv4 } from 'uuid'[m
+ import { query, queryOne } from '../db/pool'[m
+ import { generateTokens, authMiddleware, JwtPayload } from '../middleware/auth'[m
+[32m+[m[32mimport { buildPrivateFileUrl } from '../lib/privateFile'[m
+ [m
+ const router = Router()[m
+ [m
+[36m@@ -232,7 +233,10 @@[m [mrouter.get('/me', authMiddleware, async (req: Request, res: Response): Promise<v[m
+       res.status(404).json({ error: 'Usuário não encontrado.' })[m
+       return[m
+     }[m
+[31m-    res.json({ user })[m
+[32m+[m[32m    res.json({ user: {[m
+[32m+[m[32m      ...user,[m
+[32m+[m[32m      avatar_url: buildPrivateFileUrl(req, user.avatar_url, 'avatar', String(user.id)),[m
+[32m+[m[32m    } })[m
+   } catch (err) {[m
+     console.error('[AUTH] Erro no /me:', err)[m
+     res.status(500).json({ error: 'Erro interno do servidor.' })[m
+[36m@@ -254,7 +258,10 @@[m [mrouter.patch('/me', authMiddleware, async (req: Request, res: Response): Promise[m
+        RETURNING id, nome, email, role, org_id, avatar_url`,[m
+       [nome.trim(), req.user!.userId][m
+     )[m
+[31m-    res.json({ user: updated })[m
+[32m+[m[32m    res.json({ user: updated ? {[m
+[32m+[m[32m      ...updated,[m
+[32m+[m[32m      avatar_url: buildPrivateFileUrl(req, updated.avatar_url, 'avatar', String(updated.id)),[m
+[32m+[m[32m    } : updated })[m
+   } catch (err) {[m
+     console.error('[AUTH] Erro no PATCH /me:', err)[m
+     res.status(500).json({ error: 'Erro interno do servidor.' })[m
+[1mdiff --git a/backend/src/routes/documentos.ts b/backend/src/routes/documentos.ts[m
+[1mindex f6f6c01..9439c34 100644[m
+[1m--- a/backend/src/routes/documentos.ts[m
+[1m+++ b/backend/src/routes/documentos.ts[m
+[36m@@ -1,6 +1,7 @@[m
+ import { Router, Request, Response } from 'express'[m
+ import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'[m
+ import { query, queryOne } from '../db/pool'[m
+[32m+[m[32mimport { buildPrivateFileUrl } from '../lib/privateFile'[m
+ import { removeUploadByUrl } from '../lib/uploadSecurity'[m
+ [m
+ const router = Router()[m
+[36m@@ -15,7 +16,7 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+     let sql = `[m
+       SELECT d.*, p.nome AS pessoa_nome_atual[m
+       FROM documentos d[m
+[31m-      LEFT JOIN pessoas p ON p.id = d.pessoa_id[m
+[32m+[m[32m      LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id[m
+       WHERE d.org_id = $1 AND d.criado_por = $2[m
+     `[m
+     const params: unknown[] = [orgId, userId][m
+[36m@@ -28,7 +29,10 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+     sql += ' ORDER BY d.created_at DESC'[m
+ [m
+     const documentos = await query(sql, params)[m
+[31m-    res.json({ documentos })[m
+[32m+[m[32m    res.json({ documentos: documentos.map((documento: any) => ({[m
+[32m+[m[32m      ...documento,[m
+[32m+[m[32m      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),[m
+[32m+[m[32m    })) })[m
+   } catch (err) {[m
+     console.error('[DOC] Erro ao listar:', err)[m
+     res.status(500).json({ error: 'Erro ao buscar documentos.' })[m
+[36m@@ -39,15 +43,18 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+ router.get('/:id', async (req: Request, res: Response): Promise<void> => {[m
+   try {[m
+     const { orgId, userId } = req.user![m
+[31m-    const doc = await queryOne([m
+[32m+[m[32m    const doc = await queryOne<any>([m
+       `SELECT d.*, p.nome AS pessoa_nome_atual[m
+        FROM documentos d[m
+[31m-       LEFT JOIN pessoas p ON p.id = d.pessoa_id[m
+[32m+[m[32m       LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id[m
+        WHERE d.id = $1 AND d.org_id = $2 AND d.criado_por = $3`,[m
+       [req.params.id, orgId, userId][m
+     )[m
+     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }[m
+[31m-    res.json({ documento: doc })[m
+[32m+[m[32m    res.json({ documento: {[m
+[32m+[m[32m      ...doc,[m
+[32m+[m[32m      arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)),[m
+[32m+[m[32m    } })[m
+   } catch (err) {[m
+     console.error('[DOC] Erro ao buscar:', err)[m
+     res.status(500).json({ error: 'Erro ao buscar documento.' })[m
+[36m@@ -75,12 +82,15 @@[m [mrouter.patch('/:id', async (req: Request, res: Response): Promise<void> => {[m
+     sets.push(`updated_at = NOW()`)[m
+     params.push(req.params.id, orgId, userId)[m
+ [m
+[31m-    const doc = await queryOne([m
+[32m+[m[32m    const doc = await queryOne<any>([m
+       `UPDATE documentos SET ${sets.join(', ')} WHERE id = $${idx++} AND org_id = $${idx} AND criado_por = $${idx + 1} RETURNING *`,[m
+       params[m
+     )[m
+     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }[m
+[31m-    res.json({ documento: doc })[m
+[32m+[m[32m    res.json({ documento: {[m
+[32m+[m[32m      ...doc,[m
+[32m+[m[32m      arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)),[m
+[32m+[m[32m    } })[m
+   } catch (err) {[m
+     console.error('[DOC] Erro ao atualizar:', err)[m
+     res.status(500).json({ error: 'Erro ao atualizar documento.' })[m
+[1mdiff --git a/backend/src/routes/equipe.ts b/backend/src/routes/equipe.ts[m
+[1mindex 5a447ed..b2706b4 100644[m
+[1m--- a/backend/src/routes/equipe.ts[m
+[1m+++ b/backend/src/routes/equipe.ts[m
+[36m@@ -1,6 +1,7 @@[m
+ import { Router, Request, Response } from 'express'[m
+ import { query, queryOne } from '../db/pool'[m
+ import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'[m
+[32m+[m[32mimport { buildPrivateFileUrl } from '../lib/privateFile'[m
+ [m
+ const router = Router()[m
+ router.use(authMiddleware)[m
+[36m@@ -23,7 +24,7 @@[m [mrouter.get('/membros', async (req: Request, res: Response): Promise<void> => {[m
+         COALESCE(stats.tarefas_nao_concluidas, 0)::int AS tarefas_nao_concluidas,[m
+         COALESCE(stats.tarefas_devolvidas, 0)::int AS tarefas_devolvidas[m
+       FROM profiles p[m
+[31m-      LEFT JOIN profiles c ON c.id = p.criado_por[m
+[32m+[m[32m      LEFT JOIN profiles c ON c.id = p.criado_por AND c.org_id = p.org_id[m
+       LEFT JOIN ([m
+         -- Antes eram 4 subconsultas correlacionadas por linha (uma[m
+         -- COUNT(*) por membro para cada status). Com M membros isso virava[m
+[36m@@ -62,7 +63,10 @@[m [mrouter.get('/membros', async (req: Request, res: Response): Promise<void> => {[m
+         WHERE p.org_id = $1 AND p.ativo = TRUE[m
+         ORDER BY p.role, p.nome[m
+       `, [orgId])[m
+[31m-      res.json({ membros })[m
+[32m+[m[32m      res.json({ membros: membros.map((membro: any) => ({[m
+[32m+[m[32m        ...membro,[m
+[32m+[m[32m        avatar_url: buildPrivateFileUrl(req, membro.avatar_url, 'avatar', String(membro.id)),[m
+[32m+[m[32m      })) })[m
+       return[m
+     } else if (role === 'gestor' || role === 'sub_gestor') {[m
+       // Gestor/subgestor vê a si, comandados criados por ele e membros vinculados às equipes dele.[m
+[36m@@ -84,7 +88,10 @@[m [mrouter.get('/membros', async (req: Request, res: Response): Promise<void> => {[m
+ [m
+     sql += ' ORDER BY p.role, p.nome'[m
+     const membros = await query(sql, params)[m
+[31m-    res.json({ membros })[m
+[32m+[m[32m    res.json({ membros: membros.map((membro: any) => ({[m
+[32m+[m[32m      ...membro,[m
+[32m+[m[32m      avatar_url: buildPrivateFileUrl(req, membro.avatar_url, 'avatar', String(membro.id)),[m
+[32m+[m[32m    })) })[m
+   } catch (err) {[m
+     console.error('[EQUIPE] Erro ao listar membros:', err)[m
+     res.status(500).json({ error: 'Erro ao buscar membros.' })[m
+[1mdiff --git a/backend/src/routes/integracoes.ts b/backend/src/routes/integracoes.ts[m
+[1mindex 3a15abd..8aa6928 100644[m
+[1m--- a/backend/src/routes/integracoes.ts[m
+[1m+++ b/backend/src/routes/integracoes.ts[m
+[36m@@ -816,7 +816,13 @@[m [mrouter.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async ([m
+       `Executado no Destrava por ${executado_por_nome || executado_por_email || 'usuário'}.`[m
+     )[m
+ [m
+[31m-    res.json({ tarefa: updated.rows[0] })[m
+[32m+[m[32m    const tarefaAtualizada = updated.rows[0][m
+[32m+[m[32m    res.json({ tarefa: {[m
+[32m+[m[32m      id: tarefaAtualizada.id,[m
+[32m+[m[32m      checklist: tarefaAtualizada.checklist,[m
+[32m+[m[32m      status: tarefaAtualizada.status,[m
+[32m+[m[32m      updated_at: tarefaAtualizada.updated_at,[m
+[32m+[m[32m    } })[m
+   } catch (err) {[m
+     await client.query('ROLLBACK').catch(() => {})[m
+     console.error('[INTEGRACOES] Erro ao atualizar checklist a partir do Destrava:', err)[m
+[1mdiff --git a/backend/src/routes/notificacoes.ts b/backend/src/routes/notificacoes.ts[m
+[1mindex d00c51e..33e12ac 100644[m
+[1m--- a/backend/src/routes/notificacoes.ts[m
+[1m+++ b/backend/src/routes/notificacoes.ts[m
+[36m@@ -4,6 +4,7 @@[m [mimport { query, queryOne } from '../db/pool'[m
+ import { addSseClient, removeSseClient } from '../lib/notifHelper'[m
+ import { deactivatePushSubscription, ensurePushSchema, getVapidPublicKey, pushConfigured, upsertPushSubscription } from '../services/pushService'[m
+ import { respondRouteError } from '../lib/httpErrors'[m
+[32m+[m[32mimport { canListTaskForUser, comandadosDoSubGestor } from './tarefas'[m
+ [m
+ const router = Router()[m
+ [m
+[36m@@ -183,7 +184,10 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<void> => {[m
+   try {[m
+     const { userId, orgId, role } = req.user![m
+[31m-    const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(String(role || ''))[m
+[32m+[m[32m    const gestorLike = ['admin', 'dev', 'gestor'].includes(String(role || ''))[m
+[32m+[m[32m    const comandados = role === 'sub_gestor'[m
+[32m+[m[32m      ? await comandadosDoSubGestor(orgId, userId)[m
+[32m+[m[32m      : new Set<string>()[m
+ [m
+     const tarefasRows = await query<any>([m
+       `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por,[m
+[36m@@ -203,16 +207,10 @@[m [mrouter.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo[m
+        LIMIT 80`,[m
+       [orgId][m
+     )[m
+[31m-    const tarefas = tarefasRows.filter(t => {[m
+[31m-      if (gestorLike) return true[m
+[31m-      if (t.responsavel_id === userId || t.criado_por === userId || t.aceita_por === userId) return true[m
+[31m-      // Tarefa de escopo pessoal nunca aparece para outro usuário, mesmo sem responsavel_id definido.[m
+[31m-      const escopo = t.escopo === 'equipe' ? 'equipe' : 'pessoal'[m
+[31m-      if (escopo === 'pessoal') return false[m
+[31m-      if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') return true[m
+[31m-      const raw = Array.isArray(t.checklist) ? t.checklist : [][m
+[31m-      return raw.some((i: any) => i?.responsavel_id === userId)[m
+[31m-    }).slice(0, 30).map(t => ({[m
+[32m+[m[32m    const tarefas = tarefasRows[m
+[32m+[m[32m      .filter(t => canListTaskForUser(t, req.user!, comandados))[m
+[32m+[m[32m      .slice(0, 30)[m
+[32m+[m[32m      .map(t => ({[m
+       id: t.id,[m
+       tipo: 'tarefa',[m
+       titulo: t.origem_nome ? `${t.origem_nome} — ${t.titulo}` : t.titulo,[m
+[36m@@ -249,9 +247,17 @@[m [mrouter.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo[m
+     }))[m
+ [m
+     const eventos = await query<any>([m
+[31m-      `SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id,[m
+[32m+[m[32m      `      SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id, e.criado_por,[m
+               t.id AS tarefa_id, t.titulo AS tarefa_titulo, t.origem_nome AS empresa_nome,[m
+[31m-              t.status AS tarefa_status, t.checklist AS tarefa_checklist,[m
+[32m+[m[32m              t.status AS tarefa_status, t.escopo AS tarefa_escopo,[m
+[32m+[m[32m              t.responsavel_id AS tarefa_responsavel_id, t.criado_por AS tarefa_criado_por,[m
+[32m+[m[32m              t.aceita_por AS tarefa_aceita_por,[m
+[32m+[m[32m              COALESCE(t.modo_distribuicao, 'normal') AS tarefa_modo_distribuicao,[m
+[32m+[m[32m              CASE[m
+[32m+[m[32m                WHEN t.checklist IS NULL OR pg_column_size(t.checklist) <= 1000000[m
+[32m+[m[32m                  THEN COALESCE(t.checklist, '[]'::jsonb)[m
+[32m+[m[32m                ELSE '[]'::jsonb[m
+[32m+[m[32m              END AS tarefa_checklist,[m
+               EXTRACT(EPOCH FROM (NOW() - e.data_inicio))/3600 AS horas_atraso[m
+        FROM agenda e[m
+        LEFT JOIN tarefas t ON ([m
+[36m@@ -263,14 +269,29 @@[m [mrouter.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo[m
+        WHERE e.org_id = $1[m
+          AND e.data_inicio < NOW()[m
+          AND e.data_inicio >= NOW() - INTERVAL '7 days'[m
+[31m-         ${gestorLike ? '' : 'AND e.criado_por = $2'}[m
+        ORDER BY e.data_inicio ASC[m
+        LIMIT 80`,[m
+[31m-      gestorLike ? [orgId] : [orgId, userId][m
+[32m+[m[32m      [orgId][m
+     )[m
+ [m
+     const TAREFA_FINALIZADA = new Set(['concluida', 'aprovada', 'cancelada']);[m
+     const agenda = eventos.filter(e => {[m
+[32m+[m[32m      if (e.tarefa_id) {[m
+[32m+[m[32m        const tarefaVinculada = {[m
+[32m+[m[32m          id: e.tarefa_id,[m
+[32m+[m[32m          titulo: e.tarefa_titulo,[m
+[32m+[m[32m          status: e.tarefa_status,[m
+[32m+[m[32m          escopo: e.tarefa_escopo,[m
+[32m+[m[32m          responsavel_id: e.tarefa_responsavel_id,[m
+[32m+[m[32m          criado_por: e.tarefa_criado_por,[m
+[32m+[m[32m          aceita_por: e.tarefa_aceita_por,[m
+[32m+[m[32m          modo_distribuicao: e.tarefa_modo_distribuicao,[m
+[32m+[m[32m          checklist: e.tarefa_checklist,[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if (!canListTaskForUser(tarefaVinculada, req.user!, comandados)) return false[m
+[32m+[m[32m      } else if (!gestorLike && e.criado_por !== userId) {[m
+[32m+[m[32m        return false[m
+[32m+[m[32m      }[m
+       // Compromisso veio de uma tarefa/subtarefa mas essa tarefa foi apagada:[m
+       // não existe mais o que cobrar, não faz sentido continuar alertando.[m
+       if ((e.origem_tipo === 'tarefa' || e.origem_tipo === 'checklist') && !e.tarefa_id) return false[m
+[1mdiff --git a/backend/src/routes/tarefas.ts b/backend/src/routes/tarefas.ts[m
+[1mindex d9f8562..f800e53 100644[m
+[1m--- a/backend/src/routes/tarefas.ts[m
+[1m+++ b/backend/src/routes/tarefas.ts[m
+[36m@@ -2,11 +2,12 @@[m [mimport { Router, Request, Response, NextFunction } from "express";[m
+ import { v4 as uuidv4 } from "uuid";[m
+ import { createHash } from "crypto";[m
+ import pool, { getPoolStatus, query, queryOne, boundedInteger } from "../db/pool";[m
+[31m-import { authMiddleware, canDeleteOrgRecords } from "../middleware/auth";[m
+[32m+[m[32mimport { authMiddleware, canDeleteOrgRecords, isSuperAdmin } from "../middleware/auth";[m
+ import {[m
+   criarNotificacao,[m
+   resolverNotificacoesRecorrentesPorReferencia,[m
+ } from "../lib/notifHelper";[m
+[32m+[m[32mimport { buildPrivateFileUrl } from "../lib/privateFile";[m
+ import {[m
+   createSecureMulterUpload,[m
+   buildUploadUrl,[m
+[36m@@ -57,6 +58,19 @@[m [minterface MulterTaskRequest extends Request {[m
+   file?: Express.Multer.File;[m
+ }[m
+ [m
+[32m+[m[32mfunction serializeTaskAttachment(req: Request, taskId: string, attachment: any) {[m
+[32m+[m[32m  return {[m
+[32m+[m[32m    ...attachment,[m
+[32m+[m[32m    arquivo_url: buildPrivateFileUrl([m
+[32m+[m[32m      req,[m
+[32m+[m[32m      attachment?.arquivo_url,[m
+[32m+[m[32m      "tarefa_anexo",[m
+[32m+[m[32m      String(attachment?.id || ""),[m
+[32m+[m[32m      taskId,[m
+[32m+[m[32m    ),[m
+[32m+[m[32m  };[m
+[32m+[m[32m}[m
+[32m+[m
+ function destravaApiBase(): string {[m
+   return String([m
+     process.env.DESTRAVA_API_URL ||[m
+[36m@@ -1235,7 +1249,7 @@[m [mfunction filterChecklistForUser(task: any, user: NonNullable<Request["user"]>) {[m
+     .map((item) => maskSurpriseChecklistItem(item, userId, task));[m
+ }[m
+ [m
+[31m-function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {[m
+[32m+[m[32mexport function sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {[m
+   const checklist = filterChecklistForUser(task, user);[m
+   // Calculado sobre o checklist BRUTO (antes do filtro de privacidade acima),[m
+   // para que "está livre para assumir?" nunca dependa de quanto deste[m
+[36m@@ -1268,7 +1282,15 @@[m [mfunction sanitizeTaskForUser(task: any, user: NonNullable<Request["user"]>) {[m
+   return { ...protectedTask, checklist, possui_itens_atribuidos: possuiItensAtribuidos };[m
+ }[m
+ [m
+[31m-function canListTaskForUser([m
+[32m+[m[32mexport async function comandadosDoSubGestor(orgId: string, userId: string): Promise<Set<string>> {[m
+[32m+[m[32m  const subs = await query<{ id: string }>([m
+[32m+[m[32m    "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",[m
+[32m+[m[32m    [orgId, userId],[m
+[32m+[m[32m  );[m
+[32m+[m[32m  return new Set(subs.map((s) => s.id));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function canListTaskForUser([m
+   task: any,[m
+   user: NonNullable<Request["user"]>,[m
+   comandados = new Set<string>(),[m
+[36m@@ -1660,14 +1682,9 @@[m [masync function listTasksForUser(user: NonNullable<Request["user"]>) {[m
+       });[m
+     }[m
+ [m
+[31m-    let comandados = new Set<string>();[m
+[31m-    if (role === "sub_gestor") {[m
+[31m-      const subs = await query<{ id: string }>([m
+[31m-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",[m
+[31m-        [orgId, userId],[m
+[31m-      );[m
+[31m-      comandados = new Set(subs.map((s) => s.id));[m
+[31m-    }[m
+[32m+[m[32m    const comandados = role === "sub_gestor"[m
+[32m+[m[32m      ? await comandadosDoSubGestor(orgId, userId)[m
+[32m+[m[32m      : new Set<string>();[m
+ [m
+     return rows[m
+       .filter((task) => canListTaskForUser(task, user, comandados))[m
+[36m@@ -1893,14 +1910,9 @@[m [mrouter.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo[m
+       [orgId, origemId, contextoTipo],[m
+     );[m
+ [m
+[31m-    let comandados = new Set<string>();[m
+[31m-    if (role === "sub_gestor") {[m
+[31m-      const subs = await query<{ id: string }>([m
+[31m-        "SELECT id FROM profiles WHERE org_id = $1 AND criado_por = $2 AND ativo = TRUE",[m
+[31m-        [orgId, userId],[m
+[31m-      );[m
+[31m-      comandados = new Set(subs.map((s) => s.id));[m
+[31m-    }[m
+[32m+[m[32m    const comandados = role === "sub_gestor"[m
+[32m+[m[32m      ? await comandadosDoSubGestor(orgId, userId)[m
+[32m+[m[32m      : new Set<string>();[m
+ [m
+     const tarefas = rows[m
+       .filter((task) => canListTaskForUser(task, req.user!, comandados))[m
+[36m@@ -1911,7 +1923,13 @@[m [mrouter.get("/empresa/:origemId", async (req: Request, res: Response): Promise<vo[m
+       .filter(tarefaEstaFechada)[m
+       .sort((a: any, b: any) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());[m
+ [m
+[31m-    const referencia = rows[0];[m
+[32m+[m[32m    // Nunca use `rows[0]` como referência: ele pode pertencer a outra pessoa[m
+[32m+[m[32m    // e revelar nome/url da empresa mesmo quando nenhuma tarefa foi autorizada.[m
+[32m+[m[32m    const referencia = tarefas[0];[m
+[32m+[m[32m    if (!referencia) {[m
+[32m+[m[32m      res.status(404).json({ error: "Tarefa não encontrada." });[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+     res.json({[m
+       empresa: {[m
+         origem_id: origemId,[m
+[36m@@ -1942,7 +1960,7 @@[m [mrouter.get("/ranking", async (req: Request, res: Response): Promise<void> => {[m
+     const periodoFim = range.fim;[m
+ [m
+     const membros = await query<any>([m
+[31m-      `SELECT id, nome, email, role[m
+[32m+[m[32m      `SELECT id, nome[m
+        FROM profiles[m
+        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'[m
+        ORDER BY nome ASC`,[m
+[36m@@ -1954,8 +1972,6 @@[m [mrouter.get("/ranking", async (req: Request, res: Response): Promise<void> => {[m
+       rankingMap.set(m.id, {[m
+         id: m.id,[m
+         nome: m.nome,[m
+[31m-        email: m.email,[m
+[31m-        role: m.role,[m
+         pontos: 0,[m
+         tarefas_aprovadas: 0,[m
+         subtarefas_executadas: 0,[m
+[36m@@ -2965,7 +2981,7 @@[m [mrouter.post("/", async (req: Request, res: Response): Promise<void> => {[m
+         [orgId, userId, clientRequestId],[m
+       );[m
+       if (duplicate) {[m
+[31m-        res.status(200).json({ tarefa: duplicate });[m
+[32m+[m[32m        res.status(200).json({ tarefa: sanitizeTaskForUser(duplicate, req.user!) });[m
+         return;[m
+       }[m
+     }[m
+[36m@@ -3061,7 +3077,7 @@[m [mrouter.post("/", async (req: Request, res: Response): Promise<void> => {[m
+       }).catch(() => {});[m
+     }[m
+ [m
+[31m-    res.status(201).json({ tarefa });[m
+[32m+[m[32m    res.status(201).json({ tarefa: sanitizeTaskForUser(tarefa, req.user!) });[m
+   } catch (err) {[m
+     console.error("[TAREFAS] Erro ao criar:", err);[m
+     const statusCode = Number((err as any)?.statusCode || 0);[m
+[36m@@ -4012,7 +4028,7 @@[m [mrouter.get([m
+         [req.params.id, orgId],[m
+       );[m
+ [m
+[31m-      res.json({ anexos });[m
+[32m+[m[32m      res.json({ anexos: anexos.map((anexo: any) => serializeTaskAttachment(req, req.params.id, anexo)) });[m
+     } catch (err) {[m
+       console.error("[TAREFAS] Erro ao listar anexos:", err);[m
+       res.status(500).json({ error: "Erro ao buscar anexos da tarefa." });[m
+[36m@@ -4100,7 +4116,7 @@[m [mrouter.post([m
+       }[m
+ [m
+       res.status(201).json({[m
+[31m-        anexo,[m
+[32m+[m[32m        anexo: serializeTaskAttachment(req, req.params.id, anexo),[m
+         sincronizacao_destrava: sincronizarComDestrava[m
+           ? await sincronizarAnexoComDestrava([m
+               task,[m
+[36m@@ -4209,7 +4225,9 @@[m [mrouter.get([m
+         "Content-Disposition",[m
+         `${disposition}; filename="${encodeURIComponent(originalName)}"; filename*=UTF-8''${encodeURIComponent(originalName)}`,[m
+       );[m
+[31m-      res.setHeader("Cache-Control", "private, max-age=60");[m
+[32m+[m[32m      res.setHeader("Cache-Control", "private, no-store");[m
+[32m+[m[32m      res.setHeader("X-Content-Type-Options", "nosniff");[m
+[32m+[m[32m      res.setHeader("Referrer-Policy", "no-referrer");[m
+       res.sendFile(filePath);[m
+     } catch (err) {[m
+       console.error("[TAREFAS] Erro ao abrir arquivo da tarefa:", err);[m
+[36m@@ -5137,6 +5155,13 @@[m [mrouter.delete("/:id", async (req: Request, res: Response): Promise<void> => {[m
+       return;[m
+     }[m
+     const canDeleteAny = canDeleteOrgRecords(role);[m
+[32m+[m[32m    const comandados = role === "sub_gestor"[m
+[32m+[m[32m      ? await comandadosDoSubGestor(orgId, userId)[m
+[32m+[m[32m      : new Set<string>();[m
+[32m+[m[32m    const canDeleteAsSubGestor =[m
+[32m+[m[32m      role === "sub_gestor" &&[m
+[32m+[m[32m      !!existing.responsavel_id &&[m
+[32m+[m[32m      comandados.has(existing.responsavel_id);[m
+     if (role === "membro" && existing.criado_por !== userId) {[m
+       res[m
+         .status(403)[m
+[36m@@ -5145,6 +5170,7 @@[m [mrouter.delete("/:id", async (req: Request, res: Response): Promise<void> => {[m
+     }[m
+     if ([m
+       !canDeleteAny &&[m
+[32m+[m[32m      !canDeleteAsSubGestor &&[m
+       role !== "membro" &&[m
+       existing.criado_por !== userId &&[m
+       existing.responsavel_id !== userId[m
+[36m@@ -5153,9 +5179,10 @@[m [mrouter.delete("/:id", async (req: Request, res: Response): Promise<void> => {[m
+       return;[m
+     }[m
+ [m
+[31m-    // Checklists acima de 1 MB continuam deliberadamente protegidos até existir[m
+[31m-    // um procedimento específico de backup/rollback para esses históricos.[m
+[31m-    if (Number(existing.checklist_bytes || 0) > 1_000_000) {[m
+[32m+[m[32m    // Checklists acima de 1 MB continuam protegidos para os perfis comuns.[m
+[32m+[m[32m    // O Super Admin pode removê-los, pois a exclusão usa a mesma transação e[m
+[32m+[m[32m    // remove também os anexos, histórico e vínculos derivados.[m
+[32m+[m[32m    if (Number(existing.checklist_bytes || 0) > 1_000_000 && !isSuperAdmin(role)) {[m
+       res.status(409).json({[m
+         error: "Esta tarefa possui checklist histórico protegido acima de 1 MB e não pode ser excluída por este fluxo.",[m
+         checklist_protegido: true,[m
+[36m@@ -5477,8 +5504,8 @@[m [mrouter.patch("/ajuda/:ajudaId/resolver", async (req: Request, res: Response): Pr[m
+     );[m
+     // Verificar se ainda há pedidos pendentes na tarefa para atualizar o badge[m
+     const pendentes = await queryOne<{ count: string }>([m
+[31m-      "SELECT COUNT(*)::text AS count FROM tarefas_ajuda WHERE tarefa_id = $1 AND status = 'pendente'",[m
+[31m-      [ajuda.tarefa_id][m
+[32m+[m[32m      "SELECT COUNT(*)::text AS count FROM tarefas_ajuda WHERE tarefa_id = $1 AND org_id = $2 AND status = 'pendente'",[m
+[32m+[m[32m      [ajuda.tarefa_id, orgId][m
+     ).catch(() => null);[m
+     if (Number(pendentes?.count || 0) === 0) {[m
+       await query("UPDATE tarefas SET pedido_ajuda_pendente = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2", [ajuda.tarefa_id, orgId]).catch(() => {});[m
+[36m@@ -5606,21 +5633,82 @@[m [mrouter.patch("/:id/checklist/:itemId/revisao", async (req: Request, res: Respons[m
+ [m
+ router.get("/:id/relatorio", async (req: Request, res: Response): Promise<void> => {[m
+   try {[m
+[31m-    const { orgId } = req.user!;[m
+[32m+[m[32m    const { orgId, userId, role } = req.user!;[m
+     const tarefa = await getSafeTaskForAccess(req.params.id, orgId);[m
+[31m-    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) { res.status(404).json({ error:"Tarefa não encontrada." }); return; }[m
+[32m+[m[32m    if (!tarefa || !(await userCanAccessTask(tarefa, req.user!))) {[m
+[32m+[m[32m      res.status(404).json({ error: "Tarefa não encontrada." });[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const tarefaSegura = sanitizeTaskForUser(tarefa, req.user!);[m
+[32m+[m[32m    const gestorLike = canDeleteOrgRecords(role);[m
+[32m+[m[32m    if (!userHasCurrentStakeInTask(tarefa, req.user!)) {[m
+[32m+[m[32m      // Vínculo histórico não dá acesso ao relatório atual, que agregava[m
+[32m+[m[32m      // comentários, pontuações e anexos de outros executores.[m
+[32m+[m[32m      res.json({[m
+[32m+[m[32m        gerado_em: new Date().toISOString(),[m
+[32m+[m[32m        tarefa: tarefaSegura,[m
+[32m+[m[32m        comentarios: [],[m
+[32m+[m[32m        historico: [],[m
+[32m+[m[32m        pontuacoes: [],[m
+[32m+[m[32m        anexos: [],[m
+[32m+[m[32m      });[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m
+     const [comentarios, historico, pontuacoes, anexos] = await Promise.all([[m
+[31m-      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c        JOIN profiles p ON p.id=c.autor_id AND p.org_id=c.org_id WHERE c.org_id=$1 AND c.tarefa_id=$2[m
+[31m- ORDER BY c.criado_em`,[orgId,tarefa.id]),[m
+[31m-      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h        LEFT JOIN profiles p ON p.id=h.user_id AND p.org_id=h.org_id WHERE h.org_id=$1 AND h.tarefa_id=$2[m
+[31m- ORDER BY h.created_at`,[orgId,tarefa.id]).catch(()=>[]),[m
+[31m-      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp        JOIN profiles p ON p.id=tp.usuario_id AND p.org_id=tp.org_id LEFT JOIN profiles a ON a.id=tp.aprovado_por AND a.org_id=tp.org_id WHERE tp.org_id=$1 AND tp.tarefa_id=$2[m
+[31m- ORDER BY tp.aprovado_em`,[orgId,tarefa.id]),[m
+[31m-      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta        LEFT JOIN profiles p ON p.id=ta.enviado_por AND p.org_id=ta.org_id WHERE ta.org_id=$1 AND ta.tarefa_id=$2[m
+[31m- ORDER BY ta.created_at`,[orgId,tarefa.id]).catch(()=>[]),[m
+[32m+[m[32m      query<any>(`SELECT c.*, p.nome autor_nome FROM tarefas_comentarios c[m
+[32m+[m[32m        JOIN profiles p ON p.id=c.autor_id AND p.org_id=c.org_id[m
+[32m+[m[32m       WHERE c.org_id=$1 AND c.tarefa_id=$2[m
+[32m+[m[32m       ORDER BY c.criado_em`, [orgId, tarefa.id]),[m
+[32m+[m[32m      query<any>(`SELECT h.*, p.nome usuario_nome FROM tarefas_historico h[m
+[32m+[m[32m        LEFT JOIN profiles p ON p.id=h.user_id AND p.org_id=h.org_id[m
+[32m+[m[32m       WHERE h.org_id=$1 AND h.tarefa_id=$2[m
+[32m+[m[32m       ORDER BY h.created_at`, [orgId, tarefa.id]).catch(() => []),[m
+[32m+[m[32m      query<any>(`SELECT tp.*, p.nome usuario_nome, a.nome aprovado_por_nome FROM tarefas_pontuacao tp[m
+[32m+[m[32m        JOIN profiles p ON p.id=tp.usuario_id AND p.org_id=tp.org_id[m
+[32m+[m[32m        LEFT JOIN profiles a ON a.id=tp.aprovado_por AND a.org_id=tp.org_id[m
+[32m+[m[32m       WHERE tp.org_id=$1 AND tp.tarefa_id=$2[m
+[32m+[m[32m       ORDER BY tp.aprovado_em`, [orgId, tarefa.id]),[m
+[32m+[m[32m      query<any>(`SELECT ta.*, p.nome enviado_por_nome FROM tarefas_anexos ta[m
+[32m+[m[32m        LEFT JOIN profiles p ON p.id=ta.enviado_por AND p.org_id=ta.org_id[m
+[32m+[m[32m       WHERE ta.org_id=$1 AND ta.tarefa_id=$2[m
+[32m+[m[32m       ORDER BY ta.created_at`, [orgId, tarefa.id]).catch(() => []),[m
+     ]);[m
+[31m-    res.json({ gerado_em:new Date().toISOString(), tarefa:{...tarefa, checklist:parseChecklistItems(tarefa.checklist)}, comentarios, historico, pontuacoes, anexos });[m
+[31m-  } catch(err) { console.error("[TAREFAS] Erro relatório:",err); res.status(500).json({error:"Erro ao gerar relatório."}); }[m
+[32m+[m
+[32m+[m[32m    const visibleChecklistIds = new Set([m
+[32m+[m[32m      parseChecklistItems(tarefaSegura.checklist).map((item: any) => String(item.id || "")),[m
+[32m+[m[32m    );[m
+[32m+[m[32m    const comentariosSeguros = gestorLike[m
+[32m+[m[32m      ? comentarios[m
+[32m+[m[32m      : comentarios.filter((comentario: any) =>[m
+[32m+[m[32m        !comentario.checklist_id ||[m
+[32m+[m[32m        visibleChecklistIds.has(String(comentario.checklist_id)) ||[m
+[32m+[m[32m        comentario.autor_id === userId,[m
+[32m+[m[32m      );[m
+[32m+[m[32m    const historicoSeguro = gestorLike[m
+[32m+[m[32m      ? historico[m
+[32m+[m[32m      : historico.filter((item: any) => item.user_id === userId);[m
+[32m+[m[32m    const pontuacoesSeguras = gestorLike[m
+[32m+[m[32m      ? pontuacoes[m
+[32m+[m[32m      : pontuacoes.filter((item: any) => item.usuario_id === userId);[m
+[32m+[m[32m    const anexosSeguros = (gestorLike[m
+[32m+[m[32m      ? anexos[m
+[32m+[m[32m      : anexos.filter((item: any) => item.enviado_por === userId || item.enviado_por === tarefa.criado_por)[m
+[32m+[m[32m    ).map((anexo: any) => serializeTaskAttachment(req, tarefa.id, anexo));[m
+[32m+[m
+[32m+[m[32m    res.json({[m
+[32m+[m[32m      gerado_em: new Date().toISOString(),[m
+[32m+[m[32m      tarefa: tarefaSegura,[m
+[32m+[m[32m      comentarios: comentariosSeguros,[m
+[32m+[m[32m      historico: historicoSeguro,[m
+[32m+[m[32m      pontuacoes: pontuacoesSeguras,[m
+[32m+[m[32m      anexos: anexosSeguros,[m
+[32m+[m[32m    });[m
+[32m+[m[32m  } catch(err) {[m
+[32m+[m[32m    console.error("[TAREFAS] Erro relatório:", err);[m
+[32m+[m[32m    res.status(500).json({ error: "Erro ao gerar relatório." });[m
+[32m+[m[32m  }[m
+ });[m
+ [m
+ // Exportado somente para testes de regressão da regra de checklist/pontuação.[m
+[1mdiff --git a/backend/src/routes/tarefasScoring.ts b/backend/src/routes/tarefasScoring.ts[m
+[1mindex 9ac0b46..093a6f9 100644[m
+[1m--- a/backend/src/routes/tarefasScoring.ts[m
+[1m+++ b/backend/src/routes/tarefasScoring.ts[m
+[36m@@ -6,6 +6,7 @@[m [mimport {[m
+   resolverNotificacoesRecorrentesPorReferencia,[m
+ } from '../lib/notifHelper'[m
+ import { respondRouteError } from '../lib/httpErrors'[m
+[32m+[m[32mimport { sanitizeTaskForUser } from './tarefas'[m
+ [m
+ const router = Router()[m
+ const SCORE_MAX = 20[m
+[36m@@ -344,7 +345,7 @@[m [mrouter.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque[m
+       }).catch(() => undefined)[m
+     }[m
+ [m
+[31m-    res.json({ tarefa: updated.rows[0], pontuacao_liberada: decision === 'aprovar' && isMultiExecutor({ ...task, checklist: items }) })[m
+[32m+[m[32m    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!), pontuacao_liberada: decision === 'aprovar' && isMultiExecutor({ ...task, checklist: items }) })[m
+   } catch (err) {[m
+     await client.query('ROLLBACK').catch(() => undefined)[m
+     console.error('[TAREFAS-SCORING] Erro na revisão por item:', err)[m
+[36m@@ -413,7 +414,7 @@[m [mrouter.patch('/:id/checklist/:itemId/corrigir-pontuacao', authMiddleware, async[m
+       [orgId, task.id, userId, `Gestor corrigiu a pontuação de "${item.texto}" de ${pontosAntigos} para ${itemPoints(item)} ponto(s).`],[m
+     ).catch(() => undefined)[m
+     await client.query('COMMIT')[m
+[31m-    res.json({ tarefa: updated.rows[0] })[m
+[32m+[m[32m    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })[m
+   } catch (err) {[m
+     await client.query('ROLLBACK').catch(() => undefined)[m
+     console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação do item:', err)[m
+[36m@@ -461,7 +462,7 @@[m [mrouter.patch('/:id/corrigir-pontuacao', authMiddleware, async (req: Request, res[m
+       [orgId, task.id, userId, `Gestor corrigiu a pontuação da lista "${task.titulo}" de ${pontosAntigos} para ${taskPoints(updated.rows[0])} ponto(s).`],[m
+     ).catch(() => undefined)[m
+     await client.query('COMMIT')[m
+[31m-    res.json({ tarefa: updated.rows[0] })[m
+[32m+[m[32m    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })[m
+   } catch (err) {[m
+     await client.query('ROLLBACK').catch(() => undefined)[m
+     console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação da lista:', err)[m
+[36m@@ -581,7 +582,7 @@[m [mrouter.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)[m
+         referenciaTipo: 'tarefa',[m
+       }).catch(() => undefined)[m
+     }[m
+[31m-    res.json({ tarefa: updated.rows[0] })[m
+[32m+[m[32m    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })[m
+   } catch (err) {[m
+     await client.query('ROLLBACK').catch(() => undefined)[m
+     console.error('[TAREFAS-SCORING] Erro ao aprovar lista:', err)[m
+[36m@@ -596,7 +597,8 @@[m [mrouter.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom[m
+     const { orgId } = req.user![m
+     const range = periodRange(String(req.query.periodo || 'todos').trim().toLowerCase())[m
+     const members = await query<any>([m
+[31m-      `SELECT id, nome, email, role FROM profiles[m
+[32m+[m[32m            `SELECT id, nome[m
+[32m+[m[32m       FROM profiles[m
+        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'[m
+        ORDER BY nome`,[m
+       [orgId],[m
+[36m@@ -720,9 +722,9 @@[m [mrouter.get('/ajuda/minhas', authMiddleware, async (req: Request, res: Response):[m
+     const ajudas = await query([m
+       `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo[m
+        FROM tarefas_ajuda ta[m
+[31m-       JOIN profiles ps ON ps.id = ta.solicitante_id[m
+[31m-       JOIN profiles pd ON pd.id = ta.destinatario_id[m
+[31m-       JOIN tarefas t ON t.id = ta.tarefa_id[m
+[32m+[m[32m       JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id[m
+[32m+[m[32m       JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id[m
+[32m+[m[32m       JOIN tarefas t ON t.id = ta.tarefa_id AND t.org_id = ta.org_id[m
+        WHERE ta.org_id = $1 AND ta.solicitante_id = $2 AND ta.status IN ('pendente','respondida')[m
+        ORDER BY ta.updated_at DESC NULLS LAST, ta.respondida_em DESC NULLS LAST, ta.created_at DESC[m
+        LIMIT 50`,[m
+[1mdiff --git a/backend/src/routes/uploads.ts b/backend/src/routes/uploads.ts[m
+[1mindex 0f7bfd2..922a69f 100644[m
+[1m--- a/backend/src/routes/uploads.ts[m
+[1m+++ b/backend/src/routes/uploads.ts[m
+[36m@@ -1,9 +1,76 @@[m
+ import { Router, Request, Response, NextFunction } from 'express'[m
+[32m+[m[32mimport fs from 'fs'[m
+[32m+[m[32mimport path from 'path'[m
+ import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'[m
+ import { query, queryOne } from '../db/pool'[m
+[31m-import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'[m
+[32m+[m[32mimport { buildPrivateFileUrl, verifyPrivateFileTicket } from '../lib/privateFile'[m
+[32m+[m[32mimport { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, safeUploadPathFromFilename, filenameFromUploadUrl, uploadErrorMessage } from '../lib/uploadSecurity'[m
+ [m
+ const router = Router()[m
+[32m+[m
+[32m+[m[32m// Arquivos nunca são servidos como conteúdo estático. O ticket curto identifica[m
+[32m+[m[32m// usuário, organização, recurso e nome físico; o handler ainda revalida o[m
+[32m+[m[32m// vínculo no banco antes de abrir o arquivo.[m
+[32m+[m[32mrouter.get('/file/:filename', async (req: Request, res: Response): Promise<void> => {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const filename = path.basename(String(req.params.filename || ''))[m
+[32m+[m[32m    const ticket = verifyPrivateFileTicket(req.query.ticket, filename)[m
+[32m+[m[32m    if (!ticket) {[m
+[32m+[m[32m      res.status(401).json({ error: 'Ticket de arquivo inválido ou expirado.' })[m
+[32m+[m[32m      return[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    let record: { id: string; arquivo_url: string | null; mime_type?: string | null; nome_original?: string | null; titulo?: string | null } | null = null[m
+[32m+[m[32m    if (ticket.resource === 'documento') {[m
+[32m+[m[32m      const canReadAny = ['admin', 'dev', 'gestor'].includes(ticket.role)[m
+[32m+[m[32m      record = await queryOne([m
+[32m+[m[32m        `SELECT id, arquivo_url, mime_type, titulo[m
+[32m+[m[32m           FROM documentos[m
+[32m+[m[32m          WHERE id = $1 AND org_id = $2[m
+[32m+[m[32m            AND ($3::boolean = TRUE OR criado_por = $4)`,[m
+[32m+[m[32m        [ticket.resourceId, ticket.orgId, canReadAny, ticket.userId],[m
+[32m+[m[32m      )[m
+[32m+[m[32m    } else if (ticket.resource === 'avatar') {[m
+[32m+[m[32m      record = await queryOne([m
+[32m+[m[32m        `SELECT id, avatar_url AS arquivo_url, NULL::text AS mime_type, nome AS titulo[m
+[32m+[m[32m           FROM profiles[m
+[32m+[m[32m          WHERE id = $1 AND org_id = $2 AND ativo = TRUE`,[m
+[32m+[m[32m        [ticket.resourceId, ticket.orgId],[m
+[32m+[m[32m      )[m
+[32m+[m[32m    } else if (ticket.resource === 'tarefa_anexo' && ticket.parentId) {[m
+[32m+[m[32m      record = await queryOne([m
+[32m+[m[32m        `SELECT a.id, a.arquivo_url, a.mime_type, a.nome_original, a.titulo[m
+[32m+[m[32m           FROM tarefa_anexos a[m
+[32m+[m[32m           JOIN tarefas t ON t.id = a.tarefa_id AND t.org_id = a.org_id[m
+[32m+[m[32m          WHERE a.id = $1 AND a.tarefa_id = $2 AND a.org_id = $3`,[m
+[32m+[m[32m        [ticket.resourceId, ticket.parentId, ticket.orgId],[m
+[32m+[m[32m      )[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    if (!record || filenameFromUploadUrl(record.arquivo_url) !== filename) {[m
+[32m+[m[32m      res.status(404).json({ error: 'Arquivo não encontrado.' })[m
+[32m+[m[32m      return[m
+[32m+[m[32m    }[m
+[32m+[m[32m    const filePath = safeUploadPathFromFilename(filename)[m
+[32m+[m[32m    if (!fs.existsSync(filePath)) {[m
+[32m+[m[32m      res.status(404).json({ error: 'Arquivo físico não encontrado.' })[m
+[32m+[m[32m      return[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const originalName = path.basename(String(record.nome_original || record.titulo || filename)).replace(/[\\r\\n\"]/g, '') || filename[m
+[32m+[m[32m    const disposition = req.query.download === '1' ? 'attachment' : 'inline'[m
+[32m+[m[32m    res.setHeader('Content-Type', record.mime_type || 'application/octet-stream')[m
+[32m+[m[32m    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(originalName)}"; filename*=UTF-8''${encodeURIComponent(originalName)}`)[m
+[32m+[m[32m    res.setHeader('Cache-Control', 'private, no-store')[m
+[32m+[m[32m    res.setHeader('Referrer-Policy', 'no-referrer')[m
+[32m+[m[32m    res.setHeader('X-Content-Type-Options', 'nosniff')[m
+[32m+[m[32m    res.sendFile(filePath)[m
+[32m+[m[32m  } catch (err) {[m
+[32m+[m[32m    console.error('[UPLOAD] Erro ao abrir arquivo privado:', err)[m
+[32m+[m[32m    if (!res.headersSent) res.status(500).json({ error: 'Erro ao abrir arquivo.' })[m
+[32m+[m[32m  }[m
+[32m+[m[32m})[m
+[32m+[m
+ router.use(authMiddleware)[m
+ [m
+ // ── CONFIGURAÇÃO DO STORAGE SEGURO ───────────────────────────────────────────[m
+[36m@@ -32,8 +99,9 @@[m [mrouter.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr[m
+       return[m
+     }[m
+ [m
+[31m-    const { orgId, userId } = req.user![m
+[32m+[m[32m    const { orgId, userId, role } = req.user![m
+     const { titulo, descricao, tipo = 'outro', pessoa_id, pagamento_id } = req.body[m
+[32m+[m[32m    const canReadAny = canDeleteOrgRecords(role)[m
+ [m
+     if (!titulo?.trim()) {[m
+       removeUploadByUrl(buildUploadUrl(req.file.filename))[m
+[36m@@ -44,15 +112,36 @@[m [mrouter.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr[m
+     let pessoaNome: string | null = null[m
+     if (pessoa_id) {[m
+       const pessoa = await queryOne<{ nome: string }>([m
+[31m-        'SELECT nome FROM pessoas WHERE id = $1 AND org_id = $2',[m
+[31m-        [pessoa_id, orgId],[m
+[32m+[m[32m        `SELECT nome FROM pessoas[m
+[32m+[m[32m          WHERE id = $1 AND org_id = $2[m
+[32m+[m[32m            AND ($3::boolean = TRUE OR user_id = $4)`,[m
+[32m+[m[32m        [pessoa_id, orgId, canReadAny, userId],[m
+[32m+[m[32m      )[m
+[32m+[m[32m      if (!pessoa) {[m
+[32m+[m[32m        removeUploadByUrl(buildUploadUrl(req.file.filename))[m
+[32m+[m[32m        res.status(404).json({ error: 'Pessoa não encontrada ou sem permissão.' })[m
+[32m+[m[32m        return[m
+[32m+[m[32m      }[m
+[32m+[m[32m      pessoaNome = pessoa.nome[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    if (pagamento_id) {[m
+[32m+[m[32m      const pagamento = await queryOne([m
+[32m+[m[32m        `SELECT id FROM pagamentos[m
+[32m+[m[32m          WHERE id = $1 AND org_id = $2[m
+[32m+[m[32m            AND ($3::boolean = TRUE OR criado_por = $4)`,[m
+[32m+[m[32m        [pagamento_id, orgId, canReadAny, userId],[m
+       )[m
+[31m-      pessoaNome = pessoa?.nome ?? null[m
+[32m+[m[32m      if (!pagamento) {[m
+[32m+[m[32m        removeUploadByUrl(buildUploadUrl(req.file.filename))[m
+[32m+[m[32m        res.status(404).json({ error: 'Pagamento não encontrado ou sem permissão.' })[m
+[32m+[m[32m        return[m
+[32m+[m[32m      }[m
+     }[m
+ [m
+     const arquivo_url = buildUploadUrl(req.file.filename)[m
+ [m
+[31m-    const doc = await queryOne([m
+[32m+[m[32m    const doc = await queryOne<any>([m
+       `INSERT INTO documentos[m
+          (org_id, criado_por, titulo, descricao, tipo, arquivo_url, mime_type, tamanho, pessoa_id, pessoa_nome, pagamento_id)[m
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)[m
+[36m@@ -71,7 +160,8 @@[m [mrouter.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr[m
+       )[m
+     }[m
+ [m
+[31m-    res.status(201).json({ documento: doc, arquivo_url })[m
+[32m+[m[32m    const documentoSeguro = doc ? { ...doc, arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)) } : doc[m
+[32m+[m[32m    res.status(201).json({ documento: documentoSeguro, arquivo_url: documentoSeguro?.arquivo_url || null })[m
+   } catch (err: unknown) {[m
+     if ((req as MulterRequest).file) {[m
+       removeUploadByUrl(buildUploadUrl((req as MulterRequest).file!.filename))[m
+[36m@@ -92,7 +182,7 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+     let sql = `[m
+       SELECT d.*, p.nome AS pessoa_nome_atual[m
+       FROM documentos d[m
+[31m-      LEFT JOIN pessoas p ON p.id = d.pessoa_id[m
+[32m+[m[32m      LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id[m
+       WHERE d.org_id = $1 AND d.criado_por = $2[m
+     `[m
+     const params: unknown[] = [orgId, userId][m
+[36m@@ -105,7 +195,10 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+     sql += ' ORDER BY d.created_at DESC'[m
+ [m
+     const documentos = await query(sql, params)[m
+[31m-    res.json({ documentos })[m
+[32m+[m[32m    res.json({ documentos: documentos.map((documento: any) => ({[m
+[32m+[m[32m      ...documento,[m
+[32m+[m[32m      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),[m
+[32m+[m[32m    })) })[m
+   } catch (err) {[m
+     console.error('[UPLOAD] Erro ao listar:', err)[m
+     res.status(500).json({ error: 'Erro ao buscar documentos.' })[m
+[36m@@ -154,11 +247,12 @@[m [mrouter.get('/historico/:pessoaId', async (req: Request, res: Response): Promise<[m
+       query('SELECT * FROM documentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),[m
+       query('SELECT * FROM pagamentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),[m
+       query([m
+[31m-        `SELECT t.* FROM tarefas t[m
+[31m-         WHERE t.responsavel_id = ([m
+[31m-           SELECT user_id FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3[m
+[31m-         ) AND t.org_id = $2[m
+[31m-         ORDER BY t.created_at DESC`,[m
+[32m+[m[32m        `SELECT t.id, t.titulo, t.prazo, t.data, t.status, t.prioridade[m
+[32m+[m[32m           FROM tarefas t[m
+[32m+[m[32m          WHERE t.responsavel_id = ([m
+[32m+[m[32m            SELECT user_id FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3[m
+[32m+[m[32m          ) AND t.org_id = $2[m
+[32m+[m[32m          ORDER BY t.created_at DESC`,[m
+         [pessoaId, orgId, userId],[m
+       ),[m
+     ])[m
+[36m@@ -169,7 +263,11 @@[m [mrouter.get('/historico/:pessoaId', async (req: Request, res: Response): Promise<[m
+     const totalPago       = pags.filter(p => p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0)[m
+     const totalPendente   = pags.filter(p => p.status === 'pendente').reduce((a, b) => a + Number(b.valor), 0)[m
+ [m
+[31m-    res.json({ pessoa, documentos, pagamentos, tarefas, resumo: { totalDevo, totalMeDevem, totalPago, totalPendente } })[m
+[32m+[m[32m    const documentosSeguros = (documentos as any[]).map((documento) => ({[m
+[32m+[m[32m      ...documento,[m
+[32m+[m[32m      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),[m
+[32m+[m[32m    }))[m
+[32m+[m[32m    res.json({ pessoa, documentos: documentosSeguros, pagamentos, tarefas, resumo: { totalDevo, totalMeDevem, totalPago, totalPendente } })[m
+   } catch (err) {[m
+     console.error('[UPLOAD] Erro no histórico:', err)[m
+     res.status(500).json({ error: 'Erro ao buscar histórico.' })[m
+[1mdiff --git a/backend/src/routes/users.ts b/backend/src/routes/users.ts[m
+[1mindex 85c0015..ab78826 100644[m
+[1m--- a/backend/src/routes/users.ts[m
+[1m+++ b/backend/src/routes/users.ts[m
+[36m@@ -1,8 +1,9 @@[m
+ import { Router, Request, Response, NextFunction } from 'express'[m
+ import bcrypt from 'bcryptjs'[m
+ import crypto from 'crypto'[m
+[31m-import { authMiddleware } from '../middleware/auth'[m
+[32m+[m[32mimport { authMiddleware, isSuperAdmin } from '../middleware/auth'[m
+ import { query, queryOne } from '../db/pool'[m
+[32m+[m[32mimport { buildPrivateFileUrl } from '../lib/privateFile'[m
+ import { buildUploadUrl, createSecureMulterUpload, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'[m
+ [m
+ const router = Router()[m
+[36m@@ -28,11 +29,11 @@[m [mfunction normalizeRole(role: unknown): Role {[m
+ }[m
+ [m
+ function isGlobalDeleteRole(role: string | undefined): boolean {[m
+[31m-  return role === 'admin' || role === 'dev' || role === 'gestor'[m
+[32m+[m[32m  return role === 'admin' || isSuperAdmin(role) || role === 'gestor'[m
+ }[m
+ [m
+ function canCreateRole(currentRole: string | undefined, targetRole: Role): boolean {[m
+[31m-  if (currentRole === 'dev') return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)[m
+[32m+[m[32m  if (isSuperAdmin(currentRole)) return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)[m
+   if (currentRole === 'admin') return ['gestor', 'sub_gestor', 'membro'].includes(targetRole)[m
+   if (currentRole === 'gestor') return ['sub_gestor', 'membro'].includes(targetRole)[m
+   if (currentRole === 'sub_gestor') return targetRole === 'membro'[m
+[36m@@ -42,7 +43,7 @@[m [mfunction canCreateRole(currentRole: string | undefined, targetRole: Role): boole[m
+ }[m
+ [m
+ function canManageTarget(currentRole: string | undefined, targetRole: string, isOwnSubordinate = true): boolean {[m
+[31m-  if (currentRole === 'dev') return targetRole !== 'dev'[m
+[32m+[m[32m  if (isSuperAdmin(currentRole)) return targetRole !== 'dev'[m
+   if (currentRole === 'admin') return targetRole !== 'dev' && targetRole !== 'admin'[m
+   // Gestor administra membros e subgestores da organização, sem acessar admin/dev/outro gestor.[m
+   if (currentRole === 'gestor') return targetRole === 'sub_gestor' || targetRole === 'membro'[m
+[36m@@ -75,6 +76,14 @@[m [mfunction mayEditTarget(currentUserId: string, currentRole: string | undefined, t[m
+   return canManageTarget(currentRole, target.role, target.criado_por === currentUserId)[m
+ }[m
+ [m
+[32m+[m[32mfunction serializeUser(req: Request, user: any) {[m
+[32m+[m[32m  if (!user) return user[m
+[32m+[m[32m  return {[m
+[32m+[m[32m    ...user,[m
+[32m+[m[32m    avatar_url: buildPrivateFileUrl(req, user.avatar_url, 'avatar', String(user.id)),[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+ // GET /api/users[m
+ // dev/admin/gestor: todos da organização. sub_gestor e membro: ele + usuários criados por ele.[m
+ router.get('/', async (req: Request, res: Response): Promise<void> => {[m
+[36m@@ -85,7 +94,7 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+              p.primeiro_acesso, p.criado_por, p.created_at, p.updated_at,[m
+              c.nome AS criado_por_nome[m
+       FROM profiles p[m
+[31m-      LEFT JOIN profiles c ON c.id = p.criado_por[m
+[32m+[m[32m      LEFT JOIN profiles c ON c.id = p.criado_por AND c.org_id = p.org_id[m
+       WHERE p.org_id = $1[m
+     `[m
+     const params: unknown[] = [orgId][m
+[36m@@ -95,7 +104,7 @@[m [mrouter.get('/', async (req: Request, res: Response): Promise<void> => {[m
+     }[m
+     sql += ' ORDER BY p.ativo DESC, p.role, p.nome'[m
+     const users = await query(sql, params)[m
+[31m-    res.json({ users })[m
+[32m+[m[32m    res.json({ users: users.map((user: any) => serializeUser(req, user)) })[m
+   } catch (err) {[m
+     console.error('[USERS] Erro ao listar:', err)[m
+     res.status(500).json({ error: 'Erro ao listar usuários.' })[m
+[36m@@ -136,7 +145,7 @@[m [mrouter.post('/', authMiddleware, async (req: Request, res: Response): Promise<vo[m
+       [orgId, nome.trim(), normalizedEmail, senhaHash, novoRole, cargo || null, userId][m
+     )[m
+ [m
+[31m-    res.status(201).json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })[m
+[32m+[m[32m    res.status(201).json({ user: serializeUser(req, user), senha: senhaProvisoria, senha_provisoria: senhaProvisoria })[m
+   } catch (err) {[m
+     console.error('[USERS] Erro ao criar:', err)[m
+     res.status(500).json({ error: 'Erro ao criar usuário.' })[m
+[36m@@ -238,7 +247,7 @@[m [mrouter.patch('/:id', authMiddleware, async (req: Request, res: Response): Promis[m
+        RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,[m
+       params[m
+     )[m
+[31m-    res.json({ user })[m
+[32m+[m[32m    res.json({ user: serializeUser(req, user) })[m
+   } catch (err) {[m
+     console.error('[USERS] Erro ao atualizar:', err)[m
+     res.status(500).json({ error: 'Erro ao atualizar usuário.' })[m
+[36m@@ -276,7 +285,7 @@[m [mrouter.post('/:id/avatar', uploadAvatar, async (req: AvatarRequest, res: Respons[m
+       [avatarUrl, id, orgId],[m
+     )[m
+     if (target.avatar_url && target.avatar_url !== avatarUrl) removeUploadByUrl(target.avatar_url)[m
+[31m-    res.json({ user })[m
+[32m+[m[32m    res.json({ user: serializeUser(req, user) })[m
+   } catch (err) {[m
+     if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))[m
+     console.error('[USERS] Erro ao atualizar avatar:', err)[m
+[36m@@ -301,7 +310,7 @@[m [mrouter.delete('/:id/avatar', async (req: Request, res: Response): Promise<void>[m
+       [req.params.id, orgId],[m
+     )[m
+     removeUploadByUrl(target.avatar_url)[m
+[31m-    res.json({ user })[m
+[32m+[m[32m    res.json({ user: serializeUser(req, user) })[m
+   } catch (err) {[m
+     console.error('[USERS] Erro ao remover avatar:', err)[m
+     res.status(500).json({ error: 'Erro ao remover foto do usuário.' })[m
+[1mdiff --git a/backend/test/taskDeleteIntegrity.test.ts b/backend/test/taskDeleteIntegrity.test.ts[m
+[1mindex 84925b4..5a921d0 100644[m
+[1m--- a/backend/test/taskDeleteIntegrity.test.ts[m
+[1m+++ b/backend/test/taskDeleteIntegrity.test.ts[m
+[36m@@ -5,7 +5,7 @@[m [mimport { resolve } from 'node:path'[m
+ const read = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8')[m
+ [m
+ describe('exclusão segura de tarefas', () => {[m
+[31m-  it('usa um único PoolClient e protege checklists grandes', () => {[m
+[32m+[m[32m  it('usa um único PoolClient, protege checklists grandes e libera o Super Admin', () => {[m
+     const source = read('src/routes/tarefas.ts')[m
+     const start = source.indexOf('router.delete("/:id"')[m
+     const end = source.indexOf('// ── PEDIR AJUDA', start)[m
+[36m@@ -14,9 +14,11 @@[m [mdescribe('exclusão segura de tarefas', () => {[m
+     expect(block).toContain('getSafeTaskForAccess(req.params.id, orgId)')[m
+     expect(block).toContain('checklist_bytes')[m
+     expect(block).toContain('checklist_protegido: true')[m
+[32m+[m[32m    expect(block).toContain('isSuperAdmin(role)')[m
+[32m+[m[32m    expect(block).toContain('Number(existing.checklist_bytes || 0) > 1_000_000 && !isSuperAdmin(role)')[m
+     expect(block).not.toContain('getTaskForAccess(req.params.id, orgId)')[m
+     expect(block.indexOf('const existing = await getSafeTaskForAccess(req.params.id, orgId)')).toBeLessThan([m
+[31m-      block.indexOf('if (Number(existing.checklist_bytes || 0) > 1_000_000)')[m
+[32m+[m[32m      block.indexOf('if (Number(existing.checklist_bytes || 0) > 1_000_000 && !isSuperAdmin(role))')[m
+     )[m
+     expect(block).toContain('client = await pool.connect()')[m
+     expect(block).toContain('await client.query("BEGIN")')[m
+[1mdiff --git a/index.html b/index.html[m
+[1mindex be82b79..86e8bbb 100644[m
+[1m--- a/index.html[m
+[1m+++ b/index.html[m
+[36m@@ -8,8 +8,8 @@[m
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />[m
+ [m
+     <!-- ═══ PWA / App-like meta tags ═══ -->[m
+[31m-    <meta name="theme-color" content="#0F0A1E" media="(prefers-color-scheme: dark)" />[m
+[31m-    <meta name="theme-color" content="#0F0A1E" />[m
+[32m+[m[32m    <meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)" />[m
+[32m+[m[32m    <meta name="theme-color" content="#f6f7fb" />[m
+     <meta name="description" content="Gestão de equipe, tarefas, agenda e financeiro em um só lugar" />[m
+ [m
+     <!-- iOS: faz o app parecer instalado como app nativo -->[m
+[36m@@ -62,7 +62,7 @@[m
+       #splash {[m
+         position: fixed;[m
+         inset: 0;[m
+[31m-        background: #0F0A1E;[m
+[32m+[m[32m        background: var(--bg, #f6f7fb);[m
+         display: flex;[m
+         flex-direction: column;[m
+         align-items: center;[m
+[36m@@ -73,28 +73,25 @@[m
+       #splash.hide { opacity: 0; pointer-events: none; }[m
+       #splash-logo {[m
+         width: 72px; height: 72px;[m
+[31m-        background: linear-gradient(135deg, #6C3BFF, #06B6D4);[m
+[32m+[m[32m        background: var(--primary, #2457e6);[m
+         border-radius: 20px;[m
+         display: flex; align-items: center; justify-content: center;[m
+[31m-        box-shadow: 0 8px 32px rgba(108,59,255,0.5);[m
+[32m+[m[32m        box-shadow: 0 8px 32px var(--primary-glow, rgba(36,87,230,0.25));[m
+         margin-bottom: 20px;[m
+         animation: splashPulse 1.5s ease-in-out infinite;[m
+       }[m
+[31m-      #splash-logo svg { width: 36px; height: 36px; fill: none; stroke: white; stroke-width: 2; }[m
+[32m+[m[32m      #splash-logo svg { width: 36px; height: 36px; fill: none; stroke: var(--text-on-primary, #fff); stroke-width: 2; }[m
+       #splash-name {[m
+[31m-        font-family: 'Montserrat', sans-serif;[m
+[31m-        font-weight: 900;[m
+[32m+[m[32m        font-family: var(--font-heading, 'Inter', system-ui, sans-serif);[m
+[32m+[m[32m        font-weight: 700;[m
+         font-size: 28px;[m
+         letter-spacing: -0.04em;[m
+[31m-        background: linear-gradient(135deg, #6C3BFF, #06B6D4);[m
+[31m-        -webkit-background-clip: text;[m
+[31m-        -webkit-text-fill-color: transparent;[m
+[31m-        background-clip: text;[m
+[32m+[m[32m        color: var(--text1, #0a0c10);[m
+       }[m
+       #splash-sub {[m
+[31m-        font-family: 'Poppins', sans-serif;[m
+[32m+[m[32m        font-family: var(--font-body, 'Inter', system-ui, sans-serif);[m
+         font-size: 12px;[m
+[31m-        color: #8B7EC8;[m
+[32m+[m[32m        color: var(--text2, #515c72);[m
+         margin-top: 4px;[m
+         font-weight: 500;[m
+       }[m
+[36m@@ -102,7 +99,7 @@[m
+         position: absolute;[m
+         bottom: calc(40px + env(safe-area-inset-bottom));[m
+         width: 120px; height: 3px;[m
+[31m-        background: rgba(108,59,255,0.2);[m
+[32m+[m[32m        background: var(--primary-dim, rgba(36,87,230,0.12));[m
+         border-radius: 99px;[m
+         overflow: hidden;[m
+       }[m
+[36m@@ -111,13 +108,13 @@[m
+         display: block;[m
+         height: 100%;[m
+         width: 40%;[m
+[31m-        background: linear-gradient(90deg, #6C3BFF, #06B6D4);[m
+[32m+[m[32m        background: var(--primary, #2457e6);[m
+         border-radius: 99px;[m
+         animation: loaderSlide 1.2s ease-in-out infinite;[m
+       }[m
+       @keyframes splashPulse {[m
+[31m-        0%, 100% { transform: scale(1); box-shadow: 0 8px 32px rgba(108,59,255,0.5); }[m
+[31m-        50% { transform: scale(1.05); box-shadow: 0 12px 48px rgba(108,59,255,0.7); }[m
+[32m+[m[32m        0%, 100% { transform: scale(1); box-shadow: 0 8px 32px var(--primary-glow, rgba(36,87,230,0.25)); }[m
+[32m+[m[32m        50% { transform: scale(1.05); box-shadow: 0 12px 48px var(--primary-glow, rgba(36,87,230,0.25)); }[m
+       }[m
+       @keyframes loaderSlide {[m
+         0% { transform: translateX(-100%); }[m
+[1mdiff --git a/nginx.conf b/nginx.conf[m
+[1mindex e3aa095..fe4a6ce 100644[m
+[1m--- a/nginx.conf[m
+[1m+++ b/nginx.conf[m
+[36m@@ -37,15 +37,12 @@[m [mserver {[m
+         proxy_connect_timeout 10s;[m
+     }[m
+ [m
+[31m-    # ── Proxy para uploads (arquivos estáticos do backend) ───[m
+[31m-    location /uploads/ {[m
+[31m-        proxy_pass         http://nexus-backend:3001/uploads/;[m
+[31m-        proxy_http_version 1.1;[m
+[31m-        proxy_set_header   Host $host;[m
+[31m-        proxy_set_header   X-Real-IP $remote_addr;[m
+[31m-        proxy_cache_bypass $http_upgrade;[m
+[31m-        # Cache de uploads por 30 dias[m
+[31m-        add_header Cache-Control "public, max-age=2592000";[m
+[32m+[m[32m    # ── Uploads privados ─────────────────────────────────────[m
+[32m+[m[32m    # URLs antigas /uploads/* não são mais servidas. O frontend recebe links[m
+[32m+[m[32m    # temporários em /api/uploads/file/*, que passam pelo proxy da API e exigem[m
+[32m+[m[32m    # ticket de curta duração com escopo de recurso.[m
+[32m+[m[32m    location ^~ /uploads/ {[m
+[32m+[m[32m        return 410;[m
+     }[m
+ [m
+     # ── Service Worker — nunca cachear ───────────────────────[m
+[1mdiff --git a/src/app-styles.css b/src/app-styles.css[m
+[1mindex 33174c5..96afdd1 100644[m
+[1m--- a/src/app-styles.css[m
+[1m+++ b/src/app-styles.css[m
+[36m@@ -490,7 +490,7 @@[m [mselect.form-input:focus {[m
+ .nav-section-label {[m
+   padding: 14px 22px 4px;[m
+   font-size: 10.5px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   letter-spacing: .06em;[m
+   text-transform: uppercase;[m
+   color: var(--text3);[m
+[36m@@ -543,7 +543,7 @@[m [mselect.form-input:focus {[m
+ .global-search-group { margin-bottom: 4px; }[m
+ .global-search-group-label {[m
+   padding: 8px 10px 4px;[m
+[31m-  font-size: 10.5px; font-weight: 800; letter-spacing: .05em;[m
+[32m+[m[32m  font-size: 10.5px; font-weight: 700; letter-spacing: .05em;[m
+   text-transform: uppercase; color: var(--text3); opacity: .7;[m
+ }[m
+ .global-search-result {[m
+[36m@@ -1890,7 +1890,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+   font-family: var(--font-heading);[m
+   font-size: clamp(24px, 3vw, 34px);[m
+   line-height: 1.05;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   letter-spacing: -0.03em;[m
+   color: var(--text1);[m
+ }[m
+[36m@@ -1989,7 +1989,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+   align-items: center;[m
+   gap: 8px;[m
+   margin-bottom: 10px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   font-size: 13px;[m
+   font-family: var(--font-heading);[m
+ }[m
+[36m@@ -2022,7 +2022,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+   width: 20px; height: 20px;[m
+   border-radius: 50%;[m
+   display: flex; align-items: center; justify-content: center;[m
+[31m-  font-size: 11px; font-weight: 800;[m
+[32m+[m[32m  font-size: 11px; font-weight: 700;[m
+   background: var(--bg3); color: var(--text3);[m
+ }[m
+ .dash-foco-critica .dash-foco-rank { background: rgba(239, 68, 68, .15); color: #EF4444; }[m
+[36m@@ -2073,7 +2073,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+ .dash-metric-card svg { color: var(--primary-light); }[m
+ .dash-metric-card span,[m
+ .dash-summary-strip span,[m
+[31m-.dash-finance-grid span { color: var(--text3); font-size: 12px; font-weight: 650; }[m
+[32m+[m[32m.dash-finance-grid span { color: var(--text3); font-size: 12px; font-weight: 600; }[m
+ .dash-metric-card strong { color: var(--text1); font-size: 25px; line-height: 1; font-family: var(--font-heading); }[m
+ .dash-metric-card small { color: var(--text3); font-size: 11px; line-height: 1.3; }[m
+ [m
+[36m@@ -2101,7 +2101,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+   font-family: var(--font-heading);[m
+   font-size: 17px;[m
+   line-height: 1.2;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: var(--text1);[m
+   letter-spacing: -0.02em;[m
+ }[m
+[36m@@ -2235,7 +2235,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+ [m
+ .dash-work-item:hover { border-color: var(--primary-light); }[m
+ .dash-work-dot { width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; flex: 0 0 auto; }[m
+[31m-.dash-work-title { color: var(--text1); font-size: 12.5px; font-weight: 750; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }[m
+[32m+[m[32m.dash-work-title { color: var(--text1); font-size: 12.5px; font-weight: 700; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }[m
+ .dash-work-sub { margin-top: 3px; color: var(--text3); font-size: 11px; line-height: 1.25; }[m
+ .dash-empty,[m
+ .dash-more { border: 1px dashed var(--border); border-radius: 13px; padding: 12px; color: var(--text3); font-size: 12px; text-align: center; }[m
+[36m@@ -2399,7 +2399,7 @@[m [mbody:has([aria-modal="true"]) .bottom-nav {[m
+ .modal-title,[m
+ .modal-card h2,[m
+ .modal-box h2 {[m
+[31m-  font-weight: 750 !important;[m
+[32m+[m[32m  font-weight: 700 !important;[m
+   letter-spacing: -0.025em;[m
+ }[m
+ [m
+[36m@@ -2659,7 +2659,7 @@[m [ma.btn {[m
+ .dash-calendar-record-type {[m
+   color: var(--text3);[m
+   font-size: 9px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   text-transform: uppercase;[m
+   letter-spacing: .04em;[m
+ }[m
+[36m@@ -2684,7 +2684,7 @@[m [ma.btn {[m
+ .dash-calendar-record-title {[m
+   color: var(--text1);[m
+   font-size: 10.5px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   line-height: 1.25;[m
+   overflow: hidden;[m
+   display: -webkit-box;[m
+[36m@@ -3457,7 +3457,7 @@[m [mbody,[m
+ .task-type-option strong {[m
+   font-size: 14px;[m
+   line-height: 1.2;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: normal;[m
+   overflow-wrap: normal;[m
+   word-break: normal;[m
+[36m@@ -3598,7 +3598,7 @@[m [ma.btn svg {[m
+ }[m
+ .task-smart-tab-main strong {[m
+   font-size: 14px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+   overflow: hidden;[m
+   text-overflow: ellipsis;[m
+[36m@@ -3607,7 +3607,7 @@[m [ma.btn svg {[m
+   flex: 0 0 auto;[m
+   font-style: normal;[m
+   font-size: 12px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: var(--text3);[m
+ }[m
+ .task-smart-tab.active .task-smart-tab-main em { color: #10B981; }[m
+[36m@@ -4909,7 +4909,7 @@[m [mbutton:disabled,[m
+   cursor: pointer;[m
+   text-align: left;[m
+   font: inherit;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   font-size: 13.5px;[m
+   line-height: 1.2;[m
+ }[m
+[36m@@ -4948,7 +4948,7 @@[m [mbutton:disabled,[m
+ [m
+ .task-report-meta .danger {[m
+   color: #EF4444;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ [m
+ .task-report-team-line {[m
+[36m@@ -4977,7 +4977,7 @@[m [mbutton:disabled,[m
+   border-radius: 999px;[m
+   padding: 3px 8px;[m
+   font-size: 11px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+ }[m
+ [m
+[36m@@ -4989,14 +4989,14 @@[m [mbutton:disabled,[m
+   border-radius: 999px;[m
+   padding: 2px 7px;[m
+   font-size: 10.5px;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+ }[m
+ [m
+ .task-report-progress strong {[m
+   color: var(--text2);[m
+   font-size: 11.5px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+ }[m
+ [m
+[36m@@ -5164,7 +5164,7 @@[m [mbutton:disabled,[m
+    ────────────────────────────────────────────────────────────── */[m
+ .inteligencia-page { display: flex; flex-direction: column; gap: 18px; }[m
+ .inteligencia-header { align-items: flex-start; gap: 14px; }[m
+[31m-.eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }[m
+[32m+[m[32m.eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--primary); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }[m
+ .intel-loading { min-height: 180px; display:flex; align-items:center; justify-content:center; gap:10px; border:1px solid var(--border); background:var(--card); border-radius:var(--radius-lg); color:var(--text2); font-weight:700; }[m
+ .spin { animation: intelSpin 1s linear infinite; }[m
+ @keyframes intelSpin { to { transform: rotate(360deg); } }[m
+[36m@@ -5173,11 +5173,11 @@[m [mbutton:disabled,[m
+ .health-score::before { content:''; position:absolute; inset:14px; border-radius:50%; background:var(--card); box-shadow: inset 0 0 0 1px var(--border); }[m
+ .health-score > div { position:relative; z-index:1; text-align:center; display:flex; align-items:flex-end; justify-content:center; gap:2px; }[m
+ .health-score strong { font-size:44px; font-family:var(--font-heading); line-height:.9; }[m
+[31m-.health-score span { color:var(--text3); font-size:14px; font-weight:800; }[m
+[32m+[m[32m.health-score span { color:var(--text3); font-size:14px; font-weight:700; }[m
+ .health-copy h2 { margin:8px 0 6px; font-size:28px; font-family:var(--font-heading); }[m
+ .health-copy p { margin:0; color:var(--text2); line-height:1.55; max-width:760px; }[m
+ .hero-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }[m
+[31m-.risk-pill { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:4px 9px; font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:.04em; border:1px solid var(--border); background:var(--bg2); color:var(--text2); }[m
+[32m+[m[32m.risk-pill { display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:4px 9px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; border:1px solid var(--border); background:var(--bg2); color:var(--text2); }[m
+ .risk-pill.success, .risk-dot.success { color:var(--success); background:rgba(16,185,129,.12); border-color:rgba(16,185,129,.25); }[m
+ .risk-pill.info, .risk-dot.info { color:var(--primary); background:var(--primary-dim); border-color:var(--primary-dim); }[m
+ .risk-pill.warning, .risk-dot.warning { color:var(--warning); background:rgba(245,158,11,.12); border-color:rgba(245,158,11,.25); }[m
+[36m@@ -5188,7 +5188,7 @@[m [mbutton:disabled,[m
+ .metric-card { display:flex; gap:12px; align-items:flex-start; min-height:112px; }[m
+ .metric-icon { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; color:var(--primary); background:var(--primary-dim); flex-shrink:0; }[m
+ .metric-card strong { display:block; font-size:24px; font-family:var(--font-heading); margin-bottom:2px; }[m
+[31m-.metric-card span { display:block; font-size:13px; font-weight:800; color:var(--text); }[m
+[32m+[m[32m.metric-card span { display:block; font-size:13px; font-weight:700; color:var(--text); }[m
+ .metric-card small { display:block; margin-top:5px; color:var(--text3); line-height:1.35; }[m
+ .intel-two-columns { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:16px; }[m
+ .section-title { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; color:var(--primary); }[m
+[36m@@ -5200,10 +5200,10 @@[m [mbutton:disabled,[m
+ .risk-row strong, .recommendation-row strong, .workload-row strong, .critical-row strong { font-size:13px; color:var(--text); }[m
+ .risk-row p, .recommendation-row p, .workload-row p, .critical-row p { margin:3px 0 0; color:var(--text2); font-size:12px; line-height:1.4; }[m
+ .recommendation-row { display:grid; grid-template-columns:32px 1fr; gap:10px; padding:11px; border:1px solid var(--border); border-radius:12px; background:var(--bg2); }[m
+[31m-.recommendation-row > span { width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:var(--primary); color:#fff; font-weight:900; font-size:12px; }[m
+[31m-.recommendation-row small { display:inline-block; margin-top:6px; color:var(--primary); font-weight:800; font-size:11px; }[m
+[32m+[m[32m.recommendation-row > span { width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:var(--primary); color:#fff; font-weight:700; font-size:12px; }[m
+[32m+[m[32m.recommendation-row small { display:inline-block; margin-top:6px; color:var(--primary); font-weight:700; font-size:11px; }[m
+ .gemini-box { border:1px solid var(--border); background:var(--bg2); border-radius:14px; padding:14px; }[m
+[31m-.gemini-status { display:flex; align-items:center; gap:8px; color:var(--text3); font-weight:800; font-size:12px; margin-bottom:8px; }[m
+[32m+[m[32m.gemini-status { display:flex; align-items:center; gap:8px; color:var(--text3); font-weight:700; font-size:12px; margin-bottom:8px; }[m
+ .gemini-status span { width:9px; height:9px; border-radius:50%; display:inline-block; background:var(--text3); }[m
+ .gemini-status span.online { background:var(--success); }[m
+ .gemini-status span.offline { background:var(--warning); }[m
+[36m@@ -5214,7 +5214,7 @@[m [mbutton:disabled,[m
+ .workload-bar span { display:block; height:100%; background:var(--primary); border-radius:inherit; }[m
+ .critical-row { display:grid; grid-template-columns: 1fr auto 110px; gap:12px; align-items:center; text-decoration:none; color:inherit; padding:11px 12px; border:1px solid var(--border); border-radius:12px; background:var(--bg2); transition:transform var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }[m
+ .critical-row:hover { transform:translateY(-1px); border-color:var(--primary); background:var(--card); }[m
+[31m-.critical-row > span { font-size:11px; text-transform:uppercase; font-weight:900; color:var(--primary); background:var(--primary-dim); border-radius:999px; padding:4px 8px; }[m
+[32m+[m[32m.critical-row > span { font-size:11px; text-transform:uppercase; font-weight:700; color:var(--primary); background:var(--primary-dim); border-radius:999px; padding:4px 8px; }[m
+ .critical-row > small { color:var(--text3); font-weight:700; text-align:right; }[m
+ @media (max-width: 1100px) { .metrics-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } .intel-two-columns { grid-template-columns: 1fr; } }[m
+ @media (max-width: 720px) { .intel-hero { grid-template-columns: 1fr; padding:16px; text-align:left; } .health-score { width:132px; height:132px; } .health-score strong { font-size:34px; } .health-copy h2 { font-size:22px; } .metrics-grid { grid-template-columns: 1fr; } .critical-row { grid-template-columns: 1fr; gap:7px; } .critical-row > small { text-align:left; } .intel-card { padding:13px; } }[m
+[36m@@ -5685,7 +5685,7 @@[m [mbutton:disabled,[m
+ .task-check-item.done .task-check-text::before {[m
+   content: 'Concluído · ';[m
+   color: var(--success);[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ .task-check-points {[m
+   width: fit-content !important;[m
+[36m@@ -5697,7 +5697,7 @@[m [mbutton:disabled,[m
+   border-radius: 999px !important;[m
+   padding: 3px 8px !important;[m
+   font-size: 12px !important;[m
+[31m-  font-weight: 800 !important;[m
+[32m+[m[32m  font-weight: 700 !important;[m
+ }[m
+ .task-inline-editor {[m
+   border-color: rgba(59,130,246,.35) !important;[m
+[36m@@ -5800,7 +5800,7 @@[m [mbutton:disabled,[m
+   background: color-mix(in srgb, var(--primary-light) 14%, transparent);[m
+   color: var(--primary-light);[m
+   font-size: 12px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ .dash-ranking-main { min-width: 0; }[m
+ .dash-ranking-main strong {[m
+[36m@@ -5858,7 +5858,7 @@[m [mbutton:disabled,[m
+   padding: 3px 8px;[m
+   background: color-mix(in srgb, var(--primary-light) 12%, transparent);[m
+   color: var(--primary-light);[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ [m
+ @media (max-width: 760px) {[m
+[36m@@ -5957,7 +5957,7 @@[m [mbutton:disabled,[m
+ .finance-command-row small {[m
+   display: block;[m
+   color: var(--primary);[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   line-height: 1.35;[m
+ }[m
+ .notify-intel-box {[m
+[36m@@ -5984,7 +5984,7 @@[m [mbutton:disabled,[m
+ .notify-intel-box span {[m
+   margin-top: 4px;[m
+   color: var(--text);[m
+[31m-  font-weight: 900;[m
+[32m+[m[32m  font-weight: 700;[m
+   font-size: 13px;[m
+ }[m
+ .intel-note {[m
+[36m@@ -6005,7 +6005,7 @@[m [mbutton:disabled,[m
+   background: var(--primary-dim);[m
+   color: var(--primary);[m
+   font-size: 11px;[m
+[31m-  font-weight: 900;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ @media (max-width: 900px) {[m
+   .intel-actions-grid,[m
+[36m@@ -6089,7 +6089,7 @@[m [mbutton:disabled,[m
+   border-radius: 999px;[m
+   font-style: normal;[m
+   font-size: .72rem;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   border: 1px solid var(--border);[m
+   color: var(--text2);[m
+   background: var(--bg3);[m
+[36m@@ -6108,7 +6108,7 @@[m [mbutton:disabled,[m
+   gap: 7px !important;[m
+   bottom: calc(112px + env(safe-area-inset-bottom)) !important;[m
+   right: calc(16px + env(safe-area-inset-right)) !important;[m
+[31m-  font-weight: 900 !important;[m
+[32m+[m[32m  font-weight: 700 !important;[m
+   font-size: 12px !important;[m
+   letter-spacing: .01em;[m
+ }[m
+[36m@@ -6131,7 +6131,7 @@[m [mbutton:disabled,[m
+   cursor: pointer;[m
+   box-shadow: 0 12px 28px rgba(0,0,0,.26);[m
+   font-size: 11px;[m
+[31m-  font-weight: 900;[m
+[32m+[m[32m  font-weight: 700;[m
+   animation: fieldMicIn .16s ease-out;[m
+ }[m
+ .field-mic.listening { background: linear-gradient(135deg, #ef4444, #b91c1c); animation: micPulse 1s infinite; }[m
+[36m@@ -6211,7 +6211,7 @@[m [mbutton:disabled,[m
+   align-items: center;[m
+   gap: 8px;[m
+   padding: 14px 16px;[m
+[31m-  font-weight: 900;[m
+[32m+[m[32m  font-weight: 700;[m
+   border-bottom: 1px solid var(--border);[m
+ }[m
+ .compact-details summary::-webkit-details-marker { display: none; }[m
+[36m@@ -6644,7 +6644,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+ .task-flow-tab strong {[m
+   grid-area: label;[m
+   font-size: 12.5px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+   overflow: hidden;[m
+   text-overflow: ellipsis;[m
+[36m@@ -6659,7 +6659,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+   background: var(--bg3);[m
+   color: var(--text);[m
+   font-size: 12px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   display: inline-flex;[m
+   align-items: center;[m
+   justify-content: center;[m
+[36m@@ -7348,7 +7348,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+   color: #4f46e5;[m
+   font-size: 11px;[m
+   font-style: normal;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+ }[m
+ @media (max-width: 720px) {[m
+[36m@@ -7395,7 +7395,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+   content: 'Checklist / subtarefas';[m
+   display: block;[m
+   font-size: 12px;[m
+[31m-  font-weight: 900;[m
+[32m+[m[32m  font-weight: 700;[m
+   letter-spacing: .08em;[m
+   text-transform: uppercase;[m
+   color: var(--primary);[m
+[36m@@ -7411,7 +7411,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+ .tarefa-modal-box .task-checklist-builder > .btn {[m
+   min-height: 44px !important;[m
+   border-radius: 14px !important;[m
+[31m-  font-weight: 900 !important;[m
+[32m+[m[32m  font-weight: 700 !important;[m
+ }[m
+ .task-active-lock {[m
+   border: 1px solid rgba(245,158,11,.35);[m
+[36m@@ -7420,7 +7420,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+   border-radius: 14px;[m
+   padding: 10px 12px;[m
+   font-size: 13px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   margin-bottom: 10px;[m
+ }[m
+ .task-check-item .task-check-main-button[disabled] {[m
+[36m@@ -7488,7 +7488,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+ [m
+ .tarefa-modal-box .task-checklist-builder .form-label {[m
+   color: #334155 !important;[m
+[31m-  font-weight: 900 !important;[m
+[32m+[m[32m  font-weight: 700 !important;[m
+   letter-spacing: .08em !important;[m
+   white-space: normal !important;[m
+   word-break: normal !important;[m
+[36m@@ -7909,7 +7909,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+ }[m
+ .objective-subtasks-title {[m
+   font-size: 12px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: var(--text2);[m
+ }[m
+ .objective-subtask-row {[m
+[36m@@ -8214,7 +8214,7 @@[m [mdiv[style*="overflow-y: auto"][style*="border-radius: 24px"] {[m
+   overflow-wrap: anywhere;[m
+   word-break: normal;[m
+ }[m
+[31m-.offline-sync-banner strong { font-size: 13px; font-weight: 800; }[m
+[32m+[m[32m.offline-sync-banner strong { font-size: 13px; font-weight: 700; }[m
+ .offline-sync-banner span { font-size: 12px; color: var(--text2); line-height: 1.4; }[m
+ [m
+ .task-form-modal textarea.form-input,[m
+[36m@@ -9488,7 +9488,7 @@[m [mtextarea.form-input,[m
+ }[m
+ .task-flow-tab .tab-count {[m
+   font-size: 11px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: var(--text3);[m
+   background: var(--bg3);[m
+   border-radius: 999px;[m
+[36m@@ -9555,7 +9555,7 @@[m [mtextarea.form-input,[m
+   cursor: pointer;[m
+   text-align: left;[m
+   font: inherit;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   font-size: 13.5px;[m
+   line-height: 1.25;[m
+   width: 100%;[m
+[36m@@ -9579,7 +9579,7 @@[m [mtextarea.form-input,[m
+   align-items: center;[m
+   gap: 3px;[m
+   font-size: 10px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: #7C3AED;[m
+   background: rgba(124,58,237,.1);[m
+   border: 1px solid rgba(124,58,237,.25);[m
+[36m@@ -9637,7 +9637,7 @@[m [mtextarea.form-input,[m
+   border-radius: 999px;[m
+   padding: 3px 9px;[m
+   font-size: 11px;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   white-space: nowrap;[m
+ }[m
+ .task-report-status em {[m
+[36m@@ -9659,7 +9659,7 @@[m [mtextarea.form-input,[m
+ }[m
+ .task-report-progress strong {[m
+   font-size: 12px;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: var(--text2);[m
+   white-space: nowrap;[m
+ }[m
+[36m@@ -9722,7 +9722,7 @@[m [mtextarea.form-input,[m
+   border: 1px solid rgba(245,158,11,.25);[m
+   border-radius: 8px;[m
+   padding: 4px 9px;[m
+[31m-  font-weight: 650;[m
+[32m+[m[32m  font-weight: 600;[m
+   white-space: nowrap;[m
+ }[m
+ [m
+[36m@@ -9846,7 +9846,7 @@[m [mtextarea.form-input,[m
+   color: #6D28D9;[m
+   background: rgba(124,58,237,.08);[m
+   font-size: 9px;[m
+[31m-  font-weight: 850;[m
+[32m+[m[32m  font-weight: 700;[m
+   letter-spacing: .04em;[m
+   text-transform: uppercase;[m
+ }[m
+[36m@@ -9885,7 +9885,7 @@[m [mtextarea.form-input,[m
+   background: linear-gradient(145deg, #7C3AED, #4F46E5);[m
+   box-shadow: 0 8px 20px rgba(124,58,237,.22);[m
+ }[m
+[31m-.company-task-hero small { display: block; color: #7C3AED; font-size: 9px; font-weight: 850; letter-spacing: .09em; }[m
+[32m+[m[32m.company-task-hero small { display: block; color: #7C3AED; font-size: 9px; font-weight: 700; letter-spacing: .09em; }[m
+ .company-task-hero strong { display: block; margin-top: 3px; color: var(--text); font-size: 17px; line-height: 1.25; }[m
+ .company-task-hero p { margin: 5px 0 0; color: var(--text3); font-size: 11.5px; line-height: 1.45; }[m
+ [m
+[36m@@ -9897,9 +9897,9 @@[m [mtextarea.form-input,[m
+ .company-task-section { display: grid; gap: 9px; }[m
+ .company-task-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }[m
+ .company-task-section-head div { display: grid; gap: 2px; }[m
+[31m-.company-task-section-head small { color: #7C3AED; font-size: 9px; font-weight: 850; letter-spacing: .08em; }[m
+[32m+[m[32m.company-task-section-head small { color: #7C3AED; font-size: 9px; font-weight: 700; letter-spacing: .08em; }[m
+ .company-task-section-head strong { font-size: 14px; }[m
+[31m-.company-task-section-head > span { min-width: 28px; padding: 4px 8px; border-radius: 999px; color: #6D28D9; background: rgba(124,58,237,.1); font-size: 11px; font-weight: 800; text-align: center; }[m
+[32m+[m[32m.company-task-section-head > span { min-width: 28px; padding: 4px 8px; border-radius: 999px; color: #6D28D9; background: rgba(124,58,237,.1); font-size: 11px; font-weight: 700; text-align: center; }[m
+ .company-task-list { display: grid; gap: 7px; }[m
+ .company-task-item {[m
+   width: 100%;[m
+[36m@@ -9924,7 +9924,7 @@[m [mtextarea.form-input,[m
+ .company-task-copy > div { display: flex; flex-wrap: wrap; gap: 4px 9px; margin-top: 5px; color: var(--text3); font-size: 10.5px; }[m
+ .company-task-copy span { display: inline-flex; align-items: center; gap: 3px; }[m
+ .company-task-badges { display: flex; align-items: flex-end; flex-direction: column; gap: 4px; }[m
+[31m-.company-task-badges span { padding: 3px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 750; white-space: nowrap; }[m
+[32m+[m[32m.company-task-badges span { padding: 3px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; white-space: nowrap; }[m
+ .company-task-chevron { color: var(--text3); }[m
+ .company-task-empty { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 62px; padding: 14px; border: 1px dashed var(--border); border-radius: 12px; color: var(--text3); background: var(--bg3); font-size: 12px; text-align: center; }[m
+ [m
+[36m@@ -9934,7 +9934,7 @@[m [mtextarea.form-input,[m
+ .company-task-history-toggle > span:nth-child(2) { min-width: 0; }[m
+ .company-task-history-toggle strong { display: block; font-size: 12.5px; }[m
+ .company-task-history-toggle small { display: block; margin-top: 3px; overflow: hidden; color: var(--text3); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }[m
+[31m-.company-task-history-toggle em { min-width: 27px; padding: 4px 7px; border-radius: 999px; color: var(--text2); background: var(--bg2); font-size: 10px; font-style: normal; font-weight: 800; text-align: center; }[m
+[32m+[m[32m.company-task-history-toggle em { min-width: 27px; padding: 4px 7px; border-radius: 999px; color: var(--text2); background: var(--bg2); font-size: 10px; font-style: normal; font-weight: 700; text-align: center; }[m
+ .company-task-history-toggle > svg { color: var(--text3); transition: transform .18s; }[m
+ .company-task-history-toggle > svg.is-open { transform: rotate(180deg); }[m
+ .company-task-history-body { display: grid; gap: 7px; max-height: 330px; padding: 9px; overflow-y: auto; border-top: 1px solid var(--border); background: var(--bg2); }[m
+[36m@@ -9966,7 +9966,7 @@[m [mtextarea.form-input,[m
+ .task-detail-hero h2 {[m
+   margin: 0 0 6px;[m
+   font-size: clamp(16px, 3.5vw, 20px);[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   line-height: 1.25;[m
+   word-break: break-word;[m
+ }[m
+[36m@@ -10007,7 +10007,7 @@[m [mtextarea.form-input,[m
+ .task-checklist-section-head h3 {[m
+   margin: 0;[m
+   font-size: 14px;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+ }[m
+ .task-checklist-item {[m
+   display: grid;[m
+[36m@@ -10093,7 +10093,7 @@[m [mtextarea.form-input,[m
+   flex-direction: column;[m
+   gap: 4px;[m
+ }[m
+[31m-.task-execution-summary strong { font-weight: 750; color: var(--text); }[m
+[32m+[m[32m.task-execution-summary strong { font-weight: 700; color: var(--text); }[m
+ .task-execution-summary span { color: var(--text3); }[m
+ [m
+ /* ── Modal de surpresa — bloco antes de assumir ──────────────── */[m
+[36m@@ -10111,7 +10111,7 @@[m [mtextarea.form-input,[m
+ .task-surprise-reveal-icon { font-size: 44px; line-height: 1; }[m
+ .task-surprise-reveal-title {[m
+   font-size: 18px;[m
+[31m-  font-weight: 750;[m
+[32m+[m[32m  font-weight: 700;[m
+   color: #7C3AED;[m
+   margin: 0;[m
+ }[m
+[36m@@ -10173,7 +10173,7 @@[m [mtextarea.form-input,[m
+ .form-label {[m
+   display: block;[m
+   font-size: 12.5px;[m
+[31m-  font-weight: 650;[m
+[32m+[m[32m  font-weight: 600;[m
+   color: var(--text2);[m
+   margin-bottom: 5px;[m
+   line-height: 1.3;[m
+[36m@@ -10450,7 +10450,7 @@[m [mtextarea.form-input,[m
+   background: var(--primary-dim);[m
+   color: var(--primary);[m
+   font-size: 11px;[m
+[31m-  font-weight: 800;[m
+[32m+[m[32m  font-weight: 700;[m
+   letter-spacing: .04em;[m
+ }[m
+ [m
+[36m@@ -11081,7 +11081,7 @@[m [mbody {[m
+ .page-header, .tarefas-page-header { min-height: 58px; margin-bottom: 14px; padding-block: 8px; }[m
+ .page-title, .tarefas-page-title {[m
+   font-size: clamp(20px,2.1vw,27px) !important;[m
+[31m-  font-weight: 690 !important;[m
+[32m+[m[32m  font-weight: 600 !important;[m
+   letter-spacing: -.035em !important;[m
+   line-height: 1.12 !important;[m
+ }[m
+[36m@@ -11089,7 +11089,7 @@[m [mbody {[m
+ .section-label { font-size: 10px; letter-spacing: .09em; }[m
+ [m
+ /* Componentes compartilhados. */[m
+[31m-.btn { min-height: 34px; padding: 7px 12px; border-radius: 10px !important; font-size: 11.5px !important; font-weight: 680 !important; box-shadow: none; }[m
+[32m+[m[32m.btn { min-height: 34px; padding: 7px 12px; border-radius: 10px !important; font-size: 11.5px !important; font-weight: 600 !important; box-shadow: none; }[m
+ .btn-primary {[m
+   border-color: var(--premium-navy) !important;[m
+   background: linear-gradient(135deg,var(--premium-navy),#174f9b) !important;[m
+[36m@@ -11113,7 +11113,7 @@[m [mbody {[m
+ .modal-overlay, .modal-backdrop { background: rgba(7,20,43,.48) !important; backdrop-filter: blur(5px); }[m
+ .modal-box, .modal-card, .sheet { border: 1px solid rgba(190,205,224,.9) !important; border-radius: 20px !important; background: var(--bg2) !important; box-shadow: 0 28px 85px rgba(5,23,52,.22) !important; }[m
+ .modal-header { min-height: 50px; margin-bottom: 14px !important; padding-bottom: 12px; border-bottom: 1px solid var(--border); }[m
+[31m-.modal-title, .modal-card h2, .modal-box h2, .sheet-title { font-size: clamp(16px,1.7vw,20px) !important; font-weight: 690 !important; letter-spacing: -.025em !important; }[m
+[32m+[m[32m.modal-title, .modal-card h2, .modal-box h2, .sheet-title { font-size: clamp(16px,1.7vw,20px) !important; font-weight: 600 !important; letter-spacing: -.025em !important; }[m
+ .modal-close { border-radius: 10px !important; }[m
+ [m
+ /* Tarefas: mesma identidade e densidade do workspace premium. */[m
+[36m@@ -11131,11 +11131,11 @@[m [mbody {[m
+ }[m
+ .task-smart-tab:hover { border-color: rgba(23,105,224,.28) !important; box-shadow: 0 7px 18px rgba(20,43,79,.07); }[m
+ .task-smart-tab.active { border-color: rgba(23,105,224,.45) !important; background: linear-gradient(145deg,rgba(23,105,224,.10),rgba(52,211,153,.07)) !important; box-shadow: inset 0 0 0 1px rgba(23,105,224,.06),0 7px 18px rgba(23,105,224,.07); }[m
+[31m-.task-smart-tab-main strong { font-size: 11.5px !important; font-weight: 690 !important; }[m
+[32m+[m[32m.task-smart-tab-main strong { font-size: 11.5px !important; font-weight: 600 !important; }[m
+ .task-smart-tab-main em, .task-smart-tab-hint { font-size: 9.5px !important; color: var(--text3) !important; }[m
+ .task-flow-tabs { gap: 7px !important; margin: 0 0 12px !important; padding: 0 !important; }[m
+ .task-flow-tab { min-height: 36px !important; padding: 7px 12px !important; border: 1px solid var(--premium-border) !important; border-radius: 999px !important; background: var(--bg2) !important; box-shadow: none !important; }[m
+[31m-.task-flow-tab strong { font-size: 11px !important; font-weight: 650 !important; }[m
+[32m+[m[32m.task-flow-tab strong { font-size: 11px !important; font-weight: 600 !important; }[m
+ .task-flow-tab.active { border-color: rgba(23,105,224,.38) !important; background: rgba(23,105,224,.08) !important; }[m
+ .task-flow-tab.active strong { color: var(--premium-blue) !important; }[m
+ .tarefas-search-row { gap: 8px !important; margin-bottom: 13px !important; padding: 7px !important; border: 1px solid var(--premium-border); border-radius: 14px; background: var(--bg2); box-shadow: 0 5px 18px rgba(20,43,79,.035); }[m
+[36m@@ -11147,7 +11147,7 @@[m [mbody {[m
+ .task-report-list { gap: 9px !important; }[m
+ .task-report-row { min-height: 79px; padding: 11px 13px !important; border: 1px solid var(--premium-border) !important; border-radius: 15px !important; background: var(--premium-surface) !important; box-shadow: 0 4px 16px rgba(20,43,79,.04); }[m
+ .task-report-row:hover { border-color: rgba(23,105,224,.30) !important; background: var(--bg2) !important; box-shadow: var(--premium-shadow-hover) !important; }[m
+[31m-.task-report-title { font-size: 12.5px !important; font-weight: 690 !important; }[m
+[32m+[m[32m.task-report-title { font-size: 12.5px !important; font-weight: 600 !important; }[m
+ .task-report-meta { margin-top: 4px !important; color: var(--text3) !important; font-size: 10.5px !important; }[m
+ .task-report-team-line { margin-top: 3px !important; color: var(--text3) !important; font-size: 10px !important; }[m
+ .task-report-status span, .task-report-priority span { min-height: 24px; padding: 4px 9px !important; font-size: 10px !important; }[m
+[36m@@ -11161,11 +11161,11 @@[m [mbody {[m
+ .task-board-column-head { min-height: 39px !important; padding: 7px 6px 11px !important; font-size: 11.5px !important; }[m
+ .task-board-card { border: 1px solid var(--premium-border) !important; border-radius: 14px !important; background: var(--bg2) !important; box-shadow: 0 4px 15px rgba(20,43,79,.055) !important; }[m
+ .task-board-card:hover { border-color: rgba(23,105,224,.28) !important; box-shadow: var(--premium-shadow) !important; }[m
+[31m-.task-board-card-title { font-size: 12.5px !important; font-weight: 690 !important; line-height: 1.35 !important; }[m
+[32m+[m[32m.task-board-card-title { font-size: 12.5px !important; font-weight: 600 !important; line-height: 1.35 !important; }[m
+ [m
+ /* Tabelas e estados vazios. */[m
+ table { border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid var(--premium-border); border-radius: 14px; background: var(--bg2); }[m
+[31m-thead th { background: color-mix(in srgb,var(--bg3) 86%,#edf4fb 14%); color: var(--text2); font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }[m
+[32m+[m[32mthead th { background: color-mix(in srgb,var(--bg3) 86%,#edf4fb 14%); color: var(--text2); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }[m
+ tbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+ .empty-state, .tarefas-empty { border: 1px dashed var(--premium-border); border-radius: 16px; background: color-mix(in srgb,var(--bg2) 88%,#f4f8fc 12%); }[m
+ [m
+[36m@@ -11382,7 +11382,7 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+ .page-header h1,[m
+ .page-header .page-title,[m
+ .tarefas-page-title,[m
+[31m-.dash-hero h1 { position:relative; z-index:1; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:680 !important; letter-spacing:-.03em !important; }[m
+[32m+[m[32m.dash-hero h1 { position:relative; z-index:1; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:600 !important; letter-spacing:-.03em !important; }[m
+ .page-header p,[m
+ .page-header .page-subtitle,[m
+ .tarefas-page-sub,[m
+[36m@@ -11423,8 +11423,8 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+ }[m
+ .dash-metric-card { min-height:100px !important; padding:14px 16px !important; }[m
+ .dash-metric-card svg { color:var(--premium-blue) !important; }[m
+[31m-.dash-metric-card strong { font-size:22px !important; font-weight:680 !important; }[m
+[31m-.dash-section-head h2 { font-size:15px !important; font-weight:680 !important; letter-spacing:-.02em; }[m
+[32m+[m[32m.dash-metric-card strong { font-size:22px !important; font-weight:600 !important; }[m
+[32m+[m[32m.dash-section-head h2 { font-size:15px !important; font-weight:600 !important; letter-spacing:-.02em; }[m
+ .dash-kanban-col { border:1px solid var(--premium-border) !important; border-radius:16px !important; background:color-mix(in srgb,var(--bg3) 84%,#e7eef8 16%) !important; }[m
+ [m
+ /* Página de tarefas: composição única, não uma coleção de controles soltos. */[m
+[36m@@ -11448,8 +11448,8 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+ /* Todas as demais páginas recebem superfícies, seções e formulários iguais. */[m
+ .page-scroll > div:not(.dash-board-page):not(.tarefas-page-shell):not(.offline-shell) { width:min(100% - 32px,1500px) !important; margin-inline:auto !important; }[m
+ .card-header, .section-header { border-bottom:1px solid var(--border) !important; }[m
+[31m-.card-title { font-size:14px !important; font-weight:680 !important; letter-spacing:-.015em; }[m
+[31m-.badge { font-size:9.5px !important; font-weight:720 !important; }[m
+[32m+[m[32m.card-title { font-size:14px !important; font-weight:600 !important; letter-spacing:-.015em; }[m
+[32m+[m[32m.badge { font-size:9.5px !important; font-weight:700 !important; }[m
+ .progress-fill, .task-progress-line span { background:linear-gradient(90deg,var(--premium-blue),#55a0f5) !important; }[m
+ .modal-box::before, .modal-card::before { background:linear-gradient(90deg,var(--premium-navy),var(--premium-blue)) !important; }[m
+ [m
+[36m@@ -11495,7 +11495,7 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+   border:1px solid rgba(255,255,255,.13);[m
+   border-radius:50%;[m
+ }[m
+[31m-.premium-module-header h1 { margin:0 !important; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:680 !important; letter-spacing:-.03em !important; }[m
+[32m+[m[32m.premium-module-header h1 { margin:0 !important; color:#fff !important; font-size:clamp(20px,2vw,27px) !important; font-weight:600 !important; letter-spacing:-.03em !important; }[m
+ .premium-module-header p { margin-top:4px !important; color:rgba(226,236,252,.78) !important; font-size:11.5px !important; }[m
+ .premium-module-header .btn-primary { color:#173778 !important; border-color:#fff !important; background:#fff !important; box-shadow:0 7px 18px rgba(7,23,58,.18) !important; }[m
+ .premium-module-header .btn-secondary,[m
+[36m@@ -11511,7 +11511,7 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+   background:var(--premium-surface) !important;[m
+   box-shadow:0 7px 22px rgba(20,43,79,.045) !important;[m
+ }[m
+[31m-.premium-module-page h2 { font-size:14px !important; font-weight:680 !important; letter-spacing:-.015em; }[m
+[32m+[m[32m.premium-module-page h2 { font-size:14px !important; font-weight:600 !important; letter-spacing:-.015em; }[m
+ .premium-module-page .tabs { border-radius:13px !important; background:rgba(220,230,242,.58) !important; }[m
+ .premium-module-page .tab-btn.active { background:var(--premium-blue) !important; color:#fff !important; }[m
+ [m
+[36m@@ -11538,7 +11538,7 @@[m [mtbody td { border-color: var(--border) !important; font-size: 11.5px; }[m
+ }[m
+ .premium-finance-page > div[style*="rgba(245,158,11"] { border-radius:15px !important; }[m
+ .premium-finance-page .tabs { width:max-content; max-width:100%; padding:4px !important; }[m
+[31m-.premium-finance-page [style*="fontSize: 19"] { font-size:21px !important; font-weight:680 !important; }[m
+[32m+[m[32m.premium-finance-page [style*="fontSize: 19"] { font-size:21px !important; font-weight:600 !important; }[m
+ [m
+ /* Pessoas, documentos, relatórios, usuários e equipes. */[m
+ .premium-people-page > div[style*="flex-direction: column"],[m
+[1mdiff --git a/src/lib/api.ts b/src/lib/api.ts[m
+[1mindex d1550d7..e986268 100644[m
+[1m--- a/src/lib/api.ts[m
+[1m+++ b/src/lib/api.ts[m
+[36m@@ -243,6 +243,9 @@[m [mexport interface Tarefa {[m
+   resposta_status?: 'concluida' | 'nao_concluida'[m
+   resposta_obs?: string[m
+   resposta_em?: string[m
+[32m+[m[32m  updated_at: string[m
+[32m+[m[32m  /** Registro otimista ainda aguardando persistência no backend. */[m
+[32m+[m[32m  offline_pending?: boolean[m
+   resposta_membro?: string[m
+   motivo_nao_conclusao?: string[m
+   observacao_conclusao?: string[m
+[36m@@ -259,7 +262,6 @@[m [mexport interface Tarefa {[m
+   anexos_count?: number | string[m
+   ultima_evidencia_em?: string | null[m
+   created_at: string[m
+[31m-  updated_at?: string[m
+   origem_sistema?: string[m
+   origem_tipo?: string[m
+   origem_id?: string[m
+[36m@@ -569,8 +571,10 @@[m [mexport interface DestravaCatalogoItem {[m
+ let refreshPromise: Promise<string | null> | null = null[m
+ [m
+ type OfflineQueueItem = { id: string; owner?: string; path: string; method: string; body?: string; createdAt: string }[m
+[32m+[m[32mexport type OfflineQueueFailure = OfflineQueueItem & { status: number; error: string; failedAt: string }[m
+ const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'[m
+ const OFFLINE_QUEUE_COUNT_KEY = 'nexus:offline-queue-count'[m
+[32m+[m[32mconst OFFLINE_FAILURES_KEY = 'nexus:offline-failures'[m
+ [m
+ function isBrowserOnline() {[m
+   return typeof navigator === 'undefined' ? true : navigator.onLine[m
+[36m@@ -601,6 +605,37 @@[m [mfunction enqueueOffline(path: string, options: RequestInit = {}) {[m
+   return true[m
+ }[m
+ [m
+[32m+[m[32mfunction readOfflineFailures(): OfflineQueueFailure[] {[m
+[32m+[m[32m  try { return JSON.parse(localStorage.getItem(OFFLINE_FAILURES_KEY) || '[]') || [] } catch { return [] }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction writeOfflineFailure(item: OfflineQueueItem, status: number, error: string) {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const failures = readOfflineFailures().filter(failure => failure.id !== item.id)[m
+[32m+[m[32m    failures.unshift({ ...item, status, error, failedAt: new Date().toISOString() })[m
+[32m+[m[32m    localStorage.setItem(OFFLINE_FAILURES_KEY, JSON.stringify(failures.slice(0, 100)))[m
+[32m+[m[32m    window.dispatchEvent(new CustomEvent('nexus:offline-failures-changed', { detail: { count: failures.length } }))[m
+[32m+[m[32m  } catch {}[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function getOfflineFailureCount(): number {[m
+[32m+[m[32m  return readOfflineFailures().length[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function getOfflinePendingTaskCreates(): Array<{ id: string; createdAt: string; payload: Partial<Tarefa> }> {[m
+[32m+[m[32m  const owner = tokenOwner(getAccessToken())[m
+[32m+[m[32m  return readOfflineQueue()[m
+[32m+[m[32m    .filter(item => (item.owner || owner) === owner && item.method === 'POST' && item.path.split('?')[0] === '/tarefas' && Boolean(item.body))[m
+[32m+[m[32m    .map(item => {[m
+[32m+[m[32m      try {[m
+[32m+[m[32m        return { id: item.id, createdAt: item.createdAt, payload: JSON.parse(item.body!) as Partial<Tarefa> }[m
+[32m+[m[32m      } catch {[m
+[32m+[m[32m        return null[m
+[32m+[m[32m      }[m
+[32m+[m[32m    })[m
+[32m+[m[32m    .filter((item): item is { id: string; createdAt: string; payload: Partial<Tarefa> } => Boolean(item))[m
+[32m+[m[32m}[m
+[32m+[m
+ function cacheGetResponse(path: string, data: unknown) {[m
+   try {[m
+     const owner = tokenOwner(getAccessToken())[m
+[36m@@ -618,11 +653,11 @@[m [mfunction readCachedGet<T>(path: string): T | null {[m
+ }[m
+ [m
+ export async function syncOfflineQueue(): Promise<number> {[m
+[31m-  if (!isBrowserOnline()) return readOfflineQueue().length[m
+[32m+[m[32m  const owner = tokenOwner(getAccessToken())[m
+[32m+[m[32m  if (!isBrowserOnline()) return readOfflineQueue().filter(item => (item.owner || owner) === owner).length[m
+   let queue = readOfflineQueue()[m
+   if (!queue.length) return 0[m
+   const pending: OfflineQueueItem[] = [][m
+[31m-  const owner = tokenOwner(getAccessToken())[m
+   for (let index = 0; index < queue.length; index++) {[m
+     const item = queue[index][m
+     if ((item.owner || owner) !== owner) {[m
+[36m@@ -631,7 +666,15 @@[m [mexport async function syncOfflineQueue(): Promise<number> {[m
+     }[m
+     try {[m
+       const res = await apiFetch(item.path, { method: item.method, body: item.body, headers: { 'x-nexus-offline-replay': '1' } })[m
+[31m-      if (!res.ok) pending.push(item)[m
+[32m+[m[32m      if (!res.ok) {[m
+[32m+[m[32m        // 4xx (exceto indisponibilidade/conflito transitório) é uma rejeição[m
+[32m+[m[32m        // permanente da operação; não deve reaparecer como pendência infinita.[m
+[32m+[m[32m        // Preservamos o registro em uma caixa de falhas para diagnóstico e[m
+[32m+[m[32m        // eventual reprocessamento explícito, sem apagar dados do servidor.[m
+[32m+[m[32m        const retryable = [408, 425, 429].includes(res.status) || res.status >= 500[m
+[32m+[m[32m        if (retryable) pending.push(item)[m
+[32m+[m[32m        else writeOfflineFailure(item, res.status, (await res.clone().json().catch(() => ({})))?.error || `Servidor rejeitou a operação (${res.status}).`)[m
+[32m+[m[32m      }[m
+     } catch {[m
+       // Mantém também todos os itens ainda não processados. A versão anterior[m
+       // interrompia o loop e acabava apagando silenciosamente o restante.[m
+[36m@@ -640,6 +683,7 @@[m [mexport async function syncOfflineQueue(): Promise<number> {[m
+     }[m
+   }[m
+   writeOfflineQueue(pending)[m
+[32m+[m[32m  window.dispatchEvent(new CustomEvent('nexus:offline-sync-complete', { detail: { synced: queue.length - pending.length, remaining: pending.filter(item => (item.owner || owner) === owner).length } }))[m
+   return pending.filter(item => (item.owner || owner) === owner).length[m
+ }[m
+ [m
+[1mdiff --git a/src/lib/roles.ts b/src/lib/roles.ts[m
+[1mindex 95cd0de..550e0f1 100644[m
+[1m--- a/src/lib/roles.ts[m
+[1m+++ b/src/lib/roles.ts[m
+[36m@@ -1,7 +1,11 @@[m
+ export type Role = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro' | string | undefined | null[m
+ [m
+[32m+[m[32mexport function isSuperAdmin(role: Role): boolean {[m
+[32m+[m[32m  return role === 'dev'[m
+[32m+[m[32m}[m
+[32m+[m
+ export function isAdminOrDev(role: Role): boolean {[m
+[31m-  return role === 'admin' || role === 'dev'[m
+[32m+[m[32m  return role === 'admin' || isSuperAdmin(role)[m
+ }[m
+ [m
+ export function isGestorLike(role: Role): boolean {[m
+[1mdiff --git a/src/pages/Agenda.tsx b/src/pages/Agenda.tsx[m
+[1mindex 547e680..a14b6cf 100644[m
+[1m--- a/src/pages/Agenda.tsx[m
+[1m+++ b/src/pages/Agenda.tsx[m
+[36m@@ -2,6 +2,8 @@[m [mimport { useState, useEffect, useCallback, useMemo } from 'react'[m
+ import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader, RefreshCw } from 'lucide-react'[m
+ import { agendaApi, type Evento } from '../lib/api'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[32m+[m[32mimport { useAuth } from '../lib/AuthContext'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ function toast(msg: string, type: 'success' | 'error' = 'success') {[m
+   const el = document.createElement('div')[m
+[36m@@ -129,6 +131,7 @@[m [mfunction EventoModal({ initial, onSave, onClose }: {[m
+ [m
+ export default function Agenda() {[m
+   const { t } = useVisualTexts()[m
+[32m+[m[32m  const { user } = useAuth()[m
+   const [eventos, setEventos]       = useState<Evento[]>([])[m
+   const [loading, setLoading]       = useState(true)[m
+   const [syncing, setSyncing]       = useState(false)[m
+[36m@@ -170,7 +173,7 @@[m [mexport default function Agenda() {[m
+   , [eventos])[m
+ [m
+   async function handleDelete(id: string) {[m
+[31m-    if (!confirm('Excluir este evento?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Excluir este evento?')) return[m
+     try { await agendaApi.remove(id); setEventos(prev => prev.filter(e => e.id !== id)); toast('Evento removido') }[m
+     catch (e) { toast(e instanceof Error ? e.message : 'Erro', 'error') }[m
+   }[m
+[1mdiff --git a/src/pages/Configuracoes.tsx b/src/pages/Configuracoes.tsx[m
+[1mindex 38789d1..035fd3a 100644[m
+[1m--- a/src/pages/Configuracoes.tsx[m
+[1m+++ b/src/pages/Configuracoes.tsx[m
+[36m@@ -2,7 +2,7 @@[m [mimport { useState, useEffect } from 'react'[m
+ import { Link } from 'react-router-dom'[m
+ import { Settings, Save, Bell, BellOff, Palette, User, Shield, Info, LogOut, Download, ExternalLink, Smartphone, CheckCircle2, Loader } from 'lucide-react'[m
+ import { useAuth } from '../lib/AuthContext'[m
+[31m-import { isGestorLike, roleLabel } from '../lib/roles'[m
+[32m+[m[32mimport { isGestorLike, isSuperAdmin, roleLabel } from '../lib/roles'[m
+ import { api } from '../lib/api'[m
+ import { useTheme } from '../lib/ThemeContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[36m@@ -163,7 +163,7 @@[m [mexport default function Configuracoes() {[m
+   }[m
+ [m
+   async function apagarPontuacaoItem(id: string) {[m
+[31m-    if (!confirm('Apagar este lançamento de pontuação? Essa ação não pode ser desfeita.')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Apagar este lançamento de pontuação? Essa ação não pode ser desfeita.')) return[m
+     try {[m
+       await api.delete(`/admin/pontuacao/${id}`)[m
+       setPontuacaoItens(prev => prev.filter(item => item.id !== id))[m
+[36m@@ -174,8 +174,8 @@[m [mexport default function Configuracoes() {[m
+   }[m
+ [m
+   async function limparRankingCompleto() {[m
+[31m-    if (!confirm('Isso apaga TODO o histórico de pontuação e zera o ranking da organização inteira. Essa ação não pode ser desfeita. Confirma?')) return[m
+[31m-    if (!confirm('Tem certeza mesmo? Todos os pontos de todos os membros serão perdidos, inclusive de trabalho real, não só de teste.')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Isso apaga TODO o histórico de pontuação e zera o ranking da organização inteira. Essa ação não pode ser desfeita. Confirma?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Tem certeza mesmo? Todos os pontos de todos os membros serão perdidos, inclusive de trabalho real, não só de teste.')) return[m
+     try {[m
+       await api.delete('/admin/limpar/pontuacao')[m
+       setPontuacaoItens([])[m
+[1mdiff --git a/src/pages/Documentos.tsx b/src/pages/Documentos.tsx[m
+[1mindex ba3e2a6..6d748e6 100644[m
+[1m--- a/src/pages/Documentos.tsx[m
+[1m+++ b/src/pages/Documentos.tsx[m
+[36m@@ -4,6 +4,7 @@[m [mimport { Upload, FileText, Trash2, ExternalLink, Loader, Plus, X, User, Search,[m
+ import { documentosApi, equipeApi, pagamentosApi, type Documento, type Pessoa, type Pagamento, type HistoricoPessoa } from '../lib/api'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ function toast(msg: string, type: 'success' | 'error' = 'success') {[m
+   const el = document.createElement('div')[m
+[36m@@ -262,7 +263,7 @@[m [mexport default function Documentos() {[m
+   useEffect(() => { const h = () => setUploadOpen(true); window.addEventListener('nexus:open-new', h); return () => window.removeEventListener('nexus:open-new', h) }, [])[m
+ [m
+   async function handleDelete(id: string) {[m
+[31m-    if (!confirm('Excluir este arquivo?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Excluir este arquivo?')) return[m
+     try { await documentosApi.remove(id); setDocumentos(p => p.filter(d => d.id !== id)); toast('Arquivo excluído') }[m
+     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }[m
+   }[m
+[1mdiff --git a/src/pages/Equipe.tsx b/src/pages/Equipe.tsx[m
+[1mindex f9a3470..60718f8 100644[m
+[1m--- a/src/pages/Equipe.tsx[m
+[1m+++ b/src/pages/Equipe.tsx[m
+[36m@@ -9,7 +9,7 @@[m [mimport { DateFieldBR } from '../components/DateFieldBR'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { localTodayIso, nanoid } from '../lib/utils'[m
+ import { useSpeechToText } from '../hooks/useSpeechToText'[m
+[31m-import { isGestorLike, isGestorOwner } from '../lib/roles'[m
+[32m+[m[32mimport { isGestorLike, isGestorOwner, isSuperAdmin } from '../lib/roles'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+ [m
+ // ── Helpers ───────────────────────────────────────────────────────────────────[m
+[36m@@ -689,7 +689,7 @@[m [mexport default function Equipe() {[m
+   useEffect(() => { carregar() }, [carregar])[m
+ [m
+   async function handleRemover(m: MembroEquipe) {[m
+[31m-    if (!confirm(`Remover ${m.nome} da equipe?`)) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm(`Remover ${m.nome} da equipe?`)) return[m
+     try {[m
+       await usersApi.remove(m.id)[m
+       toast(`${m.nome} removido.`)[m
+[1mdiff --git a/src/pages/Financeiro.tsx b/src/pages/Financeiro.tsx[m
+[1mindex c45f354..6ffcb20 100644[m
+[1m--- a/src/pages/Financeiro.tsx[m
+[1m+++ b/src/pages/Financeiro.tsx[m
+[36m@@ -28,6 +28,7 @@[m [mimport { pagamentosApi, equipeApi, destravaApi, type Pagamento, type Pessoa, typ[m
+ import { DateFieldBR } from '../components/DateFieldBR'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ type ScheduleMode = 'unico' | 'recorrente' | 'personalizado' | 'parcelado'[m
+ [m
+[36m@@ -2377,7 +2378,7 @@[m [mexport default function Financeiro() {[m
+       toast('Você não tem permissão para apagar este registro financeiro.', 'error')[m
+       return[m
+     }[m
+[31m-    if (!confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Apagar definitivamente este registro financeiro? Esta ação não pode ser desfeita.')) return[m
+     try { await pagamentosApi.remove(id); load(); toast('Registro financeiro apagado') }[m
+     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Erro', 'error') }[m
+   }[m
+[36m@@ -2388,7 +2389,7 @@[m [mexport default function Financeiro() {[m
+       return[m
+     }[m
+     const total = g.parcelas?.length || 0[m
+[31m-    if (!confirm(`Apagar definitivamente este registro financeiro completo${total > 1 ? ` com ${total} parcelas` : ''}? Esta ação não pode ser desfeita.`)) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm(`Apagar definitivamente este registro financeiro completo${total > 1 ? ` com ${total} parcelas` : ''}? Esta ação não pode ser desfeita.`)) return[m
+     try {[m
+       if (g.grupo_id) {[m
+         await pagamentosApi.removeGrupo(g.grupo_id)[m
+[1mdiff --git a/src/pages/PessoaDetalhe.tsx b/src/pages/PessoaDetalhe.tsx[m
+[1mindex 06070da..6d93615 100644[m
+[1m--- a/src/pages/PessoaDetalhe.tsx[m
+[1m+++ b/src/pages/PessoaDetalhe.tsx[m
+[36m@@ -15,6 +15,7 @@[m [mimport {[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { DateFieldBR } from '../components/DateFieldBR'[m
+ import { localTodayIso, nanoid } from '../lib/utils'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ // ── tipos internos ────────────────────────────────────────────────────────────[m
+ type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'[m
+[36m@@ -701,7 +702,7 @@[m [mexport default function PessoaDetalhe() {[m
+ [m
+   // ── excluir ──[m
+   async function excluirPagamentos(ids: string[]) {[m
+[31m-    if (!confirm(`Excluir ${ids.length > 1 ? ids.length + ' lançamentos' : 'este lançamento'}?`)) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm(`Excluir ${ids.length > 1 ? ids.length + ' lançamentos' : 'este lançamento'}?`)) return[m
+     try {[m
+       await Promise.all(ids.map(pid => pagamentosApi.remove(pid)))[m
+       toast('Excluído!')[m
+[36m@@ -711,7 +712,7 @@[m [mexport default function PessoaDetalhe() {[m
+   }[m
+ [m
+   async function excluirDoc(docId: string) {[m
+[31m-    if (!confirm('Excluir este documento?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Excluir este documento?')) return[m
+     try {[m
+       await documentosApi.remove(docId)[m
+       toast('Documento removido!')[m
+[1mdiff --git a/src/pages/Pessoas.tsx b/src/pages/Pessoas.tsx[m
+[1mindex 6109a6d..463353e 100644[m
+[1m--- a/src/pages/Pessoas.tsx[m
+[1m+++ b/src/pages/Pessoas.tsx[m
+[36m@@ -4,6 +4,7 @@[m [mimport { Plus, X, Loader, Search, Mail, Phone, Trash2, Edit2, UserPlus, Check, W[m
+ import { equipeApi, auth, type Pessoa, type MembroEquipe } from '../lib/api'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ // O componente Pessoas unifica todos os tipos de pessoas cadastradas no sistema:[m
+ // membros da equipe, prestadores de serviço, credores, devedores e clientes.[m
+[36m@@ -263,7 +264,7 @@[m [mexport default function Pessoas() {[m
+   }, [])[m
+ [m
+   async function handleDelete(id: string) {[m
+[31m-    if (!confirm('Excluir este contato?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Excluir este contato?')) return[m
+     try {[m
+       await equipeApi.removePessoa(id)[m
+       setPessoas(p => p.filter(x => x.id !== id))[m
+[1mdiff --git a/src/pages/Tarefas.tsx b/src/pages/Tarefas.tsx[m
+[1mindex b7b6def..f90394c 100644[m
+[1m--- a/src/pages/Tarefas.tsx[m
+[1m+++ b/src/pages/Tarefas.tsx[m
+[36m@@ -7,7 +7,7 @@[m [mimport {[m
+   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,[m
+   ChevronLeft, Sparkles,[m
+ } from 'lucide-react'[m
+[31m-import { ApiError, tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'[m
+[32m+[m[32mimport { ApiError, tarefasApi, equipeApi, destravaApi, getOfflinePendingTaskCreates, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'[m
+ import { DateFieldBR } from '../components/DateFieldBR'[m
+ import { TaskCalendarView } from '../components/TaskCalendarView'[m
+ import { TaskTableView } from '../components/TaskTableView'[m
+[36m@@ -15,7 +15,7 @@[m [mimport { TaskGraphView } from '../components/TaskGraphView'[m
+ import { parseNaturalDate, type NaturalDateSuggestion } from '../lib/naturalLanguageDate'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[31m-import { isGestorLike } from '../lib/roles'[m
+[32m+[m[32mimport { isGestorLike, isSuperAdmin } from '../lib/roles'[m
+ import { localTodayIso, nanoid } from '../lib/utils'[m
+ import { taskViewFromSearch, type TaskViewMode } from '../lib/taskView'[m
+ import {[m
+[36m@@ -37,9 +37,10 @@[m [mfunction automaticTaskListTitle(context: TaskContextType, entityName?: string) {[m
+   return 'Pessoal'[m
+ }[m
+ [m
+[31m-function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string) {[m
+[32m+[m[32mfunction canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string, comandados: ReadonlySet<string> = new Set<string>()) {[m
+   if (role === 'admin' || role === 'dev' || role === 'gestor') return true[m
+   if (role === 'membro') return tarefa.criado_por === userId[m
+[32m+[m[32m  if (role === 'sub_gestor' && tarefa.responsavel_id && comandados.has(tarefa.responsavel_id)) return true[m
+   return tarefa.criado_por === userId || tarefa.responsavel_id === userId[m
+ }[m
+ [m
+[36m@@ -517,6 +518,11 @@[m [mfunction consolidateVisualTasks(tasks: Tarefa[]) {[m
+ }[m
+ [m
+ [m
+[32m+[m[32mfunction clientRequestId(payload?: Record<string, unknown>) {[m
+[32m+[m[32m  const value = payload?.nexus_client_request_id[m
+[32m+[m[32m  return typeof value === 'string' ? value : ''[m
+[32m+[m[32m}[m
+[32m+[m
+ function uniqueById<T extends { id?: string }>(items: T[]) {[m
+   const map = new Map<string, T>()[m
+   items.forEach(item => {[m
+[36m@@ -2297,7 +2303,7 @@[m [mfunction AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose:[m
+   }[m
+ [m
+   async function apagar(anexo: TarefaAnexo) {[m
+[31m-    if (!confirm('Apagar este arquivo da tarefa?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Apagar este arquivo da tarefa?')) return[m
+     try {[m
+       await tarefasApi.deleteAnexo(tarefa.id, anexo.id)[m
+       setAnexos(prev => prev.filter(a => a.id !== anexo.id))[m
+[36m@@ -2787,7 +2793,7 @@[m [mfunction TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [],[m
+   const isCriador = tarefa.criado_por === userId[m
+   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador[m
+   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)[m
+[31m-  const livreDisponivel = isAvailableFreeTask(tarefa)[m
+[32m+[m[32m  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)[m
+   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por[m
+   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)[m
+   const isPersonal = taskScope(tarefa) === 'pessoal'[m
+[36m@@ -4178,10 +4184,11 @@[m [mfunction PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {[m
+   )[m
+ }[m
+ [m
+[31m-function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {[m
+[32m+[m[32mfunction TarefaCard({ tarefa, userId, role, comandados = new Set<string>(), isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {[m
+   tarefa: Tarefa[m
+   userId: string[m
+   role?: string[m
+[32m+[m[32m  comandados?: ReadonlySet<string>[m
+   isGestor: boolean[m
+   actionBusy?: boolean[m
+   helpPendingForMe?: boolean[m
+[36m@@ -4208,6 +4215,7 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+   const sc = statusCfg(tarefa.status)[m
+   const pc = prioridadeCfg(tarefa.prioridade)[m
+   const Icon = sc.icon[m
+[32m+[m[32m  const offlinePending = Boolean(tarefa.offline_pending)[m
+   const distributedTask = taskHasDistributedChecklist(tarefa)[m
+   const checklistForCard = visibleChecklistItems(tarefa, userId, isGestor)[m
+   const checkTotal = checklistForCard.length[m
+[36m@@ -4220,7 +4228,7 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+   const isCriador = tarefa.criado_por === userId[m
+   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador[m
+   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)[m
+[31m-  const livreDisponivel = isAvailableFreeTask(tarefa)[m
+[32m+[m[32m  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)[m
+   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por[m
+   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)[m
+   const isPersonal = taskScope(tarefa) === 'pessoal'[m
+[36m@@ -4234,7 +4242,7 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+   // Gestor designado também é executor; a identidade do dono continua obrigatória.[m
+   const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)[m
+   const isAssigneeByFreeTask = tarefa.aceita_por === userId[m
+[31m-  const canExecuteTask = !isTaskFinalizada && (isPersonal[m
+[32m+[m[32m  const canExecuteTask = !offlinePending && !isTaskFinalizada && (isPersonal[m
+     ? (isResponsavel || isCriador)[m
+     : (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe))[m
+   const canReviewTask = !isPersonal && isGestor && !canExecuteTask && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))[m
+[36m@@ -4259,10 +4267,11 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+         'task-report-row',[m
+         tarefa.data_reabertura && !isTaskFinalizada ? 'task-report-row--reaberta' : '',[m
+         listSurprise ? 'task-report-row--surpresa' : '',[m
+[32m+[m[32m        offlinePending ? 'task-report-row--offline-pending' : '',[m
+         selectMode && elegivelParaAprovacaoLote(tarefa) ? 'task-report-row--selectable' : '',[m
+       ].filter(Boolean).join(' ')}[m
+[31m-      onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}[m
+[31m-      title="Clique para abrir a lista"[m
+[32m+[m[32m      onClick={(e) => { if (offlinePending || (e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}[m
+[32m+[m[32m      title={offlinePending ? 'Aguardando sincronização com o servidor' : 'Clique para abrir a lista'}[m
+     >[m
+       {selectMode && elegivelParaAprovacaoLote(tarefa) && ([m
+         <input[m
+[36m@@ -4276,9 +4285,10 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+       )}[m
+       {/* COLUNA PRINCIPAL — título + meta */}[m
+       <div className="task-report-main">[m
+[31m-        <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>[m
+[32m+[m[32m        <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)} disabled={offlinePending}>[m
+           <Icon size={16} color={sc.color} />[m
+           <span>{tarefa.titulo}</span>[m
+[32m+[m[32m          {offlinePending && <span className="task-scope-badge" style={{ color: '#92400E', background: 'rgba(245,158,11,.14)' }}>Aguardando sincronização</span>}[m
+           {listSurprise && <span className="task-surprise-pill">🎲 Surpresa</span>}[m
+           {taskScope(tarefa) === 'equipe'[m
+             ? <span className="task-scope-badge task-scope-badge--equipe">Equipe</span>[m
+[36m@@ -4358,7 +4368,7 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+         )}[m
+ [m
+         {/* Ver lista */}[m
+[31m-        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver lista</button>[m
+[32m+[m[32m        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button" disabled={offlinePending}>Ver lista</button>[m
+ [m
+         {canAnswerHelp && !isPersonal && ([m
+           <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">[m
+[36m@@ -4386,9 +4396,9 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+ [m
+         {isPersonal ? ([m
+           <>[m
+[31m-            <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>[m
+[31m-            {canDeleteTarefa(tarefa, userId, role) && ([m
+[31m-              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>[m
+[32m+[m[32m            <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button" disabled={offlinePending}><Edit3 size={12} /> Editar</button>[m
+[32m+[m[32m            {canDeleteTarefa(tarefa, userId, role, comandados) && ([m
+[32m+[m[32m              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button" disabled={offlinePending}><Trash2 size={13} /></button>[m
+             )}[m
+           </>[m
+         ) : ([m
+[36m@@ -4422,8 +4432,8 @@[m [mfunction TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe[m
+                 )}[m
+               </>[m
+             )}[m
+[31m-            {canDeleteTarefa(tarefa, userId, role) && ([m
+[31m-              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>[m
+[32m+[m[32m            {canDeleteTarefa(tarefa, userId, role, comandados) && ([m
+[32m+[m[32m              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button" disabled={offlinePending}><Trash2 size={13} /></button>[m
+             )}[m
+           </>[m
+         )}[m
+[36m@@ -4573,7 +4583,7 @@[m [mfunction TarefaBoardCard({ tarefa, userId, isGestor, onOpen }: {[m
+   const checkTotal = checklistForCard.length[m
+   const checkDone = checklistForCard.filter(i => i.feito).length[m
+   const progressPct = checkTotal > 0 ? Math.max(6, Math.round((checkDone / checkTotal) * 100)) : 0[m
+[31m-  const livreDisponivel = isAvailableFreeTask(tarefa)[m
+[32m+[m[32m  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)[m
+   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)[m
+   const responsavelLabel = livreDisponivel[m
+     ? 'Livre para assumir'[m
+[36m@@ -4910,7 +4920,30 @@[m [mexport default function Tarefas() {[m
+         // A lista principal controla o spinner. Ranking, membros e ajuda são[m
+         // complementares e não podem manter a página inteira bloqueada.[m
+         const ts = await tarefasApi.list()[m
+[31m-        setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])[m
+[32m+[m[32m        const tarefasPersistidas = Array.isArray(ts) ? uniqueById(ts) : [][m
+[32m+[m[32m        const requestIdsPersistidos = new Set([m
+[32m+[m[32m          tarefasPersistidas[m
+[32m+[m[32m            .map(task => clientRequestId(task.origem_payload))[m
+[32m+[m[32m            .filter(Boolean),[m
+[32m+[m[32m        )[m
+[32m+[m[32m        const tarefasOffline = getOfflinePendingTaskCreates()[m
+[32m+[m[32m          .filter(item => {[m
+[32m+[m[32m            const requestId = clientRequestId(item.payload.origem_payload)[m
+[32m+[m[32m            return !requestId || !requestIdsPersistidos.has(requestId)[m
+[32m+[m[32m          })[m
+[32m+[m[32m          .map(item => ({[m
+[32m+[m[32m            ...item.payload,[m
+[32m+[m[32m            id: `offline-${item.id}`,[m
+[32m+[m[32m            org_id: user?.orgId || '',[m
+[32m+[m[32m            criado_por: user?.id || '',[m
+[32m+[m[32m            titulo: item.payload.titulo || 'Lista salva offline',[m
+[32m+[m[32m            prioridade: item.payload.prioridade || 'media',[m
+[32m+[m[32m            status: 'pendente',[m
+[32m+[m[32m            created_at: item.createdAt,[m
+[32m+[m[32m            updated_at: item.createdAt,[m
+[32m+[m[32m            offline_pending: true,[m
+[32m+[m[32m          } as Tarefa))[m
+[32m+[m[32m        setTarefas(uniqueById([...tarefasOffline, ...tarefasPersistidas]))[m
+         setErroCarregamento(false)[m
+         setErroCarregamentoDetalhe('')[m
+         lastLoadedAtRef.current = Date.now()[m
+[36m@@ -4963,8 +4996,7 @@[m [mexport default function Tarefas() {[m
+       if (loadInFlightRef.current === job) loadInFlightRef.current = null[m
+     })[m
+     return job[m
+[31m-  }, [user?.id])[m
+[31m-[m
+[32m+[m[32m    }, [user?.id, user?.orgId])[m
+   useEffect(() => { load() }, [load])[m
+   useEffect(() => {[m
+     if (escopo !== 'ranking') return[m
+[36m@@ -5032,11 +5064,16 @@[m [mexport default function Tarefas() {[m
+     }[m
+     window.addEventListener('online', refresh)[m
+     window.addEventListener('offline', refresh)[m
+[32m+[m[32m    const reloadAfterSync = () => {[m
+[32m+[m[32m      if (navigator.onLine) void load()[m
+[32m+[m[32m    }[m
+     window.addEventListener('nexus:offline-queue-changed', refresh)[m
+[32m+[m[32m    window.addEventListener('nexus:offline-sync-complete', reloadAfterSync)[m
+     return () => {[m
+       window.removeEventListener('online', refresh)[m
+       window.removeEventListener('offline', refresh)[m
+       window.removeEventListener('nexus:offline-queue-changed', refresh)[m
+[32m+[m[32m      window.removeEventListener('nexus:offline-sync-complete', reloadAfterSync)[m
+     }[m
+   }, [load])[m
+ [m
+[36m@@ -5093,6 +5130,15 @@[m [mexport default function Tarefas() {[m
+     return true[m
+   }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds])[m
+ [m
+[32m+[m[32m  const comandados = useMemo(() => {[m
+[32m+[m[32m    if (user?.role !== 'sub_gestor' || !user.id) return new Set<string>()[m
+[32m+[m[32m    return new Set([m
+[32m+[m[32m      membros[m
+[32m+[m[32m        .filter(membro => membro.ativo !== false && membro.criado_por === user.id)[m
+[32m+[m[32m        .map(membro => membro.id),[m
+[32m+[m[32m    )[m
+[32m+[m[32m  }, [membros, user?.id, user?.role])[m
+[32m+[m
+   const membroOptions = useMemo(() => {[m
+     const map = new Map<string, { id: string; nome: string; role?: string }>()[m
+     if (user?.id) map.set(user.id, { id: user.id, nome: user.nome || 'Eu', role: user.role })[m
+[36m@@ -5326,13 +5372,13 @@[m [mexport default function Tarefas() {[m
+   }[m
+ [m
+   async function remove(id: string) {[m
+[31m-    if (!confirm('Apagar esta tarefa definitivamente?')) return[m
+[32m+[m[32m    if (!isSuperAdmin(user?.role) && !confirm('Apagar esta tarefa definitivamente?')) return[m
+     try {[m
+       await tarefasApi.remove(id)[m
+       setTarefas(prev => prev.filter(t => t.id !== id))[m
+       toast('Tarefa apagada.')[m
+     } catch (e) {[m
+[31m-      if (e instanceof ApiError && e.status === 409 && e.body.checklist_protegido === true) {[m
+[32m+[m[32m      if (e instanceof ApiError && e.status === 409 && e.body.checklist_protegido === true && !isSuperAdmin(user?.role)) {[m
+         toast('Exclusão protegida: o checklist histórico desta tarefa é grande e foi preservado. Nenhum dado foi apagado.', 'error')[m
+       } else if (e instanceof ApiError && e.status === 403) {[m
+         toast('Você não tem permissão para excluir esta tarefa.', 'error')[m
+[36m@@ -5713,7 +5759,7 @@[m [mexport default function Tarefas() {[m
+             <EmpresaTarefasCard key={entry.key} group={entry} onOpen={setEmpresaTarefasId} />[m
+           ) : ([m
+             <TarefaCard[m
+[31m-              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}[m
+[32m+[m[32m              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} comandados={comandados} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}[m
+               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(entry.tarefa.id)}[m
+               helpRequestedByMe={minhasAjudasPorTarefa.get(entry.tarefa.id) || null}[m
+               selectMode={modoSelecao}[m
+[1mdiff --git a/src/pages/Usuarios.tsx b/src/pages/Usuarios.tsx[m
+[1mindex de00551..d0d7da1 100644[m
+[1m--- a/src/pages/Usuarios.tsx[m
+[1m+++ b/src/pages/Usuarios.tsx[m
+[36m@@ -6,6 +6,7 @@[m [mimport {[m
+ import { usersApi, type UserProfile } from '../lib/api'[m
+ import { useAuth } from '../lib/AuthContext'[m
+ import { useVisualTexts } from '../hooks/useVisualTexts'[m
+[32m+[m[32mimport { isSuperAdmin } from '../lib/roles'[m
+ [m
+ function toast(msg: string, type: 'success' | 'error' = 'success') {[m
+   const el = document.createElement('div')[m
+[36m@@ -292,7 +293,7 @@[m [mexport default function Usuarios() {[m
+   async function apagar(u: UserProfile) {[m
+     if (!canDeleteUsers) { toast('Apenas admin, dev ou gestor podem apagar usuários.', 'error'); return }[m
+     if (u.id === eu?.id) { toast('Você não pode apagar seu próprio usuário.', 'error'); return }[m
+[31m-    const ok = window.confirm(`Apagar definitivamente o usuário ${u.nome}?\n\nA ação não pode ser desfeita.`)[m
+[32m+[m[32m    const ok = isSuperAdmin(eu?.role) || window.confirm(`Apagar definitivamente o usuário ${u.nome}?\n\nA ação não pode ser desfeita.`)[m
+     if (!ok) return[m
+     try {[m
+       await usersApi.remove(u.id)[m
+[1mdiff --git a/backend/src/lib/privateFile.ts b/backend/src/lib/privateFile.ts[m
+[1mnew file mode 100644[m
+[1mindex 0000000..f3fb94c[m
+[1m--- /dev/null[m
+[1m+++ b/backend/src/lib/privateFile.ts[m
+[36m@@ -0,0 +1,76 @@[m
+[32m+[m[32mimport type { Request } from 'express'[m
+[32m+[m[32mimport jwt from 'jsonwebtoken'[m
+[32m+[m[32mimport { filenameFromUploadUrl } from './uploadSecurity'[m
+[32m+[m[32mimport type { UserRole } from '../middleware/auth'[m
+[32m+[m
+[32m+[m[32mconst JWT_SECRET = process.env.JWT_SECRET || 'nexus-secret-dev'[m
+[32m+[m[32mconst PRIVATE_FILE_TTL_SECONDS = 5 * 60[m
+[32m+[m
+[32m+[m[32mexport type PrivateFileResource = 'documento' | 'avatar' | 'tarefa_anexo'[m
+[32m+[m
+[32m+[m[32mexport interface PrivateFileTicket {[m
+[32m+[m[32m  userId: string[m
+[32m+[m[32m  orgId: string[m
+[32m+[m[32m  role: UserRole[m
+[32m+[m[32m  resource: PrivateFileResource[m
+[32m+[m[32m  resourceId: string[m
+[32m+[m[32m  filename: string[m
+[32m+[m[32m  parentId?: string[m
+[32m+[m[32m  scope: 'private-file'[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function generatePrivateFileTicket(payload: Omit<PrivateFileTicket, 'scope'>): string {[m
+[32m+[m[32m  return jwt.sign({ ...payload, scope: 'private-file' }, JWT_SECRET, {[m
+[32m+[m[32m    expiresIn: PRIVATE_FILE_TTL_SECONDS,[m
+[32m+[m[32m  })[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function buildPrivateFileUrl([m
+[32m+[m[32m  req: Request,[m
+[32m+[m[32m  storedUrl: string | null | undefined,[m
+[32m+[m[32m  resource: PrivateFileResource,[m
+[32m+[m[32m  resourceId: string,[m
+[32m+[m[32m  parentId?: string,[m
+[32m+[m[32m): string | null {[m
+[32m+[m[32m  const filename = filenameFromUploadUrl(storedUrl)[m
+[32m+[m[32m  if (!filename) return null[m
+[32m+[m
+[32m+[m[32m  const baseUrl = String([m
+[32m+[m[32m    process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host') || 'localhost:3001'}`,[m
+[32m+[m[32m  ).replace(/\/$/, '')[m
+[32m+[m[32m  const ticket = generatePrivateFileTicket({[m
+[32m+[m[32m    userId: req.user!.userId,[m
+[32m+[m[32m    orgId: req.user!.orgId,[m
+[32m+[m[32m    role: req.user!.role,[m
+[32m+[m[32m    resource,[m
+[32m+[m[32m    resourceId,[m
+[32m+[m[32m    filename,[m
+[32m+[m[32m    parentId,[m
+[32m+[m[32m  })[m
+[32m+[m[32m  return `${baseUrl}/api/uploads/file/${encodeURIComponent(filename)}?ticket=${encodeURIComponent(ticket)}`[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function verifyPrivateFileTicket([m
+[32m+[m[32m  rawTicket: unknown,[m
+[32m+[m[32m  filename: string,[m
+[32m+[m[32m): PrivateFileTicket | null {[m
+[32m+[m[32m  if (typeof rawTicket !== 'string' || !rawTicket.trim()) return null[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const decoded = jwt.verify(rawTicket, JWT_SECRET) as Partial<PrivateFileTicket>[m
+[32m+[m[32m    if ([m
+[32m+[m[32m        decoded.scope !== 'private-file' ||[m
+[32m+[m[32m      !decoded.userId ||[m
+[32m+[m[32m      !decoded.orgId ||[m
+[32m+[m[32m      !decoded.role ||[m
+[32m+[m[32m      !['documento', 'avatar', 'tarefa_anexo'].includes(String(decoded.resource)) ||[m
+[32m+[m[32m      !decoded.resourceId ||[m
+[32m+[m[32m      !decoded.filename ||[m
+[32m+[m[32m      decoded.filename !== filename[m
+[32m+[m[32m    ) return null[m
+[32m+[m[32m    return decoded as PrivateFileTicket[m
+[32m+[m[32m  } catch {[m
+[32m+[m[32m    return null[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport const PRIVATE_FILE_TTL = PRIVATE_FILE_TTL_SECONDS[m
+[1mdiff --git a/SUPER_ADMIN_ACESSO.md b/SUPER_ADMIN_ACESSO.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..88e2e25[m
+[1m--- /dev/null[m
+[1m+++ b/SUPER_ADMIN_ACESSO.md[m
+[36m@@ -0,0 +1,27 @@[m
+[32m+[m[32m# Política de Super Admin[m
+[32m+[m
+[32m+[m[32mNo modelo atual do Nexus Gestão, o papel `dev` é o papel exibido na interface como **Super Admin**. A política foi centralizada no helper `isSuperAdmin` para que esse papel tenha exclusão administrativa irrestrita dentro da própria organização.[m
+[32m+[m
+[32m+[m[32m## Comportamento aplicado[m
+[32m+[m
+[32m+[m[32m| Módulo | Super Admin (`dev`) |[m
+[32m+[m[32m|---|---|[m
+[32m+[m[32m| Tarefas | Pode excluir qualquer tarefa da organização, inclusive checklists históricos acima de 1 MB. A exclusão continua transacional e remove anexos, histórico, agenda vinculada e registros derivados. |[m
+[32m+[m[32m| Anexos | Pode apagar anexos sem confirmação adicional na interface. |[m
+[32m+[m[32m| Documentos | Pode excluir documentos sem confirmação adicional na interface. |[m
+[32m+[m[32m| Financeiro | Pode excluir lançamentos e grupos/parcelas sem confirmação adicional na interface. |[m
+[32m+[m[32m| Agenda | Pode excluir eventos sem confirmação adicional na interface. |[m
+[32m+[m[32m| Pessoas e equipe | Pode excluir contatos e remover membros sem confirmação adicional na interface. |[m
+[32m+[m[32m| Usuários | Pode excluir outros usuários e seus registros da organização. O próprio usuário continua protegido contra autoexclusão para não invalidar o acesso durante a operação. |[m
+[32m+[m[32m| Pontuação | Pode apagar lançamentos e zerar o ranking sem as duas confirmações da interface. |[m
+[32m+[m[32m| Limpeza administrativa | As rotas de limpeza de usuários e de dados totais também incluem outras contas privilegiadas quando executadas por `dev`; o próprio acesso é preservado. |[m
+[32m+[m
+[32m+[m[32mOs demais papéis continuam sujeitos às confirmações e aos limites existentes. O escopo organizacional permanece obrigatório em todas as exclusões; “irrestrito” significa sem bloqueio por proprietário, responsável, tamanho de checklist ou confirmação de interface, não significa apagar dados de outra organização.[m
+[32m+[m
+[32m+[m[32m## Validação[m
+[32m+[m
+[32m+[m[32mO build frontend e o build backend passaram. A suíte completa do backend passou com 28 arquivos e 119 testes, os testes de lógica passaram com 15 de 15 casos, e `git diff --check` não encontrou problemas.[m
+[32m+[m
+[32m+[m[32mO lint direcionado continua não zerado porque os arquivos grandes já possuem problemas legados de estilo, hooks e tipos; essa pendência não impediu a compilação nem os testes.[m
+[32m+[m
+[32m+[m[32mNenhum dado foi apagado durante esta alteração. O código foi atualizado no working tree de `/home/ubuntu/nexus-gestao`; commit, push e publicação não foram executados.[m

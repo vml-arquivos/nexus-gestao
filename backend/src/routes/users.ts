@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import { authMiddleware } from '../middleware/auth'
+import { authMiddleware, isSuperAdmin } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { buildPrivateFileUrl } from '../lib/privateFile'
 import { buildUploadUrl, createSecureMulterUpload, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
 const router = Router()
@@ -28,11 +29,11 @@ function normalizeRole(role: unknown): Role {
 }
 
 function isGlobalDeleteRole(role: string | undefined): boolean {
-  return role === 'admin' || role === 'dev' || role === 'gestor'
+  return role === 'admin' || isSuperAdmin(role) || role === 'gestor'
 }
 
 function canCreateRole(currentRole: string | undefined, targetRole: Role): boolean {
-  if (currentRole === 'dev') return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)
+  if (isSuperAdmin(currentRole)) return ['admin', 'gestor', 'sub_gestor', 'membro'].includes(targetRole)
   if (currentRole === 'admin') return ['gestor', 'sub_gestor', 'membro'].includes(targetRole)
   if (currentRole === 'gestor') return ['sub_gestor', 'membro'].includes(targetRole)
   if (currentRole === 'sub_gestor') return targetRole === 'membro'
@@ -42,7 +43,7 @@ function canCreateRole(currentRole: string | undefined, targetRole: Role): boole
 }
 
 function canManageTarget(currentRole: string | undefined, targetRole: string, isOwnSubordinate = true): boolean {
-  if (currentRole === 'dev') return targetRole !== 'dev'
+  if (isSuperAdmin(currentRole)) return targetRole !== 'dev'
   if (currentRole === 'admin') return targetRole !== 'dev' && targetRole !== 'admin'
   // Gestor administra membros e subgestores da organização, sem acessar admin/dev/outro gestor.
   if (currentRole === 'gestor') return targetRole === 'sub_gestor' || targetRole === 'membro'
@@ -75,6 +76,14 @@ function mayEditTarget(currentUserId: string, currentRole: string | undefined, t
   return canManageTarget(currentRole, target.role, target.criado_por === currentUserId)
 }
 
+function serializeUser(req: Request, user: any) {
+  if (!user) return user
+  return {
+    ...user,
+    avatar_url: buildPrivateFileUrl(req, user.avatar_url, 'avatar', String(user.id)),
+  }
+}
+
 // GET /api/users
 // dev/admin/gestor: todos da organização. sub_gestor e membro: ele + usuários criados por ele.
 router.get('/', async (req: Request, res: Response): Promise<void> => {
@@ -85,7 +94,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
              p.primeiro_acesso, p.criado_por, p.created_at, p.updated_at,
              c.nome AS criado_por_nome
       FROM profiles p
-      LEFT JOIN profiles c ON c.id = p.criado_por
+      LEFT JOIN profiles c ON c.id = p.criado_por AND c.org_id = p.org_id
       WHERE p.org_id = $1
     `
     const params: unknown[] = [orgId]
@@ -95,7 +104,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
     sql += ' ORDER BY p.ativo DESC, p.role, p.nome'
     const users = await query(sql, params)
-    res.json({ users })
+    res.json({ users: users.map((user: any) => serializeUser(req, user)) })
   } catch (err) {
     console.error('[USERS] Erro ao listar:', err)
     res.status(500).json({ error: 'Erro ao listar usuários.' })
@@ -136,7 +145,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response): Promise<vo
       [orgId, nome.trim(), normalizedEmail, senhaHash, novoRole, cargo || null, userId]
     )
 
-    res.status(201).json({ user, senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
+    res.status(201).json({ user: serializeUser(req, user), senha: senhaProvisoria, senha_provisoria: senhaProvisoria })
   } catch (err) {
     console.error('[USERS] Erro ao criar:', err)
     res.status(500).json({ error: 'Erro ao criar usuário.' })
@@ -238,7 +247,7 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response): Promis
        RETURNING id, org_id, nome, email, role, cargo, avatar_url, ativo, primeiro_acesso, criado_por, created_at, updated_at`,
       params
     )
-    res.json({ user })
+    res.json({ user: serializeUser(req, user) })
   } catch (err) {
     console.error('[USERS] Erro ao atualizar:', err)
     res.status(500).json({ error: 'Erro ao atualizar usuário.' })
@@ -276,7 +285,7 @@ router.post('/:id/avatar', uploadAvatar, async (req: AvatarRequest, res: Respons
       [avatarUrl, id, orgId],
     )
     if (target.avatar_url && target.avatar_url !== avatarUrl) removeUploadByUrl(target.avatar_url)
-    res.json({ user })
+    res.json({ user: serializeUser(req, user) })
   } catch (err) {
     if (req.file) removeUploadByUrl(buildUploadUrl(req.file.filename))
     console.error('[USERS] Erro ao atualizar avatar:', err)
@@ -301,7 +310,7 @@ router.delete('/:id/avatar', async (req: Request, res: Response): Promise<void> 
       [req.params.id, orgId],
     )
     removeUploadByUrl(target.avatar_url)
-    res.json({ user })
+    res.json({ user: serializeUser(req, user) })
   } catch (err) {
     console.error('[USERS] Erro ao remover avatar:', err)
     res.status(500).json({ error: 'Erro ao remover foto do usuário.' })

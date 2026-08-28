@@ -107,19 +107,10 @@ app.use(express.json({
 }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
-// ── ARQUIVOS ESTÁTICOS (uploads) ──────────────────────────────────────────────
-// Servir arquivos de upload publicamente via /uploads/:filename
-app.use('/uploads', express.static(UPLOADS_DIR, {
-  maxAge: '7d',
-  etag: true,
-  setHeaders: (res, filePath) => {
-    // Permite visualização inline de imagens e PDFs
-    const ext = path.extname(filePath).toLowerCase()
-    if (['.jpg','.jpeg','.png','.webp','.gif','.pdf'].includes(ext)) {
-      res.setHeader('Content-Disposition', 'inline')
-    }
-  },
-}))
+// ── ARQUIVOS ────────────────────────────────────────────────────────────────────
+// Uploads não são expostos como conteúdo estático. A rota autenticada
+// /api/uploads/file/:filename valida ticket, organização, recurso e registro
+// antes de abrir o arquivo físico.
 
 // ── VERSÃO / HEALTH CHECK ─────────────────────────────────────────────────────
 const versionPayload = () => ({

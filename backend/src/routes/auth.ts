@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import { query, queryOne } from '../db/pool'
 import { generateTokens, authMiddleware, JwtPayload } from '../middleware/auth'
+import { buildPrivateFileUrl } from '../lib/privateFile'
 
 const router = Router()
 
@@ -232,7 +233,10 @@ router.get('/me', authMiddleware, async (req: Request, res: Response): Promise<v
       res.status(404).json({ error: 'Usuário não encontrado.' })
       return
     }
-    res.json({ user })
+    res.json({ user: {
+      ...user,
+      avatar_url: buildPrivateFileUrl(req, user.avatar_url, 'avatar', String(user.id)),
+    } })
   } catch (err) {
     console.error('[AUTH] Erro no /me:', err)
     res.status(500).json({ error: 'Erro interno do servidor.' })
@@ -254,7 +258,10 @@ router.patch('/me', authMiddleware, async (req: Request, res: Response): Promise
        RETURNING id, nome, email, role, org_id, avatar_url`,
       [nome.trim(), req.user!.userId]
     )
-    res.json({ user: updated })
+    res.json({ user: updated ? {
+      ...updated,
+      avatar_url: buildPrivateFileUrl(req, updated.avatar_url, 'avatar', String(updated.id)),
+    } : updated })
   } catch (err) {
     console.error('[AUTH] Erro no PATCH /me:', err)
     res.status(500).json({ error: 'Erro interno do servidor.' })

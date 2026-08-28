@@ -1,9 +1,76 @@
 import { Router, Request, Response, NextFunction } from 'express'
+import fs from 'fs'
+import path from 'path'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
-import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, uploadErrorMessage } from '../lib/uploadSecurity'
+import { buildPrivateFileUrl, verifyPrivateFileTicket } from '../lib/privateFile'
+import { createSecureMulterUpload, buildUploadUrl, removeUploadByUrl, safeUploadPathFromFilename, filenameFromUploadUrl, uploadErrorMessage } from '../lib/uploadSecurity'
 
 const router = Router()
+
+// Arquivos nunca são servidos como conteúdo estático. O ticket curto identifica
+// usuário, organização, recurso e nome físico; o handler ainda revalida o
+// vínculo no banco antes de abrir o arquivo.
+router.get('/file/:filename', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const filename = path.basename(String(req.params.filename || ''))
+    const ticket = verifyPrivateFileTicket(req.query.ticket, filename)
+    if (!ticket) {
+      res.status(401).json({ error: 'Ticket de arquivo inválido ou expirado.' })
+      return
+    }
+
+    let record: { id: string; arquivo_url: string | null; mime_type?: string | null; nome_original?: string | null; titulo?: string | null } | null = null
+    if (ticket.resource === 'documento') {
+      const canReadAny = ['admin', 'dev', 'gestor'].includes(ticket.role)
+      record = await queryOne(
+        `SELECT id, arquivo_url, mime_type, titulo
+           FROM documentos
+          WHERE id = $1 AND org_id = $2
+            AND ($3::boolean = TRUE OR criado_por = $4)`,
+        [ticket.resourceId, ticket.orgId, canReadAny, ticket.userId],
+      )
+    } else if (ticket.resource === 'avatar') {
+      record = await queryOne(
+        `SELECT id, avatar_url AS arquivo_url, NULL::text AS mime_type, nome AS titulo
+           FROM profiles
+          WHERE id = $1 AND org_id = $2 AND ativo = TRUE`,
+        [ticket.resourceId, ticket.orgId],
+      )
+    } else if (ticket.resource === 'tarefa_anexo' && ticket.parentId) {
+      record = await queryOne(
+        `SELECT a.id, a.arquivo_url, a.mime_type, a.nome_original, a.titulo
+           FROM tarefa_anexos a
+           JOIN tarefas t ON t.id = a.tarefa_id AND t.org_id = a.org_id
+          WHERE a.id = $1 AND a.tarefa_id = $2 AND a.org_id = $3`,
+        [ticket.resourceId, ticket.parentId, ticket.orgId],
+      )
+    }
+
+    if (!record || filenameFromUploadUrl(record.arquivo_url) !== filename) {
+      res.status(404).json({ error: 'Arquivo não encontrado.' })
+      return
+    }
+    const filePath = safeUploadPathFromFilename(filename)
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Arquivo físico não encontrado.' })
+      return
+    }
+
+    const originalName = path.basename(String(record.nome_original || record.titulo || filename)).replace(/[\\r\\n\"]/g, '') || filename
+    const disposition = req.query.download === '1' ? 'attachment' : 'inline'
+    res.setHeader('Content-Type', record.mime_type || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(originalName)}"; filename*=UTF-8''${encodeURIComponent(originalName)}`)
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.sendFile(filePath)
+  } catch (err) {
+    console.error('[UPLOAD] Erro ao abrir arquivo privado:', err)
+    if (!res.headersSent) res.status(500).json({ error: 'Erro ao abrir arquivo.' })
+  }
+})
+
 router.use(authMiddleware)
 
 // ── CONFIGURAÇÃO DO STORAGE SEGURO ───────────────────────────────────────────
@@ -32,8 +99,9 @@ router.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr
       return
     }
 
-    const { orgId, userId } = req.user!
+    const { orgId, userId, role } = req.user!
     const { titulo, descricao, tipo = 'outro', pessoa_id, pagamento_id } = req.body
+    const canReadAny = canDeleteOrgRecords(role)
 
     if (!titulo?.trim()) {
       removeUploadByUrl(buildUploadUrl(req.file.filename))
@@ -44,15 +112,36 @@ router.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr
     let pessoaNome: string | null = null
     if (pessoa_id) {
       const pessoa = await queryOne<{ nome: string }>(
-        'SELECT nome FROM pessoas WHERE id = $1 AND org_id = $2',
-        [pessoa_id, orgId],
+        `SELECT nome FROM pessoas
+          WHERE id = $1 AND org_id = $2
+            AND ($3::boolean = TRUE OR user_id = $4)`,
+        [pessoa_id, orgId, canReadAny, userId],
       )
-      pessoaNome = pessoa?.nome ?? null
+      if (!pessoa) {
+        removeUploadByUrl(buildUploadUrl(req.file.filename))
+        res.status(404).json({ error: 'Pessoa não encontrada ou sem permissão.' })
+        return
+      }
+      pessoaNome = pessoa.nome
+    }
+
+    if (pagamento_id) {
+      const pagamento = await queryOne(
+        `SELECT id FROM pagamentos
+          WHERE id = $1 AND org_id = $2
+            AND ($3::boolean = TRUE OR criado_por = $4)`,
+        [pagamento_id, orgId, canReadAny, userId],
+      )
+      if (!pagamento) {
+        removeUploadByUrl(buildUploadUrl(req.file.filename))
+        res.status(404).json({ error: 'Pagamento não encontrado ou sem permissão.' })
+        return
+      }
     }
 
     const arquivo_url = buildUploadUrl(req.file.filename)
 
-    const doc = await queryOne(
+    const doc = await queryOne<any>(
       `INSERT INTO documentos
          (org_id, criado_por, titulo, descricao, tipo, arquivo_url, mime_type, tamanho, pessoa_id, pessoa_nome, pagamento_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -71,7 +160,8 @@ router.post('/', uploadSingleFile, async (req: MulterRequest, res: Response): Pr
       )
     }
 
-    res.status(201).json({ documento: doc, arquivo_url })
+    const documentoSeguro = doc ? { ...doc, arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)) } : doc
+    res.status(201).json({ documento: documentoSeguro, arquivo_url: documentoSeguro?.arquivo_url || null })
   } catch (err: unknown) {
     if ((req as MulterRequest).file) {
       removeUploadByUrl(buildUploadUrl((req as MulterRequest).file!.filename))
@@ -92,7 +182,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     let sql = `
       SELECT d.*, p.nome AS pessoa_nome_atual
       FROM documentos d
-      LEFT JOIN pessoas p ON p.id = d.pessoa_id
+      LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id
       WHERE d.org_id = $1 AND d.criado_por = $2
     `
     const params: unknown[] = [orgId, userId]
@@ -105,7 +195,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     sql += ' ORDER BY d.created_at DESC'
 
     const documentos = await query(sql, params)
-    res.json({ documentos })
+    res.json({ documentos: documentos.map((documento: any) => ({
+      ...documento,
+      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),
+    })) })
   } catch (err) {
     console.error('[UPLOAD] Erro ao listar:', err)
     res.status(500).json({ error: 'Erro ao buscar documentos.' })
@@ -154,11 +247,12 @@ router.get('/historico/:pessoaId', async (req: Request, res: Response): Promise<
       query('SELECT * FROM documentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),
       query('SELECT * FROM pagamentos WHERE pessoa_id = $1 AND org_id = $2 AND criado_por = $3 ORDER BY created_at DESC', [pessoaId, orgId, userId]),
       query(
-        `SELECT t.* FROM tarefas t
-         WHERE t.responsavel_id = (
-           SELECT user_id FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3
-         ) AND t.org_id = $2
-         ORDER BY t.created_at DESC`,
+        `SELECT t.id, t.titulo, t.prazo, t.data, t.status, t.prioridade
+           FROM tarefas t
+          WHERE t.responsavel_id = (
+            SELECT user_id FROM pessoas WHERE id = $1 AND org_id = $2 AND user_id = $3
+          ) AND t.org_id = $2
+          ORDER BY t.created_at DESC`,
         [pessoaId, orgId, userId],
       ),
     ])
@@ -169,7 +263,11 @@ router.get('/historico/:pessoaId', async (req: Request, res: Response): Promise<
     const totalPago       = pags.filter(p => p.status === 'pago').reduce((a, b) => a + Number(b.valor), 0)
     const totalPendente   = pags.filter(p => p.status === 'pendente').reduce((a, b) => a + Number(b.valor), 0)
 
-    res.json({ pessoa, documentos, pagamentos, tarefas, resumo: { totalDevo, totalMeDevem, totalPago, totalPendente } })
+    const documentosSeguros = (documentos as any[]).map((documento) => ({
+      ...documento,
+      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),
+    }))
+    res.json({ pessoa, documentos: documentosSeguros, pagamentos, tarefas, resumo: { totalDevo, totalMeDevem, totalPago, totalPendente } })
   } catch (err) {
     console.error('[UPLOAD] Erro no histórico:', err)
     res.status(500).json({ error: 'Erro ao buscar histórico.' })

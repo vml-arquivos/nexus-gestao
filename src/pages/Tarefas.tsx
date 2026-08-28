@@ -7,7 +7,7 @@ import {
   Paperclip, Upload, Download, FileText, Copy, Trophy, Printer, Building2, ChevronDown, Check,
   ChevronLeft, Sparkles,
 } from 'lucide-react'
-import { ApiError, tarefasApi, equipeApi, destravaApi, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
+import { ApiError, tarefasApi, equipeApi, destravaApi, getOfflinePendingTaskCreates, type Tarefa, type TarefaAnexo, type MembroEquipe, type ChecklistItem, type DestravaCatalogoItem, type ChecklistDifficulty, type EmpresaDestravaResumo, type EmpresaDestravaDocumento } from '../lib/api'
 import { DateFieldBR } from '../components/DateFieldBR'
 import { TaskCalendarView } from '../components/TaskCalendarView'
 import { TaskTableView } from '../components/TaskTableView'
@@ -15,7 +15,7 @@ import { TaskGraphView } from '../components/TaskGraphView'
 import { parseNaturalDate, type NaturalDateSuggestion } from '../lib/naturalLanguageDate'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
-import { isGestorLike } from '../lib/roles'
+import { isGestorLike, isSuperAdmin } from '../lib/roles'
 import { localTodayIso, nanoid } from '../lib/utils'
 import { taskViewFromSearch, type TaskViewMode } from '../lib/taskView'
 import {
@@ -37,9 +37,10 @@ function automaticTaskListTitle(context: TaskContextType, entityName?: string) {
   return 'Pessoal'
 }
 
-function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string) {
+function canDeleteTarefa(tarefa: Tarefa, userId: string, role?: string, comandados: ReadonlySet<string> = new Set<string>()) {
   if (role === 'admin' || role === 'dev' || role === 'gestor') return true
   if (role === 'membro') return tarefa.criado_por === userId
+  if (role === 'sub_gestor' && tarefa.responsavel_id && comandados.has(tarefa.responsavel_id)) return true
   return tarefa.criado_por === userId || tarefa.responsavel_id === userId
 }
 
@@ -516,6 +517,11 @@ function consolidateVisualTasks(tasks: Tarefa[]) {
   }))
 }
 
+
+function clientRequestId(payload?: Record<string, unknown>) {
+  const value = payload?.nexus_client_request_id
+  return typeof value === 'string' ? value : ''
+}
 
 function uniqueById<T extends { id?: string }>(items: T[]) {
   const map = new Map<string, T>()
@@ -2297,7 +2303,7 @@ function AnexosModal({ tarefa, onClose, onChanged }: { tarefa: Tarefa; onClose: 
   }
 
   async function apagar(anexo: TarefaAnexo) {
-    if (!confirm('Apagar este arquivo da tarefa?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Apagar este arquivo da tarefa?')) return
     try {
       await tarefasApi.deleteAnexo(tarefa.id, anexo.id)
       setAnexos(prev => prev.filter(a => a.id !== anexo.id))
@@ -2787,7 +2793,7 @@ function TarefaDetalheModal({ tarefa, membros, isGestor, userId, allTasks = [], 
   const isCriador = tarefa.criado_por === userId
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
-  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
@@ -4178,10 +4184,11 @@ function PainelAjudaModal({ tarefa, userId, isGestor, onClose, onChanged }: {
   )
 }
 
-function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
+function TarefaCard({ tarefa, userId, role, comandados = new Set<string>(), isGestor, actionBusy = false, helpPendingForMe = false, helpRequestedByMe = null, selectMode = false, selected = false, onToggleSelect, onOpen, onEdit, onDelete, onStart, onPegar, onResponder, onApprove, onReturn, onComplemento, onHistory, onAnexos, onReminder, onPedirAjuda, onPainelAjuda, onEmpresa }: {
   tarefa: Tarefa
   userId: string
   role?: string
+  comandados?: ReadonlySet<string>
   isGestor: boolean
   actionBusy?: boolean
   helpPendingForMe?: boolean
@@ -4208,6 +4215,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
   const sc = statusCfg(tarefa.status)
   const pc = prioridadeCfg(tarefa.prioridade)
   const Icon = sc.icon
+  const offlinePending = Boolean(tarefa.offline_pending)
   const distributedTask = taskHasDistributedChecklist(tarefa)
   const checklistForCard = visibleChecklistItems(tarefa, userId, isGestor)
   const checkTotal = checklistForCard.length
@@ -4220,7 +4228,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
   const isCriador = tarefa.criado_por === userId
   const isCriadorSemResponsavel = !tarefa.responsavel_id && isCriador
   const isTaskFinalizada = ['aprovada', 'cancelada'].includes(tarefa.status)
-  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)
   const livreAceita = isFreeTeamTask(tarefa) && !!tarefa.aceita_por
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const isPersonal = taskScope(tarefa) === 'pessoal'
@@ -4234,7 +4242,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
   // Gestor designado também é executor; a identidade do dono continua obrigatória.
   const hasChecklistForMe = taskHasChecklistForUser(tarefa, userId)
   const isAssigneeByFreeTask = tarefa.aceita_por === userId
-  const canExecuteTask = !isTaskFinalizada && (isPersonal
+  const canExecuteTask = !offlinePending && !isTaskFinalizada && (isPersonal
     ? (isResponsavel || isCriador)
     : (isResponsavel || isAssigneeByFreeTask || hasChecklistForMe))
   const canReviewTask = !isPersonal && isGestor && !canExecuteTask && !['aprovada', 'cancelada'].includes(String(tarefa.status || ''))
@@ -4259,10 +4267,11 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
         'task-report-row',
         tarefa.data_reabertura && !isTaskFinalizada ? 'task-report-row--reaberta' : '',
         listSurprise ? 'task-report-row--surpresa' : '',
+        offlinePending ? 'task-report-row--offline-pending' : '',
         selectMode && elegivelParaAprovacaoLote(tarefa) ? 'task-report-row--selectable' : '',
       ].filter(Boolean).join(' ')}
-      onClick={(e) => { if ((e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
-      title="Clique para abrir a lista"
+      onClick={(e) => { if (offlinePending || (e.target as HTMLElement).closest('button,a,input,select,textarea')) return; onOpen(tarefa) }}
+      title={offlinePending ? 'Aguardando sincronização com o servidor' : 'Clique para abrir a lista'}
     >
       {selectMode && elegivelParaAprovacaoLote(tarefa) && (
         <input
@@ -4276,9 +4285,10 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
       )}
       {/* COLUNA PRINCIPAL — título + meta */}
       <div className="task-report-main">
-        <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)}>
+        <button className="task-report-title" type="button" onClick={() => onOpen(tarefa)} disabled={offlinePending}>
           <Icon size={16} color={sc.color} />
           <span>{tarefa.titulo}</span>
+          {offlinePending && <span className="task-scope-badge" style={{ color: '#92400E', background: 'rgba(245,158,11,.14)' }}>Aguardando sincronização</span>}
           {listSurprise && <span className="task-surprise-pill">🎲 Surpresa</span>}
           {taskScope(tarefa) === 'equipe'
             ? <span className="task-scope-badge task-scope-badge--equipe">Equipe</span>
@@ -4358,7 +4368,7 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
         )}
 
         {/* Ver lista */}
-        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button">Ver lista</button>
+        <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onOpen(tarefa)} type="button" disabled={offlinePending}>Ver lista</button>
 
         {canAnswerHelp && !isPersonal && (
           <button className="btn btn-secondary btn-sm task-action-btn" onClick={() => onPainelAjuda(tarefa)} type="button">
@@ -4386,9 +4396,9 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
 
         {isPersonal ? (
           <>
-            <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button"><Edit3 size={12} /> Editar</button>
-            {canDeleteTarefa(tarefa, userId, role) && (
-              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
+            <button className="btn btn-ghost btn-sm task-action-btn" onClick={() => onEdit(tarefa)} type="button" disabled={offlinePending}><Edit3 size={12} /> Editar</button>
+            {canDeleteTarefa(tarefa, userId, role, comandados) && (
+              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button" disabled={offlinePending}><Trash2 size={13} /></button>
             )}
           </>
         ) : (
@@ -4422,8 +4432,8 @@ function TarefaCard({ tarefa, userId, role, isGestor, actionBusy = false, helpPe
                 )}
               </>
             )}
-            {canDeleteTarefa(tarefa, userId, role) && (
-              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button"><Trash2 size={13} /></button>
+            {canDeleteTarefa(tarefa, userId, role, comandados) && (
+              <button className="btn btn-ghost btn-sm task-action-icon danger" title="Apagar lista" onClick={() => onDelete(tarefa.id)} type="button" disabled={offlinePending}><Trash2 size={13} /></button>
             )}
           </>
         )}
@@ -4573,7 +4583,7 @@ function TarefaBoardCard({ tarefa, userId, isGestor, onOpen }: {
   const checkTotal = checklistForCard.length
   const checkDone = checklistForCard.filter(i => i.feito).length
   const progressPct = checkTotal > 0 ? Math.max(6, Math.round((checkDone / checkTotal) * 100)) : 0
-  const livreDisponivel = isAvailableFreeTask(tarefa)
+  const livreDisponivel = !Boolean(tarefa.offline_pending) && isAvailableFreeTask(tarefa)
   const aceitaPorOutro = isAcceptedByOtherMember(tarefa, userId)
   const responsavelLabel = livreDisponivel
     ? 'Livre para assumir'
@@ -4910,7 +4920,30 @@ export default function Tarefas() {
         // A lista principal controla o spinner. Ranking, membros e ajuda são
         // complementares e não podem manter a página inteira bloqueada.
         const ts = await tarefasApi.list()
-        setTarefas(Array.isArray(ts) ? uniqueById(ts) : [])
+        const tarefasPersistidas = Array.isArray(ts) ? uniqueById(ts) : []
+        const requestIdsPersistidos = new Set(
+          tarefasPersistidas
+            .map(task => clientRequestId(task.origem_payload))
+            .filter(Boolean),
+        )
+        const tarefasOffline = getOfflinePendingTaskCreates()
+          .filter(item => {
+            const requestId = clientRequestId(item.payload.origem_payload)
+            return !requestId || !requestIdsPersistidos.has(requestId)
+          })
+          .map(item => ({
+            ...item.payload,
+            id: `offline-${item.id}`,
+            org_id: user?.orgId || '',
+            criado_por: user?.id || '',
+            titulo: item.payload.titulo || 'Lista salva offline',
+            prioridade: item.payload.prioridade || 'media',
+            status: 'pendente',
+            created_at: item.createdAt,
+            updated_at: item.createdAt,
+            offline_pending: true,
+          } as Tarefa))
+        setTarefas(uniqueById([...tarefasOffline, ...tarefasPersistidas]))
         setErroCarregamento(false)
         setErroCarregamentoDetalhe('')
         lastLoadedAtRef.current = Date.now()
@@ -4963,8 +4996,7 @@ export default function Tarefas() {
       if (loadInFlightRef.current === job) loadInFlightRef.current = null
     })
     return job
-  }, [user?.id])
-
+    }, [user?.id, user?.orgId])
   useEffect(() => { load() }, [load])
   useEffect(() => {
     if (escopo !== 'ranking') return
@@ -5032,11 +5064,16 @@ export default function Tarefas() {
     }
     window.addEventListener('online', refresh)
     window.addEventListener('offline', refresh)
+    const reloadAfterSync = () => {
+      if (navigator.onLine) void load()
+    }
     window.addEventListener('nexus:offline-queue-changed', refresh)
+    window.addEventListener('nexus:offline-sync-complete', reloadAfterSync)
     return () => {
       window.removeEventListener('online', refresh)
       window.removeEventListener('offline', refresh)
       window.removeEventListener('nexus:offline-queue-changed', refresh)
+      window.removeEventListener('nexus:offline-sync-complete', reloadAfterSync)
     }
   }, [load])
 
@@ -5092,6 +5129,15 @@ export default function Tarefas() {
     if (escopo === 'recentes') return recentesIds.has(t.id)
     return true
   }), [tarefasVisiveis, escopo, isPersonalTask, isAssignedToMeInTeam, isTeamAssignedTask, recentesIds])
+
+  const comandados = useMemo(() => {
+    if (user?.role !== 'sub_gestor' || !user.id) return new Set<string>()
+    return new Set(
+      membros
+        .filter(membro => membro.ativo !== false && membro.criado_por === user.id)
+        .map(membro => membro.id),
+    )
+  }, [membros, user?.id, user?.role])
 
   const membroOptions = useMemo(() => {
     const map = new Map<string, { id: string; nome: string; role?: string }>()
@@ -5326,13 +5372,13 @@ export default function Tarefas() {
   }
 
   async function remove(id: string) {
-    if (!confirm('Apagar esta tarefa definitivamente?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Apagar esta tarefa definitivamente?')) return
     try {
       await tarefasApi.remove(id)
       setTarefas(prev => prev.filter(t => t.id !== id))
       toast('Tarefa apagada.')
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409 && e.body.checklist_protegido === true) {
+      if (e instanceof ApiError && e.status === 409 && e.body.checklist_protegido === true && !isSuperAdmin(user?.role)) {
         toast('Exclusão protegida: o checklist histórico desta tarefa é grande e foi preservado. Nenhum dado foi apagado.', 'error')
       } else if (e instanceof ApiError && e.status === 403) {
         toast('Você não tem permissão para excluir esta tarefa.', 'error')
@@ -5713,7 +5759,7 @@ export default function Tarefas() {
             <EmpresaTarefasCard key={entry.key} group={entry} onOpen={setEmpresaTarefasId} />
           ) : (
             <TarefaCard
-              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
+              key={entry.tarefa.id} tarefa={entry.tarefa} userId={user?.id || ''} role={user?.role} comandados={comandados} isGestor={!!isGestor} actionBusy={actionTaskId === entry.tarefa.id}
               helpPendingForMe={ajudaPendenteMinhaPorTarefa.has(entry.tarefa.id)}
               helpRequestedByMe={minhasAjudasPorTarefa.get(entry.tarefa.id) || null}
               selectMode={modoSelecao}

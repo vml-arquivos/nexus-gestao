@@ -4,6 +4,7 @@ import { query, queryOne } from '../db/pool'
 import { addSseClient, removeSseClient } from '../lib/notifHelper'
 import { deactivatePushSubscription, ensurePushSchema, getVapidPublicKey, pushConfigured, upsertPushSubscription } from '../services/pushService'
 import { respondRouteError } from '../lib/httpErrors'
+import { canListTaskForUser, comandadosDoSubGestor } from './tarefas'
 
 const router = Router()
 
@@ -183,7 +184,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, orgId, role } = req.user!
-    const gestorLike = ['admin', 'dev', 'gestor', 'sub_gestor'].includes(String(role || ''))
+    const gestorLike = ['admin', 'dev', 'gestor'].includes(String(role || ''))
+    const comandados = role === 'sub_gestor'
+      ? await comandadosDoSubGestor(orgId, userId)
+      : new Set<string>()
 
     const tarefasRows = await query<any>(
       `SELECT id, titulo, prazo, status, prioridade, responsavel_id, criado_por, aceita_por,
@@ -203,16 +207,10 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
        LIMIT 80`,
       [orgId]
     )
-    const tarefas = tarefasRows.filter(t => {
-      if (gestorLike) return true
-      if (t.responsavel_id === userId || t.criado_por === userId || t.aceita_por === userId) return true
-      // Tarefa de escopo pessoal nunca aparece para outro usuário, mesmo sem responsavel_id definido.
-      const escopo = t.escopo === 'equipe' ? 'equipe' : 'pessoal'
-      if (escopo === 'pessoal') return false
-      if (!t.responsavel_id || t.modo_distribuicao === 'livre_equipe') return true
-      const raw = Array.isArray(t.checklist) ? t.checklist : []
-      return raw.some((i: any) => i?.responsavel_id === userId)
-    }).slice(0, 30).map(t => ({
+    const tarefas = tarefasRows
+      .filter(t => canListTaskForUser(t, req.user!, comandados))
+      .slice(0, 30)
+      .map(t => ({
       id: t.id,
       tipo: 'tarefa',
       titulo: t.origem_nome ? `${t.origem_nome} — ${t.titulo}` : t.titulo,
@@ -249,9 +247,17 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
     }))
 
     const eventos = await query<any>(
-      `SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id,
+      `      SELECT e.id, e.titulo, e.data_inicio, e.origem_tipo, e.origem_id, e.criado_por,
               t.id AS tarefa_id, t.titulo AS tarefa_titulo, t.origem_nome AS empresa_nome,
-              t.status AS tarefa_status, t.checklist AS tarefa_checklist,
+              t.status AS tarefa_status, t.escopo AS tarefa_escopo,
+              t.responsavel_id AS tarefa_responsavel_id, t.criado_por AS tarefa_criado_por,
+              t.aceita_por AS tarefa_aceita_por,
+              COALESCE(t.modo_distribuicao, 'normal') AS tarefa_modo_distribuicao,
+              CASE
+                WHEN t.checklist IS NULL OR pg_column_size(t.checklist) <= 1000000
+                  THEN COALESCE(t.checklist, '[]'::jsonb)
+                ELSE '[]'::jsonb
+              END AS tarefa_checklist,
               EXTRACT(EPOCH FROM (NOW() - e.data_inicio))/3600 AS horas_atraso
        FROM agenda e
        LEFT JOIN tarefas t ON (
@@ -263,14 +269,29 @@ router.get('/atrasos-pendentes', async (req: Request, res: Response): Promise<vo
        WHERE e.org_id = $1
          AND e.data_inicio < NOW()
          AND e.data_inicio >= NOW() - INTERVAL '7 days'
-         ${gestorLike ? '' : 'AND e.criado_por = $2'}
        ORDER BY e.data_inicio ASC
        LIMIT 80`,
-      gestorLike ? [orgId] : [orgId, userId]
+      [orgId]
     )
 
     const TAREFA_FINALIZADA = new Set(['concluida', 'aprovada', 'cancelada']);
     const agenda = eventos.filter(e => {
+      if (e.tarefa_id) {
+        const tarefaVinculada = {
+          id: e.tarefa_id,
+          titulo: e.tarefa_titulo,
+          status: e.tarefa_status,
+          escopo: e.tarefa_escopo,
+          responsavel_id: e.tarefa_responsavel_id,
+          criado_por: e.tarefa_criado_por,
+          aceita_por: e.tarefa_aceita_por,
+          modo_distribuicao: e.tarefa_modo_distribuicao,
+          checklist: e.tarefa_checklist,
+        }
+        if (!canListTaskForUser(tarefaVinculada, req.user!, comandados)) return false
+      } else if (!gestorLike && e.criado_por !== userId) {
+        return false
+      }
       // Compromisso veio de uma tarefa/subtarefa mas essa tarefa foi apagada:
       // não existe mais o que cobrar, não faz sentido continuar alertando.
       if ((e.origem_tipo === 'tarefa' || e.origem_tipo === 'checklist') && !e.tarefa_id) return false

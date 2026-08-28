@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Plus, ChevronLeft, ChevronRight, Calendar, Clock, MapPin, Trash2, Edit2, X, Loader, RefreshCw } from 'lucide-react'
 import { agendaApi, type Evento } from '../lib/api'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import { useAuth } from '../lib/AuthContext'
+import { isSuperAdmin } from '../lib/roles'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -129,6 +131,7 @@ function EventoModal({ initial, onSave, onClose }: {
 
 export default function Agenda() {
   const { t } = useVisualTexts()
+  const { user } = useAuth()
   const [eventos, setEventos]       = useState<Evento[]>([])
   const [loading, setLoading]       = useState(true)
   const [syncing, setSyncing]       = useState(false)
@@ -170,7 +173,7 @@ export default function Agenda() {
   , [eventos])
 
   async function handleDelete(id: string) {
-    if (!confirm('Excluir este evento?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Excluir este evento?')) return
     try { await agendaApi.remove(id); setEventos(prev => prev.filter(e => e.id !== id)); toast('Evento removido') }
     catch (e) { toast(e instanceof Error ? e.message : 'Erro', 'error') }
   }

@@ -243,6 +243,9 @@ export interface Tarefa {
   resposta_status?: 'concluida' | 'nao_concluida'
   resposta_obs?: string
   resposta_em?: string
+  updated_at: string
+  /** Registro otimista ainda aguardando persistência no backend. */
+  offline_pending?: boolean
   resposta_membro?: string
   motivo_nao_conclusao?: string
   observacao_conclusao?: string
@@ -259,7 +262,6 @@ export interface Tarefa {
   anexos_count?: number | string
   ultima_evidencia_em?: string | null
   created_at: string
-  updated_at?: string
   origem_sistema?: string
   origem_tipo?: string
   origem_id?: string
@@ -569,8 +571,10 @@ export interface DestravaCatalogoItem {
 let refreshPromise: Promise<string | null> | null = null
 
 type OfflineQueueItem = { id: string; owner?: string; path: string; method: string; body?: string; createdAt: string }
+export type OfflineQueueFailure = OfflineQueueItem & { status: number; error: string; failedAt: string }
 const OFFLINE_QUEUE_KEY = 'nexus:offline-queue'
 const OFFLINE_QUEUE_COUNT_KEY = 'nexus:offline-queue-count'
+const OFFLINE_FAILURES_KEY = 'nexus:offline-failures'
 
 function isBrowserOnline() {
   return typeof navigator === 'undefined' ? true : navigator.onLine
@@ -601,6 +605,37 @@ function enqueueOffline(path: string, options: RequestInit = {}) {
   return true
 }
 
+function readOfflineFailures(): OfflineQueueFailure[] {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_FAILURES_KEY) || '[]') || [] } catch { return [] }
+}
+
+function writeOfflineFailure(item: OfflineQueueItem, status: number, error: string) {
+  try {
+    const failures = readOfflineFailures().filter(failure => failure.id !== item.id)
+    failures.unshift({ ...item, status, error, failedAt: new Date().toISOString() })
+    localStorage.setItem(OFFLINE_FAILURES_KEY, JSON.stringify(failures.slice(0, 100)))
+    window.dispatchEvent(new CustomEvent('nexus:offline-failures-changed', { detail: { count: failures.length } }))
+  } catch {}
+}
+
+export function getOfflineFailureCount(): number {
+  return readOfflineFailures().length
+}
+
+export function getOfflinePendingTaskCreates(): Array<{ id: string; createdAt: string; payload: Partial<Tarefa> }> {
+  const owner = tokenOwner(getAccessToken())
+  return readOfflineQueue()
+    .filter(item => (item.owner || owner) === owner && item.method === 'POST' && item.path.split('?')[0] === '/tarefas' && Boolean(item.body))
+    .map(item => {
+      try {
+        return { id: item.id, createdAt: item.createdAt, payload: JSON.parse(item.body!) as Partial<Tarefa> }
+      } catch {
+        return null
+      }
+    })
+    .filter((item): item is { id: string; createdAt: string; payload: Partial<Tarefa> } => Boolean(item))
+}
+
 function cacheGetResponse(path: string, data: unknown) {
   try {
     const owner = tokenOwner(getAccessToken())
@@ -618,11 +653,11 @@ function readCachedGet<T>(path: string): T | null {
 }
 
 export async function syncOfflineQueue(): Promise<number> {
-  if (!isBrowserOnline()) return readOfflineQueue().length
+  const owner = tokenOwner(getAccessToken())
+  if (!isBrowserOnline()) return readOfflineQueue().filter(item => (item.owner || owner) === owner).length
   let queue = readOfflineQueue()
   if (!queue.length) return 0
   const pending: OfflineQueueItem[] = []
-  const owner = tokenOwner(getAccessToken())
   for (let index = 0; index < queue.length; index++) {
     const item = queue[index]
     if ((item.owner || owner) !== owner) {
@@ -631,7 +666,15 @@ export async function syncOfflineQueue(): Promise<number> {
     }
     try {
       const res = await apiFetch(item.path, { method: item.method, body: item.body, headers: { 'x-nexus-offline-replay': '1' } })
-      if (!res.ok) pending.push(item)
+      if (!res.ok) {
+        // 4xx (exceto indisponibilidade/conflito transitório) é uma rejeição
+        // permanente da operação; não deve reaparecer como pendência infinita.
+        // Preservamos o registro em uma caixa de falhas para diagnóstico e
+        // eventual reprocessamento explícito, sem apagar dados do servidor.
+        const retryable = [408, 425, 429].includes(res.status) || res.status >= 500
+        if (retryable) pending.push(item)
+        else writeOfflineFailure(item, res.status, (await res.clone().json().catch(() => ({})))?.error || `Servidor rejeitou a operação (${res.status}).`)
+      }
     } catch {
       // Mantém também todos os itens ainda não processados. A versão anterior
       // interrompia o loop e acabava apagando silenciosamente o restante.
@@ -640,6 +683,7 @@ export async function syncOfflineQueue(): Promise<number> {
     }
   }
   writeOfflineQueue(pending)
+  window.dispatchEvent(new CustomEvent('nexus:offline-sync-complete', { detail: { synced: queue.length - pending.length, remaining: pending.filter(item => (item.owner || owner) === owner).length } }))
   return pending.filter(item => (item.owner || owner) === owner).length
 }
 

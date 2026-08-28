@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware, canDeleteOrgRecords } from '../middleware/auth'
 import { query, queryOne } from '../db/pool'
+import { buildPrivateFileUrl } from '../lib/privateFile'
 import { removeUploadByUrl } from '../lib/uploadSecurity'
 
 const router = Router()
@@ -15,7 +16,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     let sql = `
       SELECT d.*, p.nome AS pessoa_nome_atual
       FROM documentos d
-      LEFT JOIN pessoas p ON p.id = d.pessoa_id
+      LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id
       WHERE d.org_id = $1 AND d.criado_por = $2
     `
     const params: unknown[] = [orgId, userId]
@@ -28,7 +29,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     sql += ' ORDER BY d.created_at DESC'
 
     const documentos = await query(sql, params)
-    res.json({ documentos })
+    res.json({ documentos: documentos.map((documento: any) => ({
+      ...documento,
+      arquivo_url: buildPrivateFileUrl(req, documento.arquivo_url, 'documento', String(documento.id)),
+    })) })
   } catch (err) {
     console.error('[DOC] Erro ao listar:', err)
     res.status(500).json({ error: 'Erro ao buscar documentos.' })
@@ -39,15 +43,18 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const { orgId, userId } = req.user!
-    const doc = await queryOne(
+    const doc = await queryOne<any>(
       `SELECT d.*, p.nome AS pessoa_nome_atual
        FROM documentos d
-       LEFT JOIN pessoas p ON p.id = d.pessoa_id
+       LEFT JOIN pessoas p ON p.id = d.pessoa_id AND p.org_id = d.org_id
        WHERE d.id = $1 AND d.org_id = $2 AND d.criado_por = $3`,
       [req.params.id, orgId, userId]
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
-    res.json({ documento: doc })
+    res.json({ documento: {
+      ...doc,
+      arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)),
+    } })
   } catch (err) {
     console.error('[DOC] Erro ao buscar:', err)
     res.status(500).json({ error: 'Erro ao buscar documento.' })
@@ -75,12 +82,15 @@ router.patch('/:id', async (req: Request, res: Response): Promise<void> => {
     sets.push(`updated_at = NOW()`)
     params.push(req.params.id, orgId, userId)
 
-    const doc = await queryOne(
+    const doc = await queryOne<any>(
       `UPDATE documentos SET ${sets.join(', ')} WHERE id = $${idx++} AND org_id = $${idx} AND criado_por = $${idx + 1} RETURNING *`,
       params
     )
     if (!doc) { res.status(404).json({ error: 'Documento não encontrado.' }); return }
-    res.json({ documento: doc })
+    res.json({ documento: {
+      ...doc,
+      arquivo_url: buildPrivateFileUrl(req, doc.arquivo_url, 'documento', String(doc.id)),
+    } })
   } catch (err) {
     console.error('[DOC] Erro ao atualizar:', err)
     res.status(500).json({ error: 'Erro ao atualizar documento.' })

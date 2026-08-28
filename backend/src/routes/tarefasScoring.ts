@@ -6,6 +6,7 @@ import {
   resolverNotificacoesRecorrentesPorReferencia,
 } from '../lib/notifHelper'
 import { respondRouteError } from '../lib/httpErrors'
+import { sanitizeTaskForUser } from './tarefas'
 
 const router = Router()
 const SCORE_MAX = 20
@@ -344,7 +345,7 @@ router.patch('/:id/checklist/:itemId/revisao', authMiddleware, async (req: Reque
       }).catch(() => undefined)
     }
 
-    res.json({ tarefa: updated.rows[0], pontuacao_liberada: decision === 'aprovar' && isMultiExecutor({ ...task, checklist: items }) })
+    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!), pontuacao_liberada: decision === 'aprovar' && isMultiExecutor({ ...task, checklist: items }) })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined)
     console.error('[TAREFAS-SCORING] Erro na revisão por item:', err)
@@ -413,7 +414,7 @@ router.patch('/:id/checklist/:itemId/corrigir-pontuacao', authMiddleware, async 
       [orgId, task.id, userId, `Gestor corrigiu a pontuação de "${item.texto}" de ${pontosAntigos} para ${itemPoints(item)} ponto(s).`],
     ).catch(() => undefined)
     await client.query('COMMIT')
-    res.json({ tarefa: updated.rows[0] })
+    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined)
     console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação do item:', err)
@@ -461,7 +462,7 @@ router.patch('/:id/corrigir-pontuacao', authMiddleware, async (req: Request, res
       [orgId, task.id, userId, `Gestor corrigiu a pontuação da lista "${task.titulo}" de ${pontosAntigos} para ${taskPoints(updated.rows[0])} ponto(s).`],
     ).catch(() => undefined)
     await client.query('COMMIT')
-    res.json({ tarefa: updated.rows[0] })
+    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined)
     console.error('[TAREFAS-SCORING] Erro ao corrigir pontuação da lista:', err)
@@ -581,7 +582,7 @@ router.patch('/:id/aprovar', authMiddleware, async (req: Request, res: Response)
         referenciaTipo: 'tarefa',
       }).catch(() => undefined)
     }
-    res.json({ tarefa: updated.rows[0] })
+    res.json({ tarefa: sanitizeTaskForUser(updated.rows[0], req.user!) })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined)
     console.error('[TAREFAS-SCORING] Erro ao aprovar lista:', err)
@@ -596,7 +597,8 @@ router.get('/ranking', authMiddleware, async (req: Request, res: Response): Prom
     const { orgId } = req.user!
     const range = periodRange(String(req.query.periodo || 'todos').trim().toLowerCase())
     const members = await query<any>(
-      `SELECT id, nome, email, role FROM profiles
+            `SELECT id, nome
+       FROM profiles
        WHERE org_id = $1 AND ativo = TRUE AND role = 'membro'
        ORDER BY nome`,
       [orgId],
@@ -720,9 +722,9 @@ router.get('/ajuda/minhas', authMiddleware, async (req: Request, res: Response):
     const ajudas = await query(
       `SELECT ta.*, ps.nome AS solicitante_nome, pd.nome AS destinatario_nome, t.titulo AS tarefa_titulo
        FROM tarefas_ajuda ta
-       JOIN profiles ps ON ps.id = ta.solicitante_id
-       JOIN profiles pd ON pd.id = ta.destinatario_id
-       JOIN tarefas t ON t.id = ta.tarefa_id
+       JOIN profiles ps ON ps.id = ta.solicitante_id AND ps.org_id = ta.org_id
+       JOIN profiles pd ON pd.id = ta.destinatario_id AND pd.org_id = ta.org_id
+       JOIN tarefas t ON t.id = ta.tarefa_id AND t.org_id = ta.org_id
        WHERE ta.org_id = $1 AND ta.solicitante_id = $2 AND ta.status IN ('pendente','respondida')
        ORDER BY ta.updated_at DESC NULLS LAST, ta.respondida_em DESC NULLS LAST, ta.created_at DESC
        LIMIT 50`,

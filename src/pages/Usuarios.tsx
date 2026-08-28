@@ -6,6 +6,7 @@ import {
 import { usersApi, type UserProfile } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
 import { useVisualTexts } from '../hooks/useVisualTexts'
+import { isSuperAdmin } from '../lib/roles'
 
 function toast(msg: string, type: 'success' | 'error' = 'success') {
   const el = document.createElement('div')
@@ -292,7 +293,7 @@ export default function Usuarios() {
   async function apagar(u: UserProfile) {
     if (!canDeleteUsers) { toast('Apenas admin, dev ou gestor podem apagar usuários.', 'error'); return }
     if (u.id === eu?.id) { toast('Você não pode apagar seu próprio usuário.', 'error'); return }
-    const ok = window.confirm(`Apagar definitivamente o usuário ${u.nome}?\n\nA ação não pode ser desfeita.`)
+    const ok = isSuperAdmin(eu?.role) || window.confirm(`Apagar definitivamente o usuário ${u.nome}?\n\nA ação não pode ser desfeita.`)
     if (!ok) return
     try {
       await usersApi.remove(u.id)

@@ -9,7 +9,7 @@ import { DateFieldBR } from '../components/DateFieldBR'
 import { useAuth } from '../lib/AuthContext'
 import { localTodayIso, nanoid } from '../lib/utils'
 import { useSpeechToText } from '../hooks/useSpeechToText'
-import { isGestorLike, isGestorOwner } from '../lib/roles'
+import { isGestorLike, isGestorOwner, isSuperAdmin } from '../lib/roles'
 import { useVisualTexts } from '../hooks/useVisualTexts'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -689,7 +689,7 @@ export default function Equipe() {
   useEffect(() => { carregar() }, [carregar])
 
   async function handleRemover(m: MembroEquipe) {
-    if (!confirm(`Remover ${m.nome} da equipe?`)) return
+    if (!isSuperAdmin(user?.role) && !confirm(`Remover ${m.nome} da equipe?`)) return
     try {
       await usersApi.remove(m.id)
       toast(`${m.nome} removido.`)

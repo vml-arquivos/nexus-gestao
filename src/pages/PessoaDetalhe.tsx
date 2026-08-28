@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../lib/AuthContext'
 import { DateFieldBR } from '../components/DateFieldBR'
 import { localTodayIso, nanoid } from '../lib/utils'
+import { isSuperAdmin } from '../lib/roles'
 
 // ── tipos internos ────────────────────────────────────────────────────────────
 type Tab = 'resumo' | 'pagar' | 'receber' | 'tarefas' | 'documentos' | 'historico'
@@ -701,7 +702,7 @@ export default function PessoaDetalhe() {
 
   // ── excluir ──
   async function excluirPagamentos(ids: string[]) {
-    if (!confirm(`Excluir ${ids.length > 1 ? ids.length + ' lançamentos' : 'este lançamento'}?`)) return
+    if (!isSuperAdmin(user?.role) && !confirm(`Excluir ${ids.length > 1 ? ids.length + ' lançamentos' : 'este lançamento'}?`)) return
     try {
       await Promise.all(ids.map(pid => pagamentosApi.remove(pid)))
       toast('Excluído!')
@@ -711,7 +712,7 @@ export default function PessoaDetalhe() {
   }
 
   async function excluirDoc(docId: string) {
-    if (!confirm('Excluir este documento?')) return
+    if (!isSuperAdmin(user?.role) && !confirm('Excluir este documento?')) return
     try {
       await documentosApi.remove(docId)
       toast('Documento removido!')

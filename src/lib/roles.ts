@@ -1,7 +1,11 @@
 export type Role = 'admin' | 'dev' | 'gestor' | 'sub_gestor' | 'membro' | string | undefined | null
 
+export function isSuperAdmin(role: Role): boolean {
+  return role === 'dev'
+}
+
 export function isAdminOrDev(role: Role): boolean {
-  return role === 'admin' || role === 'dev'
+  return role === 'admin' || isSuperAdmin(role)
 }
 
 export function isGestorLike(role: Role): boolean {

@@ -816,7 +816,13 @@ router.patch('/destrava/tarefas/:id/checklist', requireWebhookSignature, async (
       `Executado no Destrava por ${executado_por_nome || executado_por_email || 'usuário'}.`
     )
 
-    res.json({ tarefa: updated.rows[0] })
+    const tarefaAtualizada = updated.rows[0]
+    res.json({ tarefa: {
+      id: tarefaAtualizada.id,
+      checklist: tarefaAtualizada.checklist,
+      status: tarefaAtualizada.status,
+      updated_at: tarefaAtualizada.updated_at,
+    } })
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {})
     console.error('[INTEGRACOES] Erro ao atualizar checklist a partir do Destrava:', err)
